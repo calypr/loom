@@ -109,11 +109,12 @@ func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.
 }
 
 func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	resolver := &rowProposalExplicitGroupResolver{}
-	service.config.ExplicitGroupResolver = resolver
+	setup.Config.ExplicitGroupResolver = resolver
 	previews := 0
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previews++
 		if receipt == nil || !bindings.IncludeRowIdentity {
 			t.Fatal("explicit-group preview did not execute a receipt with stable row identities")
@@ -139,6 +140,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -171,11 +173,13 @@ func containsRowDefinitionExample(examples []rowdef.RowDefinitionComparisonExamp
 }
 
 func TestListRowDefinitionChoicesReturnsServerExplicitGroupRevisions(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	resolver := &rowProposalExplicitGroupResolver{}
-	service.config.RowChoicePlanner = rowProposalChoicePlanner{}
-	service.config.ExplicitGroupResolver = resolver
+	setup.Config.RowChoicePlanner = rowProposalChoicePlanner{}
+	setup.Config.ExplicitGroupResolver = resolver
 
+	service := newTestServiceFromSetup(t, setup)
 	response, err := service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
 		SnapshotToken: snapshot.Token, OutputID: "patients",
@@ -198,12 +202,14 @@ func TestListRowDefinitionChoicesReturnsServerExplicitGroupRevisions(t *testing.
 }
 
 func TestListRowDefinitionChoicesReturnsExplicitGroupsForAuthoredConstruction(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 	addRowProposalSourceFilter(t, store, workspace)
 	resolver := &rowProposalExplicitGroupResolver{}
-	service.config.RowChoicePlanner = rowProposalChoicePlanner{}
-	service.config.ExplicitGroupResolver = resolver
+	setup.Config.RowChoicePlanner = rowProposalChoicePlanner{}
+	setup.Config.ExplicitGroupResolver = resolver
 
+	service := newTestServiceFromSetup(t, setup)
 	response, err := service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
 		SnapshotToken: snapshot.Token, OutputID: "patients",
@@ -220,12 +226,13 @@ func TestListRowDefinitionChoicesReturnsExplicitGroupsForAuthoredConstruction(t 
 }
 
 func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 	addRowProposalSourceFilter(t, store, workspace)
 	resolver := &rowProposalExplicitGroupResolver{}
-	service.config.ExplicitGroupResolver = resolver
+	setup.Config.ExplicitGroupResolver = resolver
 	previews := 0
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previews++
 		if receipt == nil || !bindings.IncludeRowIdentity {
 			t.Fatal("explicit-group preview did not execute a receipt with stable row identities")
@@ -248,6 +255,7 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -270,10 +278,11 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 }
 
 func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 	addRowProposalSourceFilter(t, store, workspace)
 	resolver := &rowProposalExplicitGroupResolver{}
-	service.config.ExplicitGroupResolver = resolver
+	setup.Config.ExplicitGroupResolver = resolver
 	document := proposalDocument(workspace, "patients")
 	if document == nil || len(document.Columns) == 0 {
 		t.Fatal("row proposal fixture has no source columns")
@@ -289,7 +298,8 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude,
 	}}
-	rows, _, err := service.syncRowDefService().ResolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
+	service := newTestServiceFromSetup(t, setup)
+	rows, _, err := service.rowDefService.ResolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,8 +367,9 @@ func TestProposeFieldGroupRejectsUnsupportedSelection(t *testing.T) {
 }
 
 func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
-	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{proof: explicitgroup.ExplicitGroupRevisionProof{
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{proof: explicitgroup.ExplicitGroupRevisionProof{
 		RevisionID: "group-revision-1", Project: "project-a", SourceGeneration: "generation-stale",
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RootResourceType: "Patient",
 		SelectionRevisionID: "selection-1", SelectionMembershipDigest: "sha256:selection-members",
@@ -368,6 +379,7 @@ func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
+	service := newTestServiceFromSetup(t, setup)
 	if _, err := service.ProposeRowDefinition(context.Background(), request); err == nil {
 		t.Fatal("accepted explicit group revision from a stale source generation")
 	}
@@ -377,16 +389,18 @@ func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
 }
 
 func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	enableRowDefinitionPreview(setup.Config)
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
 	compileBindings := make([]*receiptmodel.RowDefinitionProposalBinding, 0, 2)
-	compile := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	compile := setup.Config.CompileReceipt
+	setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileBindings = append(compileBindings, cloneRowDefinitionProposalBinding(request.RowDefinitionProposal))
 		return compile(ctx, request)
 	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)
@@ -412,27 +426,29 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 func TestProposeRowDefinitionRequiresPreviewConfiguration(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		configure func(*Service)
+		configure func(*Config)
 	}{
 		{name: "preview executor is absent"},
-		{name: "execution authorization is absent", configure: func(service *Service) {
-			enableRowDefinitionPreview(service)
-			service.config.Capability.ForExecution = nil
+		{name: "execution authorization is absent", configure: func(config *Config) {
+			enableRowDefinitionPreview(config)
+			config.Capability.ForExecution = nil
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			service, store, snapshot, _ := rowProposalService(t)
+			setup := rowProposalSetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			if test.configure != nil {
-				test.configure(service)
+				test.configure(setup.Config)
 			}
 			compileCalls := 0
-			compile := service.config.CompileReceipt
-			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			compile := setup.Config.CompileReceipt
+			setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				compileCalls++
 				return compile(ctx, request)
 			}
 			before := append([]byte(nil), store.created.DraftConfig...)
 			version, digest := store.created.DraftVersion, store.created.DraftDigest
+			service := newTestServiceFromSetup(t, setup)
 			_, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 			if lifecycleErrorCode(err) != "PREVIEW_UNAVAILABLE" {
 				t.Fatalf("missing preview configuration error = %v, want PREVIEW_UNAVAILABLE", err)
@@ -445,12 +461,14 @@ func TestProposeRowDefinitionRequiresPreviewConfiguration(t *testing.T) {
 }
 
 func TestCompareRowDefinitionReceiptsRejectsMissingOutputContract(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	enableRowDefinitionPreview(setup.Config)
 	request := rowProposalRequest(store.created, snapshot)
 	request.OutputID = "missing-output"
 	base, candidate := nativeReceipt(snapshot), nativeReceipt(snapshot)
-	_, err := service.syncRowDefService().CompareRowDefinitionReceipts(context.Background(), request, snapshot, base, candidate, 25)
+	service := newTestServiceFromSetup(t, setup)
+	_, err := service.rowDefService.CompareRowDefinitionReceipts(context.Background(), request, snapshot, base, candidate, 25)
 	var lifecycleErr *ports.Error
 	if lifecycleErrorCode(err) != "PREVIEW_OUTPUT_INVALID" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || lifecycleErr.Cause == nil {
 		t.Fatalf("missing output contract error = %v, want caused internal receipt failure", err)
@@ -473,9 +491,10 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			service, store, snapshot, _ := rowProposalService(t)
+			setup := rowProposalSetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			executorFailure := errors.New("preview backend failed")
-			service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 				workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 				if err != nil {
 					return dataframeexecution.PreviewSummary{}, err
@@ -509,6 +528,7 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 			}
 			before := append([]byte(nil), store.created.DraftConfig...)
 			version, digest := store.created.DraftVersion, store.created.DraftDigest
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 			if lifecycleErrorCode(err) != test.wantCode {
 				t.Fatalf("preview failure error = %v, want %s", err, test.wantCode)
@@ -537,11 +557,12 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 }
 
 func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	driverDiagnostic := errors.New("AQL: CONSTRUCTION_EXPANSION_EMPTY: construction expand_tags has no items for row patient-1")
 	emptyCollection := dataframeerrors.Wrap(driverDiagnostic, dataframeerrors.CodeConstructionExpansionEmpty, "")
 	backendWrapped := dataframeerrors.Wrap(emptyCollection, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -563,6 +584,7 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 	}
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection.Expanded.EmptyCollectionPolicy = ws.EmptyCollectionError
+	service := newTestServiceFromSetup(t, setup)
 	_, err := service.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	if lifecycleErrorCode(err) != "EMPTY_COLLECTION_ERROR" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || !errors.Is(err, emptyCollection) || !errors.Is(err, driverDiagnostic) {
@@ -577,9 +599,10 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 }
 
 func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	backendFailure := dataframeerrors.Wrap(errors.New("query transport reset"), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -600,6 +623,7 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 	request.Selection.Expanded.EmptyCollectionPolicy = ws.EmptyCollectionError
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	if proposal.ProposalID != "" || lifecycleErrorCode(err) != "CANDIDATE_PREVIEW_FAILED" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || !errors.Is(err, backendFailure) {
@@ -611,9 +635,10 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 }
 
 func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	featureFailure := dataframeerrors.NewError(dataframeerrors.CodeConstructionRowValueMultipleValues, "")
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -632,6 +657,7 @@ func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *test
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	var lifecycleErr *ports.Error
 	if proposal.ProposalID != "" || lifecycleErrorCode(err) != string(dataframeerrors.CodeConstructionRowValueMultipleValues) || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Message != dataframeerrors.PublicMessage(featureFailure) || !errors.Is(err, featureFailure) {
@@ -643,12 +669,13 @@ func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *test
 }
 
 func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
-	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{}
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{}
 	driverDiagnostic := errors.New("AQL: EXPLICIT_GROUP_UNASSIGNED_MEMBER (while executing)")
 	unassigned := dataframeerrors.Wrap(driverDiagnostic, dataframeerrors.CodeExplicitGroupUnassignedMember, "")
 	backendWrapped := dataframeerrors.Wrap(unassigned, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -672,6 +699,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 	}}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	service := newTestServiceFromSetup(t, setup)
 	_, err := service.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	wantMessage := "Some records do not belong to a group. Choose \"Leave out records without a group\" or \"Put records without a group in their own group\", or assign them to a group."
@@ -684,13 +712,15 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 }
 
 func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
+	enableRowDefinitionPreview(setup.Config)
 	workspace.SemanticsVersion = ws.CurrentSemanticsVersion - 2
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
+	service := newTestServiceFromSetup(t, setup)
 	migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
 	draft = migration.CanonicalJSON
 	decoded, err := ws.DecodeWorkspace(draft)
@@ -725,8 +755,9 @@ func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
 }
 
 func TestApplyRowDefinitionProposalAllowsCanonicalSourceMetadata(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
+	enableRowDefinitionPreview(setup.Config)
 	workspace.Documents[0].Columns[0].Source.Field.ProjectionMode = ""
 	draft, err := json.Marshal(workspace)
 	if err != nil {
@@ -739,6 +770,7 @@ func TestApplyRowDefinitionProposalAllowsCanonicalSourceMetadata(t *testing.T) {
 	store.created.DraftConfig = draft
 	store.created.DraftDigest = digest
 
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatalf("row-definition proposal rejected canonical source metadata: %v", err)
@@ -757,8 +789,10 @@ func TestApplyRowDefinitionProposalAllowsCanonicalSourceMetadata(t *testing.T) {
 }
 
 func TestApplyRowDefinitionProposalSavesOnceAndReplaysIdempotently(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
+	enableRowDefinitionPreview(setup.Config)
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)
@@ -822,8 +856,10 @@ func TestApplyRowDefinitionProposalRejectsTamperingAndNewCASReplay(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			service, store, snapshot, workspace := rowProposalService(t)
-			enableRowDefinitionPreview(service)
+			setup := rowProposalSetup(t)
+			store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
+			enableRowDefinitionPreview(setup.Config)
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 			if err != nil {
 				t.Fatal(err)
@@ -850,8 +886,10 @@ func TestApplyRowDefinitionProposalRejectsTamperingAndNewCASReplay(t *testing.T)
 }
 
 func TestApplyRowDefinitionProposalLeavesDraftUntouchedOnCASConflict(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	enableRowDefinitionPreview(setup.Config)
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)
@@ -868,8 +906,8 @@ func TestApplyRowDefinitionProposalLeavesDraftUntouchedOnCASConflict(t *testing.
 	}
 }
 
-func enableRowDefinitionPreview(service *Service) {
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+func enableRowDefinitionPreview(config *Config) {
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || !bindings.IncludeRowIdentity {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview requires a receipt and stable row identities")
 		}
@@ -892,7 +930,13 @@ func enableRowDefinitionPreview(service *Service) {
 	}
 }
 
-func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot, ws.Workspace) {
+func rowProposalService(t *testing.T, options ...testServiceOption) (*Service, *fakeStore, capability.Snapshot, ws.Workspace) {
+	t.Helper()
+	setup := rowProposalSetup(t)
+	return newTestServiceFromSetup(t, setup, options...), setup.Store, setup.Snapshot, setup.Workspace
+}
+
+func rowProposalSetup(t *testing.T) testServiceSetup {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "snapshot-row-proposal", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	workspace := lifecycleCandidatePreviewWorkspace()
@@ -942,7 +986,7 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 		store.receipt = receipt
 		return receipt, nil
 	}
-	return newTestService(t, store, config), store, snapshot, workspace
+	return testServiceSetup{Config: &config, Store: store, Snapshot: snapshot, Workspace: workspace}
 }
 
 func rowProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot) rowdef.RowDefinitionProposalRequest {
@@ -972,9 +1016,10 @@ func mustCanonical(t *testing.T, workspace ws.Workspace) []byte {
 	return encoded
 }
 
-func columnPolicyService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
+func columnPolicySetup(t *testing.T) testServiceSetup {
 	t.Helper()
-	service, store, snapshot, workspace := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 	workspace.Documents[0].Columns[0].LogicalType = "string"
 	other := workspace.Documents[0].Columns[0]
 	other.ColumnID = "other-column"
@@ -982,13 +1027,13 @@ func columnPolicyService(t *testing.T) (*Service, *fakeStore, capability.Snapsho
 	other.Label = "Other ID"
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, other)
 	addRowProposalSourceFilter(t, store, workspace)
-	service.config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+	setup.Config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		catalog := lifecycleInterpretationCatalog(snapshot, explorerID)
 		catalog.Candidates[0].ProjectionModes = []string{"VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT"}
 		return catalog
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		prepared, err := ws.PrepareWorkspaceForCompilation(request.Workspace, service.config.Capability.Catalog(snapshot, request.ExplorerID))
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+		prepared, err := ws.PrepareWorkspaceForCompilation(request.Workspace, setup.Config.Capability.Catalog(snapshot, request.ExplorerID))
 		if err != nil {
 			return nil, err
 		}
@@ -1013,8 +1058,8 @@ func columnPolicyService(t *testing.T) (*Service, *fakeStore, capability.Snapsho
 		store.receipt = receipt
 		return receipt, nil
 	}
-	enableRowDefinitionPreview(service)
-	return service, store, snapshot
+	enableRowDefinitionPreview(setup.Config)
+	return setup
 }
 
 func columnPolicyRequest(store *fakeStore, snapshot capability.Snapshot) proposal.ColumnPolicyProposalRequest {
@@ -1026,12 +1071,14 @@ func columnPolicyApply(store *fakeStore, snapshot capability.Snapshot, id, comma
 }
 
 func TestColumnPolicyProposalPreviewCancelApplyReloadAndStale(t *testing.T) {
-	service, store, snapshot := columnPolicyService(t)
+	setup := columnPolicySetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	before := append([]byte(nil), store.created.DraftConfig...)
 	old, err := ws.DecodeWorkspace(before)
 	if err != nil {
 		t.Fatal(err)
 	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeColumnPolicy(context.Background(), columnPolicyRequest(store, snapshot))
 	if err != nil {
 		t.Fatal(err)
@@ -1087,18 +1134,19 @@ func TestColumnPolicyProposalPreviewCancelApplyReloadAndStale(t *testing.T) {
 func TestColumnPolicyProposalRejectsCompilePreviewAndCatalogFailuresWithoutSaving(t *testing.T) {
 	for _, failure := range []string{"compile", "preview", "catalog", "wrong-column", "non-field", "imported"} {
 		t.Run(failure, func(t *testing.T) {
-			service, store, snapshot := columnPolicyService(t)
+			setup := columnPolicySetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			request := columnPolicyRequest(store, snapshot)
 			switch failure {
 			case "compile":
-				service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+				setup.Config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 					return nil, errors.New("downstream schema is incompatible")
 				}
 			case "preview":
-				service.config.PreviewReceipt = nil
+				setup.Config.PreviewReceipt = nil
 			case "catalog":
-				original := service.config.Capability.Catalog
-				service.config.Capability.Catalog = func(s capability.Snapshot, id string) ws.CatalogSnapshot {
+				original := setup.Config.Capability.Catalog
+				setup.Config.Capability.Catalog = func(s capability.Snapshot, id string) ws.CatalogSnapshot {
 					c := original(s, id)
 					c.Candidates[0].ProjectionModes = []string{"VALUE"}
 					return c
@@ -1122,6 +1170,7 @@ func TestColumnPolicyProposalRejectsCompilePreviewAndCatalogFailuresWithoutSavin
 				request.ExpectedDraftDigest = store.created.DraftDigest
 			}
 			before := append([]byte(nil), store.created.DraftConfig...)
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeColumnPolicy(context.Background(), request)
 			if err == nil || proposal.ProposalID != "" {
 				t.Fatal("invalid candidate was made applicable")
@@ -1143,7 +1192,17 @@ func TestColumnPolicyProposalRejectsCompilePreviewAndCatalogFailuresWithoutSavin
 func TestColumnPolicyApplyRejectsRuntimeFailureAndReceiptTampering(t *testing.T) {
 	for _, failure := range []string{"runtime", "binding", "ordinary-receipt", "unrelated-candidate"} {
 		t.Run(failure, func(t *testing.T) {
-			service, store, snapshot := columnPolicyService(t)
+			setup := columnPolicySetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
+			preview := setup.Config.PreviewReceipt
+			runtimeFailure := false
+			setup.Config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+				if runtimeFailure {
+					return dataframeexecution.PreviewSummary{}, errors.New("preview runtime is unavailable")
+				}
+				return preview(ctx, receipt, bindings, visit)
+			}
+			service := newTestServiceFromSetup(t, setup)
 			_, err := service.ProposeColumnPolicy(context.Background(), columnPolicyRequest(store, snapshot))
 			if err != nil {
 				t.Fatal(err)
@@ -1151,7 +1210,7 @@ func TestColumnPolicyApplyRejectsRuntimeFailureAndReceiptTampering(t *testing.T)
 			receipt := store.receipt
 			switch failure {
 			case "runtime":
-				service.config.PreviewReceipt = nil
+				runtimeFailure = true
 			case "binding":
 				receipt.ColumnPolicyProposal.ColumnID = "other-column"
 			case "ordinary-receipt":

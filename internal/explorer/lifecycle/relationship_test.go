@@ -71,7 +71,11 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		d.ImportedSource = &plan
 		return d, nil
 	}
+	networkFailure := false
 	config.AuthoringNetwork = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (authoringnetwork.AuthoringNetwork, error) {
+		if networkFailure {
+			return authoringnetwork.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
+		}
 		network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
 		network.Occurrences = append(network.Occurrences, authoringnetwork.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Enabled: true, PreservesRowIdentity: true})
 		return network, nil
@@ -105,6 +109,28 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 			}
 		}
 		return dataframeexecution.PreviewSummary{RowCount: 3, Complete: true}, nil
+	}
+	removingSourceStep := true
+	config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
+		if removingSourceStep && (change == nil || change.StepID != "fields" || !change.Remove) {
+			t.Fatal("source removal intent was lost")
+		}
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{},
+			recipeimport.PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{*change}}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
+		}
+		return document, err
+	}
+	config.CreateImportedSourceRule = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, rule ws.SourceRuleCreate) (ws.Document, error) {
+		if rule.Kind != "DYNAMIC_COLUMN" || rule.Parameters.Dynamic.Name != "identifiers" {
+			t.Fatalf("unexpected source rule intent: %#v", rule)
+		}
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{}, recipeimport.PlanEdit{RuleCreate: &rule}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
+		}
+		return document, err
 	}
 	service := newTestService(t, store, config)
 	request := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", Change: authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: "base", EdgeID: "authorized-edge", MatchMode: ws.RouteMatchOptional}}
@@ -162,17 +188,14 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("Preview or Cancel mutated saved source")
 	}
 
-	projectNetwork := service.config.AuthoringNetwork
-	service.config.AuthoringNetwork = func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error) {
-		return authoringnetwork.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
-	}
+	networkFailure = true
 	if failed, err := service.ProposeSourceRelationship(ctx, request); err == nil || failed.ProposalID != "" {
 		t.Fatal("failed candidate network produced a ready proposal")
 	}
 	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
 		t.Fatal("failed candidate projection changed saved source")
 	}
-	service.config.AuthoringNetwork = projectNetwork
+	networkFailure = false
 
 	candidateReceipt := store.receipt
 	compileFailure = true
@@ -247,17 +270,6 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("stale Apply changed saved source")
 	}
 
-	service.config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
-		if change == nil || change.StepID != "fields" || !change.Remove {
-			t.Fatal("source removal intent was lost")
-		}
-		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{},
-			recipeimport.PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{*change}}, recipeimport.PlanEditInput{})
-		if err == nil {
-			document.ImportedSource = &plan
-		}
-		return document, err
-	}
 	stepRequest := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
 	compileFailure = true
 	if _, err := service.ProposeSourceRelationship(ctx, stepRequest); err == nil {
@@ -286,16 +298,6 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"},
 		Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"},
 	}}
-	service.config.CreateImportedSourceRule = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, rule ws.SourceRuleCreate) (ws.Document, error) {
-		if rule.Kind != "DYNAMIC_COLUMN" || rule.Parameters.Dynamic.Name != "identifiers" {
-			t.Fatalf("unexpected source rule intent: %#v", rule)
-		}
-		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{}, recipeimport.PlanEdit{RuleCreate: &rule}, recipeimport.PlanEditInput{})
-		if err == nil {
-			document.ImportedSource = &plan
-		}
-		return document, err
-	}
 	ruleRequest := stepRequest
 	ruleRequest.ExpectedDraftVersion, ruleRequest.ExpectedDraftDigest = removed.DraftVersion, removed.DraftDigest
 	ruleRequest.SourceStep = nil
@@ -326,15 +328,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("Apply did not save the created rule")
 	}
 
-	service.config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
-		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{}, recipeimport.PlanEdit{
-			StepChanges: []authoringv2.ImportedSourceStepChange{*change},
-		}, recipeimport.PlanEditInput{})
-		if err == nil {
-			document.ImportedSource = &plan
-		}
-		return document, err
-	}
+	removingSourceStep = false
 	editedParams := *parameters
 	editedDynamic := *parameters.Dynamic
 	prefix := "external"

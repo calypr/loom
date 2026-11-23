@@ -18,9 +18,10 @@ import (
 func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) {
 	for _, semanticChange := range []bool{false, true} {
 		t.Run(map[bool]string{false: "label only", true: "category changed"}[semanticChange], func(t *testing.T) {
-			service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
+			setup, _, _ := constructionProposalPivotSetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			scans := 0
-			service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			setup.Config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 				scans++
 				if !scan.RequireValue {
 					t.Fatal("category proof must remain value-bearing")
@@ -44,6 +45,7 @@ func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) 
 				request.CandidateConstruction.Steps[0].Operation.Pivot.Categories[0].Key = lifecycleTestStringScalar("new-unobserved-category")
 			}
 			before := append([]byte(nil), store.created.DraftConfig...)
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeConstruction(context.Background(), request)
 			if semanticChange {
 				if lifecycleErrorCode(err) != "PIVOT_CATEGORY_HAS_NO_VALUES" || proposal.ProposalID != "" {

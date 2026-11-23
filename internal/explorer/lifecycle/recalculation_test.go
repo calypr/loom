@@ -21,49 +21,59 @@ import (
 )
 
 func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	var snapshotState *capability.Snapshot
+	compileCount := 0
+	setup := constructionProposalSetup(t, func(setup *testServiceSetup) {
+		snapshotState = &setup.Snapshot
+		setup.Config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) {
+			return *snapshotState, nil
+		}
+		setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: *snapshotState, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		}
+		setup.Config.Capability.ForExecution = setup.Config.Capability.ForCompilation
+		setup.Config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+			catalog := lifecycleInterpretationCatalog(*snapshotState, explorerID)
+			for _, candidate := range snapshotState.Candidates {
+				if candidate.ID == "candidate-birth-count" {
+					choice, err := capability.NewFieldConstructionChoice(got.Token, candidate)
+					if err != nil {
+						t.Fatalf("make source choice for %s: %v", candidate.ID, err)
+					}
+					catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
+						ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
+						LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+						ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
+					})
+				}
+			}
+			return catalog
+		}
+		setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			compileCount++
+			receipt, err := compileTraceReceipt(ctx, request, *snapshotState, setup.Config.Capability.Catalog(*snapshotState, request.ExplorerID))
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
+		}
+		setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if receipt == nil || receipt.ConstructionProposal == nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not receive the proposal's exact compiled receipt")
+			}
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: emittedPublicColumns(receipt), Complete: true}, nil
+		}
+	})
+	store, snapshot := setup.Store, setup.Snapshot
 	snapshot.Nodes = []capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, Populated: true}}
 	idCandidate := traceFieldCandidate(snapshot.Token, "candidate-id", "id", "string")
 	numericCandidate := traceFieldCandidate(snapshot.Token, "candidate-birth-count", "multipleBirthInteger", "integer")
 	snapshot.Candidates = []capability.Candidate{idCandidate, numericCandidate}
-	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
-		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
-	}
-	service.config.Capability.ForExecution = service.config.Capability.ForCompilation
-	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
-		catalog := lifecycleInterpretationCatalog(got, explorerID)
-		for _, candidate := range []capability.Candidate{numericCandidate} {
-			choice, err := capability.NewFieldConstructionChoice(got.Token, candidate)
-			if err != nil {
-				t.Fatalf("make source choice for %s: %v", candidate.ID, err)
-			}
-			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
-				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
-				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
-				ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
-			})
-		}
-		return catalog
-	}
+	*snapshotState = snapshot
+	service := newTestServiceFromSetup(t, setup)
 
 	workspace, baseDocument, baseConstruction := traceGroupMeanWorkspace(t, store)
-	compileCount := 0
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		compileCount++
-		receipt, err := compileTraceReceipt(ctx, request, snapshot, service.catalog(snapshot, request.ExplorerID))
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		if receipt == nil || receipt.ConstructionProposal == nil {
-			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not receive the proposal's exact compiled receipt")
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", Columns: emittedPublicColumns(receipt), Complete: true}, nil
-	}
 
 	candidate := cloneLifecycleTestConstruction(t, baseConstruction)
 	candidate.Steps[0].Operation.Group.Aggregates[0] = ws.ConstructionGroupAggregate{

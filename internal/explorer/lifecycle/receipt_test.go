@@ -15,7 +15,27 @@ import (
 )
 
 func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	var previewCalls int
+	setup := constructionProposalSetup(t, func(setup *testServiceSetup) {
+		catalog := setup.Config.Capability.Catalog(setup.Snapshot, setup.Store.created.ExplorerID)
+		compileReceipt := setup.Config.CompileReceipt
+		setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			prepared, prepareErr := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			request.Workspace = prepared
+			return compileReceipt(ctx, request)
+		}
+		setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			previewCalls++
+			if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
+		}
+	})
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -29,21 +49,12 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
+	migration := migrateStoredWorkspaceFixture(t, draft, setup.Config.Capability.Catalog(snapshot, store.created.ExplorerID))
 	workspace, draft, digest = migration.Workspace, migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	store.created.DraftConfig, store.created.DraftDigest = draft, digest
 	originalConfig, version := append([]byte(nil), draft...), store.created.DraftVersion
 
-	compileReceipt := service.config.CompileReceipt
-	catalog := service.catalog(snapshot, store.created.ExplorerID)
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		prepared, prepareErr := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
-		if prepareErr != nil {
-			return nil, prepareErr
-		}
-		request.Workspace = prepared
-		return compileReceipt(ctx, request)
-	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatalf("propose construction from saved v9 workspace: %v", err)
@@ -55,14 +66,6 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 		t.Fatal("proposal read changed persisted v9 owner draft")
 	}
 
-	previewCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		previewCalls++
-		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
-			return dataframeexecution.PreviewSummary{}, err
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
-	}
 	apply := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-v9-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,

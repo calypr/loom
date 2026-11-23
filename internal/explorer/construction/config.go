@@ -152,14 +152,6 @@ func NewService(config Config) (*Service, error) {
 	}, nil
 }
 
-func (s *Service) SetConfig(config Config) {
-	s.config = config
-	s.store = config.Store
-	if config.Now != nil {
-		s.now = config.Now
-	}
-}
-
 func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 	if s.config.Capability.Catalog == nil {
 		return ws.CatalogSnapshot{}

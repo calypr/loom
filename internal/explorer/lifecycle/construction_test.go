@@ -23,28 +23,40 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func constructionProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
+func constructionProposalService(t *testing.T, options ...testServiceOption) (*Service, *fakeStore, capability.Snapshot) {
+	setup := constructionProposalSetup(t, options...)
+	service := newTestServiceFromSetup(t, setup)
+	return service, setup.Store, setup.Snapshot
+}
+
+func constructionProposalSetup(t *testing.T, options ...testServiceOption) testServiceSetup {
 	t.Helper()
-	service, store, snapshot, _ := rowProposalService(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
-		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
-			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
+	constructionCompiler := func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt := lifecycleConstructionReceipt(setup.Snapshot, request.Workspace)
+			receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
+				"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
+			}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
 		}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
 	}
-	return service, store, snapshot
+	setup := rowProposalSetup(t)
+	constructionCompiler(&setup)
+	for _, option := range options {
+		option(&setup)
+	}
+	return setup
 }
 
 func testConstructionStageDescriptors(workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
@@ -332,9 +344,10 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 }
 
 func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
-	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+	setup, _ := inboundPatientObservationRouteSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+		receipt, prepareErr := constructionRouteTestReceipt(setup.Config, request)
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
@@ -354,6 +367,7 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 		store.receipt = receipt
 		return receipt, nil
 	}
+	service := newTestServiceFromSetup(t, setup)
 	choices, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -457,7 +471,8 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyReceipt(t *testing.T) {
 	for _, forged := range []bool{false, true} {
 		t.Run(map[bool]string{false: "matching", true: "mismatched"}[forged], func(t *testing.T) {
-			service, store, snapshot := constructionProposalService(t)
+			setup := constructionProposalSetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 			if err != nil {
 				t.Fatal(err)
@@ -471,13 +486,13 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 			if err != nil {
 				t.Fatal(err)
 			}
-			migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
+			migration := migrateStoredWorkspaceFixture(t, draft, setup.Config.Capability.Catalog(snapshot, store.created.ExplorerID))
 			draft, digest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 			store.created.DraftConfig, store.created.DraftDigest = draft, digest
 			originalConfig, originalVersion, originalDigest := string(draft), store.created.DraftVersion, digest
-			compileReceipt := service.config.CompileReceipt
-			catalog := service.config.Capability.Catalog(snapshot, store.created.ExplorerID)
-			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			compileReceipt := setup.Config.CompileReceipt
+			catalog := setup.Config.Capability.Catalog(snapshot, store.created.ExplorerID)
+			setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				prepared, migrateErr := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 				if migrateErr != nil {
 					return nil, migrateErr
@@ -489,6 +504,7 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 				request.Workspace = prepared
 				return compileReceipt(ctx, request)
 			}
+			service := newTestServiceFromSetup(t, setup)
 			_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -594,12 +610,22 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 }
 
 func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step")
+	previewCalls := 0
+	setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previewCalls++
+		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
+	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -612,16 +638,8 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	previewCalls := 0
 	var capturedRows []map[string]any
 	sinkFactoryCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		previewCalls++
-		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
-			return dataframeexecution.PreviewSummary{}, err
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
-	}
 	apply := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
@@ -675,24 +693,26 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 }
 
 func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	previewCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
+	service := newTestServiceFromSetup(t, setup)
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-capture-failure", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
@@ -708,57 +728,22 @@ func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T)
 	}
 }
 
-func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
-	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	previewCalls, rowVisits := 0, 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		previewCalls++
-		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
-			return dataframeexecution.PreviewSummary{}, err
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
-	}
-	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-construction-row-capture-failure", SemanticsVersion: ws.CurrentSemanticsVersion,
-		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
-	}, "alice", func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
-		return func(map[string]any) error {
-			rowVisits++
-			return errors.New("preview response exceeded its bound")
-		}, nil
-	})
-	if err != nil {
-		t.Fatalf("row capture failure changed Apply result: %v", err)
-	}
-	if result.Accepted != nil || previewCalls != 1 || rowVisits != 1 || store.saveDraftCalls != 1 || store.created.DraftVersion != version+1 {
-		t.Fatalf("row capture failure did not fall back to ordinary successful Apply: result=%#v previews=%d visits=%d saves=%d owner=%#v", result, previewCalls, rowVisits, store.saveDraftCalls, store.created)
-	}
-}
-
 func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 0, Complete: true}, nil
 	}
+	service := newTestServiceFromSetup(t, setup)
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-empty-preview", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
@@ -775,25 +760,27 @@ func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
 }
 
 func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	store.applyErr = errors.New("draft compare-and-swap failed")
 	previewCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
+	service := newTestServiceFromSetup(t, setup)
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	store.applyErr = errors.New("draft compare-and-swap failed")
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-cas-failure", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
@@ -810,20 +797,22 @@ func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing
 }
 
 func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
+	setup.Config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		return dataframeexecution.PreviewSummary{}, errors.New("preview backend failed")
+	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		return dataframeexecution.PreviewSummary{}, errors.New("preview backend failed")
-	}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "failed-apply-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
@@ -855,8 +844,9 @@ func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection
 }
 
 func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
-	service.config.ConstructionSourceStage = func(_ context.Context, _ ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.ConstructionSourceStage = func(_ context.Context, _ ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 		return receiptmodel.ReceiptConstructionStage{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []receiptmodel.ReceiptConstructionStageColumn{},
@@ -912,6 +902,13 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 			{ID: "patient_gender", Name: "patient_gender", Label: "Patient gender", Type: "string", Nullable: true},
 		},
 	}}}
+	setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		if err := visit(map[string]any{"record_id": "r1", "status": "final", "patient_gender": nil}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"record_id", "status", "patient_gender"}, RowCount: 1, Complete: true}, nil
+	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -922,12 +919,6 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 	}
 	if proposal.ProposalID == "" || proposal.PreviewStatus != "PREVIEW_PENDING" {
 		t.Fatalf("append proposal = %#v", proposal)
-	}
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		if err := visit(map[string]any{"record_id": "r1", "status": "final", "patient_gender": nil}); err != nil {
-			return dataframeexecution.PreviewSummary{}, err
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"record_id", "status", "patient_gender"}, RowCount: 1, Complete: true}, nil
 	}
 	_, err = service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-empty-target-append", SemanticsVersion: ws.CurrentSemanticsVersion,

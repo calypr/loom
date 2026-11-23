@@ -330,17 +330,14 @@ func rs05IndexOwned(projections []ws.ConstructionSourceProjection, ownerStepID s
 
 func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
 	t.Helper()
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	donor := filterSourceSnapshot("rs05-propose")
 	snapshot.Nodes = donor.Nodes
 	snapshot.Candidates = donor.Candidates
 	resolver := filterSourceResolver(t)
-	service.config.RowChoicePlanner, service.config.RowChoiceResolver = resolver, resolver
-	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
-	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
-	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	setup.Config.RowChoicePlanner, setup.Config.RowChoiceResolver = resolver, resolver
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
@@ -358,13 +355,17 @@ func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 		store.receipt = receipt
 		return receipt, nil
 	}
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil {
 			return dataframeexecution.PreviewSummary{}, context.Canceled
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"body_structure_id"}, Complete: true}, nil
 	}
-	return service, store, snapshot
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
+	setup.Config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
+	setup.Config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
+	return newTestServiceFromSetup(t, setup), store, snapshot
 }
 
 func rs05ProposeSaveDraft(t *testing.T, store *fakeStore, construction ws.Construction) {

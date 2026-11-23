@@ -28,7 +28,92 @@ import (
 )
 
 func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	var snapshotState *capability.Snapshot
+	var queries int
+	setup := constructionProposalSetup(t, func(setup *testServiceSetup) {
+		setup.Config.RowChoiceResolver = categoryPresenceRowChoiceResolver{}
+		compileReceipt := setup.Config.CompileReceipt
+		snapshotState = &setup.Snapshot
+		setup.Config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return *snapshotState, nil }
+		setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: *snapshotState, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		}
+		setup.Config.Capability.Catalog = func(_ capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+			return lifecycleInterpretationCatalog(*snapshotState, explorerID)
+		}
+		setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, err := compileReceipt(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			compiledWorkspace, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, request.Workspace, *snapshotState, explorercompilation.ResolvedInputs{})
+			if err != nil {
+				return nil, err
+			}
+			bundle := compiledWorkspace.Bundle
+			receipt.Bundle = bundle
+			receipt.RecipeDigest, err = bundle.Digest()
+			if err != nil {
+				return nil, err
+			}
+			receipt.ResolvedRecipeDigest = receipt.RecipeDigest
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
+		}
+		setup.Config.ScanCategories = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			if receipt == nil || receipt.Bundle.Outputs[0].Construction == nil || scan.StageID != "keep_positive" ||
+				scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" || !scan.RequireValue {
+				t.Fatalf("lifecycle did not pass the exact filtered discovery pair: receipt=%#v scan=%#v", receipt, scan)
+			}
+			plan, err := recipeplan.BuildRecipePlan(receipt.Bundle, bindings)
+			if err != nil {
+				t.Fatalf("build lifecycle receipt recipe: %v", err)
+			}
+			resolved, err := recipeplan.ResolveRecipePlan(plan, receipt.AuthorizationScopeDigest, bindings.DatasetGeneration)
+			if err != nil {
+				t.Fatalf("resolve lifecycle receipt recipe: %v", err)
+			}
+			compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("lower lifecycle receipt recipe: %v", err)
+			}
+			query, err := facade.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, facade.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("compile lifecycle category stage: %v", err)
+			}
+			queries++
+			if !query.Proof.PresenceTracked || query.PresentColumn == "" {
+				t.Fatalf("actual ordinary-probe compiler output did not prove source presence: %#v", query.Proof)
+			}
+			rows := []map[string]any{
+				{query.PresentColumn: true, query.ValueColumn: "final", "__loom_category_value_column": "final"},
+			}
+			queryRows := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				for _, row := range rows {
+					if err := visit(row); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			engine, err := dataframeexecution.New(dataframeexecution.Config{
+				Registry: categoryDiscoveryEmptyRecipeReader{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
+			})
+			if err != nil {
+				t.Fatalf("make lifecycle category engine: %v", err)
+			}
+			return engine.ScanCategoriesCompiled(ctx, query)
+		}
+	})
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -58,88 +143,10 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
 
 	snapshot = categoryPresenceSnapshot(t, snapshot)
-	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
-		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
-	}
-	service.config.RowChoiceResolver = categoryPresenceRowChoiceResolver{}
+	*snapshotState = snapshot
 	categoryChoice := categoryPresenceRowChoice(t, snapshot, "gender")
 	valueChoice := categoryPresenceRowChoice(t, snapshot, "multipleBirthInteger")
-
-	compileReceipt := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, err := compileReceipt(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		compiledWorkspace, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, request.Workspace, snapshot, explorercompilation.ResolvedInputs{})
-		if err != nil {
-			return nil, err
-		}
-		bundle := compiledWorkspace.Bundle
-		receipt.Bundle = bundle
-		receipt.RecipeDigest, err = bundle.Digest()
-		if err != nil {
-			return nil, err
-		}
-		receipt.ResolvedRecipeDigest = receipt.RecipeDigest
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
-
-	queries := 0
-	service.config.ScanCategories = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		if receipt == nil || receipt.Bundle.Outputs[0].Construction == nil || scan.StageID != "keep_positive" ||
-			scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" || !scan.RequireValue {
-			t.Fatalf("lifecycle did not pass the exact filtered discovery pair: receipt=%#v scan=%#v", receipt, scan)
-		}
-		plan, err := recipeplan.BuildRecipePlan(receipt.Bundle, bindings)
-		if err != nil {
-			t.Fatalf("build lifecycle receipt recipe: %v", err)
-		}
-		resolved, err := recipeplan.ResolveRecipePlan(plan, receipt.AuthorizationScopeDigest, bindings.DatasetGeneration)
-		if err != nil {
-			t.Fatalf("resolve lifecycle receipt recipe: %v", err)
-		}
-		compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
-		if err != nil {
-			t.Fatalf("lower lifecycle receipt recipe: %v", err)
-		}
-		query, err := facade.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, facade.DefaultPhysicalOptimizationPolicy())
-		if err != nil {
-			t.Fatalf("compile lifecycle category stage: %v", err)
-		}
-		queries++
-		if !query.Proof.PresenceTracked || query.PresentColumn == "" {
-			t.Fatalf("actual ordinary-probe compiler output did not prove source presence: %#v", query.Proof)
-		}
-		rows := []map[string]any{
-			{query.PresentColumn: true, query.ValueColumn: "final", "__loom_category_value_column": "final"},
-		}
-		queryRows := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			for _, row := range rows {
-				if err := visit(row); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		engine, err := dataframeexecution.New(dataframeexecution.Config{
-			Registry: categoryDiscoveryEmptyRecipeReader{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
-		})
-		if err != nil {
-			t.Fatalf("make lifecycle category engine: %v", err)
-		}
-		return engine.ScanCategoriesCompiled(ctx, query)
-	}
+	service := newTestServiceFromSetup(t, setup)
 
 	request := construction.ConstructionCategoryDiscoveryRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,

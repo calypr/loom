@@ -74,11 +74,12 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
+			setup, categoryColumnID, valueColumnID := constructionProposalPivotSetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			scans := 0
-			service.config.ScanCategories = nil
+			setup.Config.ScanCategories = nil
 			if test.scanEnabled {
-				service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+				setup.Config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 					scans++
 					if receipt == nil || scan.Output != "patients" || scan.StageID != recipe.ConstructionSourceProjectionID ||
 						scan.ColumnID != categoryColumnID || scan.ValueColumnID != valueColumnID || !scan.RequireValue {
@@ -115,6 +116,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 				}
 			}
 			request := constructionProposalPivotRequest(store.created, snapshot, test.categories)
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeConstruction(context.Background(), request)
 			if test.wantCode != "" {
 				if got := lifecycleErrorCode(err); got != test.wantCode {
@@ -179,8 +181,9 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			service, store, snapshot, _, _ := constructionProposalPivotFixtureWithUnrelatedStep(t)
-			service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			setup, _, _ := constructionProposalPivotSetupWithUnrelatedStep(t)
+			store, snapshot := setup.Store, setup.Snapshot
+			setup.Config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 				if test.probeError != nil {
 					return dataframeexecution.CategoryScanResult{}, test.probeError
 				}
@@ -213,6 +216,7 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 			request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
 			request.CandidateConstruction.Steps = append(request.CandidateConstruction.Steps, constructionPivotFilterStep())
 			request.ChangedStepID = "keep_positive"
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeConstruction(context.Background(), request)
 			if err != nil {
 				t.Fatalf("unrelated saved Pivot must not reject the proposal: %v", err)
@@ -233,11 +237,13 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 }
 
 func TestProposeConstructionChangedPivotProbeErrorStillRejects(t *testing.T) {
-	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
-	service.config.ScanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	setup, _, _ := constructionProposalPivotSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.ScanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{}, errors.New("probe unavailable")
 	}
 	request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err == nil {
 		t.Fatalf("changed Pivot probe error must reject the proposal, got %#v", proposal)
@@ -250,9 +256,10 @@ func TestProposeConstructionChangedPivotProbeErrorStillRejects(t *testing.T) {
 	}
 }
 
-func constructionProposalPivotFixtureWithUnrelatedStep(t *testing.T) (*Service, *fakeStore, capability.Snapshot, string, string) {
+func constructionProposalPivotSetupWithUnrelatedStep(t *testing.T) (testServiceSetup, string, string) {
 	t.Helper()
-	service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
+	setup, categoryColumnID, valueColumnID := constructionProposalPivotSetup(t)
+	store := setup.Store
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +277,7 @@ func constructionProposalPivotFixtureWithUnrelatedStep(t *testing.T) (*Service, 
 		t.Fatal(err)
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
-	return service, store, snapshot, categoryColumnID, valueColumnID
+	return setup, categoryColumnID, valueColumnID
 }
 
 func constructionPivotFilterStep() ws.ConstructionStep {
@@ -288,7 +295,14 @@ func constructionPivotFilterStep() ws.ConstructionStep {
 
 func constructionProposalPivotFixture(t *testing.T) (*Service, *fakeStore, capability.Snapshot, string, string) {
 	t.Helper()
-	service, store, snapshot := constructionProposalService(t)
+	setup, categoryColumnID, valueColumnID := constructionProposalPivotSetup(t)
+	return newTestServiceFromSetup(t, setup), setup.Store, setup.Snapshot, categoryColumnID, valueColumnID
+}
+
+func constructionProposalPivotSetup(t *testing.T) (testServiceSetup, string, string) {
+	t.Helper()
+	setup := constructionProposalSetup(t)
+	store := setup.Store
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +341,7 @@ func constructionProposalPivotFixture(t *testing.T) (*Service, *fakeStore, capab
 		t.Fatal(err)
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
-	return service, store, snapshot, "category_id", "value_id"
+	return setup, "category_id", "value_id"
 }
 
 func constructionProposalPivotRequest(

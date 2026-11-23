@@ -242,10 +242,22 @@ func TestApplyConstructionChoiceRejectsInvalidFieldChoicesAtomically(t *testing.
 }
 
 func constructionChoiceFixture(t *testing.T, resolverScope authscope.ReadScope) (*fakeStore, *Service, capability.Snapshot, []capability.Candidate) {
-	return constructionChoiceFixtureWithScopes(t, resolverScope, resolverScope)
+	t.Helper()
+	setup, candidates := constructionChoiceSetup(t, resolverScope)
+	return setup.Store, newTestServiceFromSetup(t, setup), setup.Snapshot, candidates
+}
+
+func constructionChoiceSetup(t *testing.T, resolverScope authscope.ReadScope) (testServiceSetup, []capability.Candidate) {
+	return constructionChoiceSetupWithScopes(t, resolverScope, resolverScope)
 }
 
 func constructionChoiceFixtureWithScopes(t *testing.T, snapshotScope, resolverScope authscope.ReadScope) (*fakeStore, *Service, capability.Snapshot, []capability.Candidate) {
+	t.Helper()
+	setup, candidates := constructionChoiceSetupWithScopes(t, snapshotScope, resolverScope)
+	return setup.Store, newTestServiceFromSetup(t, setup), setup.Snapshot, candidates
+}
+
+func constructionChoiceSetupWithScopes(t *testing.T, snapshotScope, resolverScope authscope.ReadScope) (testServiceSetup, []capability.Candidate) {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "choice-snapshot", snapshotScope)
 	snapshot.Nodes = []capability.Node{
@@ -272,13 +284,13 @@ func constructionChoiceFixtureWithScopes(t *testing.T, snapshotScope, resolverSc
 		Candidates: catalogCandidates, RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 	store := semanticAuthoringStore(t)
-	service := newTestService(t, store, Config{Capability: ports.CapabilityResolver{
+	config := Config{Capability: ports.CapabilityResolver{
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
 		},
 		Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
-	}})
-	return store, service, snapshot, candidates
+	}}
+	return testServiceSetup{Config: &config, Store: store, Snapshot: snapshot}, candidates
 }
 
 func fieldChoicePointer(t *testing.T, snapshot capability.Snapshot, candidate capability.Candidate) *capability.ConstructionChoice {
@@ -298,6 +310,12 @@ func constructionChoiceRequest(snapshot capability.Snapshot, commandID, choiceID
 }
 
 func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*semantic.Entry), test *constructionChoiceNegativeCase, root string) (*fakeStore, *Service, capability.Snapshot, semantic.Entry, capability.ConstructionChoice) {
+	t.Helper()
+	setup, entry, choice := constructionSemanticChoiceSetup(t, mutateEntry, test, root)
+	return setup.Store, newTestServiceFromSetup(t, setup), setup.Snapshot, entry, choice
+}
+
+func constructionSemanticChoiceSetup(t *testing.T, mutateEntry func(*semantic.Entry), test *constructionChoiceNegativeCase, root string) (testServiceSetup, semantic.Entry, capability.ConstructionChoice) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "semantic-choice-snapshot", scope)
@@ -362,7 +380,7 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*semantic.
 		duplicate := snapshot.Candidates[1]
 		catalogSnapshot.Candidates = append(catalogSnapshot.Candidates, ws.CatalogCandidate{ID: duplicate.ID, NodeID: duplicate.NodeID, FieldPath: duplicate.FieldPath, Cardinality: duplicate.Cardinality, Label: duplicate.Label, LogicalType: duplicate.LogicalType, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, duplicate)})
 	}
-	service := newTestService(t, store, Config{
+	config := Config{
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
@@ -372,8 +390,8 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*semantic.
 		ResolveSemanticInventorySelections: func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error) {
 			return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
 		},
-	})
-	return store, service, snapshot, entry, choice
+	}
+	return testServiceSetup{Config: &config, Store: store, Snapshot: snapshot}, entry, choice
 }
 
 func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {

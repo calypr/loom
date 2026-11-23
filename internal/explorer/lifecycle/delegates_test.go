@@ -103,7 +103,7 @@ func filterSourceResolver(t *testing.T) *rowdef.SchemaRowChoiceResolver {
 func filterSourceService(t *testing.T) *Service {
 	t.Helper()
 	resolver := filterSourceResolver(t)
-	return &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
+	return newTestService(t, &fakeStore{}, Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver})
 }
 
 func filterSourceBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
@@ -334,7 +334,7 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 	}
 	advertise := func(label string) string {
 		t.Helper()
-		service := &Service{config: Config{RowChoicePlanner: labeledRowSourceChoicePlanner{inner: filterSourceResolver(t), label: label}}}
+		service := newTestService(t, &fakeStore{}, Config{RowChoicePlanner: labeledRowSourceChoicePlanner{inner: filterSourceResolver(t), label: label}})
 		result, err := service.constructionFilterSourceCapability(context.Background(),
 			filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 		if err != nil {
@@ -1106,65 +1106,72 @@ func filterSourcePatientCandidates(populated bool) []capability.Candidate {
 	}
 }
 
-func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
+func newFilterSourceHarness(t *testing.T, options ...func(*filterSourceHarness, *Config)) *filterSourceHarness {
 	t.Helper()
-	service, store, snapshot := constructionProposalService(t)
+	resolver := filterSourceResolver(t)
+	var harness *filterSourceHarness
+	setup := constructionProposalSetup(t, func(setup *testServiceSetup) {
+		setup.Config.RowChoicePlanner, setup.Config.RowChoiceResolver = resolver, resolver
+		setup.Config.ReceiptLookup = func(_ context.Context, _, _, receiptID string) (*receiptmodel.CompilationReceipt, error) {
+			if harness.proposal != nil && harness.proposal.ID == receiptID {
+				return harness.proposal, nil
+			}
+			if setup.Store.receipt != nil && setup.Store.receipt.ID == receiptID {
+				return setup.Store.receipt, nil
+			}
+			return nil, explorer.ErrNotFound
+		}
+		setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, err := compileTraceReceipt(ctx, request, harness.snapshot, harness.service.catalog(harness.snapshot, request.ExplorerID))
+			if err != nil {
+				return nil, err
+			}
+			receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
+			setup.Store.receipt = receipt
+			if request.ConstructionProposal != nil {
+				harness.proposal = receipt
+			}
+			return receipt, nil
+		}
+		setup.Config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if receipt == nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not receive the proposal receipt")
+			}
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, Complete: true}, nil
+		}
+		authorize := func() ports.AuthorizedCapability {
+			return ports.AuthorizedCapability{Snapshot: harness.snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
+		}
+		setup.Config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return harness.snapshot, nil }
+		setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
+		setup.Config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
+		setup.Config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+			catalog := lifecycleInterpretationCatalog(got, explorerID)
+			for _, candidate := range harness.snapshot.Candidates {
+				if candidate.FieldPath == "id" {
+					continue
+				}
+				choice, err := capability.NewFieldConstructionChoice(got.Token, candidate)
+				if err != nil {
+					t.Fatalf("make source choice for %s: %v", candidate.ID, err)
+				}
+				catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
+					ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
+					LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+					ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
+				})
+			}
+			return catalog
+		}
+	})
+	snapshot := setup.Snapshot
 	snapshot.Nodes = []capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient", Populated: true, DocumentCount: 3}}
 	snapshot.Candidates = filterSourcePatientCandidates(true)
-	resolver := filterSourceResolver(t)
-	service.config.RowChoicePlanner, service.config.RowChoiceResolver = resolver, resolver
-	harness := &filterSourceHarness{service: service, store: store, snapshot: snapshot}
-	authorize := func() ports.AuthorizedCapability {
-		return ports.AuthorizedCapability{Snapshot: harness.snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
+	harness = &filterSourceHarness{store: setup.Store, snapshot: snapshot}
+	for _, option := range options {
+		option(harness, setup.Config)
 	}
-	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return harness.snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
-	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
-	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
-		catalog := lifecycleInterpretationCatalog(got, explorerID)
-		for _, candidate := range harness.snapshot.Candidates {
-			if candidate.FieldPath == "id" {
-				continue
-			}
-			choice, err := capability.NewFieldConstructionChoice(got.Token, candidate)
-			if err != nil {
-				t.Fatalf("make source choice for %s: %v", candidate.ID, err)
-			}
-			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
-				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
-				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
-				ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
-			})
-		}
-		return catalog
-	}
-	service.config.ReceiptLookup = func(_ context.Context, _, _, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-		if harness.proposal != nil && harness.proposal.ID == receiptID {
-			return harness.proposal, nil
-		}
-		if store.receipt != nil && store.receipt.ID == receiptID {
-			return store.receipt, nil
-		}
-		return nil, explorer.ErrNotFound
-	}
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, err := compileTraceReceipt(ctx, request, harness.snapshot, harness.service.catalog(harness.snapshot, request.ExplorerID))
-		if err != nil {
-			return nil, err
-		}
-		receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
-		store.receipt = receipt
-		if request.ConstructionProposal != nil {
-			harness.proposal = receipt
-		}
-		return receipt, nil
-	}
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		if receipt == nil {
-			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not receive the proposal receipt")
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, Complete: true}, nil
-	}
+	harness.service = newTestServiceFromSetup(t, setup)
 	return harness
 }
 
@@ -1252,8 +1259,8 @@ func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Sn
 	return nil, nil
 }
 
-func rowSourceServiceWithPlanner(planner rowdef.RowChoicePlanner) *Service {
-	return &Service{config: Config{RowChoicePlanner: planner}}
+func rowSourceServiceWithPlanner(t *testing.T, planner rowdef.RowChoicePlanner) *Service {
+	return newTestService(t, &fakeStore{}, Config{RowChoicePlanner: planner})
 }
 
 func rowSourceSnapshotWithGeneration(snapshot capability.Snapshot, generation string) capability.Snapshot {
@@ -1325,7 +1332,7 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		{
 			name:     "choices were issued for a previous dataset snapshot",
 			snapshot: filterSourceSnapshot("filter-source-precise-stale"),
-			service: rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{
+			service: rowSourceServiceWithPlanner(t, staleRowSourceChoicePlanner{
 				inner:  resolver,
 				issued: rowSourceSnapshotWithGeneration(filterSourceSnapshot("filter-source-precise-stale"), "filter-source-precise-stale-issued"),
 			}),
@@ -1342,14 +1349,14 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		{
 			name:     "the authorized choice planner is not configured",
 			snapshot: filterSourceSnapshot("filter-source-precise-planner"),
-			service:  rowSourceServiceWithPlanner(nil), construction: empty,
+			service:  rowSourceServiceWithPlanner(t, nil), construction: empty,
 			stageID:  recipe.ConstructionSourceProjectionID,
 			wantCode: "ROW_CHOICE_UNAVAILABLE",
 		},
 		{
 			name:     "the planner enumerates no fields at all",
 			snapshot: filterSourceSnapshot("filter-source-precise-none"),
-			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}), construction: empty,
+			service:  rowSourceServiceWithPlanner(t, emptyRowSourceChoicePlanner{}), construction: empty,
 			stageID:  recipe.ConstructionSourceProjectionID,
 			wantCode: "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS",
 		},
@@ -1421,11 +1428,11 @@ func TestConstructionFilterSourceCapabilityNamesInventoryFailureDistinctly(t *te
 		wantFail bool
 	}{
 		{name: "planner enumeration failure names the inventory class",
-			service:  rowSourceServiceWithPlanner(failingRowSourcePlanner{err: inventoryErr}),
+			service:  rowSourceServiceWithPlanner(t, failingRowSourcePlanner{err: inventoryErr}),
 			snapshot: filterSourceSnapshot("filter-source-inventory-failure"),
 			wantCode: "FILTER_SOURCE_INVENTORY_UNAVAILABLE", wantFail: true},
 		{name: "a planner that enumerates nothing stays generic",
-			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}),
+			service:  rowSourceServiceWithPlanner(t, emptyRowSourceChoicePlanner{}),
 			snapshot: filterSourceSnapshot("filter-source-inventory-empty"),
 			wantCode: "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS"},
 		{name: "truly empty data names the observed class, not the inventory class",

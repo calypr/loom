@@ -575,21 +575,6 @@ func semanticEntryMatchesFrameFamily(entry semantic.Entry, family capability.Sem
 	return ok
 }
 
-func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFrameFamily, observation semantic.Observation) bool {
-	return current.SchemaVersion == semantic.ObservationSchemaVersion &&
-		current.RuleVersion == strconv.Itoa(semantic.SemanticObservationRuleVersion) &&
-		pinned.SchemaVersion == semantic.SemanticObservationLegacyV1SchemaVersion &&
-		pinned.RuleVersion == strconv.Itoa(semantic.SemanticObservationLegacyV1RuleVersion) &&
-		len(pinned.ValueFallbacks) == 0 && !pinned.FallbackOnBlankString &&
-		pinned.BindingID == semantic.LegacySemanticBindingIDV1(observation) &&
-		semanticEntrySourceMatchesFrameFamily(observation, pinned) &&
-		current.ResourceType == pinned.ResourceType &&
-		current.SourcePath == pinned.SourcePath && current.SourceCanonical == pinned.SourceCanonical &&
-		current.SourceProfile == pinned.SourceProfile && current.OwningScope == pinned.OwningScope &&
-		current.KeyPath == pinned.KeyPath && current.ValuePath == pinned.ValuePath &&
-		current.LogicalType == pinned.LogicalType && reflect.DeepEqual(current.ChoiceArms, pinned.ChoiceArms)
-}
-
 func semanticEntryForFrameFamily(
 	entry semantic.Entry,
 	family capability.SemanticFrameFamily,

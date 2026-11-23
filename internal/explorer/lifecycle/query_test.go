@@ -38,8 +38,10 @@ func migrateStoredWorkspaceFixture(t *testing.T, raw []byte, catalog ws.CatalogS
 }
 
 func TestBuilderRequiresExplicitStoredMigrationForLegacyNilSteps(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
-	service.config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
+	service := newTestServiceFromSetup(t, setup)
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)

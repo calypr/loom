@@ -119,8 +119,9 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	if !ok {
 		t.Fatal("unknown attachment selection")
 	}
-	base, oldService, snapshot, catalog, _ := inboundPatientObservationRouteFixture(t)
-	snapshot, catalog = addParallelObservationRoute(oldService, snapshot, catalog)
+	setup, _ := inboundPatientObservationRouteSetup(t)
+	base, snapshot, catalog := setup.Store, setup.Snapshot, setup.Catalog
+	snapshot, catalog = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	snapshot = capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
 	blocked := snapshot.Edges[0]
 	blocked.ID = "subject-patient-blocked"
@@ -181,7 +182,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	decoy.ID = "selection-decoy"
 	store.selections[decoy.ID] = decoy
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	config := oldService.config
+	config := *setup.Config
 	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}

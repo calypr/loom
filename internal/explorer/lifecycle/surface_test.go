@@ -1117,7 +1117,7 @@ func TestConstructionUnpivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t
 		},
 		{
 			name:     "choices were issued for a previous dataset snapshot",
-			service:  rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{inner: resolver, issued: rowSourceSnapshotWithGeneration(harness.snapshot, "unpivot-source-precise-stale-issued")}),
+			service:  rowSourceServiceWithPlanner(t, staleRowSourceChoicePlanner{inner: resolver, issued: rowSourceSnapshotWithGeneration(harness.snapshot, "unpivot-source-precise-stale-issued")}),
 			base:     deriveSourcePatientBase(harness.snapshot, empty),
 			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
 			wantCode: "STALE_UNPIVOT_SOURCE_SNAPSHOT",
@@ -1135,14 +1135,14 @@ func TestConstructionUnpivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t
 		},
 		{
 			name:     "the authorized choice planner is not configured",
-			service:  rowSourceServiceWithPlanner(nil),
+			service:  rowSourceServiceWithPlanner(t, nil),
 			base:     deriveSourcePatientBase(harness.snapshot, empty),
 			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
 			wantCode: "ROW_CHOICE_UNAVAILABLE",
 		},
 		{
 			name:     "the planner enumerates no fields at all",
-			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}),
+			service:  rowSourceServiceWithPlanner(t, emptyRowSourceChoicePlanner{}),
 			base:     deriveSourcePatientBase(harness.snapshot, empty),
 			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
 			wantCode: "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS",
@@ -1218,11 +1218,11 @@ func TestConstructionUnpivotSourceCapabilityNamesInventoryFailureDistinctly(t *t
 		wantFail bool
 	}{
 		{name: "planner enumeration failure names the inventory class",
-			service:  rowSourceServiceWithPlanner(failingRowSourcePlanner{err: inventoryErr}),
+			service:  rowSourceServiceWithPlanner(t, failingRowSourcePlanner{err: inventoryErr}),
 			base:     deriveSourcePatientBase(harness.snapshot, empty),
 			wantCode: "UNPIVOT_SOURCE_INVENTORY_UNAVAILABLE", wantFail: true},
 		{name: "a planner that enumerates nothing stays generic",
-			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}),
+			service:  rowSourceServiceWithPlanner(t, emptyRowSourceChoicePlanner{}),
 			base:     deriveSourcePatientBase(harness.snapshot, empty),
 			wantCode: "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS"},
 		{name: "truly empty data names the observed class, not the inventory class",
@@ -1336,9 +1336,10 @@ func TestConstructionUnpivotSourceAdvertisedLabelsFollowBuilderPrecedence(t *tes
 }
 
 func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testing.T) {
-	service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
+	setup, categoryColumnID, valueColumnID := constructionProposalPivotSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	scans := 0
-	service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	setup.Config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		scans++
 		if receipt == nil || scan.Output != "patients" || scan.StageID != recipe.ConstructionSourceProjectionID ||
 			scan.ColumnID != categoryColumnID || scan.ValueColumnID != valueColumnID || !scan.RequireValue {
@@ -1373,6 +1374,7 @@ func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testin
 		{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 	}
 
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose discovery Pivot: %v", err)
@@ -1400,8 +1402,9 @@ func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testin
 }
 
 func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
-	service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
-	service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	setup, categoryColumnID, valueColumnID := constructionProposalPivotSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	setup.Config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		var category receiptmodel.ReceiptConstructionStageColumn
 		for _, stage := range receipt.ConstructionStages["patients"] {
 			if stage.ID != scan.StageID {
@@ -1428,6 +1431,7 @@ func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
 		{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 	}
 
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if got := lifecycleErrorCode(err); got != "PIVOT_CATEGORIES_UNVERIFIABLE" {
 		t.Fatalf("unverifiable discovery error code = %q, want PIVOT_CATEGORIES_UNVERIFIABLE; error = %v", got, err)

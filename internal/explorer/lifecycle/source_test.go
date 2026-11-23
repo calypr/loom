@@ -85,7 +85,7 @@ func deriveSourceService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
+	return newTestService(t, &fakeStore{}, Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver})
 }
 
 func deriveSourceBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
@@ -1084,7 +1084,7 @@ func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		{
 			name:     "choices were issued for a previous dataset snapshot",
 			snapshot: deriveSourceSnapshot("derive-source-precise-stale"),
-			service: rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{
+			service: rowSourceServiceWithPlanner(t, staleRowSourceChoicePlanner{
 				inner:  resolver,
 				issued: rowSourceSnapshotWithGeneration(deriveSourceSnapshot("derive-source-precise-stale"), "derive-source-precise-stale-issued"),
 			}),
@@ -1101,14 +1101,14 @@ func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		{
 			name:     "the authorized choice planner is not configured",
 			snapshot: deriveSourceSnapshot("derive-source-precise-planner"),
-			service:  rowSourceServiceWithPlanner(nil), construction: empty,
+			service:  rowSourceServiceWithPlanner(t, nil), construction: empty,
 			stageID:  recipe.ConstructionSourceProjectionID,
 			wantCode: "ROW_CHOICE_UNAVAILABLE",
 		},
 		{
 			name:     "the planner enumerates no fields at all",
 			snapshot: deriveSourceSnapshot("derive-source-precise-none"),
-			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}), construction: empty,
+			service:  rowSourceServiceWithPlanner(t, emptyRowSourceChoicePlanner{}), construction: empty,
 			stageID:  recipe.ConstructionSourceProjectionID,
 			wantCode: "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS",
 		},
@@ -1173,11 +1173,11 @@ func TestConstructionDeriveSourceCapabilityNamesInventoryFailureDistinctly(t *te
 		wantFail bool
 	}{
 		{name: "planner enumeration failure names the inventory class",
-			service:  rowSourceServiceWithPlanner(failingRowSourcePlanner{err: inventoryErr}),
+			service:  rowSourceServiceWithPlanner(t, failingRowSourcePlanner{err: inventoryErr}),
 			snapshot: deriveSourceSnapshot("derive-source-inventory-failure"),
 			wantCode: "DERIVE_SOURCE_INVENTORY_UNAVAILABLE", wantFail: true},
 		{name: "a planner that enumerates nothing stays generic",
-			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}),
+			service:  rowSourceServiceWithPlanner(t, emptyRowSourceChoicePlanner{}),
 			snapshot: deriveSourceSnapshot("derive-source-inventory-empty"),
 			wantCode: "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS"},
 		{name: "truly empty data names the observed class, not the inventory class",

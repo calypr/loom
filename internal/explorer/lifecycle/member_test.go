@@ -205,6 +205,21 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 
 func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposalTestStore, capability.Snapshot, ws.Workspace) {
 	t.Helper()
+	domain, config, store, snapshot, workspace := populationMemberProposalSetup(t)
+	return newPopulationMemberProposalService(t, domain, config), store, snapshot, workspace
+}
+
+func newPopulationMemberProposalService(t *testing.T, domain *explorer.Service, config Config) *Service {
+	t.Helper()
+	service, err := New(domain, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
+func populationMemberProposalSetup(t *testing.T) (*explorer.Service, Config, *populationProposalTestStore, capability.Snapshot, ws.Workspace) {
+	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	scopeBase := readySnapshot("project-a", "generation-a", "snapshot-base", scope)
 	snapshot := capability.NewSnapshot(scopeBase.Identity, capability.Policy{Route: capability.RoutePolicy{Version: "route-v1", MaxHops: 8}}, capability.StatusReady, true, false,
@@ -288,11 +303,7 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	service, err := New(domain, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return service, store, snapshot, workspace
+	return domain, config, store, snapshot, workspace
 }
 
 func populationProposalRequest(store *populationProposalTestStore, snapshot capability.Snapshot, member explorerselection.ResourceRef) population.PopulationMemberRemovalProposalRequest {
@@ -358,7 +369,7 @@ func TestPopulationMemberRemovalProposalCreatesExactRevisionAndAppliesOnlyPopula
 }
 
 func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testing.T) {
-	service, store, _, _ := populationMemberProposalFixture(t)
+	domain, config, store, _, _ := populationMemberProposalSetup(t)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/alpha"}}
 	snapshotBase := readySnapshot("project-a", "generation-a", "population-removal-route", scope)
 	snapshot := capability.NewSnapshot(snapshotBase.Identity,
@@ -373,10 +384,11 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 			{ID: "specimen-patient", FromNodeID: "specimen-node", ToNodeID: "patient-node", SourceResourceType: "Specimen", TargetResourceType: "Patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
 			{ID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
 		}, nil, nil)
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
-		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	compileScope := scope
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: compileScope}, nil
 	}
-	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	compilerScope := constructionCompilerScope(ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope})
@@ -384,14 +396,14 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		t.Fatalf("route proof compiler scope = %#v, want exact authorized scope %#v", compilerScope, scope)
 	}
 	var previewBindings recipe.RuntimeBindings
-	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || receipt.PopulationMemberRemovalProposal == nil {
 			return dataframeexecution.PreviewSummary{}, errors.New("preview did not receive the population removal receipt")
 		}
 		previewBindings = bindings
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		intentDigest, err := request.Workspace.Digest()
 		if err != nil {
@@ -417,7 +429,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		store.fakeStore.receipt = receipt
 		return receipt, nil
 	}
-	service.config.Capability.Catalog = func(_ capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+	config.Capability.Catalog = func(_ capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		return ws.CatalogSnapshot{
 			APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: explorerID,
 			SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -433,7 +445,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 			},
 		}
 	}
-	service.config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorerselection.ResourceRef) error {
+	config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorerselection.ResourceRef) error {
 		for _, ref := range refs {
 			if err := ref.Validate(project, generation, "Observation"); err != nil {
 				return err
@@ -470,6 +482,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		t.Fatal(err)
 	}
 
+	service := newPopulationMemberProposalService(t, domain, config)
 	baseRoutes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-base",
 	})
@@ -534,18 +547,14 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	beforeRejectedDigest, beforeRejectedVersion := store.created.DraftDigest, store.created.DraftVersion
 	wrongScope := scope
 	wrongScope.AuthResourcePaths = []string{"/programs/beta"}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
-		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: wrongScope}, nil
-	}
+	compileScope = wrongScope
 	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil {
 		t.Fatal("proposal Apply accepted a changed authorization scope")
 	}
 	if store.fakeStore.saveDraftCalls != 0 || store.created.DraftVersion != beforeRejectedVersion || store.created.DraftDigest != beforeRejectedDigest || string(store.created.DraftConfig) != string(beforeRejectedApply) {
 		t.Fatalf("changed-scope rejection mutated the saved draft: saves=%d version=%d/%d digest=%q/%q configEqual=%t", store.fakeStore.saveDraftCalls, store.created.DraftVersion, beforeRejectedVersion, store.created.DraftDigest, beforeRejectedDigest, string(store.created.DraftConfig) == string(beforeRejectedApply))
 	}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
-		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}
+	compileScope = scope
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -596,15 +605,22 @@ func TestPopulationMemberRemovalProposalRejectsStaleScopeAndForeignMember(t *tes
 
 func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplaysFailCAS(t *testing.T) {
 	t.Run("preview error", func(t *testing.T) {
-		service, store, snapshot, _ := populationMemberProposalFixture(t)
+		domain, config, store, snapshot, _ := populationMemberProposalSetup(t)
+		preview := config.PreviewReceipt
+		failPreview := false
+		config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, sink func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if failPreview {
+				return dataframeexecution.PreviewSummary{}, errors.New("candidate preview rejected")
+			}
+			return preview(ctx, receipt, bindings, sink)
+		}
+		service := newPopulationMemberProposalService(t, domain, config)
 		removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 		proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 		if err != nil {
 			t.Fatal(err)
 		}
-		service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			return dataframeexecution.PreviewSummary{}, errors.New("candidate preview rejected")
-		}
+		failPreview = true
 		beforeDigest, beforeVersion, saveCalls := store.created.DraftDigest, store.created.DraftVersion, store.fakeStore.saveDraftCalls
 		request := authoringv2.ApplyCommandsRequest{
 			CommandID: "apply-preview-fail", SemanticsVersion: ws.CurrentSemanticsVersion,

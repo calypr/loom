@@ -138,7 +138,11 @@ func wrappedCategoryUserError(t *testing.T, code dataframeerrors.ErrorCode, deta
 
 func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Service, construction.ConstructionCategoryDiscoveryRequest) {
 	t.Helper()
-	service, store, snapshot := constructionProposalService(t)
+	service, store, snapshot := constructionProposalService(t, func(setup *testServiceSetup) {
+		setup.Config.ScanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			return dataframeexecution.CategoryScanResult{}, fmt.Errorf("category scan adapter: %w", scanErr)
+		}
+	})
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -169,9 +173,6 @@ func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Se
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
 		CategoryColumnID: upgraded.Columns[1].ColumnID, ValueColumnID: upgraded.Columns[0].ColumnID,
-	}
-	service.config.ScanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		return dataframeexecution.CategoryScanResult{}, fmt.Errorf("category scan adapter: %w", scanErr)
 	}
 	return service, request
 }

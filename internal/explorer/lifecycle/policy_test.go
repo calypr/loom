@@ -21,12 +21,12 @@ import (
 )
 
 func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *testing.T) {
-	service, store, _, request := rowValuePolicyApplyFixture(t)
+	config, store, request := rowValuePolicyApplySetup(t)
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeDigest := store.created.DraftDigest
 	lateViolation := dataframeerrors.NewError(dataframeerrors.CodeConstructionRowValueMultipleValues, "AQL private detail must never reach the authoring response")
 	rowsVisited := 0
-	service.config.ValidateReceiptStream = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) error {
+	config.ValidateReceiptStream = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) error {
 		if receipt.IntentDigest == "" || bindings.PreviewLimit != 0 || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 			t.Fatalf("full-stream candidate bindings/receipt = %#v / %#v", bindings, receipt)
 		}
@@ -36,6 +36,7 @@ func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *test
 		return lateViolation
 	}
 
+	service := newTestService(t, store, config)
 	_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if !errors.Is(err, lateViolation) {
 		t.Fatalf("ApplyCommands error = %v, want late full-stream violation", err)
@@ -63,8 +64,8 @@ func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *test
 }
 
 func TestUpdateColumnRowValuePolicyConflictAfterValidationKeepsConcurrentDraft(t *testing.T) {
-	service, store, _, request := rowValuePolicyApplyFixture(t)
-	service.config.ValidateReceiptStream = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error { return nil }
+	config, store, request := rowValuePolicyApplySetup(t)
+	config.ValidateReceiptStream = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error { return nil }
 	store.copyGet = true
 	store.saveDraftHook = func(explorer.Explorer) error {
 		concurrent := *store.created
@@ -74,6 +75,7 @@ func TestUpdateColumnRowValuePolicyConflictAfterValidationKeepsConcurrentDraft(t
 		return explorer.ErrDraftConflict
 	}
 
+	service := newTestService(t, store, config)
 	_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("ApplyCommands error = %v, want draft conflict", err)
@@ -91,8 +93,9 @@ func TestUpdateColumnRowValuePolicyConflictAfterValidationKeepsConcurrentDraft(t
 }
 
 func TestUpdateColumnRowValuePolicyMustBeValidatedBeforeDraftSave(t *testing.T) {
-	service, store, _, request := rowValuePolicyApplyFixture(t)
-	service.config.ValidateReceiptStream = nil
+	config, store, request := rowValuePolicyApplySetup(t)
+	config.ValidateReceiptStream = nil
+	service := newTestService(t, store, config)
 	_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "ROW_VALUE_POLICY_VALIDATION_UNAVAILABLE" {
@@ -103,7 +106,7 @@ func TestUpdateColumnRowValuePolicyMustBeValidatedBeforeDraftSave(t *testing.T) 
 	}
 }
 
-func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.Snapshot, authoringv2.ApplyCommandsRequest) {
+func rowValuePolicyApplySetup(t *testing.T) (Config, *fakeStore, authoringv2.ApplyCommandsRequest) {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "snapshot-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}
@@ -143,19 +146,18 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 	config.ReceiptLookup = func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
 		return receipt, nil
 	}
-	service := newTestService(t, store, config)
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "row-policy-one", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandUpdateColumnRowValuePolicy, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_active", RowValuePolicy: ws.ConstructionRowValueOne}}},
 	}
-	return service, store, snapshot, request
+	return config, store, request
 }
 
 func TestUpdateColumnRowValuePolicyCheckerRunsBeforeSave(t *testing.T) {
-	service, store, _, request := rowValuePolicyApplyFixture(t)
+	config, store, request := rowValuePolicyApplySetup(t)
 	var order []string
-	service.config.ValidateReceiptStream = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error {
+	config.ValidateReceiptStream = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error {
 		order = append(order, "validate")
 		return nil
 	}
@@ -163,6 +165,7 @@ func TestUpdateColumnRowValuePolicyCheckerRunsBeforeSave(t *testing.T) {
 		order = append(order, "save")
 		return nil
 	}
+	service := newTestService(t, store, config)
 	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err != nil {
 		t.Fatal(err)
 	}

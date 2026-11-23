@@ -539,7 +539,8 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 }
 
 func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -551,15 +552,16 @@ func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing
 	if digest != store.created.DraftDigest {
 		t.Fatalf("stored draft digest = %q, workspace digest = %q", store.created.DraftDigest, digest)
 	}
-	service.config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot {
+	setup.Config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot {
 		return ws.CatalogSnapshot{}
 	}
 	compileCalls := 0
-	compile := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	compile := setup.Config.CompileReceipt
+	setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		return compile(ctx, request)
 	}
+	service := newTestServiceFromSetup(t, setup)
 	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: digest,
@@ -1111,10 +1113,6 @@ func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 				t.Fatalf("test fixture does not exercise the new opted-in fallback: %#v", observation.Value)
 			}
 
-			if !semanticFrameFamilyMatchesPinnedPrior(currentFamily, priorFamily, observation) {
-				t.Fatal("current family was not recognized as a metadata-only upgrade from the pinned primary-only family")
-			}
-
 			for _, test := range []struct {
 				name   string
 				mutate func(*capability.SemanticFrameFamily)
@@ -1141,9 +1139,7 @@ func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 					if _, _, accepted := semanticEntryForFrameFamily(currentEntry, changed); accepted {
 						t.Fatalf("accepted tampered or unknown legacy frame identity: %#v", changed)
 					}
-					if semanticFrameFamilyMatchesPinnedPrior(currentFamily, changed, observation) {
-						t.Fatalf("accepted tampered pinned identity: %#v", changed)
-					}
+
 				})
 			}
 

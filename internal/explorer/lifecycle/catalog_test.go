@@ -167,7 +167,8 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 				fixture := newFieldPresentationTestFixture(t, false)
 				request := fixture.request()
 				test.mutate(&request)
-				_, err := fixture.service.BrowseSemanticInventory(context.Background(), request)
+				service := newTestService(t, fixture.store, fixture.config)
+				_, err := service.BrowseSemanticInventory(context.Background(), request)
 				assertLifecycleError(t, err, ports.ClassMalformed, "MALFORMED_REQUEST")
 				if fixture.authorizationReads != 0 || fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 					t.Fatalf("malformed request reached authorization or data reads: auth=%d inventory=%d coverage=%d", fixture.authorizationReads, fixture.inventoryReads, fixture.coverageReads)
@@ -180,7 +181,8 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 		fixture := newFieldPresentationTestFixture(t, false)
 		request := fixture.request()
 		request.FieldPresentation.ExpectedDraftVersion++
-		_, err := fixture.service.BrowseSemanticInventory(context.Background(), request)
+		service := newTestService(t, fixture.store, fixture.config)
+		_, err := service.BrowseSemanticInventory(context.Background(), request)
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_FIELD_PRESENTATION_CONTEXT")
 		if fixture.authorizationReads != 1 || fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 			t.Fatalf("stale draft reached inventory or coverage reads: auth=%d inventory=%d coverage=%d", fixture.authorizationReads, fixture.inventoryReads, fixture.coverageReads)
@@ -191,7 +193,8 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 		fixture := newFieldPresentationTestFixture(t, false)
 		request := fixture.request()
 		request.FieldPresentation.CandidateIDs = []string{"not-in-current-snapshot"}
-		_, err := fixture.service.BrowseSemanticInventory(context.Background(), request)
+		service := newTestService(t, fixture.store, fixture.config)
+		_, err := service.BrowseSemanticInventory(context.Background(), request)
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_FIELD_PRESENTATION_CONTEXT")
 		if fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 			t.Fatalf("unauthorized candidate reached inventory or coverage reads: inventory=%d coverage=%d", fixture.inventoryReads, fixture.coverageReads)
@@ -203,7 +206,8 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 		request := fixture.request()
 		stageID := "not-a-current-stage"
 		request.FieldPresentation.StageID = &stageID
-		_, err := fixture.service.BrowseSemanticInventory(context.Background(), request)
+		service := newTestService(t, fixture.store, fixture.config)
+		_, err := service.BrowseSemanticInventory(context.Background(), request)
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_FIELD_PRESENTATION_CONTEXT")
 		if fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 			t.Fatalf("stale stage reached inventory or coverage reads: inventory=%d coverage=%d", fixture.inventoryReads, fixture.coverageReads)
@@ -218,11 +222,11 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 	snapshot.Nodes = append([]capability.Node(nil), fixture.snapshot.Nodes...)
 	snapshot.Candidates = append([]capability.Candidate(nil), fixture.snapshot.Candidates...)
 	fixture.snapshot = snapshot
-	fixture.service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	fixture.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		fixture.authorizationReads++
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	fixture.service.config.SemanticInventory = func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
+	fixture.config.SemanticInventory = func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 		fixture.inventoryReads++
 		if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
 			!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
@@ -237,14 +241,14 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 			Entries: []semantic.Entry{fixture.entry},
 		}, nil
 	}
-	fixture.service.config.SemanticCoverage = func(_ context.Context, options semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error) {
+	fixture.config.SemanticCoverage = func(_ context.Context, options semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error) {
 		fixture.coverageReads++
 		if options.AuthResourcePathsUnrestricted || !reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
 			t.Fatalf("coverage lookup escaped the current authorization path: %#v", options)
 		}
 		return fixture.coverageResult, nil
 	}
-	fixture.service.config.ResolveSemanticInventorySelections = func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+	fixture.config.ResolveSemanticInventorySelections = func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 		if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
 			!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
 			t.Fatalf("replacement read escaped the current authorization path: %#v", options)
@@ -252,7 +256,8 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 		return fixture.resolvedInventory, nil
 	}
 
-	response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+	service := newTestService(t, fixture.store, fixture.config)
+	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,10 +276,11 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 		snapshot := fixture.snapshot.Clone()
 		snapshot.Edges[0].StorageDirection = "OUTBOUND"
 		fixture.snapshot = snapshot
-		fixture.service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		fixture.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}
-		_, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+		service := newTestService(t, fixture.store, fixture.config)
+		_, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 		assertLifecycleError(t, err, ports.ClassInternal, "CONSTRUCTION_ROUTE_PROOF_FAILED")
 		if fixture.coverageReads != 0 {
 			t.Fatalf("compiler proof failure reached coverage lookup %d times", fixture.coverageReads)
@@ -283,10 +289,11 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 
 	t.Run("coverage read failure", func(t *testing.T) {
 		fixture := newFieldPresentationTestFixture(t, false)
-		fixture.service.config.SemanticCoverage = func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error) {
+		fixture.config.SemanticCoverage = func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error) {
 			return semanticarango.SemanticCoverageLookupResult{}, errors.New("injected coverage read failure")
 		}
-		_, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+		service := newTestService(t, fixture.store, fixture.config)
+		_, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 		assertLifecycleError(t, err, ports.ClassUnavailable, "PERSISTENCE_UNAVAILABLE")
 	})
 }
@@ -314,7 +321,8 @@ func TestFieldPresentationRequiresStageWhenOutputHasConstructionSteps(t *testing
 	}
 	persistTestWorkspace(t, fixture.store, workspace)
 
-	response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+	service := newTestService(t, fixture.store, fixture.config)
+	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +341,7 @@ func TestFieldPresentationKeepsRawWhenCoverageProofIsMissingPartialOrStale(t *te
 		mutate func(*fieldPresentationTestFixture)
 	}{
 		{name: "coverage reader missing", mutate: func(fixture *fieldPresentationTestFixture) {
-			fixture.service.config.SemanticCoverage = nil
+			fixture.config.SemanticCoverage = nil
 		}},
 		{name: "build still building", mutate: func(fixture *fieldPresentationTestFixture) {
 			fixture.coverageResult.State = semanticarango.SemanticCoverageBuildBuilding
@@ -352,7 +360,8 @@ func TestFieldPresentationKeepsRawWhenCoverageProofIsMissingPartialOrStale(t *te
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFieldPresentationTestFixture(t, false)
 			test.mutate(fixture)
-			response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+			service := newTestService(t, fixture.store, fixture.config)
+			response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -383,7 +392,8 @@ func TestFieldPresentationKeepsRawWhenReplacementIsUnavailableOrNotInCodedView(t
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFieldPresentationTestFixture(t, false)
 			test.mutate(fixture)
-			response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+			service := newTestService(t, fixture.store, fixture.config)
+			response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -407,7 +417,8 @@ func TestFieldPresentationKeepsRawForClosedCoverageDisposition(t *testing.T) {
 	fixture.coverageResult.Candidates[0].Status = semanticarango.SemanticCoverageCandidateKeepRaw
 	fixture.coverageResult.Candidates[0].Reason = fieldprofile.SemanticCoverageReasonMissingSystem
 	fixture.coverageResult.Candidates[0].References = nil
-	response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+	service := newTestService(t, fixture.store, fixture.config)
+	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,10 +453,11 @@ func TestFieldPresentationDoesNotBypassRawPopulatedOrAddableChecks(t *testing.T)
 			snapshot := fixture.snapshot.Clone()
 			test.mutate(&snapshot.Candidates[0])
 			fixture.snapshot = snapshot
-			fixture.service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			fixture.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			}
-			response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+			service := newTestService(t, fixture.store, fixture.config)
+			response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -645,7 +657,8 @@ func assertFieldPresentationCodedFamilyProof(
 func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 	t.Helper()
 	fixture := newFieldPresentationTestFixture(t, related)
-	response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
+	service := newTestService(t, fixture.store, fixture.config)
+	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,7 +705,7 @@ func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 
 	request := constructionChoiceRequest(fixture.snapshot, "field-presentation-add", ready.Replacements[0].ConstructionChoice.ChoiceID, capability.ConstructionChoiceValue)
 	request.ExpectedDraftVersion = fixture.store.created.DraftVersion
-	applied, err := fixture.service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
+	applied, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err != nil {
 		t.Fatalf("apply current presentation replacement: %v", err)
 	}
@@ -712,7 +725,7 @@ func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 
 type fieldPresentationTestFixture struct {
 	store              *fakeStore
-	service            *Service
+	config             Config
 	snapshot           capability.Snapshot
 	candidate          capability.Candidate
 	entry              semantic.Entry
@@ -824,7 +837,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 		resolvedInventory: semanticAuthoringInventory(snapshot, []semantic.Entry{entry}),
 	}
 	fixture.resolvedInventory.Build = build
-	fixture.service = newTestService(t, store, Config{
+	fixture.config = Config{
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				fixture.authorizationReads++
@@ -854,7 +867,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 			}
 			return fixture.resolvedInventory, nil
 		},
-	})
+	}
 	return fixture
 }
 

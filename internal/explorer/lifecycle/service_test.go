@@ -337,13 +337,31 @@ func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisi
 	return nil
 }
 
-func newTestService(t *testing.T, store *fakeStore, config Config) *Service {
+type testServiceSetup struct {
+	Config    *Config
+	Store     *fakeStore
+	Snapshot  capability.Snapshot
+	Catalog   ws.CatalogSnapshot
+	Workspace ws.Workspace
+}
+
+type testServiceOption func(*testServiceSetup)
+
+func newTestService(t *testing.T, store *fakeStore, config Config, options ...testServiceOption) *Service {
 	t.Helper()
-	domain, err := explorer.NewService(store)
+	return newTestServiceFromSetup(t, testServiceSetup{Config: &config, Store: store}, options...)
+}
+
+func newTestServiceFromSetup(t *testing.T, setup testServiceSetup, options ...testServiceOption) *Service {
+	t.Helper()
+	for _, option := range options {
+		option(&setup)
+	}
+	domain, err := explorer.NewService(setup.Store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, config)
+	service, err := New(domain, *setup.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1288,8 +1306,10 @@ func TestServiceUsesConfiguredClock(t *testing.T) {
 }
 
 func TestRowDefinitionProposalProjectsExactCandidateWithoutSaving(t *testing.T) {
-	service, store, snapshot, _ := rowProposalService(t)
-	enableRowDefinitionPreview(service)
+	setup := rowProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
+	enableRowDefinitionPreview(setup.Config)
+	service := newTestServiceFromSetup(t, setup)
 	before := append([]byte(nil), store.created.DraftConfig...)
 	request := rowProposalRequest(store.created, snapshot)
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
@@ -1323,10 +1343,12 @@ func TestRowDefinitionProposalProjectsExactCandidateWithoutSaving(t *testing.T) 
 }
 
 func TestRowDefinitionProposalProjectsNamedGroupAfterSavedFilter(t *testing.T) {
-	service, store, snapshot, workspace := rowProposalService(t)
+	setup := rowProposalSetup(t)
+	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 	addRowProposalSourceFilter(t, store, workspace)
-	enableRowDefinitionPreview(service)
-	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{}
+	enableRowDefinitionPreview(setup.Config)
+	setup.Config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{}
+	service := newTestServiceFromSetup(t, setup)
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}}
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
@@ -1378,7 +1400,7 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			planner := &importedSourceChoicePlanner{}
-			service := &Service{config: Config{RowChoicePlanner: planner}}
+			service := newTestService(t, &fakeStore{}, Config{RowChoicePlanner: planner})
 			base := constructionBase{Document: ws.Document{ImportedRecipe: &ws.ImportedRecipeRef{
 				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
 			}, Rows: ws.RecordsRowDefinition(),
@@ -1404,7 +1426,8 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 		{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-v1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}},
 	} {
 		t.Run(string(selection.Kind), func(t *testing.T) {
-			service, store, snapshot, workspace := rowProposalService(t)
+			setup := rowProposalSetup(t)
+			store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 			workspace.Documents[0].ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
 			for i := range workspace.Documents[0].Columns {
 				column := &workspace.Documents[0].Columns[i]
@@ -1423,13 +1446,14 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			original := string(raw)
 			version := store.created.DraftVersion
 			compileCalls := 0
-			service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			setup.Config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				compileCalls++
 				t.Error("rejected projected source row edit reached compiler")
 				return nil, nil
 			}
 			request := rowProposalRequest(store.created, snapshot)
 			request.Selection = selection
+			service := newTestServiceFromSetup(t, setup)
 			_, err = service.ProposeRowDefinition(context.Background(), request)
 			if lifecycleErrorCode(err) != "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED" {
 				t.Fatalf("got %v; want precise source ownership rejection", err)

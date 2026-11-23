@@ -35,59 +35,50 @@ func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceTy
 	return rowsource.ConstructionUnpivotSourceFacts(snapshot, rootResourceType, fieldPath)
 }
 
-func (s *Service) rowSourceService() *rowsource.Service {
-	return rowsource.NewService(rowsource.Config{
-		Capability:        s.config.Capability,
-		SemanticInventory: s.config.SemanticInventory,
-		RowChoiceResolver: s.config.RowChoiceResolver,
-		RowChoicePlanner:  s.config.RowChoicePlanner,
-	})
-}
-
 func (s *Service) constructionFilterSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (rowsource.ConstructionFilterSourceCapability, error) {
-	return s.rowSourceService().ConstructionFilterSourceCapability(ctx, base, outputID, stageID)
+	return s.rowSourceService.ConstructionFilterSourceCapability(ctx, base, outputID, stageID)
 }
 
 func (s *Service) resolveConstructionFilterSource(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, acceptedStageID string, selection rowsource.ConstructionFilterSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.rowSourceService().ResolveConstructionFilterSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
+	return s.rowSourceService.ResolveConstructionFilterSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
 }
 
 func (s *Service) constructionCandidateWithFilterSources(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.rowSourceService().ConstructionCandidateWithFilterSources(ctx, base, rowSourceProposalRequest(request), candidate)
+	return s.rowSourceService.ConstructionCandidateWithFilterSources(ctx, base, rowSourceProposalRequest(request), candidate)
 }
 
 func (s *Service) constructionDeriveSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (rowsource.ConstructionDeriveSourceCapability, error) {
-	return s.rowSourceService().ConstructionDeriveSourceCapability(ctx, base, outputID, stageID)
+	return s.rowSourceService.ConstructionDeriveSourceCapability(ctx, base, outputID, stageID)
 }
 
 func (s *Service) resolveConstructionDeriveSource(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, acceptedStageID string, selection rowsource.ConstructionDeriveSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.rowSourceService().ResolveConstructionDeriveSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
+	return s.rowSourceService.ResolveConstructionDeriveSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
 }
 
 func (s *Service) constructionCandidateWithDeriveSources(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.rowSourceService().ConstructionCandidateWithDeriveSources(ctx, base, rowSourceProposalRequest(request), candidate)
+	return s.rowSourceService.ConstructionCandidateWithDeriveSources(ctx, base, rowSourceProposalRequest(request), candidate)
 }
 
 func (s *Service) constructionExpandSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (rowsource.ConstructionExpandSourceCapability, error) {
-	return s.rowSourceService().ConstructionExpandSourceCapability(ctx, base, outputID, stageID)
+	return s.rowSourceService.ConstructionExpandSourceCapability(ctx, base, outputID, stageID)
 }
 
 func (s *Service) constructionCandidateWithExpandSources(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.rowSourceService().ConstructionCandidateWithExpandSources(ctx, base, rowSourceProposalRequest(request), candidate)
+	return s.rowSourceService.ConstructionCandidateWithExpandSources(ctx, base, rowSourceProposalRequest(request), candidate)
 }
 
 func (s *Service) reauthorizeConstructionExpandSources(ctx context.Context, base constructionBase, outputID string, construction ws.Construction) error {
-	return s.rowSourceService().ReauthorizeConstructionExpandSources(ctx, base, outputID, construction)
+	return s.rowSourceService.ReauthorizeConstructionExpandSources(ctx, base, outputID, construction)
 }
 
 func (s *Service) constructionUnpivotSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (rowsource.ConstructionUnpivotSourceCapability, error) {
-	return s.rowSourceService().ConstructionUnpivotSourceCapability(ctx, base, outputID, stageID)
+	return s.rowSourceService.ConstructionUnpivotSourceCapability(ctx, base, outputID, stageID)
 }
 
 func (s *Service) resolveConstructionUnpivotSource(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, acceptedStageID string, selection rowsource.ConstructionUnpivotSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.rowSourceService().ResolveConstructionUnpivotSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
+	return s.rowSourceService.ResolveConstructionUnpivotSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
 }
 
 func (s *Service) constructionCandidateWithUnpivotSources(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.rowSourceService().ConstructionCandidateWithUnpivotSources(ctx, base, rowSourceProposalRequest(request), candidate)
+	return s.rowSourceService.ConstructionCandidateWithUnpivotSources(ctx, base, rowSourceProposalRequest(request), candidate)
 }

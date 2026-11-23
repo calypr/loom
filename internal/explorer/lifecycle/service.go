@@ -38,6 +38,7 @@ type Service struct {
 	selectionService      *selection.Service
 	explicitGroupService  *explicitgroup.Service
 	rowDefService         *rowdef.Service
+	rowSourceService      *rowsource.Service
 	populationService     *population.Service
 	proposalService       *proposal.Service
 }
@@ -120,6 +121,12 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.rowDefService = rowDefService
+	service.rowSourceService = rowsource.NewService(rowsource.Config{
+		Capability:        config.Capability,
+		SemanticInventory: config.SemanticInventory,
+		RowChoiceResolver: config.RowChoiceResolver,
+		RowChoicePlanner:  config.RowChoicePlanner,
+	})
 	constructionService, err := service.buildConstructionService()
 	if err != nil {
 		return nil, err
@@ -211,7 +218,7 @@ func (s *Service) constructionConfig() construction.Config {
 		ConstructionBaseCacheTTL:     s.config.ConstructionBaseCacheTTL,
 		ConstructionBaseCacheEntries: s.config.ConstructionBaseCacheEntries,
 		Now:                          s.now,
-		SourceLanes:                  rowsource.NewService(rowsource.Config{Capability: s.config.Capability, SemanticInventory: s.config.SemanticInventory, RowChoiceResolver: s.config.RowChoiceResolver, RowChoicePlanner: s.config.RowChoicePlanner}),
+		SourceLanes:                  s.rowSourceService,
 		ReauthorizeFrameSourceChoice: func(ctx context.Context, base construction.Base, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (construction.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
 			family, route, err := s.reauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
 			return construction.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err
@@ -221,19 +228,6 @@ func (s *Service) constructionConfig() construction.Config {
 
 func (s *Service) buildConstructionService() (*construction.Service, error) {
 	return construction.NewService(s.constructionConfig())
-}
-
-func (s *Service) syncConstructionService() *construction.Service {
-	if s.constructionService == nil {
-		service, err := s.buildConstructionService()
-		if err != nil {
-			return nil
-		}
-		s.constructionService = service
-	} else {
-		s.constructionService.SetConfig(s.constructionConfig())
-	}
-	return s.constructionService
 }
 
 func (s *Service) buildRowDefService() (*rowdef.Service, error) {
@@ -264,15 +258,6 @@ func (s *Service) buildRowDefService() (*rowdef.Service, error) {
 		RowChoicePlanner:      s.config.RowChoicePlanner,
 		ExplicitGroupResolver: s.config.ExplicitGroupResolver,
 	})
-}
-
-func (s *Service) syncRowDefService() *rowdef.Service {
-	service, err := s.buildRowDefService()
-	if err != nil {
-		return s.rowDefService
-	}
-	s.rowDefService = service
-	return s.rowDefService
 }
 
 func selectionCapabilityResolver(capabilities ports.CapabilityResolver) selection.CapabilityResolver {
@@ -366,23 +351,23 @@ func NewSchemaRowChoiceResolver(index *fhirschema.Index) (*rowdef.SchemaRowChoic
 }
 
 func (s *Service) AssessRowChange(ctx context.Context, request rowdef.AssessRowChangeRequest) (rowdef.AssessRowChangeResult, error) {
-	return s.syncRowDefService().AssessRowChange(ctx, request)
+	return s.rowDefService.AssessRowChange(ctx, request)
 }
 
 func (s *Service) ListRowDefinitionChoices(ctx context.Context, request rowdef.RowDefinitionChoicesRequest) (rowdef.RowDefinitionChoicesResponse, error) {
-	return s.syncRowDefService().ListRowDefinitionChoices(ctx, request)
+	return s.rowDefService.ListRowDefinitionChoices(ctx, request)
 }
 
 func (s *Service) RowLineage(ctx context.Context, request rowdef.RowLineageRequest) (rowdef.RowLineageResult, error) {
-	return s.syncRowDefService().RowLineage(ctx, request)
+	return s.rowDefService.RowLineage(ctx, request)
 }
 
 func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDefinitionProposalRequest) (rowdef.RowDefinitionProposal, error) {
-	return s.syncRowDefService().ProposeRowDefinition(ctx, request)
+	return s.rowDefService.ProposeRowDefinition(ctx, request)
 }
 
 func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace ws.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
-	return s.syncRowDefService().ValidateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, compilationAuth, command)
+	return s.rowDefService.ValidateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, compilationAuth, command)
 }
 
 func proposalDocument(workspace ws.Workspace, outputID string) *ws.Document {

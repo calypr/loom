@@ -49,12 +49,11 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			service, store, snapshot := constructionProposalService(t)
-			workspace, construction := seedRelatedExpandRemovalConstruction(t, store)
-			candidate := constructionWithoutStep(construction, test.removeStepID)
+			setup := constructionProposalSetup(t)
+			store, snapshot := setup.Store, setup.Snapshot
 			candidateCompileCalls := 0
 			var candidateBinding *receiptmodel.ConstructionProposalBinding
-			service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				if request.ConstructionProposal != nil {
 					candidateCompileCalls++
 					candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
@@ -76,7 +75,18 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 				store.receipt = receipt
 				return receipt, nil
 			}
+			workspace, construction := seedRelatedExpandRemovalConstruction(t, store)
+			candidate := constructionWithoutStep(construction, test.removeStepID)
 
+			if test.removeStepID == "expand_observations" {
+				setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+					if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
+						return dataframeexecution.PreviewSummary{}, err
+					}
+					return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
+				}
+			}
+			service := newTestServiceFromSetup(t, setup)
 			proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -108,12 +118,6 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 			}
 
 			if test.removeStepID == "expand_observations" {
-				service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-					if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
-						return dataframeexecution.PreviewSummary{}, err
-					}
-					return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
-				}
 				version, digest := store.created.DraftVersion, store.created.DraftDigest
 				_, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 					CommandID: "apply-cascading-removal", SemanticsVersion: ws.CurrentSemanticsVersion,
@@ -129,15 +133,11 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 }
 
 func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemoval(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
-	workspace, construction := seedGroupKeyEditConstruction(t, store)
-	candidate := construction
-	candidate.Steps = append([]ws.ConstructionStep(nil), construction.Steps...)
-	candidate.Steps[0].Operation.Group.Keys = nil
-	candidate.Steps[0].Outputs = []ws.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
+	setup := constructionProposalSetup(t)
+	store, snapshot := setup.Store, setup.Snapshot
 	candidateCompileCalls := 0
 	var candidateBinding *receiptmodel.ConstructionProposalBinding
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		if request.ConstructionProposal != nil {
 			candidateCompileCalls++
 			candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
@@ -159,6 +159,18 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 		store.receipt = receipt
 		return receipt, nil
 	}
+	setup.Config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		if err := visit(map[string]any{"row_count": int64(1)}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"row_count"}, RowCount: 1, Complete: true}, nil
+	}
+	workspace, construction := seedGroupKeyEditConstruction(t, store)
+	candidate := construction
+	candidate.Steps = append([]ws.ConstructionStep(nil), construction.Steps...)
+	candidate.Steps[0].Operation.Group.Keys = nil
+	candidate.Steps[0].Outputs = []ws.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -174,12 +186,6 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	}
 	if candidateCompileCalls != 1 || candidateBinding == nil || !equalStringSlices(candidateBinding.RemoveStepIDs, []string{"dependent-id-filter"}) {
 		t.Fatalf("candidate binding = %#v, compile calls=%d; want cascade removal bound for Apply", candidateBinding, candidateCompileCalls)
-	}
-	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		if err := visit(map[string]any{"row_count": int64(1)}); err != nil {
-			return dataframeexecution.PreviewSummary{}, err
-		}
-		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"row_count"}, RowCount: 1, Complete: true}, nil
 	}
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
@@ -319,16 +325,21 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	if c.ID == "" {
 		t.Fatal("missing removal case ID")
 	}
-	service, base, snapshot, before := populationMemberProposalFixture(t)
+	_, config, base, snapshot, before := populationMemberProposalSetup(t)
 	store := &formalRemovalStore{populationProposalTestStore: base}
 	domain, err := explorer.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err = New(domain, service.config)
-	if err != nil {
-		t.Fatal(err)
+	authorize := config.Capability.ForCompilation
+	config.Capability.ForCompilation = func(ctx context.Context, project, token string) (ports.AuthorizedCapability, error) {
+		return authorize(ctx, project, token)
 	}
+	preview := config.PreviewReceipt
+	config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		return preview(ctx, receipt, bindings, visit)
+	}
+	service := newPopulationMemberProposalService(t, domain, config)
 	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
 	if err != nil {
@@ -379,15 +390,15 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 		store.selections[candidateID] = candidate
 	}
 	if !*c.AuthorizationMatches {
-		authorized, authErr := service.config.Capability.ForCompilation(context.Background(), "project-a", "patients")
+		authorized, authErr := authorize(context.Background(), "project-a", "patients")
 		if authErr != nil {
 			t.Fatal(authErr)
 		}
 		authorized.Scope = authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/foreign"}}
-		service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
+		authorize = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
 	}
 	previewCalls := 0
-	service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	preview = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if *c.ConcurrentDraftChange {
 			competing := before

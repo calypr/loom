@@ -111,7 +111,25 @@ func TestLegacyPopulationRouteHydratesDirectionOnlyForResolvedInputs(t *testing.
 }
 
 func TestConstructionColumnPopulationValidatesExactStageAndCachesOnlyConclusiveResults(t *testing.T) {
-	service, store, snapshot := constructionProposalService(t)
+	var request construction.ConstructionColumnPopulationRequest
+	var calls int
+	fail := true
+	service, store, snapshot := constructionProposalService(t, func(setup *testServiceSetup) {
+		setup.Config.ScanColumnPopulation = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
+			calls++
+			if receipt == nil || receipt.ID == "" || bindings.SelectionProject != setup.Store.created.Project || scan.Output != request.OutputID || scan.StageID != request.StageID || len(scan.ColumnIDs) != 2 {
+				t.Fatalf("scanner was not bound to the exact request: receipt=%#v bindings=%#v request=%#v", receipt, bindings, scan)
+			}
+			if fail {
+				fail = false
+				return dataframeexecution.ColumnPopulationResult{}, errors.New("backend timeout")
+			}
+			return dataframeexecution.ColumnPopulationResult{Columns: []dataframeexecution.ColumnPopulation{
+				{ColumnID: scan.ColumnIDs[0], Status: dataframeexecution.ColumnPopulationPopulated},
+				{ColumnID: scan.ColumnIDs[1], Status: dataframeexecution.ColumnPopulationEmpty},
+			}}, nil
+		}
+	})
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -136,28 +154,11 @@ func TestConstructionColumnPopulationValidatesExactStageAndCachesOnlyConclusiveR
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
 	document := workspace.Documents[0]
-	request := construction.ConstructionColumnPopulationRequest{
+	request = construction.ConstructionColumnPopulationRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
 		ColumnIDs: []string{document.Columns[0].ColumnID, document.Columns[1].ColumnID},
-	}
-
-	calls := 0
-	fail := true
-	service.config.ScanColumnPopulation = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
-		calls++
-		if receipt == nil || receipt.ID == "" || bindings.SelectionProject != store.created.Project || scan.Output != request.OutputID || scan.StageID != request.StageID || len(scan.ColumnIDs) != 2 {
-			t.Fatalf("scanner was not bound to the exact request: receipt=%#v bindings=%#v request=%#v", receipt, bindings, scan)
-		}
-		if fail {
-			fail = false
-			return dataframeexecution.ColumnPopulationResult{}, errors.New("backend timeout")
-		}
-		return dataframeexecution.ColumnPopulationResult{Columns: []dataframeexecution.ColumnPopulation{
-			{ColumnID: scan.ColumnIDs[0], Status: dataframeexecution.ColumnPopulationPopulated},
-			{ColumnID: scan.ColumnIDs[1], Status: dataframeexecution.ColumnPopulationEmpty},
-		}}, nil
 	}
 
 	stale := request

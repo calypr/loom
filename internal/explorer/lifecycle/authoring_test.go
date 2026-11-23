@@ -19,7 +19,13 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, capability.Snapshot, ws.CatalogSnapshot, capability.Candidate) {
+func inboundPatientObservationRouteFixture(t *testing.T, options ...testServiceOption) (*fakeStore, *Service, capability.Snapshot, ws.CatalogSnapshot, capability.Candidate) {
+	t.Helper()
+	setup, candidate := inboundPatientObservationRouteSetup(t, options...)
+	return setup.Store, newTestServiceFromSetup(t, setup), setup.Snapshot, setup.Catalog, candidate
+}
+
+func inboundPatientObservationRouteSetup(t *testing.T, options ...testServiceOption) (testServiceSetup, capability.Candidate) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "construction-route-snapshot", scope)
@@ -60,11 +66,16 @@ func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, 
 		},
 		Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog },
 	}}
-	return store, newTestService(t, store, config), snapshot, catalog, candidate
+	setup := testServiceSetup{Config: &config, Store: store, Snapshot: snapshot, Catalog: catalog}
+	for _, option := range options {
+		option(&setup)
+	}
+	return setup, candidate
 }
 
-func constructionRouteTestReceipt(service *Service, snapshot capability.Snapshot, workspace ws.Workspace) (*receiptmodel.CompilationReceipt, error) {
-	prepared, err := ws.PrepareWorkspaceForCompilation(workspace, service.catalog(snapshot, "patients"))
+func constructionRouteTestReceipt(config *Config, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	snapshot := request.Authorized.Snapshot
+	prepared, err := ws.PrepareWorkspaceForCompilation(request.Workspace, config.Capability.Catalog(snapshot, request.ExplorerID))
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +162,8 @@ func TestConstructionChoiceAppliesRelatedAllForScalarField(t *testing.T) {
 }
 
 func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
-	_, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	setup, candidate := inboundPatientObservationRouteSetup(t)
+	snapshot := setup.Snapshot
 	unsupported := candidate
 	unsupported.NodeID = "patient"
 	unsupported.ResourceType = "Patient"
@@ -162,10 +174,11 @@ func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 		FieldPath: "name[].text", LogicalType: "string", Cardinality: "optional_one",
 	}
 	snapshot.Candidates = []capability.Candidate{unsupported, child}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 
+	service := newTestServiceFromSetup(t, setup)
 	_, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: unsupported.ID},
@@ -178,31 +191,32 @@ func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 }
 
 func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T) {
-	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
-		if prepareErr != nil {
-			return nil, prepareErr
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t, func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, prepareErr := constructionRouteTestReceipt(setup.Config, request)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			capabilities := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
+			columns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+			anchors := []receiptmodel.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
+				{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: anchors},
+				{ID: "keep_patients", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "FILTER", Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: anchors},
+			}}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
 		}
-		capabilities := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
-		columns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
-		anchors := []receiptmodel.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: anchors},
-			{ID: "keep_patients", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "FILTER", Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: anchors},
-		}}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
+	})
 	result, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -256,7 +270,58 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 }
 
 func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *testing.T) {
-	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
+	setup, candidate := inboundPatientObservationRouteSetup(t, func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			prepared, prepareErr := ws.PrepareWorkspaceForCompilation(request.Workspace, setup.Catalog)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			receipt := lifecycleConstructionReceipt(setup.Snapshot, prepared)
+			root := receiptmodel.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
+			active := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
+				AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
+				ResourceType: "Observation", Label: "Current related Observation",
+			}
+			activeRecord := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
+				TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: active.AnchorColumnID,
+			}
+			supported := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
+			sourceColumns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}}
+			expandedColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), sourceColumns...), receiptmodel.ReceiptConstructionStageColumn{
+				ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string",
+			})
+			patientObservationRoute := []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}}
+			relatedExpand := &receiptmodel.ReceiptConstructionRelatedExpand{
+				AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorNodeID: "patient", AnchorResourceType: "Patient",
+				RelatedRecordColumnID: "observation_id", ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
+				TerminalIdentityColumn: active.AnchorColumnID, TargetNodeID: "observation", TargetResourceType: "Observation", Route: patientObservationRoute,
+			}
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
+				{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: supported, RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{root}},
+				{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
+					Columns: expandedColumns, Capabilities: supported, RelatedExpand: relatedExpand, ActiveRelatedRecord: activeRecord,
+					RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{root, active}},
+			}}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
+		}
+	})
+	store := setup.Store
+	snapshot := setup.Snapshot
+	catalog := setup.Catalog
 	candidate.Observed = true
 	candidate.Populated = true
 	candidate.ObservedDocumentCount = 7
@@ -307,58 +372,12 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		SourceResourceType: "Observation", TargetResourceType: "Specimen", Label: "specimen_Specimen", StorageDirection: "OUTBOUND",
 	})
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		prepared, prepareErr := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
-		if prepareErr != nil {
-			return nil, prepareErr
-		}
-		receipt := lifecycleConstructionReceipt(snapshot, prepared)
-		root := receiptmodel.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
-		active := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
-			ResourceType: "Observation", Label: "Current related Observation",
-		}
-		activeRecord := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-			TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: active.AnchorColumnID,
-		}
-		supported := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
-		sourceColumns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}}
-		expandedColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), sourceColumns...), receiptmodel.ReceiptConstructionStageColumn{
-			ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string",
-		})
-		patientObservationRoute := []recipe.ConstructionRelatedRouteStep{{
-			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
-			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
-			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
-		}}
-		relatedExpand := &receiptmodel.ReceiptConstructionRelatedExpand{
-			AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorNodeID: "patient", AnchorResourceType: "Patient",
-			RelatedRecordColumnID: "observation_id", ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
-			TerminalIdentityColumn: active.AnchorColumnID, TargetNodeID: "observation", TargetResourceType: "Observation", Route: patientObservationRoute,
-		}
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: supported, RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{root}},
-			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
-				Columns: expandedColumns, Capabilities: supported, RelatedExpand: relatedExpand, ActiveRelatedRecord: activeRecord,
-				RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{root, active}},
-		}}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
+	setup.Config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 
+	service := newTestServiceFromSetup(t, setup)
 	searchRoute := func(stageID, anchorColumnID, targetResourceType string) construction.RelatedExpandRouteChoice {
 		t.Helper()
 		result, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
@@ -479,32 +498,33 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 }
 
 func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *testing.T) {
-	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
-		if prepareErr != nil {
-			return nil, prepareErr
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t, func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, prepareErr := constructionRouteTestReceipt(setup.Config, request)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			columns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+			anchors := []receiptmodel.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
+				{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}, RelatedExpandAnchors: anchors},
+				{ID: "after_group", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP", Columns: columns,
+					Capabilities:         []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: false, ReasonCode: "ROOT_KEY_NOT_RETAINED", Reason: "selected stage does not retain a root resource key"}},
+					RelatedExpandAnchors: anchors},
+			}}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
 		}
-		columns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
-		anchors := []receiptmodel.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}, RelatedExpandAnchors: anchors},
-			{ID: "after_group", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP", Columns: columns,
-				Capabilities:         []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: false, ReasonCode: "ROOT_KEY_NOT_RETAINED", Reason: "selected stage does not retain a root resource key"}},
-				RelatedExpandAnchors: anchors},
-		}}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
+	})
 	request := construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -520,77 +540,81 @@ func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *test
 }
 
 func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) {
-	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	setup, _ := inboundPatientObservationRouteSetup(t, func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, prepareErr := constructionRouteTestReceipt(setup.Config, request)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
+				AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient",
+			}
+			activeAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
+				AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
+				ResourceType: "Observation", Label: "Current related Observation",
+			}
+			patientObservationRoute := []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}}
+			active := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
+				TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: activeAnchor.AnchorColumnID,
+			}
+			relatedExpand := &receiptmodel.ReceiptConstructionRelatedExpand{
+				AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorResourceType: "Patient",
+				RelatedRecordColumnID: "observation_id", ParentIdentityColumnID: "__parent_identity",
+				ParentIdentityColumn: "__parent_identity", TerminalIdentityColumn: activeAnchor.AnchorColumnID,
+				TargetNodeID: "observation", TargetResourceType: "Observation", Route: patientObservationRoute,
+			}
+			capabilities := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
+			columns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID"}}
+			expandedColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), columns...), receiptmodel.ReceiptConstructionStageColumn{
+				ID: "observation_id", Name: "observation_id", Label: "Observation ID",
+			})
+			fieldColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), expandedColumns...), receiptmodel.ReceiptConstructionStageColumn{
+				ID: "observation_status", Name: "observation_status", Label: "Observation Status",
+			})
+			fieldCapabilities := []receiptmodel.ReceiptConstructionOperationChoice{
+				{Kind: "RELATED_EXPAND", Supported: true}, {Kind: "RELATED_FIELD", Supported: true},
+			}
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
+				{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
+				{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
+					Columns: expandedColumns, Capabilities: capabilities, RelatedExpand: relatedExpand, ActiveRelatedRecord: active,
+					RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+				{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
+					Columns: expandedColumns, Capabilities: capabilities, ActiveRelatedRecord: active,
+					RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+				{ID: "add_observation_status", InputStageID: "keep_observations", Operation: "RELATED_FIELD",
+					Columns: fieldColumns, Capabilities: fieldCapabilities, ActiveRelatedRecord: active,
+					RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+			}}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
+		}
+	})
+	store := setup.Store
+	snapshot := setup.Snapshot
 	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "specimen", ResourceType: "Specimen"})
 	snapshot.Edges = append(snapshot.Edges, capability.Edge{
 		ID: "observation-specimen", FromNodeID: "observation", ToNodeID: "specimen",
 		SourceResourceType: "Observation", TargetResourceType: "Specimen", Label: "specimen_Specimen", StorageDirection: "OUTBOUND",
 	})
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
-		if prepareErr != nil {
-			return nil, prepareErr
-		}
-		rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-			AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient",
-		}
-		activeAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
-			ResourceType: "Observation", Label: "Current related Observation",
-		}
-		patientObservationRoute := []recipe.ConstructionRelatedRouteStep{{
-			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
-			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
-			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
-		}}
-		active := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-			TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: activeAnchor.AnchorColumnID,
-		}
-		relatedExpand := &receiptmodel.ReceiptConstructionRelatedExpand{
-			AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorResourceType: "Patient",
-			RelatedRecordColumnID: "observation_id", ParentIdentityColumnID: "__parent_identity",
-			ParentIdentityColumn: "__parent_identity", TerminalIdentityColumn: activeAnchor.AnchorColumnID,
-			TargetNodeID: "observation", TargetResourceType: "Observation", Route: patientObservationRoute,
-		}
-		capabilities := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
-		columns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID"}}
-		expandedColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), columns...), receiptmodel.ReceiptConstructionStageColumn{
-			ID: "observation_id", Name: "observation_id", Label: "Observation ID",
-		})
-		fieldColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), expandedColumns...), receiptmodel.ReceiptConstructionStageColumn{
-			ID: "observation_status", Name: "observation_status", Label: "Observation Status",
-		})
-		fieldCapabilities := []receiptmodel.ReceiptConstructionOperationChoice{
-			{Kind: "RELATED_EXPAND", Supported: true}, {Kind: "RELATED_FIELD", Supported: true},
-		}
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
-			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
-				Columns: expandedColumns, Capabilities: capabilities, RelatedExpand: relatedExpand, ActiveRelatedRecord: active,
-				RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
-			{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
-				Columns: expandedColumns, Capabilities: capabilities, ActiveRelatedRecord: active,
-				RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
-			{ID: "add_observation_status", InputStageID: "keep_observations", Operation: "RELATED_FIELD",
-				Columns: fieldColumns, Capabilities: fieldCapabilities, ActiveRelatedRecord: active,
-				RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
-		}}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
+	service := newTestServiceFromSetup(t, setup)
 	search := func(anchorColumnID, targetResourceType string) construction.RelatedExpandChoiceSearchResponse {
 		t.Helper()
 		result, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
@@ -623,7 +647,60 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 }
 
 func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T) {
-	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	setup, candidate := inboundPatientObservationRouteSetup(t, func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, prepareErr := constructionRouteTestReceipt(setup.Config, request)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			route := []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}}
+			active := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
+				TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: "__terminal_observation_id",
+			}
+			sourceColumns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}}
+			expandedColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), sourceColumns...), receiptmodel.ReceiptConstructionStageColumn{
+				ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string",
+			})
+			relatedExpand := &receiptmodel.ReceiptConstructionRelatedExpand{
+				AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorNodeID: "patient", AnchorResourceType: "Patient", RelatedRecordColumnID: "observation-id",
+				ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
+				TerminalIdentityColumn: active.TerminalIdentityColumn, TargetNodeID: active.TargetNodeID,
+				TargetResourceType: active.TargetResourceType, Route: route,
+			}
+			fieldCapability := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_FIELD", Supported: true}}
+			rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
+			activeAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: active.TerminalIdentityColumn, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related Observation"}
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
+				{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{
+					{Kind: "RELATED_EXPAND", Supported: true},
+					{Kind: "RELATED_FIELD", Supported: false, ReasonCode: "NO_ACTIVE_RELATED_RECORD", Reason: "no active related record"},
+				}, RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
+				{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
+					Columns: expandedColumns, Capabilities: fieldCapability, RelatedExpand: relatedExpand, ActiveRelatedRecord: active,
+					RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+				{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
+					Columns: expandedColumns, Capabilities: fieldCapability, ActiveRelatedRecord: active,
+					RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+			}}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
+		}
+	})
+	store := setup.Store
+	snapshot := setup.Snapshot
 	unsupported := capability.Candidate{
 		ID: "observation-indexed-code", NodeID: "observation", ResourceType: "Observation",
 		FieldPath: "component[0].code", Label: "Indexed code", LogicalType: "code", Cardinality: "optional_one",
@@ -631,59 +708,10 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 	}
 	snapshot.Candidates = append(snapshot.Candidates, unsupported)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
-		if prepareErr != nil {
-			return nil, prepareErr
-		}
-		route := []recipe.ConstructionRelatedRouteStep{{
-			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
-			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
-			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
-		}}
-		active := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-			TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: "__terminal_observation_id",
-		}
-		sourceColumns := []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}}
-		expandedColumns := append(append([]receiptmodel.ReceiptConstructionStageColumn(nil), sourceColumns...), receiptmodel.ReceiptConstructionStageColumn{
-			ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string",
-		})
-		relatedExpand := &receiptmodel.ReceiptConstructionRelatedExpand{
-			AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorNodeID: "patient", AnchorResourceType: "Patient", RelatedRecordColumnID: "observation-id",
-			ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
-			TerminalIdentityColumn: active.TerminalIdentityColumn, TargetNodeID: active.TargetNodeID,
-			TargetResourceType: active.TargetResourceType, Route: route,
-		}
-		fieldCapability := []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_FIELD", Supported: true}}
-		rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
-		activeAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: active.TerminalIdentityColumn, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related Observation"}
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{
-				{Kind: "RELATED_EXPAND", Supported: true},
-				{Kind: "RELATED_FIELD", Supported: false, ReasonCode: "NO_ACTIVE_RELATED_RECORD", Reason: "no active related record"},
-			}, RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
-			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
-				Columns: expandedColumns, Capabilities: fieldCapability, RelatedExpand: relatedExpand, ActiveRelatedRecord: active,
-				RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
-			{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
-				Columns: expandedColumns, Capabilities: fieldCapability, ActiveRelatedRecord: active,
-				RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
-		}}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
+	service := newTestServiceFromSetup(t, setup)
 	response, err := service.SearchRelatedFieldChoices(context.Background(), construction.RelatedFieldChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -726,27 +754,28 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 }
 
 func TestRelatedFieldChoicesRequireActiveStageIdentity(t *testing.T) {
-	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
-		if prepareErr != nil {
-			return nil, prepareErr
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t, func(setup *testServiceSetup) {
+		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, prepareErr := constructionRouteTestReceipt(setup.Config, request)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
+				{ID: recipe.ConstructionSourceProjectionID, Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}},
+			}}
+			var err error
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
 		}
-		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}},
-		}}
-		var err error
-		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
-		if err != nil {
-			return nil, err
-		}
-		store.receipt = receipt
-		return receipt, nil
-	}
+	})
 	request := construction.RelatedFieldChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -762,8 +791,12 @@ func TestRelatedFieldChoicesRequireActiveStageIdentity(t *testing.T) {
 }
 
 func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.T) {
-	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
-	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)
+	setup, candidate := inboundPatientObservationRouteSetup(t)
+	store := setup.Store
+	snapshot := setup.Snapshot
+	catalog := setup.Catalog
+	snapshot, catalog = addParallelObservationRoute(setup.Config, snapshot, catalog)
+	service := newTestServiceFromSetup(t, setup)
 	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
@@ -865,12 +898,16 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 }
 
 func TestConstructionChoiceRejectsAmbiguousLegacyPrefix(t *testing.T) {
-	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
-	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)
+	setup, candidate := inboundPatientObservationRouteSetup(t)
+	store := setup.Store
+	snapshot := setup.Snapshot
+	catalog := setup.Catalog
+	snapshot, catalog = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	setSavedConstructionRoute(t, store, ws.RouteNode{
 		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient",
 		Children: []ws.RouteNode{{OccurrenceID: "legacy-observation", ResourceType: "Observation", Relationship: "subject_Patient"}},
 	})
+	service := newTestServiceFromSetup(t, setup)
 	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
@@ -985,7 +1022,9 @@ func TestConstructionChoiceSearchRejectsOccurrenceOutsideOutputOrWrongTerminal(t
 }
 
 func TestConstructionChoiceSearchRejectsAmbiguousOccurrenceEdgeResolution(t *testing.T) {
-	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	setup, candidate := inboundPatientObservationRouteSetup(t)
+	store := setup.Store
+	snapshot := setup.Snapshot
 	setSavedConstructionRoute(t, store, ws.RouteNode{
 		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient",
 		Children: []ws.RouteNode{{OccurrenceID: "ambiguous-observation", ResourceType: "Observation", Relationship: "subject_Patient"}},
@@ -994,9 +1033,10 @@ func TestConstructionChoiceSearchRejectsAmbiguousOccurrenceEdgeResolution(t *tes
 		ID: "subject-patient-parallel", FromNodeID: "patient", ToNodeID: "observation",
 		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND",
 	})
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
+	service := newTestServiceFromSetup(t, setup)
 	_, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: "ambiguous-observation",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
@@ -1031,13 +1071,17 @@ func persistTestWorkspace(t *testing.T, store *fakeStore, workspace ws.Workspace
 }
 
 func TestConstructionChoiceSearchRequiresCompleteRouteCompilerProof(t *testing.T) {
-	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
+	setup, candidate := inboundPatientObservationRouteSetup(t)
+	store := setup.Store
+	snapshot := setup.Snapshot
+	catalog := setup.Catalog
 	snapshot.Edges[0].Label = "not_a_fhir_relationship"
 	catalog.Edges[0].Label = snapshot.Edges[0].Label
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	service.config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
+	setup.Config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
+	service := newTestServiceFromSetup(t, setup)
 	result, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
@@ -1215,9 +1259,13 @@ func TestPopulationRouteResolutionPreservesPinnedEdgesAndRejectsAmbiguousLegacyR
 }
 
 func TestPopulationRouteChoicePersistsExactParallelEdgeAndReloads(t *testing.T) {
-	store, service, snapshot, catalog, _ := inboundPatientObservationRouteFixture(t)
-	snapshot, _ = addParallelObservationRoute(service, snapshot, catalog)
+	setup, _ := inboundPatientObservationRouteSetup(t)
+	store := setup.Store
+	snapshot := setup.Snapshot
+	catalog := setup.Catalog
+	snapshot, _ = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	store.selection = completedTestSelection(snapshot, "Observation")
+	service := newTestServiceFromSetup(t, setup)
 	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
@@ -1266,7 +1314,7 @@ func TestPopulationRouteChoicePersistsExactParallelEdgeAndReloads(t *testing.T) 
 	}
 }
 
-func addParallelObservationRoute(service *Service, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (capability.Snapshot, ws.CatalogSnapshot) {
+func addParallelObservationRoute(config *Config, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (capability.Snapshot, ws.CatalogSnapshot) {
 	edge := snapshot.Edges[0]
 	edge.ID = "subject-patient-parallel"
 	snapshot.Edges = append(snapshot.Edges, edge)
@@ -1274,10 +1322,10 @@ func addParallelObservationRoute(service *Service, snapshot capability.Snapshot,
 	catalogEdge.ID = edge.ID
 	catalog.Edges = append(catalog.Edges, catalogEdge)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot {
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot {
 		return catalog
 	}
 	return snapshot, catalog
@@ -1307,7 +1355,9 @@ func TestPopulationRouteRejectionIsAtomicWhenChoiceIsTampered(t *testing.T) {
 }
 
 func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testing.T) {
-	store, service, snapshot, candidates := constructionChoiceFixture(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	setup, candidates := constructionChoiceSetup(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	store := setup.Store
+	snapshot := setup.Snapshot
 	choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidates[0])
 	if err != nil {
 		t.Fatal(err)
@@ -1317,7 +1367,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 		t.Fatal(err)
 	}
 	choiceID := "command-choice-proposal"
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
@@ -1345,6 +1395,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 			{ChoiceID: choiceBatch.ChoiceID, Form: capability.ConstructionChoiceFirst},
 		},
 	}
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstructionChoice(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -1396,12 +1447,14 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 }
 
 func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.T) {
-	store, service, snapshot, candidates := constructionChoiceFixture(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	setup, candidates := constructionChoiceSetup(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	store := setup.Store
+	snapshot := setup.Snapshot
 	choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidates[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		store.receipt = receipt
 		return receipt, nil
@@ -1412,6 +1465,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 		ConstructionChoices: []construction.ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
 	}
 	request.ExpectedDraftVersion++
+	service := newTestServiceFromSetup(t, setup)
 	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "DRAFT_CONFLICT") {
 		t.Fatalf("stale draft error = %v", err)
 	}
@@ -1430,8 +1484,10 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 }
 
 func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDraft(t *testing.T) {
-	store, service, snapshot, _, choice := constructionSemanticChoiceFixture(t, nil, nil, "Observation")
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+	setup, _, choice := constructionSemanticChoiceSetup(t, nil, nil, "Observation")
+	store := setup.Store
+	snapshot := setup.Snapshot
+	setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		var compileErr error
 		receipt.CompilationKey, compileErr = receiptmodel.CompilationKey(*receipt)
@@ -1447,6 +1503,7 @@ func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDr
 	}
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
+	service := newTestServiceFromSetup(t, setup)
 	proposal, err := service.ProposeConstructionChoice(context.Background(), construction.ConstructionChoiceProposalRequest{
 		CommandID: "semantic-choice-preview", Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest, OutputID: "patients",

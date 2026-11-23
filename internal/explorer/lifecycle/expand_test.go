@@ -135,8 +135,8 @@ func expandTestSignedPayload(path, fhirType, logicalType string) *ws.Constructio
 	return &ws.ConstructionExpandedFieldSource{Path: path, Cardinality: ws.ConstructionExpandedFieldCardinalityMany, FHIRType: fhirType, LogicalType: logicalType}
 }
 
-func expandTestService(planner rowdef.RowChoicePlanner) *Service {
-	return &Service{config: Config{RowChoicePlanner: planner}}
+func expandTestService(t *testing.T, planner rowdef.RowChoicePlanner) *Service {
+	return newTestService(t, &fakeStore{}, Config{RowChoicePlanner: planner})
 }
 
 func expandTestPatientBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
@@ -181,7 +181,7 @@ func TestConstructionExpandSourceCapabilityAdvertisesPopulatedRootPrimitiveArray
 	candidate := expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true)
 	snapshot.Candidates = append(snapshot.Candidates, candidate)
 	row := expandTestAdvertisedRow(expandTestMintArrayChoice(t, snapshot, "node-patient", "Patient", "photo[]", "string"), "ignored — wire label is candidate-sourced")
-	service := expandTestService(expandTestPlanner{choices: []capability.RowChoice{row}})
+	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{row}})
 
 	result, err := service.constructionExpandSourceCapability(context.Background(), expandTestPatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), expandTestOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestConstructionExpandSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 	snapshot := harness.snapshot
 	snapshot.Candidates = append(snapshot.Candidates, expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true))
 	row := expandTestAdvertisedRow(expandTestMintArrayChoice(t, snapshot, "node-patient", "Patient", "photo[]", "string"), "Photo attachment")
-	service := expandTestService(expandTestPlanner{choices: []capability.RowChoice{row}})
+	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{row}})
 
 	live := expandTestExpandStep(expandTestInput, "")
 	live.Operation.Expand.ExpandedField = expandTestSignedPayload("photo[]", "string", "string")
@@ -329,7 +329,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			candidates: []capability.Candidate{
 				expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true),
 			},
-			service: expandTestService(nil), construction: rowChanging, stageID: "group-first", stages: blockedStages,
+			service: expandTestService(t, nil), construction: rowChanging, stageID: "group-first", stages: blockedStages,
 			choices: func(t *testing.T, s capability.Snapshot) []capability.RowChoice {
 				return []capability.RowChoice{photoRow(t, s)}
 			},
@@ -340,7 +340,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			candidates: []capability.Candidate{
 				expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true),
 			},
-			service: expandTestService(nil), construction: empty, stageID: rootStage,
+			service: expandTestService(t, nil), construction: empty, stageID: rootStage,
 			choices: func(t *testing.T, s capability.Snapshot) []capability.RowChoice {
 				return []capability.RowChoice{photoRow(t, s)}
 			},
@@ -351,7 +351,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			candidates: []capability.Candidate{
 				expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true),
 			},
-			service: expandTestService(emptyRowSourceChoicePlanner{}), construction: empty, stageID: rootStage,
+			service: expandTestService(t, emptyRowSourceChoicePlanner{}), construction: empty, stageID: rootStage,
 			choices:  func(t *testing.T, s capability.Snapshot) []capability.RowChoice { return nil },
 			wantCode: "NO_ELIGIBLE_POPULATED_EXPAND_SOURCE_FIELDS",
 		},
@@ -382,7 +382,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			snapshot.Candidates = row.candidates
 			service := row.service
 			if service == nil {
-				service = expandTestService(expandTestPlanner{choices: row.choices(t, snapshot)})
+				service = expandTestService(t, expandTestPlanner{choices: row.choices(t, snapshot)})
 			}
 			base := expandTestPatientBase(snapshot, row.construction)
 			base.Stages = append(base.Stages, row.stages...)
@@ -420,7 +420,7 @@ func TestConstructionExpandSourceCapabilityNamesInventoryFailureDistinctly(t *te
 	snapshot := harness.snapshot
 	snapshot.Candidates = append(snapshot.Candidates, expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true))
 	inventoryErr := errors.New("row-choice inventory store unreachable: capability-store-dsn=secret-token")
-	service := expandTestService(failingRowSourcePlanner{err: inventoryErr})
+	service := expandTestService(t, failingRowSourcePlanner{err: inventoryErr})
 	_, err := service.constructionExpandSourceCapability(context.Background(), expandTestPatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), expandTestOutput, recipe.ConstructionSourceProjectionID)
 	if err == nil {
 		t.Fatal("expand source capability with a failing planner returned no error")
@@ -627,7 +627,7 @@ func TestProposeConstructionExpandSourceRefusesClientAuthoredLaneFacts(t *testin
 		SourceProjections: []ws.ConstructionSourceProjection{clientProjection},
 	}
 
-	out, err := expandTestService(nil).constructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
+	out, err := expandTestService(t, nil).constructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: "explorer-a", OutputID: "procedures",
 		ChangedStepID: expandTestStep, CandidateConstruction: candidate,
 	}, candidate)
@@ -748,14 +748,14 @@ func expandTestAuthorizedRow() capability.RowChoice {
 
 func TestReauthorizeConstructionExpandSourcesCurrentBindingPasses(t *testing.T) {
 	construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
-	service := expandTestService(expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
+	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
 	if err := service.reauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction); err != nil {
 		t.Fatalf("reauthorize a current expand binding: %v", err)
 	}
 }
 
 func TestReauthorizeConstructionExpandSourcesRefusesDrift(t *testing.T) {
-	service := expandTestService(expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
+	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
 	rows := []struct {
 		name    string
 		mutate  func(*ws.Construction, *capability.Snapshot)
@@ -823,7 +823,7 @@ func TestReauthorizeConstructionExpandSourcesRefusesDrift(t *testing.T) {
 
 func TestReauthorizeConstructionExpandSourcesRefusesWithoutPlanner(t *testing.T) {
 	construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
-	service := expandTestService(nil)
+	service := expandTestService(t, nil)
 	err := service.reauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
 	if err == nil || lifecycleErrorCode(err) != "ROW_CHOICE_UNAVAILABLE" {
 		t.Fatalf("reauthorize without a planner = %v, want ROW_CHOICE_UNAVAILABLE", err)
@@ -833,7 +833,7 @@ func TestReauthorizeConstructionExpandSourcesRefusesWithoutPlanner(t *testing.T)
 func TestReauthorizeConstructionExpandSourcesKeepsFailClosedWhenPayloadStripped(t *testing.T) {
 	construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
 	construction.Steps[0].Operation.Expand.ExpandedField = nil
-	service := expandTestService(expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
+	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()
@@ -853,34 +853,34 @@ func TestReauthorizeConstructionExpandSourcesKeepsFailClosedWhenPayloadStripped(
 
 func newExpandProcedureHarness(t *testing.T) *filterSourceHarness {
 	t.Helper()
-	h := newFilterSourceHarness(t)
-
-	scopeDigest := h.snapshot.Identity.AuthorizationScopeDigest
-	shapeDigest := h.snapshot.Identity.ShapeDigest
-	h.snapshot = expandTestProcedureSnapshot("expand-procedure-acceptance")
-	h.snapshot.Identity.AuthorizationScopeDigest = scopeDigest
-	h.snapshot.Identity.ShapeDigest = shapeDigest
-	h.service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
-		catalog := ws.CatalogSnapshot{
-			APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: got.Identity.Project,
-			ExplorerID: explorerID, SourceGeneration: got.Identity.Generation,
-			AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token,
-			Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
-			Nodes: []ws.CatalogNode{{ID: "procedure", ResourceType: "Procedure", RowRootEligible: true, RowGrain: "procedure"}},
-		}
-		for _, candidate := range h.snapshot.Candidates {
-			choice, choiceErr := capability.NewFieldConstructionChoice(got.Token, candidate)
-			if choiceErr != nil {
-				t.Fatalf("make procedure source choice for %s: %v", candidate.FieldPath, choiceErr)
+	h := newFilterSourceHarness(t, func(h *filterSourceHarness, config *Config) {
+		scopeDigest := h.snapshot.Identity.AuthorizationScopeDigest
+		shapeDigest := h.snapshot.Identity.ShapeDigest
+		h.snapshot = expandTestProcedureSnapshot("expand-procedure-acceptance")
+		h.snapshot.Identity.AuthorizationScopeDigest = scopeDigest
+		h.snapshot.Identity.ShapeDigest = shapeDigest
+		config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+			catalog := ws.CatalogSnapshot{
+				APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: got.Identity.Project,
+				ExplorerID: explorerID, SourceGeneration: got.Identity.Generation,
+				AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token,
+				Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+				Nodes: []ws.CatalogNode{{ID: "procedure", ResourceType: "Procedure", RowRootEligible: true, RowGrain: "procedure"}},
 			}
-			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
-				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
-				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
-				ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
-			})
+			for _, candidate := range h.snapshot.Candidates {
+				choice, choiceErr := capability.NewFieldConstructionChoice(got.Token, candidate)
+				if choiceErr != nil {
+					t.Fatalf("make procedure source choice for %s: %v", candidate.FieldPath, choiceErr)
+				}
+				catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
+					ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
+					LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+					ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
+				})
+			}
+			return catalog
 		}
-		return catalog
-	}
+	})
 	workspace, err := ws.DecodeWorkspace(h.store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
