@@ -2,9 +2,463 @@ package aql
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
+
+func composedLineageIdentityPreservingStage(kind ir.PhysicalStageOperationKind) bool {
+	switch kind {
+	case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedEligibilityOp,
+		ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedFieldOp:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r rowLineageRenderer) renderComposedRelatedRowLineage(
+	sourceQuery string,
+	stages []ir.PhysicalConstructionStage,
+	terminal ir.PhysicalRowLineageReturn,
+) (RenderedPhysicalPlan, error) {
+	trace := terminal.Trace
+	if trace == nil || trace.RootKeyBindKey == "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage requires a validated root key trace")
+	}
+	if _, ok := r.bindVars[trace.RootKeyBindKey]; !ok {
+		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage root key bind %q is missing", trace.RootKeyBindKey)
+	}
+	if terminal.RowIDBindKey == "" || terminal.ResourceType == "" || terminal.ResourceIDColumn == "" || terminal.OccurrenceKeyColumn == "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage is missing terminal or root contributor metadata")
+	}
+	if _, ok := r.bindVars[terminal.RowIDBindKey]; !ok {
+		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage final identity bind %q is missing", terminal.RowIDBindKey)
+	}
+	if len(stages) == 0 || stages[len(stages)-1].RowIdentityColumn == "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage final stage has no identity column")
+	}
+
+	matches := make(map[string]ir.PhysicalRowLineageStageMatch, len(trace.Stages))
+	for _, match := range trace.Stages {
+		if match.StageID == "" || match.Kind != ir.PhysicalStageRelatedExpandOp || match.StageRowIDBindKey == "" || match.RelatedTerminalIDBindKey == "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage has an incomplete related-stage match")
+		}
+		if _, duplicate := matches[match.StageID]; duplicate {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage repeats stage %q", match.StageID)
+		}
+		if _, ok := r.bindVars[match.StageRowIDBindKey]; !ok {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage stage %q identity bind %q is missing", match.StageID, match.StageRowIDBindKey)
+		}
+		if _, ok := r.bindVars[match.RelatedTerminalIDBindKey]; !ok {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage stage %q terminal bind %q is missing", match.StageID, match.RelatedTerminalIDBindKey)
+		}
+		if match.RelatedRowKind != "RELATED" && match.RelatedRowKind != "EMPTY" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage stage %q has unsupported row kind %q", match.StageID, match.RelatedRowKind)
+		}
+		matches[match.StageID] = match
+	}
+
+	rootSource := r.core.navigation().newInternalVariable("row_lineage_root_source")
+	rootKeyColumnBind := r.core.newInternalBindKey("row_lineage_root_key_column")
+	r.bindVars[rootKeyColumnBind] = terminal.OccurrenceKeyColumn
+	rootIDColumnBind := r.core.newInternalBindKey("row_lineage_root_resource_id_column")
+	r.bindVars[rootIDColumnBind] = terminal.ResourceIDColumn
+	rootTypeBind := r.core.newInternalBindKey("row_lineage_root_resource_type")
+	r.bindVars[rootTypeBind] = terminal.ResourceType
+	states := r.core.navigation().newInternalVariable("row_lineage_composed_source_rows")
+	lines := []string{
+		"LET " + states + " = (",
+		"  FOR " + rootSource + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
+
+		"  FILTER " + rootSource + "[@" + rootKeyColumnBind + "] == @" + trace.RootKeyBindKey,
+		"  RETURN {row: " + rootSource + ", root: {resourceType: @" + rootTypeBind + ", resourceId: " + rootSource + "[@" + rootIDColumnBind + "], occurrenceKey: " + rootSource + "[@" + rootKeyColumnBind + "]}}",
+		")",
+	}
+
+	witnessFields := make([]string, 0, len(matches))
+	traceIndex := 0
+	for _, stage := range stages {
+		if stage.ID == "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage construction stage has no ID")
+		}
+		if stage.Kind == ir.PhysicalStageRelatedExpandOp {
+			match, ok := matches[stage.ID]
+			if !ok || match.Kind != stage.Kind || traceIndex >= len(trace.Stages) || trace.Stages[traceIndex].StageID != stage.ID {
+				return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage has no ordered validated identity for related stage %q", stage.ID)
+			}
+			if stage.RelatedExpand == nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage related stage %q has no typed payload", stage.ID)
+			}
+			traceIndex++
+			field := r.core.navigation().newInternalVariable("row_lineage_stage_witness")
+			previousFields := append([]string(nil), witnessFields...)
+			witnessFields = append(witnessFields, field)
+			stageRows, stageLines, err := r.renderComposedRelatedLineageStage(states, stage, match, field, previousFields)
+			if err != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render composed related stage %q: %w", stage.ID, err)
+			}
+			lines = append(lines, stageLines...)
+			states = stageRows
+			continue
+		}
+		if !composedLineageIdentityPreservingStage(stage.Kind) {
+			return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage does not replay stage %q of kind %q", stage.ID, stage.Kind)
+		}
+		stageRows, stageLines, err := r.renderComposedLineageProjectionStage(states, stage, witnessFields)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render composed identity-preserving stage %q: %w", stage.ID, err)
+		}
+		lines = append(lines, stageLines...)
+		states = stageRows
+	}
+	if traceIndex != len(trace.Stages) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage trace contains a stage outside the construction sequence")
+	}
+
+	finalState := r.core.navigation().newInternalVariable("row_lineage_composed_final_state")
+	finalCandidate := r.core.navigation().newInternalVariable("row_lineage_composed_final_candidate")
+	finalIdentityColumnBind := r.core.newInternalBindKey("row_lineage_final_identity_column")
+	r.bindVars[finalIdentityColumnBind] = stages[len(stages)-1].RowIdentityColumn
+	lines = append(lines,
+		"LET "+finalState+" = FIRST(",
+		"  FOR "+finalCandidate+" IN "+states,
+		"  FILTER "+finalCandidate+".row[@"+finalIdentityColumnBind+"] == @"+terminal.RowIDBindKey,
+		"  RETURN "+finalCandidate,
+		")",
+	)
+
+	page := r.core.navigation().newInternalVariable("row_lineage_composed_page")
+	ordinal := r.core.navigation().newInternalVariable("row_lineage_composed_ordinal")
+	contributor := r.core.navigation().newInternalVariable("row_lineage_composed_contributor")
+	selected := make([]string, 0, len(witnessFields)+1)
+	selected = append(selected, finalState+".root")
+	for _, field := range witnessFields {
+		selected = append(selected, finalState+"."+field)
+	}
+	contributorExpression := "null"
+	for index := len(selected) - 1; index >= 0; index-- {
+		contributorExpression = fmt.Sprintf("%s == %d ? %s : (%s)", ordinal, index, selected[index], contributorExpression)
+	}
+	lines = append(lines,
+		"LET "+page+" = (",
+		"  FOR "+ordinal+" IN 0.."+fmt.Sprint(len(selected)-1),
+		"  LET "+contributor+" = "+contributorExpression,
+		"  FILTER "+finalState+" != null && "+contributor+" != null",
+		"  LIMIT @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey,
+		"  RETURN "+contributor,
+		")",
+		"RETURN {found: "+finalState+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+	)
+	query := strings.Join(lines, "\n") + "\n"
+	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
+}
+
+func (r rowLineageRenderer) renderComposedLineageProjectionStage(
+	priorRows string,
+	stage ir.PhysicalConstructionStage,
+	witnessFields []string,
+) (string, []string, error) {
+	states := r.core.navigation().newInternalVariable("row_lineage_composed_projection_rows")
+	state := r.core.navigation().newInternalVariable("row_lineage_composed_projection_state")
+	lines := []string{"LET " + states + " = (", "  FOR " + state + " IN " + priorRows,
+		"  LET " + stage.InputRowVariable + " = " + state + ".row"}
+	for index, operation := range stage.DerivedLets {
+		if operation.Kind != ir.PhysicalExpressionLetOp {
+			return "", nil, fmt.Errorf("derived operation %d has kind %q", index, operation.Kind)
+		}
+		rendered, err := r.core.renderExpressionLet(operation, "  ")
+		if err != nil {
+			return "", nil, fmt.Errorf("render derived operation %d: %w", index, err)
+		}
+		lines = append(lines, rendered...)
+	}
+	if stage.Filter != nil {
+		rendered, err := r.core.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}, "  ")
+		if err != nil {
+			return "", nil, fmt.Errorf("render filter: %w", err)
+		}
+		lines = append(lines, rendered...)
+	}
+	output, err := r.core.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return "", nil, fmt.Errorf("render output row: %w", err)
+	}
+	lines = append(lines, "  LET "+stage.OutputRowVariable+" = "+output)
+	fields := []string{"row: " + stage.OutputRowVariable, "root: " + state + ".root"}
+	for _, field := range witnessFields {
+		fields = append(fields, field+": "+state+"."+field)
+	}
+	lines = append(lines, "  RETURN {"+strings.Join(fields, ", ")+"}", ")")
+	return states, lines, nil
+}
+
+func (r rowLineageRenderer) renderComposedRelatedLineageStage(
+	priorRows string,
+	stage ir.PhysicalConstructionStage,
+	match ir.PhysicalRowLineageStageMatch,
+	witnessField string,
+	previousWitnessFields []string,
+) (string, []string, error) {
+	related := stage.RelatedExpand
+	if match.RelatedRowKind == "EMPTY" && related.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		return "", nil, fmt.Errorf("empty identity requires PRESERVE_PARENT")
+	}
+	input := stage.InputRowVariable
+	state := r.core.navigation().newInternalVariable("row_lineage_composed_related_state")
+	rows := r.core.navigation().newInternalVariable("row_lineage_composed_related_rows")
+	item := related.ItemVariable
+	if item == "" || related.IdentityVariable == "" || related.ParentIdentityColumn == "" {
+		return "", nil, fmt.Errorf("related stage is missing identity variables")
+	}
+
+	subplan := related.RelatedRecords
+	subplan.Sort, subplan.Unique, subplan.DistinctBy = nil, false, nil
+	if match.RelatedRowKind == "RELATED" {
+		terminalVariable := ""
+		for _, operation := range subplan.Operations {
+			if operation.Kind == ir.PhysicalTraversalOp && operation.Traversal != nil {
+				terminalVariable = operation.Traversal.TargetVariable
+			}
+		}
+		if terminalVariable == "" {
+			return "", nil, fmt.Errorf("related route has no terminal traversal")
+		}
+		operations := append([]ir.PhysicalOperation(nil), subplan.Operations...)
+		operations = append(operations, ir.PhysicalOperation{
+			Kind: ir.PhysicalFilterOp,
+			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: terminalVariable, Path: []string{"_id"}},
+				Right: &ir.PhysicalValue{BindKey: match.RelatedTerminalIDBindKey},
+			}},
+		})
+		subplan.Operations = operations
+	}
+	route, err := r.core.renderSubplan(subplan, "  ", true)
+	if err != nil {
+		return "", nil, fmt.Errorf("render exact authorized route: %w", err)
+	}
+
+	lines := []string{"LET " + rows + " = (", "  FOR " + state + " IN " + priorRows,
+		"  LET " + input + " = " + state + ".row",
+		"  LET " + item + " = FIRST(" + route + ")"}
+	if match.RelatedRowKind == "EMPTY" {
+		lines = append(lines, "  FILTER "+item+" == null")
+	} else {
+		lines = append(lines, "  FILTER "+item+" != null")
+	}
+	parentIdentityColumnBind := r.core.newInternalBindKey("row_lineage_related_parent_identity_column")
+	r.bindVars[parentIdentityColumnBind] = related.ParentIdentityColumn
+	identity := constructionRelatedExpandIdentityExpression(input, parentIdentityColumnBind, related.ConstructionIDBindKey, item)
+	output, err := r.core.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return "", nil, fmt.Errorf("render related output row: %w", err)
+	}
+	lines = append(lines,
+		"  LET "+related.IdentityVariable+" = "+identity,
+		"  LET "+stage.OutputRowVariable+" = "+output,
+	)
+	rowIdentityColumnBind := r.core.newInternalBindKey("row_lineage_related_stage_identity_column")
+	r.bindVars[rowIdentityColumnBind] = stage.RowIdentityColumn
+	lines = append(lines, "  FILTER "+stage.OutputRowVariable+"[@"+rowIdentityColumnBind+"] == @"+match.StageRowIDBindKey)
+	witness := "null"
+	if match.RelatedRowKind == "RELATED" {
+		targetTypeBind := r.core.newInternalBindKey("row_lineage_related_resource_type")
+		r.bindVars[targetTypeBind] = related.TargetResourceType
+		witness = "{resourceType: @" + targetTypeBind + ", resourceId: " + item + ".resource_id, occurrenceKey: PARSE_IDENTIFIER(" + item + ".terminal_id).key}"
+	}
+	fields := []string{"row: " + stage.OutputRowVariable, "root: " + state + ".root"}
+	for _, field := range previousWitnessFields {
+		fields = append(fields, field+": "+state+"."+field)
+	}
+	fields = append(fields, witnessField+": "+witness)
+	lines = append(lines, "  RETURN {"+strings.Join(fields, ", ")+"}", ")")
+	return rows, lines, nil
+}
+
+func RenderPhysicalGroupRowsLineage(
+	plan ir.PhysicalPlan,
+	requestedRevisionID, requestedGroupID string,
+	offset, limit int,
+) (RenderedPhysicalPlan, error) {
+	if err := plan.Validate(); err != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("validate physical group rows plan: %w", err)
+	}
+	if plan.StageSequence != nil || len(plan.Operations) != 1 ||
+		plan.Operations[0].Kind != ir.PhysicalGroupRowsOp || plan.Operations[0].GroupRows == nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("group row lineage requires one standalone GROUP_ROWS operation")
+	}
+	if offset < 0 || limit < 1 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("group row lineage page bounds are invalid")
+	}
+	return renderPhysicalGroupRowsLineage(plan, *plan.Operations[0].GroupRows, nil, requestedRevisionID, requestedGroupID, offset, limit)
+}
+
+func RenderPhysicalCohortGroupRowsLineage(
+	plan ir.PhysicalPlan,
+	groupStage ir.PhysicalConstructionStage,
+	filterStages []ir.PhysicalConstructionStage,
+	requestedRevisionID, requestedGroupID string,
+	offset, limit int,
+) (RenderedPhysicalPlan, error) {
+	if err := plan.Validate(); err != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("validate cohort group row lineage plan: %w", err)
+	}
+	if plan.StageSequence == nil || groupStage.Kind != ir.PhysicalStageCohortGroupOp || groupStage.CohortGroup == nil ||
+		len(filterStages) == 0 || offset < 0 || limit < 1 || len(plan.StageSequence.Stages) != len(filterStages)+1 ||
+		plan.StageSequence.Stages[0].ID != groupStage.ID || plan.StageSequence.Stages[0].Kind != groupStage.Kind {
+		return RenderedPhysicalPlan{}, fmt.Errorf("cohort group row lineage requires a cohort owner, FILTER suffix, and valid page bounds")
+	}
+	for index, stage := range filterStages {
+		if plan.StageSequence.Stages[index+1].ID != stage.ID || plan.StageSequence.Stages[index+1].Kind != ir.PhysicalStageFilterOp || stage.Filter == nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("cohort group row lineage FILTER suffix does not match the validated stage sequence")
+		}
+	}
+	rows := groupStage.CohortGroup.Rows
+	return renderPhysicalGroupRowsLineage(plan, rows, filterStages, requestedRevisionID, requestedGroupID, offset, limit)
+}
+
+func renderPhysicalGroupRowsLineage(
+	plan ir.PhysicalPlan,
+	rows ir.PhysicalGroupRows,
+	filterStages []ir.PhysicalConstructionStage,
+	requestedRevisionID, requestedGroupID string,
+	offset, limit int,
+) (RenderedPhysicalPlan, error) {
+	collectionKeys, err := collectionBindKeys(plan)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	if err := validateRenderablePhysicalPlan(plan, collectionKeys); err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	binds := runtimePhysicalBindVars(plan.BindVars, collectionKeys)
+	requestedRevisionBind := uniqueBindKey(binds, "row_lineage_group_revision_id")
+	requestedGroupBind := uniqueBindKey(binds, "row_lineage_group_id")
+	offsetBind := uniqueBindKey(binds, "row_lineage_offset")
+	limitBind := uniqueBindKey(binds, "row_lineage_limit")
+	fetchLimitBind := uniqueBindKey(binds, "row_lineage_fetch_limit")
+	binds[requestedRevisionBind] = requestedRevisionID
+	binds[requestedGroupBind] = requestedGroupID
+	binds[offsetBind] = offset
+	binds[limitBind] = limit
+	binds[fetchLimitBind] = limit + 1
+
+	candidateLines := ""
+	foundExpression := fmt.Sprintf("@%s == revision._key AND (definition != null OR (@%s == \"__loom_unassigned__\" AND @%s == \"GROUP_AS_UNASSIGNED\" AND unassigned_count > 0))", requestedRevisionBind, requestedGroupBind, rows.PolicyBindKey)
+	if len(filterStages) != 0 {
+		renderer := physicalPlanRenderer{renderContext: renderContext{
+			bindVars: binds, collectionKeys: collectionKeys, setVariables: map[string]string{},
+			reservedVars: stageSequenceVariableNames(plan), internalPrefix: "cohort_lineage_",
+		}}
+		candidate := renderer.navigation().newInternalVariable("candidate")
+		unassignedMaximum := renderer.navigation().newInternalVariable("unassigned_max_ordinal")
+		candidateLines = fmt.Sprintf(`LET %s = @%s == "__loom_unassigned__" ? FIRST(
+  FOR candidate_definition IN @@%s
+    FILTER candidate_definition.revisionId == revision._key AND candidate_definition.project == @%s
+    COLLECT AGGREGATE maximum = MAX(candidate_definition.ordinal)
+    RETURN maximum) : null
+LET %s = @%s == revision._key ? (definition != null ? {group_id: definition.groupId, group_label: definition.label, group_ordinal: definition.ordinal} : (@%s == "__loom_unassigned__" AND @%s == "GROUP_AS_UNASSIGNED" AND unassigned_count > 0 ? {group_id: "__loom_unassigned__", group_label: "Unassigned", group_ordinal: (%s == null ? 1 : %s + 1)} : null)) : null`,
+			unassignedMaximum, requestedGroupBind, rows.DefinitionsCollectionBindKey, rows.ProjectBindKey,
+			candidate, requestedRevisionBind, requestedGroupBind, rows.PolicyBindKey, unassignedMaximum, unassignedMaximum)
+		current := candidate
+		var filterLines []string
+		for _, stage := range filterStages {
+			filtered := renderer.navigation().newInternalVariable("filtered_candidate")
+			operations, renderErr := renderer.renderScopeOperation(
+				ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}, "      ",
+			)
+			if renderErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render cohort row filter %q: %w", stage.ID, renderErr)
+			}
+			filterLines = append(filterLines,
+				"LET "+filtered+" = FIRST(",
+				"  FOR "+stage.InputRowVariable+" IN ("+current+" == null ? [] : ["+current+"])",
+			)
+			filterLines = append(filterLines, operations...)
+			filterLines = append(filterLines, "      RETURN "+stage.InputRowVariable, "  )")
+			current = filtered
+		}
+		candidateLines += "\n" + strings.Join(filterLines, "\n")
+		foundExpression = current + " != null"
+	}
+
+	query := fmt.Sprintf(`LET revision = DOCUMENT(@@%s, @%s)
+FOR revision_guard IN [ASSERT(revision != null AND revision.state == "COMPLETE" AND revision.project == @%s AND revision.generation == @%s AND revision.resourceType == @%s, "EXPLICIT_GROUP_REVISION_INVALID")]
+  FILTER revision_guard
+LET selection = DOCUMENT(@@%s, revision.sourceSelectionRevisionId)
+FOR selection_guard IN [ASSERT(selection != null AND selection.complete == true AND selection.project == @%s AND selection.generation == @%s AND selection.resourceType == @%s AND revision.scopeDigest == selection.scopeDigest AND revision.sourceMembershipDigest == selection.membershipDigest, "EXPLICIT_GROUP_SOURCE_STALE")]
+  FILTER selection_guard
+LET unassigned_count = FIRST(FOR selected IN @@%s
+  FILTER selected.selectionId == selection._key AND selected.project == @%s AND selected.generation == @%s AND selected.resourceType == @%s
+  FILTER FIRST(FOR member IN @@%s
+    FILTER member.revisionId == revision._key AND member.project == selected.project AND member.generation == selected.generation AND member.resourceType == selected.resourceType AND member.id == selected.id
+    FILTER member.ref.project == member.project AND member.ref.generation == member.generation AND member.ref.resourceType == member.resourceType AND member.ref.id == member.id
+    RETURN true) == null
+  COLLECT WITH COUNT INTO count
+  RETURN count)
+FOR policy_guard IN [ASSERT(@%s != "ERROR" OR unassigned_count == 0, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")]
+  FILTER policy_guard
+LET definition = FIRST(FOR candidate IN @@%s
+  FILTER candidate.revisionId == revision._key AND candidate.project == @%s AND candidate.groupId == @%s
+  RETURN candidate)
+%s
+LET found = %s
+LET assigned_page = (FOR member IN @@%s
+  FILTER found AND @%s == revision._key AND definition != null
+  FILTER member.revisionId == revision._key AND member.project == @%s AND member.generation == @%s AND member.resourceType == @%s
+  FILTER member.ref.project == member.project AND member.ref.generation == member.generation AND member.ref.resourceType == member.resourceType AND member.ref.id == member.id
+  FILTER member.groupId == definition.groupId
+  SORT member.project ASC, member.generation ASC, member.resourceType ASC, member.id ASC
+  LET source = FIRST(FOR resource IN @@%s
+    FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType
+    RETURN resource)
+  FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
+  LIMIT @%s, @%s
+  RETURN {resourceType: @%s, resourceId: member.ref.id, occurrenceKey: member._key})
+LET unassigned_page = (FOR selected IN @@%s
+  FILTER found AND @%s == revision._key AND @%s == "__loom_unassigned__" AND @%s == "GROUP_AS_UNASSIGNED" AND unassigned_count > 0
+  FILTER selected.selectionId == selection._key AND selected.project == @%s AND selected.generation == @%s AND selected.resourceType == @%s
+  FILTER FIRST(FOR member IN @@%s
+    FILTER member.revisionId == revision._key AND member.project == selected.project AND member.generation == selected.generation AND member.resourceType == selected.resourceType AND member.id == selected.id
+    FILTER member.ref.project == member.project AND member.ref.generation == member.generation AND member.ref.resourceType == member.resourceType AND member.ref.id == member.id
+    RETURN true) == null
+  SORT selected.project ASC, selected.generation ASC, selected.resourceType ASC, selected.id ASC
+  LET source = FIRST(FOR resource IN @@%s
+    FILTER resource.id == selected.id AND resource.project == @%s AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType
+    RETURN resource)
+  FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
+  LIMIT @%s, @%s
+  RETURN {resourceType: @%s, resourceId: selected.id, occurrenceKey: selected._key})
+LET page = definition != null ? assigned_page : unassigned_page
+RETURN {found: found, contributors: SLICE(page, 0, @%s), hasMore: LENGTH(page) > @%s}
+`, rows.RevisionCollectionBindKey, rows.RevisionIDBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
+		rows.SelectionCollectionBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
+		rows.SelectionMembersCollectionBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
+		rows.MembershipsCollectionBindKey, rows.PolicyBindKey, rows.DefinitionsCollectionBindKey, rows.ProjectBindKey, requestedGroupBind,
+		candidateLines, foundExpression,
+		rows.MembershipsCollectionBindKey, requestedRevisionBind, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
+		rows.ResourceCollectionBindKey, rows.ResourceProjectBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, offsetBind, fetchLimitBind, rows.ResourceTypeBindKey,
+		rows.SelectionMembersCollectionBindKey, requestedRevisionBind, requestedGroupBind, rows.PolicyBindKey,
+		rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey, rows.MembershipsCollectionBindKey,
+		rows.ResourceCollectionBindKey, rows.ResourceProjectBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, offsetBind, fetchLimitBind, rows.ResourceTypeBindKey,
+		limitBind, limitBind)
+	if err := validateGroupRowsBindReferences(rows, binds, query); err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(binds, query)}, nil
+}
+
+func uniqueBindKey(binds map[string]any, suffix string) string {
+	base := "__loom_physical_" + suffix
+	key := base
+	for counter := 1; ; counter++ {
+		if _, exists := binds[key]; !exists {
+			return key
+		}
+		key = fmt.Sprintf("%s_%d", base, counter)
+	}
+}
 
 type rowLineageRenderer struct {
 	*renderContext
@@ -682,4 +1136,8 @@ func mapStrings(values []string, prefix string) []string {
 		result[index] = prefix + value
 	}
 	return result
+}
+
+func (r *physicalPlanRenderer) rowLineage() rowLineageRenderer {
+	return rowLineageRenderer{renderContext: &r.renderContext, core: r}
 }

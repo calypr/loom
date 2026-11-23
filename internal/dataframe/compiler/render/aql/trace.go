@@ -2,9 +2,10 @@ package aql
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 type cellTraceRenderer struct {

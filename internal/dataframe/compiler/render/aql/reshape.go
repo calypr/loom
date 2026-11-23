@@ -2,9 +2,10 @@ package aql
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 type tableShapeRenderer struct {
@@ -707,6 +708,7 @@ func groupedPivotCellValue(pivot ir.PhysicalGroupedPivot, valuesVariable, typedV
 		return "", fmt.Errorf("unsupported grouped pivot duplicate policy %q", pivot.DuplicatePolicy)
 	}
 }
+
 func (r tableShapeRenderer) renderGroupedPivotIdentity(pivot ir.PhysicalGroupedPivot, keyValues []string) (string, error) {
 	if len(keyValues) != len(pivot.GroupKeys) {
 		return "", fmt.Errorf("grouped pivot identity has %d key values, want %d", len(keyValues), len(pivot.GroupKeys))
@@ -720,4 +722,8 @@ func (r tableShapeRenderer) renderGroupedPivotIdentity(pivot ir.PhysicalGroupedP
 		parts = append(parts, `["`+key.Kind+`", `+keyValues[index]+`]`)
 	}
 	return "TO_STRING([" + strings.Join(parts, ", ") + "])", nil
+}
+
+func (r *physicalPlanRenderer) tableShape() tableShapeRenderer {
+	return tableShapeRenderer{renderContext: &r.renderContext, core: r}
 }

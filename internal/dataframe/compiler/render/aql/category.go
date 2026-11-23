@@ -8,6 +8,7 @@ import (
 )
 
 const categoryColumnBind = "__loom_category_column"
+
 const categoryLimitBind = "__loom_category_limit"
 
 type RenderedCategoryScan struct {

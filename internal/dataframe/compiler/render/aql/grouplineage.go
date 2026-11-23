@@ -2,9 +2,22 @@ package aql
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
+
+type groupKeyRendering struct {
+	lines                            []string
+	collectKeys                      []string
+	sortKeys                         []string
+	keyTypeAssertions                []string
+	identityParts                    []string
+	semanticDisplayVariable          string
+	semanticDisplayAggregateVariable string
+	codingDisplayVariable            string
+	codingDisplayAggregateVariable   string
+}
 
 func renderPhysicalGroupRows(plan ir.PhysicalPlan, rows ir.PhysicalGroupRows) (RenderedPhysicalPlan, error) {
 	collectionKeys, err := collectionBindKeys(plan)

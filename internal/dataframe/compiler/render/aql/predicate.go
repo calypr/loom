@@ -2,11 +2,11 @@ package aql
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {

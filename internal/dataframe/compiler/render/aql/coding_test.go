@@ -4,10 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
-
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 func TestRenderSystemVersionSelectionKeepsCodesTogetherAndExcludesOtherScopes(t *testing.T) {
