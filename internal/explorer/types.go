@@ -6,14 +6,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
-)
-
-type ManagementMode string
-
-const (
-	ManagementRepository  ManagementMode = "REPOSITORY"
-	ManagementInteractive ManagementMode = "INTERACTIVE"
 )
 
 type RevisionStatus string
@@ -24,40 +16,6 @@ const (
 	RevisionSuperseded RevisionStatus = "SUPERSEDED"
 	RevisionFailed     RevisionStatus = "FAILED"
 )
-
-type Diagnostic struct {
-	Severity  string         `json:"severity"`
-	Stage     string         `json:"stage,omitempty"`
-	Code      string         `json:"code"`
-	FieldPath string         `json:"fieldPath,omitempty"`
-	Message   string         `json:"message"`
-	Details   map[string]any `json:"details,omitempty"`
-	Retryable bool           `json:"retryable,omitempty"`
-	RequestID string         `json:"requestId,omitempty"`
-}
-
-type DatasetMetadata struct {
-	Generation   string          `json:"generation,omitempty"`
-	SchemaDigest string          `json:"schemaDigest,omitempty"`
-	Outputs      []DatasetOutput `json:"outputs"`
-}
-
-type DatasetOutput struct {
-	Name        string                       `json:"name"`
-	State       string                       `json:"state"`
-	Queryable   bool                         `json:"queryable"`
-	Fingerprint string                       `json:"fingerprint,omitempty"`
-	Selector    *dataset.DataframeSelector   `json:"selector,omitempty"`
-	Columns     []publication.PhysicalColumn `json:"columns,omitempty"`
-}
-
-type PublicationMetadata struct {
-	State       string    `json:"state"`
-	Generation  string    `json:"generation,omitempty"`
-	ExecutionID string    `json:"executionId,omitempty"`
-	RevisionID  string    `json:"revisionId,omitempty"`
-	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
-}
 
 type Explorer struct {
 	Project        string         `json:"project"`
@@ -94,15 +52,6 @@ type DraftRevision struct {
 	AuthorizationScopeDigest string          `json:"authorizationScopeDigest,omitempty"`
 	UpdatedBy                string          `json:"updatedBy,omitempty"`
 	UpdatedAt                time.Time       `json:"updatedAt"`
-}
-
-type Materialization struct {
-	OutputID          string                       `json:"outputId"`
-	Output            string                       `json:"output"`
-	MaterializationID string                       `json:"materializationId"`
-	Fingerprint       string                       `json:"fingerprint,omitempty"`
-	Selector          *dataset.DataframeSelector   `json:"selector,omitempty"`
-	Columns           []publication.PhysicalColumn `json:"columns"`
 }
 
 type Revision struct {

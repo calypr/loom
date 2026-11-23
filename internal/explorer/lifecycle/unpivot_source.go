@@ -14,24 +14,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func validateConstructionUnpivotSourceSelections(selections []ConstructionUnpivotSourceSelection) error {
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := requireExactIdentity(selection.ChoiceID, fmt.Sprintf("unpivotSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := requireExactIdentity(selection.ColumnID, fmt.Sprintf("unpivotSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("unpivotSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
-}
-
 func unpivotSourceLogicalTypeIsTableScalar(logicalType string) bool {
 	_, ok := facade.TableReshapeScalarKind(logicalType)
 	return ok

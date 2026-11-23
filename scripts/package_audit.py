@@ -133,6 +133,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/compilation': 'Translate validated Explorer authoring intent into native recipe and compilation '
                                   'artifacts.',
  'internal/explorer/config': 'Own Explorer project and view configuration DTOs and validation.',
+ 'internal/explorer/construction': 'Own construction capability, proposal, and choice DTOs and validation.',
  'internal/explorer/constructioninputs': 'List authorized immutable published table revisions for Explorer '
                                          'construction.',
  'internal/explorer/explicitgroup': 'Resolve and list explicit-group revisions against authorized selections.',
@@ -154,6 +155,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/rowsource': 'Own derive, expand, filter, and unpivot source DTOs.',
  'internal/explorer/selection': 'Own selection intents, revisions, membership digests, and validation.',
  'internal/explorer/semanticbrowse': 'Own semantic inventory browse and field-presentation DTOs.',
+ 'internal/explorer/viewer': 'Own Explorer viewer state, runtime DTOs, and shared presentation types.',
  'internal/fhir/binding': 'Validate correlated, identifier, quantity, and pivot FHIR bindings.',
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
                          'metadata.',

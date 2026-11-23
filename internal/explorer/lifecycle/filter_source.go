@@ -12,24 +12,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func validateConstructionFilterSourceSelections(selections []ConstructionFilterSourceSelection) error {
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := requireExactIdentity(selection.ChoiceID, fmt.Sprintf("filterSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := requireExactIdentity(selection.ColumnID, fmt.Sprintf("filterSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("filterSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
-}
-
 var filterSourceReasons = rowSourceLaneReasons{
 	codeStem:        "FILTER",
 	reachReason:     "the current construction prefix does not carry root scalar source fields to this stage",

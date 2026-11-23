@@ -61,16 +61,6 @@ type PublicOutputColumn struct {
 	ProjectionMode string `json:"-"`
 }
 
-type PublicUnitRuleIdentity struct {
-	ID      string `json:"id"`
-	Version string `json:"version"`
-}
-
-type PublicUnitNormalization struct {
-	Target unit.UnitIdentity        `json:"target"`
-	Rules  []PublicUnitRuleIdentity `json:"rules"`
-}
-
 func DecodePublicOutputContracts(raw json.RawMessage) (PublicOutputContracts, error) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return PublicOutputContracts{}, invalidOutputContract("contract is required")

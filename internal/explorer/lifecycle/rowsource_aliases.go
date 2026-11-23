@@ -14,3 +14,16 @@ type ConstructionFilterSourceSelection = rowsource.ConstructionFilterSourceSelec
 type ConstructionUnpivotSourceCapability = rowsource.ConstructionUnpivotSourceCapability
 type ConstructionUnpivotSourceChoice = rowsource.ConstructionUnpivotSourceChoice
 type ConstructionUnpivotSourceSelection = rowsource.ConstructionUnpivotSourceSelection
+
+func validateConstructionDeriveSourceSelections(selections []ConstructionDeriveSourceSelection) error {
+	return rowsource.ValidateDeriveSourceSelections(selections)
+}
+func validateConstructionExpandSourceSelections(selections []ConstructionExpandSourceSelection) error {
+	return rowsource.ValidateExpandSourceSelections(selections)
+}
+func validateConstructionFilterSourceSelections(selections []ConstructionFilterSourceSelection) error {
+	return rowsource.ValidateFilterSourceSelections(selections)
+}
+func validateConstructionUnpivotSourceSelections(selections []ConstructionUnpivotSourceSelection) error {
+	return rowsource.ValidateUnpivotSourceSelections(selections)
+}

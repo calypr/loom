@@ -23,16 +23,6 @@ const (
 	constructionSemanticGroupChoicePageLimit = 5
 )
 
-type ConstructionSemanticGroupChoice struct {
-	ChoiceID     string `json:"choiceId"`
-	BindingID    string `json:"bindingId"`
-	RuleVersion  string `json:"ruleVersion"`
-	Label        string `json:"label"`
-	ScopeLabel   string `json:"scopeLabel"`
-	ResourceType string `json:"resourceType"`
-	SourcePath   string `json:"sourcePath"`
-}
-
 func (s *Service) constructionSemanticGroupChoices(
 	ctx context.Context,
 	base constructionBase,

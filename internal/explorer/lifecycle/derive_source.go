@@ -12,29 +12,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-const maxDeriveSourceSelections = 2
-
-func validateConstructionDeriveSourceSelections(selections []ConstructionDeriveSourceSelection) error {
-	if len(selections) > maxDeriveSourceSelections {
-		return fmt.Errorf("deriveSources accepts at most %d operand selections", maxDeriveSourceSelections)
-	}
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := requireExactIdentity(selection.ChoiceID, fmt.Sprintf("deriveSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := requireExactIdentity(selection.ColumnID, fmt.Sprintf("deriveSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("deriveSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
-}
-
 func deriveSourceLogicalTypeIsNumeric(logicalType string) bool {
 	switch strings.ToLower(strings.TrimSpace(logicalType)) {
 	case "integer", "decimal":

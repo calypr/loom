@@ -13,24 +13,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func validateConstructionExpandSourceSelections(selections []ConstructionExpandSourceSelection) error {
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := requireExactIdentity(selection.ChoiceID, fmt.Sprintf("expandSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := requireExactIdentity(selection.ColumnID, fmt.Sprintf("expandSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("expandSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
-}
-
 func expandSourceElementLogicalTypeIsAdmissible(logicalType string) bool {
 	kind := strings.ToLower(strings.TrimSpace(logicalType))
 	if kind == "" || kind == "object" {

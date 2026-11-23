@@ -1,4 +1,4 @@
-package explorer
+package viewer
 
 import (
 	"encoding/json"
