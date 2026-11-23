@@ -33,7 +33,7 @@ func parseAuthoringCommandIntents(request authoringv2.ApplyCommandsRequest) (aut
 	intents.frameSourceCommand = request.Commands[0].Type == authoringv2.CommandSetFrameSource || request.Commands[0].Type == authoringv2.CommandReplaceFrameSource
 	intents.columnPolicyProposalCommand = request.Commands[0].Type == authoringv2.CommandApplyColumnPolicyProposal
 	intents.rowDefinitionProposalCommand = request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
-	intents.rowChangeReplacementCommand = request.Commands[0].Type == authoringv2.CommandApplyTableRootRebase && request.Commands[0].RowChange != nil && request.Commands[0].RowChange.Mode == authoringv2.RowChangeModeReplace
+	intents.rowChangeReplacementCommand = request.Commands[0].Type == authoringv2.CommandApplyTableRootRebase && request.Commands[0].RowChange() != nil && request.Commands[0].RowChange().Mode == authoringv2.RowChangeModeReplace
 	intents.constructionProposalCommand = request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
 	intents.populationMemberProposalCommand = request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
 	intents.restoreDraftRevisionCommand = request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
@@ -47,7 +47,7 @@ func parseAuthoringCommandIntents(request authoringv2.ApplyCommandsRequest) (aut
 	}
 	intents.constructionIdentities = make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	if intents.frameSourceCommand {
-		identity, decodeErr := capability.DecodeConstructionChoiceID(request.Commands[0].FrameChoiceID)
+		identity, decodeErr := capability.DecodeConstructionChoiceID(request.Commands[0].FrameChoiceID())
 		if decodeErr != nil || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
 			return authoringCommandIntents{}, malformed("commands", "frameChoiceId is invalid", decodeErr)
 		}
@@ -66,14 +66,14 @@ func parseAuthoringCommandIntents(request authoringv2.ApplyCommandsRequest) (aut
 	intents.populationRouteIdentities = make([]capability.PopulationRouteChoiceIdentity, len(request.Commands))
 	if intents.populationRouteCommand {
 		for index, command := range request.Commands {
-			if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID == "" || len(command.EdgeIDs) != 0 {
+			if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID() == "" || len(command.EdgeIDs()) != 0 {
 				return authoringCommandIntents{}, malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
 			}
-			identity, decodeErr := capability.DecodePopulationRouteChoiceID(command.RouteChoiceID)
+			identity, decodeErr := capability.DecodePopulationRouteChoiceID(command.RouteChoiceID())
 			if decodeErr != nil {
 				return authoringCommandIntents{}, malformed("commands", fmt.Sprintf("commands[%d].routeChoiceId is invalid", index), decodeErr)
 			}
-			if identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID {
+			if identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID() {
 				return authoringCommandIntents{}, conflict("commands", "STALE_POPULATION_ROUTE", "a population route belongs to another table, selection, or snapshot", nil, nil)
 			}
 			intents.populationRouteIdentities[index] = identity
@@ -84,7 +84,7 @@ func parseAuthoringCommandIntents(request authoringv2.ApplyCommandsRequest) (aut
 	}
 	if intents.constructionChoiceCommand {
 		for index, command := range request.Commands {
-			identity, decodeErr := capability.DecodeConstructionChoiceID(command.ConstructionChoice.ChoiceID)
+			identity, decodeErr := capability.DecodeConstructionChoiceID(command.ConstructionChoice().ChoiceID)
 			if decodeErr != nil {
 				return authoringCommandIntents{}, malformed("commands", fmt.Sprintf("commands[%d].constructionChoice.choiceId is invalid", index), decodeErr)
 			}

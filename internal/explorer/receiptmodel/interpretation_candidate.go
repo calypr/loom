@@ -73,10 +73,10 @@ func VerifyCandidateReceiptInterpretation(receipt *CompilationReceipt, outputID,
 }
 
 func ValidateInterpretationCandidate(receipt *CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, proposed authoringv2.Workspace, command authoringv2.Command) error {
-	if command.InterpretationCandidate == nil {
+	if command.InterpretationCandidate() == nil {
 		return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE payload is required")
 	}
-	if receipt == nil || receipt.ID != command.InterpretationCandidate.CandidateReceiptID {
+	if receipt == nil || receipt.ID != command.InterpretationCandidate().CandidateReceiptID {
 		return fmt.Errorf("%w: the candidate receipt ID does not match the command", ErrInvalidCandidateReceipt)
 	}
 	if err := ValidateCandidateReceiptIdentity(receipt, project, explorerID, snapshotToken, snapshot); err != nil {
@@ -96,10 +96,10 @@ func ValidateInterpretationCandidate(receipt *CompilationReceipt, project, explo
 	if candidateDigest, digestErr := candidateWorkspace.Digest(); digestErr != nil || candidateDigest != receipt.IntentDigest {
 		return fmt.Errorf("%w: the candidate receipt normalized workspace digest does not match its intent digest", ErrInvalidCandidateReceipt)
 	}
-	if err := VerifyCandidateWorkspacePin(candidateWorkspace, command.OutputID, command.Column, command.InterpretationCandidate.RevisionID); err != nil {
+	if err := VerifyCandidateWorkspacePin(candidateWorkspace, command.OutputID, command.Column(), command.InterpretationCandidate().RevisionID); err != nil {
 		return fmt.Errorf("%w: the candidate receipt does not contain the requested exact pin: %v", ErrInterpretationCandidateMismatch, err)
 	}
-	if err := VerifyCandidateReceiptInterpretation(receipt, command.OutputID, command.Column, command.InterpretationCandidate.RevisionID); err != nil {
+	if err := VerifyCandidateReceiptInterpretation(receipt, command.OutputID, command.Column(), command.InterpretationCandidate().RevisionID); err != nil {
 		return fmt.Errorf("%w: the candidate receipt does not freeze the requested exact revision: %v", ErrInterpretationCandidateMismatch, err)
 	}
 	return nil

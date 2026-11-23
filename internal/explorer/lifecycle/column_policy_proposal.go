@@ -114,7 +114,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	command := authoringv2.Command{Type: authoringv2.CommandApplyColumnPolicyProposal, OutputID: request.OutputID, ProposalID: "candidate-preview"}
+	command := authoringv2.Command{Type: authoringv2.CommandApplyColumnPolicyProposal, OutputID: request.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: "candidate-preview"}}
 	if err := command.ResolveColumnPolicyProposal(request.ColumnID, request.ProjectionMode); err != nil {
 		return fail, malformed(stage, err.Error(), err)
 	}
@@ -163,11 +163,11 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 		return nil, malformed(stage, "column policy Apply requires one command", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID)
+	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, err
 	}
-	if receipt == nil || receipt.ID != command.ProposalID {
+	if receipt == nil || receipt.ID != command.ProposalID() {
 		return nil, conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "candidate receipt was not found", nil, nil)
 	}
 	binding := receipt.ColumnPolicyProposal

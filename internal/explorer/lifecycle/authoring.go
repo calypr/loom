@@ -160,10 +160,10 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 	} else if intents.rowChangeReplacementCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			if len(commands) != 1 || commands[0].RowChange == nil {
+			if len(commands) != 1 || commands[0].RowChange() == nil {
 				return nil, malformed("commands", "row replacement must be the only command", nil)
 			}
-			proposal := *commands[0].RowChange
+			proposal := *commands[0].RowChange()
 			if proposal.CatalogSnapshotToken != request.SnapshotToken || proposal.CatalogGeneration != snapshot.Identity.Generation {
 				return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement belongs to a different catalog snapshot", nil, nil)
 			}
@@ -215,7 +215,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			return previewPopulationMemberRemovalProposal(ctx, s, project, explorerID, populationMemberCandidate)
 		}
 		if intents.rowChangeReplacementCommand {
-			return checkRowChangeReplacementResult(workspace, rowChangeReplacementCandidate, request.Commands[0].RowChange.OutputID)
+			return checkRowChangeReplacementResult(workspace, rowChangeReplacementCandidate, request.Commands[0].RowChange().OutputID)
 		}
 		if intents.rowValuePolicyCommand {
 			return s.validateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, authorized, request.Commands[0])
@@ -316,9 +316,9 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 		return nil, conflict("commands", "STALE_SEMANTIC_CONTEXT", "the selected row root is not available in the current catalog snapshot", nil, nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	references := make([]semantic.Reference, 0, len(command.SemanticSelections))
-	seen := make(map[string]struct{}, len(command.SemanticSelections))
-	for _, selection := range command.SemanticSelections {
+	references := make([]semantic.Reference, 0, len(command.SemanticSelections()))
+	seen := make(map[string]struct{}, len(command.SemanticSelections()))
+	for _, selection := range command.SemanticSelections() {
 		identity := selection.BindingID + "\x00" + selection.ConceptID
 		if _, ok := seen[identity]; ok {
 			continue
@@ -344,7 +344,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 	if err != nil {
 		return nil, err
 	}
-	if command.ContextToken != expectedContext {
+	if command.ContextToken() != expectedContext {
 		return nil, conflict("catalog", "STALE_SEMANTIC_CONTEXT", "reload the selected concepts before applying them", nil, nil)
 	}
 	byIdentity := make(map[string]semantic.Entry, len(resolved.Entries))
@@ -355,8 +355,12 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 		}
 		byIdentity[identity] = entry
 	}
-	for index := range command.SemanticSelections {
-		selection := &command.SemanticSelections[index]
+	semanticPayload, ok := command.Payload.(*authoringv2.SemanticPayload)
+	if !ok {
+		return nil, unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "semantic selections require a semantic command payload", nil)
+	}
+	for index := range semanticPayload.SemanticSelections {
+		selection := &semanticPayload.SemanticSelections[index]
 		identity := selection.BindingID + "\x00" + selection.ConceptID
 		entry, found := byIdentity[identity]
 		if !found {
@@ -715,17 +719,17 @@ func (s *Service) prepareDraftRevisionRestore(
 	if owner == nil || owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return nil, conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before restoring", nil, explorer.ErrDraftConflict)
 	}
-	if owner.PreviousDraftRevisionID == "" || command.DraftRevisionID != owner.PreviousDraftRevisionID {
+	if owner.PreviousDraftRevisionID == "" || command.DraftRevisionID() != owner.PreviousDraftRevisionID {
 		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is no longer the current Undo target", nil, nil)
 	}
-	revision, err := s.store.GetDraftRevision(ctx, project, explorerID, command.DraftRevisionID)
+	revision, err := s.store.GetDraftRevision(ctx, project, explorerID, command.DraftRevisionID())
 	if errors.Is(err, explorer.ErrNotFound) {
 		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, err)
 	}
 	if err != nil {
 		return nil, persistenceFailure("commands", "the prior draft revision could not be read", err)
 	}
-	if revision == nil || revision.ID != command.DraftRevisionID || projectid.Canonical(revision.Project) != projectid.Canonical(project) ||
+	if revision == nil || revision.ID != command.DraftRevisionID() || projectid.Canonical(revision.Project) != projectid.Canonical(project) ||
 		revision.ExplorerID != explorerID || revision.DraftVersion != owner.DraftVersion-1 {
 		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision does not belong to this Explorer draft", nil, nil)
 	}

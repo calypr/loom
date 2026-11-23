@@ -8,9 +8,9 @@ import (
 
 func applyCreateTable(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	node, ok := catalogNode(catalog, command.RootNodeID)
+	node, ok := catalogNode(catalog, command.RootNodeID())
 	if !ok || !node.RowRootEligible {
-		return result, fmt.Errorf("rootNodeId %q is not an eligible catalog root", command.RootNodeID)
+		return result, fmt.Errorf("rootNodeId %q is not an eligible catalog root", command.RootNodeID())
 	}
 	outputID := commandGeneratedID("out_", commandID, index, command.Type)
 	tabID := commandGeneratedID("tab_", commandID, index, command.Type)
@@ -27,9 +27,9 @@ func applyCreateTable(workspace *Workspace, catalog CatalogSnapshot, commandID s
 
 func applyDuplicateTable(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	sourceIndex := documentIndex(workspace, command.SourceOutputID)
+	sourceIndex := documentIndex(workspace, command.SourceOutputID())
 	if sourceIndex < 0 {
-		return result, fmt.Errorf("source output %q was not found", command.SourceOutputID)
+		return result, fmt.Errorf("source output %q was not found", command.SourceOutputID())
 	}
 	outputID := commandGeneratedID("out_", commandID, index, command.Type)
 	tabID := commandGeneratedID("tab_", commandID, index, command.Type)
@@ -70,12 +70,12 @@ func applyRenameTable(workspace *Workspace, catalog CatalogSnapshot, commandID s
 
 func applyReorderTables(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if len(command.OutputIDs) != len(workspace.Documents) {
+	if len(command.OutputIDs()) != len(workspace.Documents) {
 		return result, fmt.Errorf("outputIds must list every table exactly once")
 	}
 	positions := map[string]int{}
 	seen := map[string]bool{}
-	for order, outputID := range command.OutputIDs {
+	for order, outputID := range command.OutputIDs() {
 		if documentIndex(workspace, outputID) < 0 || seen[outputID] {
 			return result, fmt.Errorf("outputIds contains an unknown or duplicate output")
 		}
@@ -94,7 +94,7 @@ func applyReorderTables(workspace *Workspace, catalog CatalogSnapshot, commandID
 func applySetTableRoot(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
-	node, ok := catalogNode(catalog, command.RootNodeID)
+	node, ok := catalogNode(catalog, command.RootNodeID())
 	if document < 0 || !ok || !node.RowRootEligible {
 		return result, fmt.Errorf("output or eligible root node was not found")
 	}
@@ -112,7 +112,7 @@ func applySetTableRoot(workspace *Workspace, catalog CatalogSnapshot, commandID 
 
 func applyApplyTableRootRebase(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	proposal := *command.RowChange
+	proposal := *command.RowChange()
 	if proposal.Mode == RowChangeModeReplace {
 		replaced, err := ApplyRowReplacement(*workspace, catalog, proposal)
 		if err != nil {
@@ -143,12 +143,12 @@ func applySetTablePopulation(workspace *Workspace, catalog CatalogSnapshot, comm
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
-	if command.RouteChoiceID != "" {
+	if command.RouteChoiceID() != "" {
 		if command.ResolvedPopulationRoute == nil {
 			return result, fmt.Errorf("population route choice has no server resolution")
 		}
-		setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID, command.ResolvedPopulationRoute)
-	} else if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID, command.EdgeIDs); err != nil {
+		setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID(), command.ResolvedPopulationRoute)
+	} else if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID(), command.EdgeIDs()); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -165,14 +165,14 @@ func applyClearTablePopulation(workspace *Workspace, catalog CatalogSnapshot, co
 }
 
 func (c Command) validateCreateTable() error {
-	if !commandFieldsPresent(c.Title, c.RootNodeID) {
+	if !commandFieldsPresent(c.Title, c.RootNodeID()) {
 		return fmt.Errorf("CREATE_TABLE requires title and rootNodeId")
 	}
 	return nil
 }
 
 func (c Command) validateDuplicateTable() error {
-	if !commandFieldsPresent(c.SourceOutputID, c.Title) {
+	if !commandFieldsPresent(c.SourceOutputID(), c.Title) {
 		return fmt.Errorf("DUPLICATE_TABLE requires sourceOutputId and title")
 	}
 	return nil
@@ -193,37 +193,37 @@ func (c Command) validateRenameTable() error {
 }
 
 func (c Command) validateReorderTables() error {
-	if len(c.OutputIDs) == 0 {
+	if len(c.OutputIDs()) == 0 {
 		return fmt.Errorf("REORDER_TABLES requires outputIds")
 	}
 	return nil
 }
 
 func (c Command) validateSetTableRoot() error {
-	if !commandFieldsPresent(c.OutputID, c.RootNodeID) {
+	if !commandFieldsPresent(c.OutputID, c.RootNodeID()) {
 		return fmt.Errorf("SET_TABLE_ROOT requires outputId and rootNodeId")
 	}
 	return nil
 }
 
 func (c Command) validateApplyTableRootRebase() error {
-	if c.RowChange == nil {
+	if c.RowChange() == nil {
 		return fmt.Errorf("APPLY_TABLE_ROOT_REBASE requires rowChange")
 	}
-	if err := c.RowChange.validate(); err != nil {
+	if err := c.RowChange().validate(); err != nil {
 		return err
 	}
-	if c.OutputID != "" && c.OutputID != c.RowChange.OutputID {
+	if c.OutputID != "" && c.OutputID != c.RowChange().OutputID {
 		return fmt.Errorf("APPLY_TABLE_ROOT_REBASE outputId must match rowChange.outputId")
 	}
 	return nil
 }
 
 func (c Command) validateSetTablePopulation() error {
-	if !commandFieldsPresent(c.OutputID, c.SelectionRevisionID) {
+	if !commandFieldsPresent(c.OutputID, c.SelectionRevisionID()) {
 		return fmt.Errorf("SET_TABLE_POPULATION requires outputId and selectionRevisionId")
 	}
-	if strings.TrimSpace(c.RouteChoiceID) != "" && len(c.EdgeIDs) != 0 {
+	if strings.TrimSpace(c.RouteChoiceID()) != "" && len(c.EdgeIDs()) != 0 {
 		return fmt.Errorf("SET_TABLE_POPULATION cannot combine routeChoiceId with client edgeIds")
 	}
 	return nil

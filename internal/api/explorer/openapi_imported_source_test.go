@@ -46,7 +46,7 @@ func TestImportedSourceCommandSurvivesPublicTransport(t *testing.T) {
 	if err := request.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	step := request.Commands[0].SourceStep
+	step := request.Commands[0].SourceStep()
 	if step == nil || step.Remove || step.StepID != "dynamicColumns[0]" || step.MaxColumns == nil || *step.MaxColumns != 32 || step.ValueMode != "ALL" {
 		t.Fatalf("source settings lost in public transport: %#v", step)
 	}
@@ -61,7 +61,7 @@ func TestImportedSourceCommandSurvivesPublicTransport(t *testing.T) {
 	if err := request.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if step := request.Commands[0].SourceStep; step == nil || !step.Remove {
+	if step := request.Commands[0].SourceStep(); step == nil || !step.Remove {
 		t.Fatalf("source removal lost in public transport: %#v", step)
 	}
 	plan := &authoringv2.ImportedSourcePlan{RemovedStepIDs: []string{"fields"}}
@@ -126,7 +126,7 @@ func TestImportedSourceHTTPUsesRemoveInsteadOfEnabled(t *testing.T) {
 				if capture.request != nil {
 					t.Fatal("invalid source mutation reached application")
 				}
-			} else if capture.request == nil || capture.request.Commands[0].SourceStep == nil || capture.request.Commands[0].SourceStep.Remove != test.remove {
+			} else if capture.request == nil || capture.request.Commands[0].SourceStep() == nil || capture.request.Commands[0].SourceStep().Remove != test.remove {
 				t.Fatal("source removal intent changed in transport")
 			}
 		})

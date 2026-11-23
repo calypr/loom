@@ -194,10 +194,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "legacy-frame-category", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{
-			Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable,
-			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: browsed.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID},
-		}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: browsed.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID}}}},
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "explorer", request, "alice")
 	if err != nil {

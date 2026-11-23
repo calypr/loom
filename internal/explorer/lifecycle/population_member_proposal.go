@@ -233,11 +233,11 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 		return nil, nil, malformed("commands", "APPLY_POPULATION_MEMBER_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID)
+	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, nil, err
 	}
-	if receipt == nil || receipt.ID != command.ProposalID || receipt.PopulationMemberRemovalProposal == nil {
+	if receipt == nil || receipt.ID != command.ProposalID() || receipt.PopulationMemberRemovalProposal == nil {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the proposal ID does not identify a population member removal receipt", nil, nil)
 	}
 	binding := receipt.PopulationMemberRemovalProposal
@@ -283,7 +283,7 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 		!populationpkg.RemovalRouteMatches(baseDocument.Population.Route, identity.Route) {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the receipt route is not bound to the exact candidate selection and retained table route", nil, decodeErr)
 	}
-	synthetic := authoringv2.Command{Type: authoringv2.CommandSetTablePopulation, OutputID: command.OutputID, SelectionRevisionID: candidateSelection.ID, RouteChoiceID: binding.RouteChoiceID}
+	synthetic := authoringv2.Command{Type: authoringv2.CommandSetTablePopulation, OutputID: command.OutputID, Payload: &authoringv2.TablePayload{SelectionRevisionID: candidateSelection.ID, RouteChoiceID: binding.RouteChoiceID}}
 	preparedRoute, err := s.preparePopulationRouteChoices(ctx, project, authorized, []capability.PopulationRouteChoiceIdentity{identity}, current, []authoringv2.Command{synthetic})
 	if err != nil {
 		return nil, nil, err

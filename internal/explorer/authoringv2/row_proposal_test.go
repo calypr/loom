@@ -11,7 +11,7 @@ func TestApplyRowDefinitionProposalValidatesClosedCommand(t *testing.T) {
 	base := ApplyCommandsRequest{
 		CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion,
 		SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft",
-		Commands: []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: "receipt-1"}},
+		Commands: []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}},
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatalf("valid proposal command rejected: %v", err)
@@ -21,10 +21,10 @@ func TestApplyRowDefinitionProposalValidatesClosedCommand(t *testing.T) {
 		name    string
 		command Command
 	}{
-		{name: "missing output", command: Command{Type: CommandApplyRowDefinitionProposal, ProposalID: "receipt-1"}},
-		{name: "missing proposal", command: Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients"}},
-		{name: "trimmed proposal", command: Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: " receipt-1 "}},
-		{name: "extra column", command: Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: "receipt-1", Column: "patient-id"}},
+		{name: "missing output", command: Command{Type: CommandApplyRowDefinitionProposal, Payload: &ProposalPayload{ProposalID: "receipt-1"}}},
+		{name: "missing proposal", command: Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{}}},
+		{name: "trimmed proposal", command: Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: " receipt-1 "}}},
+		{name: "extra column", command: Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ColumnPayload{Column: "patient-id"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := base
@@ -36,7 +36,7 @@ func TestApplyRowDefinitionProposalValidatesClosedCommand(t *testing.T) {
 	}
 
 	request := base
-	request.Commands = append(request.Commands, Command{Type: CommandRenameTable, OutputID: "patients", Title: "Renamed"})
+	request.Commands = append(request.Commands, Command{Type: CommandRenameTable, OutputID: "patients", Title: "Renamed", Payload: &TablePayload{}})
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "must be the only command") {
 		t.Fatalf("proposal was not required to be alone: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 			OccurrenceID: RootOccurrenceID, FieldPath: "active", MissingKeyPolicy: MissingKeyError,
 		}},
 	}}
-	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: "receipt-1"}
+	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
 	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
 		t.Fatal(err)
 	}
@@ -105,9 +105,7 @@ func TestApplyRowDefinitionProposalRequiresLifecycleResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{
-		Type: CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: "receipt-1",
-	}})
+	_, _, err = ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}})
 	if err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved row definition") {
 		t.Fatalf("unprepared proposal command error = %v", err)
 	}

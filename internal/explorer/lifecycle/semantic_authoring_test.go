@@ -74,7 +74,7 @@ func TestApplySemanticSelectionsRejectsStaleScopeAndInventoryContext(t *testing.
 			return semanticAuthoringInventory(snapshot, []semantic.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
 		})
 		request := semanticAuthoringRequest(snapshot, "stale-context", "concept-a", "binding-a", "VALUE")
-		request.Commands[0].ContextToken = "old-context-token"
+		request.Commands[0].Payload.(*authoringv2.SemanticPayload).ContextToken = "old-context-token"
 		_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_SEMANTIC_CONTEXT")
 		if store.saveDraftCalls != 0 {
@@ -147,15 +147,16 @@ func TestApplySemanticSelectionsReplaysAndDeduplicatesByIntent(t *testing.T) {
 	}
 	changedBody := request
 	changedBody.Commands = append([]authoringv2.Command(nil), request.Commands...)
-	changedBody.Commands[0].SemanticSelections = append([]authoringv2.SemanticSelection(nil), request.Commands[0].SemanticSelections...)
-	changedBody.Commands[0].SemanticSelections[0].Title = "different display"
+	changedSelections := append([]authoringv2.SemanticSelection(nil), request.Commands[0].SemanticSelections()...)
+	changedBody.Commands[0].Payload = &authoringv2.SemanticPayload{ContextToken: request.Commands[0].ContextToken(), SemanticSelections: changedSelections}
+	changedBody.Commands[0].SemanticSelections()[0].Title = "different display"
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", changedBody, "alice")
 	assertLifecycleError(t, err, ports.ClassConflict, "COMMAND_ID_CONFLICT")
 
 	secondRequest := semanticAuthoringRequest(snapshot, "second-semantic-command", "concept-a", "binding-a", "VALUE")
 	secondRequest.ExpectedDraftVersion = first.DraftVersion
 	secondRequest.ExpectedDraftDigest = first.DraftDigest
-	secondRequest.Commands[0].SemanticSelections[0].Title = "new label"
+	secondRequest.Commands[0].SemanticSelections()[0].Title = "new label"
 	second, err := service.ApplyCommands(context.Background(), "project-a", "patients", secondRequest, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +203,10 @@ func TestApplySemanticSelectionsRejectsMoreThanOneHundredBeforeLookup(t *testing
 	})
 	request := semanticAuthoringRequest(snapshot, "too-many", "concept-0", "binding", "VALUE")
 	for index := 1; index < 101; index++ {
-		request.Commands[0].SemanticSelections = append(request.Commands[0].SemanticSelections, authoringv2.SemanticSelection{ConceptID: "concept-" + string(rune('a'+index%26)), BindingID: "binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE"})
+		{
+			payload := request.Commands[0].Payload.(*authoringv2.SemanticPayload)
+			payload.SemanticSelections = append(payload.SemanticSelections, authoringv2.SemanticSelection{ConceptID: "concept-" + string(rune('a'+index%26)), BindingID: "binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE"})
+		}
 	}
 	_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err == nil || !strings.Contains(err.Error(), "between 1 and 100") || resolverCalls != 0 || store.saveDraftCalls != 0 {
@@ -277,7 +281,7 @@ func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID
 	}
 	return authoringv2.ApplyCommandsRequest{
 		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
-		ExpectedDraftDigest: "", Commands: []authoringv2.Command{{Type: authoringv2.CommandAddSemanticSelections, OutputID: "patients", ContextToken: contextToken, SemanticSelections: []authoringv2.SemanticSelection{{ConceptID: conceptID, BindingID: bindingID, RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: projectionMode}}}},
+		ExpectedDraftDigest: "", Commands: []authoringv2.Command{{Type: authoringv2.CommandAddSemanticSelections, OutputID: "patients", Payload: &authoringv2.SemanticPayload{ContextToken: contextToken, SemanticSelections: []authoringv2.SemanticSelection{{ConceptID: conceptID, BindingID: bindingID, RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: projectionMode}}}}},
 	}
 }
 

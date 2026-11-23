@@ -13,14 +13,14 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	if documentPos < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
-	source = editableSource(command.OccurrenceID, source)
+	source = editableSource(command.OccurrenceID(), source)
 	if err := validateResolvedConstructionChoiceSource(workspace.Documents[documentPos], catalog, command, source); err != nil {
 		return result, err
 	}
 	var contributor *ContributorPredicate
-	if command.Contributor != nil {
-		normalized := command.Contributor.Normalized()
-		if err := ValidateContributorForCatalog(workspace.Documents[documentPos], catalog, command.OccurrenceID, source, normalized); err != nil {
+	if command.Contributor() != nil {
+		normalized := command.Contributor().Normalized()
+		if err := ValidateContributorForCatalog(workspace.Documents[documentPos], catalog, command.OccurrenceID(), source, normalized); err != nil {
 			return result, err
 		}
 		contributor = &normalized
@@ -30,7 +30,7 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		if existing.Column != columnID {
 			continue
 		}
-		if existing.OccurrenceID != command.OccurrenceID || !sourceEqual(existing.Source, source) || !contributorEqual(existing.Contributor, contributor) {
+		if existing.OccurrenceID != command.OccurrenceID() || !sourceEqual(existing.Source, source) || !contributorEqual(existing.Contributor, contributor) {
 			return result, fmt.Errorf("generated column identity %q conflicts with a different feature", columnID)
 		}
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: existing.Column}, nil
@@ -43,20 +43,20 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		label = source.Kind
 	}
 	if strings.TrimSpace(logicalType) == "" {
-		logicalType = inferredSourceLogicalType(workspace.Documents[documentPos], catalog, command.OccurrenceID, source, "string")
+		logicalType = inferredSourceLogicalType(workspace.Documents[documentPos], catalog, command.OccurrenceID(), source, "string")
 	}
-	column := Column{Column: columnID, Label: label, LogicalType: logicalType, OccurrenceID: command.OccurrenceID, Source: source, Contributor: contributor}
+	column := Column{Column: columnID, Label: label, LogicalType: logicalType, OccurrenceID: command.OccurrenceID(), Source: source, Contributor: contributor}
 	column.ColumnID = stagedSourceColumnID(workspace.Documents[documentPos].Output.ID, commandID, index, command.Type, column.Column)
 	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[documentPos]))
 	workspace.Documents[documentPos].Columns = append(workspace.Documents[documentPos].Columns, column)
 	var policy ConstructionRowValuePolicy
-	if command.ConstructionChoice != nil {
-		policy = command.ConstructionChoice.RowValuePolicy
+	if command.ConstructionChoice() != nil {
+		policy = command.ConstructionChoice().RowValuePolicy
 	}
 	document := &workspace.Documents[documentPos]
 	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil &&
 		document.Rows.Groups.Source.Kind == GroupSourceExplicit {
-		if command.ConstructionChoice != nil {
+		if command.ConstructionChoice() != nil {
 			if err := populateExplicitGroupRowValue(document, column, policy); err != nil {
 				return result, err
 			}
@@ -69,18 +69,18 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 
 func validateResolvedConstructionChoiceSource(document Document, catalog CatalogSnapshot, command Command, source ColumnSource) error {
 	validate := func(candidateSource ColumnSource) error {
-		return validateEditableSourcePolicy(document, catalog, command.OccurrenceID, candidateSource, true)
+		return validateEditableSourcePolicy(document, catalog, command.OccurrenceID(), candidateSource, true)
 	}
-	selection, resolved := command.ConstructionChoice, command.ResolvedChoice
+	selection, resolved := command.ConstructionChoice(), command.ResolvedChoice
 	if selection == nil || resolved == nil || selection.Form != capability.ConstructionChoiceAll ||
-		command.OccurrenceID == RootOccurrenceID || source.Kind != SourceField || source.Field == nil ||
+		command.OccurrenceID() == RootOccurrenceID || source.Kind != SourceField || source.Field == nil ||
 		!strings.EqualFold(strings.TrimSpace(source.Field.ProjectionMode), string(capability.ConstructionChoiceAll)) ||
 		!sourceEqual(source, resolved.Source) || len(resolved.Route) == 0 {
 		return validate(source)
 	}
 
 	candidate, found := catalogCandidate(catalog, resolved.CandidateID)
-	occurrence := findRoute(&document.Route, command.OccurrenceID)
+	occurrence := findRoute(&document.Route, command.OccurrenceID())
 	lastHop := resolved.Route[len(resolved.Route)-1]
 	if !found || occurrence == nil || occurrence.ResourceType != lastHop.ToResourceType ||
 		candidate.NodeID != lastHop.ToNodeID ||

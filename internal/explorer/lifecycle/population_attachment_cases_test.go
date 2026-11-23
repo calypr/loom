@@ -267,7 +267,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	if err != nil {
 		t.Fatalf("forged identity must have a valid digest: %v", err)
 	}
-	commands := []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: selectionID, RouteChoiceID: choiceID}}
+	commands := []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: selectionID, RouteChoiceID: choiceID}}}
 	if c.Batch == "invalidSecond" {
 		second := identity
 		second.SnapshotToken = snapshot.Token
@@ -277,7 +277,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		if e != nil {
 			t.Fatal(e)
 		}
-		commands = append(commands, authoringv2.Command{Type: authoringv2.CommandSetTablePopulation, OutputID: "missing-output", SelectionRevisionID: selectionID, RouteChoiceID: token})
+		commands = append(commands, authoringv2.Command{Type: authoringv2.CommandSetTablePopulation, OutputID: "missing-output", Payload: &authoringv2.TablePayload{SelectionRevisionID: selectionID, RouteChoiceID: token}})
 	}
 	expected, err := authoringv2.DecodeWorkspace(before.DraftConfig)
 	if err != nil {

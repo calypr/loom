@@ -174,18 +174,18 @@ func (s *Service) preparePopulationRouteChoices(ctx context.Context, project str
 	}
 	for index := range commands {
 		command := &commands[index]
-		if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID == "" || len(command.EdgeIDs) != 0 {
+		if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID() == "" || len(command.EdgeIDs()) != 0 {
 			return nil, malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
 		}
 		identity := identities[index]
-		if identity.SnapshotToken != snapshot.Token || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID {
+		if identity.SnapshotToken != snapshot.Token || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID() {
 			return nil, conflict("commands", "STALE_POPULATION_ROUTE", "the population route belongs to another table, selection, or catalog snapshot", nil, nil)
 		}
 		document := findSemanticOutput(workspace, command.OutputID)
 		if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 			return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 		}
-		selection, err := s.getAuthorizedPopulationSelection(ctx, project, command.SelectionRevisionID, snapshot)
+		selection, err := s.getAuthorizedPopulationSelection(ctx, project, command.SelectionRevisionID(), snapshot)
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +210,7 @@ func (s *Service) preparePopulationRouteChoices(ctx context.Context, project str
 			Version: 1, SnapshotToken: snapshot.Token, OutputID: command.OutputID,
 			SelectionRevisionID: selection.ID, Route: route,
 		})
-		if err != nil || expected != command.RouteChoiceID {
+		if err != nil || expected != command.RouteChoiceID() {
 			return nil, invalidPopulationRoute("the route choice identity no longer matches this selection")
 		}
 		steps := make([]authoringv2.PopulationRouteStep, 0, len(route))

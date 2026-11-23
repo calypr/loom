@@ -236,7 +236,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	applyRequest := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-zero-column-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: response.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: response.ProposalID}}},
 	}
 	staleRequest := applyRequest
 	staleRequest.CommandID = "apply-zero-column-construction-stale"

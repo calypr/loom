@@ -133,7 +133,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 	apply, err := service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 		CommandID: "trace-apply-group-mean", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: versionBefore, ExpectedDraftDigest: digestBefore,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "trace-actor")
 	if err != nil {
 		t.Fatalf("ApplyCommands exact proposal: %v", err)
@@ -947,7 +947,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				applied, err := service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 					CommandID: "operation-history-" + traceID + "-" + fmt.Sprint(actionIndex), SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 					SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-					Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: lastProposal.OutputID, ProposalID: lastProposal.ProposalID}},
+					Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: lastProposal.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: lastProposal.ProposalID}}},
 				}, "operation-history-test")
 				if err != nil || applied == nil {
 					t.Fatalf("trace %s action %d actual apply ack response=%#v err=%v", traceID, actionIndex, applied, err)

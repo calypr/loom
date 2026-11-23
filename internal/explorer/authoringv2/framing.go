@@ -30,7 +30,7 @@ func applyFrameSourceCommand(workspace *Workspace, command Command) (CommandResu
 	document := &workspace.Documents[documentIndexValue]
 	switch command.Type {
 	case CommandRemoveFrameSource:
-		return removeFrameSource(document, workspace, command.OutputID, command.FrameID)
+		return removeFrameSource(document, workspace, command.OutputID, command.FrameID())
 	case CommandSetFrameSource:
 		if command.resolvedFrame == nil {
 			return result, fmt.Errorf("SET_FRAME_SOURCE has no lifecycle-resolved source")
@@ -44,15 +44,15 @@ func applyFrameSourceCommand(workspace *Workspace, command Command) (CommandResu
 		if command.resolvedFrame == nil {
 			return result, fmt.Errorf("REPLACE_FRAME_SOURCE has no lifecycle-resolved source")
 		}
-		if !frameExists(document.Frames, command.FrameID) {
-			return result, fmt.Errorf("frame source %q was not found", command.FrameID)
+		if !frameExists(document.Frames, command.FrameID()) {
+			return result, fmt.Errorf("frame source %q was not found", command.FrameID())
 		}
 	default:
 		return result, fmt.Errorf("unsupported frame source command %q", command.Type)
 	}
 	if command.Type == CommandReplaceFrameSource {
 		var err error
-		result, err = removeFrameSource(document, workspace, command.OutputID, command.FrameID)
+		result, err = removeFrameSource(document, workspace, command.OutputID, command.FrameID())
 		if err != nil {
 			return result, err
 		}

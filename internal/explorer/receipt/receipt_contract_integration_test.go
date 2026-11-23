@@ -540,9 +540,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	_, err = application.ApplyCommands(context.Background(), "project-a", "custom", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-coded-group", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
-		Commands: []authoringv2.Command{{
-			Type: authoringv2.CommandApplyConstructionProposal, OutputID: "specimens", ProposalID: proposal.ProposalID,
-		}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "specimens", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "test")
 	if err != nil {
 		t.Fatalf("apply coded-group proposal: %v", err)

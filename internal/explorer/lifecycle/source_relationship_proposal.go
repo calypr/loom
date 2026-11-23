@@ -119,7 +119,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		}
 		return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_RELATIONSHIP", err.Error(), err)
 	}
-	command := authoringv2.Command{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: request.OutputID, ProposalID: "candidate-preview"}
+	command := authoringv2.Command{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: request.OutputID, Payload: &authoringv2.ImportedSourcePayload{ProposalID: "candidate-preview"}}
 	if err := command.ResolveImportedDocument(updated); err != nil {
 		return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
@@ -216,11 +216,11 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 		return nil, malformed("commands", "source relationship Apply requires one command", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID)
+	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, err
 	}
-	if receipt == nil || receipt.ID != command.ProposalID {
+	if receipt == nil || receipt.ID != command.ProposalID() {
 		return nil, conflict("commands", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate receipt was not found", nil, nil)
 	}
 	binding := receipt.SourceRelationshipProposal

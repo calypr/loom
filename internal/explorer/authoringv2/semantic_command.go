@@ -27,8 +27,8 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		return CommandResult{}, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	document := &workspace.Documents[documentIndex]
-	result := CommandResult{Type: CommandResultSemanticSelectionsAdded, OutputID: command.OutputID, SemanticSelections: make([]SemanticSelectionResult, 0, len(command.SemanticSelections))}
-	for selectionIndex, selection := range command.SemanticSelections {
+	result := CommandResult{Type: CommandResultSemanticSelectionsAdded, OutputID: command.OutputID, SemanticSelections: make([]SemanticSelectionResult, 0, len(command.SemanticSelections()))}
+	for selectionIndex, selection := range command.SemanticSelections() {
 		entry := selection.ResolvedObservation
 		if entry == nil || entry.ConceptID != selection.ConceptID || entry.BindingID != selection.BindingID {
 			return CommandResult{}, fmt.Errorf("semantic selection %d has no matching server-resolved inventory row", selectionIndex)

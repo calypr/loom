@@ -326,7 +326,7 @@ func TestPopulationMemberRemovalProposalCreatesExactRevisionAndAppliesOnlyPopula
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-population-removal", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err != nil {
@@ -514,14 +514,14 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	}
 	if _, err := service.preparePopulationRouteChoices(context.Background(), "project-a", ports.AuthorizedCapability{Snapshot: snapshot},
 		[]capability.PopulationRouteChoiceIdentity{choice}, currentWorkspace,
-		[]authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: proposal.CandidateSelection.ID, RouteChoiceID: binding.RouteChoiceID}}); err == nil {
+		[]authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: proposal.CandidateSelection.ID, RouteChoiceID: binding.RouteChoiceID}}}); err == nil {
 		t.Fatal("population route proof accepted a snapshot without its restricted authorized scope")
 	}
 
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-routed-population-removal", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
 	beforeRejectedApply := append([]byte(nil), store.created.DraftConfig...)
 	beforeRejectedDigest, beforeRejectedVersion := store.created.DraftDigest, store.created.DraftVersion
@@ -600,7 +600,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 		request := authoringv2.ApplyCommandsRequest{
 			CommandID: "apply-preview-fail", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest,
-			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 		}
 		if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil {
 			t.Fatal("candidate preview failure was accepted")
@@ -619,7 +619,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 		request := authoringv2.ApplyCommandsRequest{
 			CommandID: "apply-population-once", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 		}
 		if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err != nil {
 			t.Fatal(err)
@@ -658,7 +658,7 @@ func TestPopulationMemberRemovalProposalRejectsRouteSubstitution(t *testing.T) {
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-route-substitution", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: forged.ID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: forged.ID}}},
 	}
 	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil {
 		t.Fatal("substituted route choice was accepted")

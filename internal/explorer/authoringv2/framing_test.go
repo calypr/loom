@@ -55,7 +55,7 @@ func TestFrameSourcePersistsAndRoundTripsWithoutChangingRows(t *testing.T) {
 		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
 	}}
 	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
-	command := Command{Type: CommandSetFrameSource, OutputID: "out", FrameChoiceID: "signed-frame-choice", FrameForm: capability.ConstructionChoiceValue}
+	command := Command{Type: CommandSetFrameSource, OutputID: "out", Payload: &FramePayload{FrameChoiceID: "signed-frame-choice", FrameForm: capability.ConstructionChoiceValue}}
 	if err := command.ResolveFrameSource(frame); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestDirectSemanticFrameChoicePersistsEmptyRouteAsArray(t *testing.T) {
 		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
 	}}
 	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
-	command := Command{Type: CommandSetFrameSource, OutputID: "out", FrameChoiceID: choice.ChoiceID, FrameForm: capability.ConstructionChoiceValue}
+	command := Command{Type: CommandSetFrameSource, OutputID: "out", Payload: &FramePayload{FrameChoiceID: choice.ChoiceID, FrameForm: capability.ConstructionChoiceValue}}
 	if err := command.ResolveFrameSource(frame); err != nil {
 		t.Fatal(err)
 	}
@@ -227,9 +227,7 @@ func TestRemovingFrameSourceAtomicallyRemovesOnlyTaggedColumns(t *testing.T) {
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("test workspace is invalid: %v", err)
 	}
-	after, results, err := ApplyCommands(workspace, observationFrameCatalog(), "remove-frame", []Command{{
-		Type: CommandRemoveFrameSource, OutputID: "out", FrameID: frame.ID,
-	}})
+	after, results, err := ApplyCommands(workspace, observationFrameCatalog(), "remove-frame", []Command{{Type: CommandRemoveFrameSource, OutputID: "out", Payload: &FramePayload{FrameID: frame.ID}}})
 	if err != nil {
 		t.Fatal(err)
 	}

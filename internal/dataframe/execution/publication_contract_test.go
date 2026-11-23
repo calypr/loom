@@ -124,15 +124,11 @@ func TestPlainTableAuthoredColumnIDReachesCompiledAndPublishedSchema(t *testing.
 			Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
 		}},
 	}
-	workspace, created, err := authoringv2.ApplyCommands(workspace, authoringCatalog, "create-patients", []authoringv2.Command{{
-		Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "patient-node",
-	}})
+	workspace, created, err := authoringv2.ApplyCommands(workspace, authoringCatalog, "create-patients", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "patient-node"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = authoringv2.ApplyCommands(workspace, authoringCatalog, "add-patient-id", []authoringv2.Command{{
-		Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: authoringv2.RootOccurrenceID, CandidateID: "patient-id",
-	}})
+	workspace, _, err = authoringv2.ApplyCommands(workspace, authoringCatalog, "add-patient-id", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: authoringv2.RootOccurrenceID, CandidateID: "patient-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

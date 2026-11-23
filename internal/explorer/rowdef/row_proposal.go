@@ -79,7 +79,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
 		return RowDefinitionProposal{}, support.Unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
 	}
-	command := authoringv2.Command{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: request.OutputID, ProposalID: "proposal-preview"}
+	command := authoringv2.Command{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: request.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: "proposal-preview"}}
 	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
@@ -326,11 +326,11 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 		return nil, nil, support.Malformed("commands", "APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.config.LookupReceipt(ctx, project, explorerID, command.ProposalID)
+	receipt, err := s.config.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, nil, err
 	}
-	if receipt == nil || receipt.ID != command.ProposalID {
+	if receipt == nil || receipt.ID != command.ProposalID() {
 		return nil, nil, support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the proposal ID does not match a candidate receipt", nil, nil)
 	}
 	binding := receipt.RowDefinitionProposal

@@ -952,7 +952,7 @@ func rowProposalApplyRequest(owner *explorer.Explorer, snapshot capability.Snaps
 	return authoringv2.ApplyCommandsRequest{
 		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: proposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposalID}}},
 	}
 }
 

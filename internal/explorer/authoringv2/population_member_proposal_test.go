@@ -8,16 +8,14 @@ import (
 
 func TestApplyPopulationMemberProposalIsServerResolvedAndChangesOnlySelectionRevision(t *testing.T) {
 	catalog := commandCatalog()
-	workspace, _, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create-population-table", []Command{{
-		Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient",
-	}})
+	workspace, _, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create-population-table", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := workspace.Documents[0].Output.ID
 	workspace.Documents[0].Population = &Population{SelectionRevisionID: "selection-before", Route: []PopulationRouteStep{}}
 	before := workspace.Documents[0]
-	command := Command{Type: CommandApplyPopulationMemberProposal, OutputID: outputID, ProposalID: "receipt-population-change"}
+	command := Command{Type: CommandApplyPopulationMemberProposal, OutputID: outputID, Payload: &ProposalPayload{ProposalID: "receipt-population-change"}}
 	if _, _, err := ApplyCommands(workspace, catalog, "unresolved-proposal", []Command{command}); err == nil {
 		t.Fatal("unresolved population proposal applied")
 	}
@@ -49,12 +47,12 @@ func TestApplyPopulationMemberProposalWireIsClosedAndCASBound(t *testing.T) {
 	request := ApplyCommandsRequest{
 		CommandID: "apply-population", SemanticsVersion: CurrentSemanticsVersion,
 		SnapshotToken: "snapshot-1", ExpectedDraftVersion: 4, ExpectedDraftDigest: "sha256:draft",
-		Commands: []Command{{Type: CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: "receipt-1"}},
+		Commands: []Command{{Type: CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}},
 	}
 	if err := request.Validate(); err != nil {
 		t.Fatalf("closed proposal apply request rejected: %v", err)
 	}
-	request.Commands = append(request.Commands, Command{Type: CommandRenameTable, OutputID: "patients", Title: "other"})
+	request.Commands = append(request.Commands, Command{Type: CommandRenameTable, OutputID: "patients", Title: "other", Payload: &TablePayload{}})
 	if err := request.Validate(); err == nil {
 		t.Fatal("proposal apply was allowed to share an atomic command batch")
 	}

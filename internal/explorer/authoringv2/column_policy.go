@@ -53,5 +53,5 @@ func applyColumnPolicyProposal(workspace *Workspace, catalog CatalogSnapshot, co
 	field := *source.Field
 	field.ProjectionMode = command.resolvedColumnPolicy.projectionMode
 	source.Field = &field
-	return applyCommand(workspace, catalog, commandID, index, Command{Type: CommandUpdateColumnSource, OutputID: command.OutputID, Column: target.Column, Source: &source})
+	return applyCommand(workspace, catalog, commandID, index, Command{Type: CommandUpdateColumnSource, OutputID: command.OutputID, Payload: &ColumnPayload{Column: target.Column, Source: &source}})
 }

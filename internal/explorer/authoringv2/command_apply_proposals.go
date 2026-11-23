@@ -11,12 +11,12 @@ func applyApplyColumnPolicyProposal(workspace *Workspace, catalog CatalogSnapsho
 
 func applyApplyInterpretationCandidate(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column) == "" ||
-		command.InterpretationCandidate == nil ||
-		strings.TrimSpace(command.InterpretationCandidate.CandidateReceiptID) == "" ||
-		strings.TrimSpace(command.InterpretationCandidate.RevisionID) == "" ||
-		command.InterpretationCandidate.CandidateReceiptID != strings.TrimSpace(command.InterpretationCandidate.CandidateReceiptID) ||
-		command.InterpretationCandidate.RevisionID != strings.TrimSpace(command.InterpretationCandidate.RevisionID) {
+	if strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column()) == "" ||
+		command.InterpretationCandidate() == nil ||
+		strings.TrimSpace(command.InterpretationCandidate().CandidateReceiptID) == "" ||
+		strings.TrimSpace(command.InterpretationCandidate().RevisionID) == "" ||
+		command.InterpretationCandidate().CandidateReceiptID != strings.TrimSpace(command.InterpretationCandidate().CandidateReceiptID) ||
+		command.InterpretationCandidate().RevisionID != strings.TrimSpace(command.InterpretationCandidate().RevisionID) {
 		return result, fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires outputId, column, and exact interpretationCandidate payload")
 	}
 	document := documentIndex(workspace, command.OutputID)
@@ -25,10 +25,10 @@ func applyApplyInterpretationCandidate(workspace *Workspace, catalog CatalogSnap
 	}
 	for index := range workspace.Documents[document].Columns {
 		current := &workspace.Documents[document].Columns[index]
-		if current.Column != command.Column {
+		if current.Column != command.Column() {
 			continue
 		}
-		revisionID := command.InterpretationCandidate.RevisionID
+		revisionID := command.InterpretationCandidate().RevisionID
 		current.Interpretation = &FeatureInterpretation{
 			Kind:   FeatureInterpretationPinned,
 			Pinned: &PinnedInterpretation{RevisionID: revisionID},
@@ -37,7 +37,7 @@ func applyApplyInterpretationCandidate(workspace *Workspace, catalog CatalogSnap
 		current.Contributor = nil
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 	}
-	return result, fmt.Errorf("column %q was not found", command.Column)
+	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
 func applyApplyRowDefinitionProposal(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -123,40 +123,40 @@ func applyRestoreDraftRevision(workspace *Workspace, catalog CatalogSnapshot, co
 }
 
 func (c Command) validateApplyInterpretationCandidate() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) || c.InterpretationCandidate == nil {
+	if !commandFieldsPresent(c.OutputID, c.Column()) || c.InterpretationCandidate() == nil {
 		return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires outputId, column, and interpretationCandidate")
 	}
-	if !commandFieldsPresent(c.InterpretationCandidate.CandidateReceiptID, c.InterpretationCandidate.RevisionID) ||
-		c.InterpretationCandidate.CandidateReceiptID != strings.TrimSpace(c.InterpretationCandidate.CandidateReceiptID) ||
-		c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
+	if !commandFieldsPresent(c.InterpretationCandidate().CandidateReceiptID, c.InterpretationCandidate().RevisionID) ||
+		c.InterpretationCandidate().CandidateReceiptID != strings.TrimSpace(c.InterpretationCandidate().CandidateReceiptID) ||
+		c.InterpretationCandidate().RevisionID != strings.TrimSpace(c.InterpretationCandidate().RevisionID) {
 		return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 	}
 	return nil
 }
 
 func (c Command) validateApplyColumnPolicyProposal() error {
-	if !commandFieldsPresent(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+	if !commandFieldsPresent(c.OutputID, c.ProposalID()) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
 		return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 	}
-	if c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
-		len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
-		c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
-		c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
-		c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
+	if c.SourceOutputID() != "" || c.Title != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
+		len(c.EdgeIDs()) != 0 || c.RouteChoiceID() != "" || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
+		c.CandidateID() != "" || c.ProjectionMode() != "" || c.InitialPresentation != "" || c.Column() != "" || c.ColumnValue() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
+		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ContextToken() != "" || len(c.SemanticSelections()) != 0 ||
+		c.ConstructionChoice() != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs()) != 0 {
 		return fmt.Errorf("%s accepts only outputId and proposalId", c.Type)
 	}
 	return nil
 }
 
 func (c Command) validateRestoreDraftRevision() error {
-	if !commandFieldsPresent(c.DraftRevisionID) || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
+	if !commandFieldsPresent(c.DraftRevisionID()) || c.DraftRevisionID() != strings.TrimSpace(c.DraftRevisionID()) {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact draftRevisionId")
 	}
-	if c.OutputID != "" || c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
-		len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
-		c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
-		c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ProposalID != "" || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
-		c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 || c.resolvedDraftRevision != nil {
+	if c.OutputID != "" || c.SourceOutputID() != "" || c.Title != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
+		len(c.EdgeIDs()) != 0 || c.RouteChoiceID() != "" || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
+		c.CandidateID() != "" || c.ProjectionMode() != "" || c.InitialPresentation != "" || c.Column() != "" || c.ColumnValue() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
+		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ProposalID() != "" || c.ContextToken() != "" || len(c.SemanticSelections()) != 0 ||
+		c.ConstructionChoice() != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs()) != 0 || c.resolvedDraftRevision != nil {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION accepts only draftRevisionId")
 	}
 	return nil

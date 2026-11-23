@@ -307,7 +307,7 @@ func projectedFieldRemovalRequest(commandID, columnID, digest string, version in
 	return authoringv2.ApplyCommandsRequest{
 		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshotToken,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandRemoveProjectedField, OutputID: "patients", ColumnID: columnID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandRemoveProjectedField, OutputID: "patients", Payload: &authoringv2.ColumnPayload{ColumnID: columnID}}},
 	}
 }
 

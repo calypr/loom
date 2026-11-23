@@ -27,10 +27,7 @@ func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.
 		CommandID: "set-population-direction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion,
 		ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{
-			Type: authoringv2.CommandSetTablePopulation, OutputID: "patients",
-			SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID,
-		}},
+		Commands:            []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("apply signed population route: %v", err)
@@ -68,10 +65,7 @@ func TestLegacyPopulationRouteHydratesDirectionOnlyForResolvedInputs(t *testing.
 		CommandID: "set-legacy-route-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion,
 		ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{
-			Type: authoringv2.CommandSetTablePopulation, OutputID: "patients",
-			SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID,
-		}},
+		Commands:            []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("apply population route: %v", err)

@@ -144,7 +144,7 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "row-policy-one", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandUpdateColumnRowValuePolicy, OutputID: "patients", Column: "patient_active", RowValuePolicy: authoringv2.ConstructionRowValueOne}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandUpdateColumnRowValuePolicy, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_active", RowValuePolicy: authoringv2.ConstructionRowValueOne}}},
 	}
 	return service, store, snapshot, request
 }

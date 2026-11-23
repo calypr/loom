@@ -449,10 +449,10 @@ func TestGeneratedAuthoringCommandPreservesColumnTransformationUnion(t *testing.
 	if err != nil {
 		t.Fatalf("generated command conversion failed: %v", err)
 	}
-	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandUpdateColumnTransformation || request.Commands[0].TransformationChange == nil || request.Commands[0].TransformationChange.Transformation == nil {
+	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandUpdateColumnTransformation || request.Commands[0].TransformationChange() == nil || request.Commands[0].TransformationChange().Transformation == nil {
 		t.Fatalf("converted command = %#v", request.Commands)
 	}
-	transformation := request.Commands[0].TransformationChange.Transformation
+	transformation := request.Commands[0].TransformationChange().Transformation
 	if transformation.Kind != "EXACT_CATEGORY_RECODE" || transformation.ExactCategoryRecode == nil || transformation.ExactCategoryRecode.UnknownPolicy != "ERROR" || len(transformation.ExactCategoryRecode.Mappings) != 1 || transformation.ExactCategoryRecode.Mappings[0].From != "recorded-A" || transformation.ExactCategoryRecode.Mappings[0].To != "group-1" {
 		t.Fatalf("converted transformation = %#v", transformation)
 	}

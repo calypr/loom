@@ -28,7 +28,7 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 	}
 	for index := range commands {
 		command := &commands[index]
-		if command.Type != authoringv2.CommandApplyConstructionChoice || command.ConstructionChoice == nil {
+		if command.Type != authoringv2.CommandApplyConstructionChoice || command.ConstructionChoice() == nil {
 			return nil, malformed("commands", "construction choice requests cannot include unrelated commands", nil)
 		}
 		document := findSemanticOutput(workspace, command.OutputID)
@@ -39,8 +39,8 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 		identity := identities[index]
 		choiceEntries := semanticEntries
 		choiceFamilies := semanticFamilies
-		if command.ConstructionChoice.FrameID != "" {
-			frame, found := frameDefinitionForID(document, command.ConstructionChoice.FrameID)
+		if command.ConstructionChoice().FrameID != "" {
+			frame, found := frameDefinitionForID(document, command.ConstructionChoice().FrameID)
 			if !found || !reflect.DeepEqual(identity.Route, frame.Route) {
 				return nil, invalidConstructionChoice("the semantic category does not match its saved frame source or route")
 			}
@@ -63,18 +63,18 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 		var title string
 		switch source := identity.Source.(type) {
 		case capability.FieldChoiceSource:
-			resolution, title, err = resolveFieldConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, document.RootResourceType, *command.ConstructionChoice, identity, source)
+			resolution, title, err = resolveFieldConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, document.RootResourceType, *command.ConstructionChoice(), identity, source)
 		case capability.SemanticBindingChoiceSource:
-			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, identity.SemanticContextToken, identity.BuildID, buildID, choiceEntries, choiceFamilies, *command.ConstructionChoice, identity, source)
+			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, identity.SemanticContextToken, identity.BuildID, buildID, choiceEntries, choiceFamilies, *command.ConstructionChoice(), identity, source)
 		default:
 			return nil, unprocessable("commands", "INVALID_CONSTRUCTION_CHOICE", "construction choice source kind is unsupported", nil)
 		}
 		if err != nil {
 			return nil, err
 		}
-		if command.ConstructionChoice.FrameID != "" {
-			frame, found := frameForConstructionChoice(document, command.ConstructionChoice.FrameID, identity, semanticEntries)
-			if !found || !reflect.DeepEqual(resolution.Route, identity.Route) || command.ConstructionChoice.Form != frame.Form {
+		if command.ConstructionChoice().FrameID != "" {
+			frame, found := frameForConstructionChoice(document, command.ConstructionChoice().FrameID, identity, semanticEntries)
+			if !found || !reflect.DeepEqual(resolution.Route, identity.Route) || command.ConstructionChoice().Form != frame.Form {
 				return nil, invalidConstructionChoice("the semantic category does not match its saved frame source, route, or value policy")
 			}
 			resolution.FrameID = frame.ID

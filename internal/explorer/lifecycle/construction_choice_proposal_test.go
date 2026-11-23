@@ -73,8 +73,8 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 		CommandID: choiceID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest,
 		Commands: []authoringv2.Command{
-			{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
-			{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choiceBatch.ChoiceID, Form: capability.ConstructionChoiceFirst}},
+			{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}}},
+			{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choiceBatch.ChoiceID, Form: capability.ConstructionChoiceFirst}}},
 		},
 	}, "alice")
 	if err != nil {

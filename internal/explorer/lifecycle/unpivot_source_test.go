@@ -1065,7 +1065,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 			_, err = harness.service.ApplyCommands(context.Background(), harness.store.created.Project, harness.store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 				CommandID: "unpivot-source-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 			}, "unpivot-source-actor")
 			if stale {
 				if err == nil || lifecycleErrorCode(err) != "STALE_UNPIVOT_SOURCE_BINDING" {

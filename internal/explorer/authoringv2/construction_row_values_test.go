@@ -47,7 +47,7 @@ func TestPopulateGroupedRowsPreservesIdentityReloadAndRemoval(t *testing.T) {
 	if !reflect.DeepEqual(reloaded.Documents[0].Construction.Steps[0].RowValues, step.RowValues) {
 		t.Fatal("reload lost contributing-record value policy")
 	}
-	removed, _, err := ApplyCommands(reloaded, commandCatalog(), "remove-gender", []Command{{Type: CommandRemoveColumn, OutputID: "patients", Column: "gender"}})
+	removed, _, err := ApplyCommands(reloaded, commandCatalog(), "remove-gender", []Command{{Type: CommandRemoveColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "gender"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestRemoveProjectedFieldUsesStableIDAndExistingDownstreamCleanup(t *testing
 		t.Fatal(err)
 	}
 	workspace := constructionWorkspace(document)
-	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", []Command{{Type: CommandRemoveProjectedField, OutputID: "patients", ColumnID: "gender_source"}})
+	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", []Command{{Type: CommandRemoveProjectedField, OutputID: "patients", Payload: &ColumnPayload{ColumnID: "gender_source"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

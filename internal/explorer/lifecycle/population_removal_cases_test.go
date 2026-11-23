@@ -170,7 +170,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	request := authoringv2.ApplyCommandsRequest{CommandID: "formal-removal-" + c.ID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: originalHead.DraftVersion, ExpectedDraftDigest: originalHead.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", ProposalID: proposal.ProposalID}}}
+	request := authoringv2.ApplyCommandsRequest{CommandID: "formal-removal-" + c.ID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: originalHead.DraftVersion, ExpectedDraftDigest: originalHead.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}}}
 	response, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	preserved := reflect.DeepEqual(*store.created, expectedHead)
 	exact := response != nil && string(store.created.DraftConfig) == string(expectedBytes) && store.created.DraftDigest == expectedDigest && store.created.DraftVersion == originalHead.DraftVersion+1 && response.Workspace.Documents[0].Population.SelectionRevisionID == candidateID && len(store.members[candidateID]) == 1 && store.members[candidateID][0].Ref.ID == "patient-1" && base.selection.ID == "selection-base" && base.selection.MemberCount == 2

@@ -297,7 +297,7 @@ func TestLegacySourceWireMigrationPreservesRows(t *testing.T) {
 }
 
 func TestCreateTableStartsWithRecordsRows(t *testing.T) {
-	workspace, _, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-rows", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, _, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-rows", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

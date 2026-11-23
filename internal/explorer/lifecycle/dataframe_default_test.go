@@ -152,7 +152,7 @@ func TestConcurrentFirstDefaultDataframeApplySeedsAndCASesOnce(t *testing.T) {
 		return authoringv2.ApplyCommandsRequest{
 			CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-			Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: title}},
+			Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: title, Payload: &authoringv2.TablePayload{}}},
 		}
 	}
 	type result struct {
@@ -243,11 +243,11 @@ func TestUndoFirstDefaultApply(t *testing.T) {
 	service, _ := New(domain, defaultDataframeConfig(snapshot))
 	workspace := defaultDataframeFixture()
 	digest, _ := workspace.Digest()
-	response, err := service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "rename-first", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "People"}}}, "actor")
+	response, err := service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "rename-first", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "People", Payload: &authoringv2.TablePayload{}}}}, "actor")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "undo-first", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRestoreDraftRevision, DraftRevisionID: response.PreviousDraftRevisionID}}}, "actor")
+	_, err = service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "undo-first", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRestoreDraftRevision, Payload: &authoringv2.ProposalPayload{DraftRevisionID: response.PreviousDraftRevisionID}}}}, "actor")
 	if err != nil {
 		t.Fatalf("Undo first Apply failed: %v; prior provenance token=%q generation=%q scope=%q", err, store.revision.SnapshotToken, store.revision.SourceGeneration, store.revision.AuthorizationScopeDigest)
 	}

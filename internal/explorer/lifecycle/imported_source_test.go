@@ -61,7 +61,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	}
 	service := newTestService(t, store, config)
 	request := authoringv2.ApplyCommandsRequest{CommandID: "refresh-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandRefreshImportedSource, OutputID: "patients"}}}
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandRefreshImportedSource, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{}}}}
 	response, err := service.ApplyCommands(ctx, "project-a", "patients", request, "tester")
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	if !lifecycleHasSourceStep(plan, "fields") {
 		t.Fatal("fixture requires source fields before removal")
 	}
-	change := authoringv2.Command{Type: authoringv2.CommandUpdateImportedSourceStep, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
+	change := authoringv2.Command{Type: authoringv2.CommandUpdateImportedSourceStep, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}}
 	_, err = service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "broken-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{change}}, "tester")
 	if err == nil || store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
 		t.Fatalf("invalid downstream edit changed saved draft: %v", err)

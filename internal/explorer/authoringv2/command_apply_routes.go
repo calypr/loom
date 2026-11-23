@@ -10,12 +10,12 @@ func applyAddRoute(workspace *Workspace, catalog CatalogSnapshot, commandID stri
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
-	parent := findRoute(&workspace.Documents[document].Route, command.ParentOccurrenceID)
-	edge, ok := catalogEdge(catalog, command.EdgeID)
+	parent := findRoute(&workspace.Documents[document].Route, command.ParentOccurrenceID())
+	edge, ok := catalogEdge(catalog, command.EdgeID())
 	if parent == nil || !ok {
 		return result, fmt.Errorf("parent occurrence or edge was not found")
 	}
-	parentDepth, depthFound := routeDepth(&workspace.Documents[document].Route, command.ParentOccurrenceID)
+	parentDepth, depthFound := routeDepth(&workspace.Documents[document].Route, command.ParentOccurrenceID())
 	if !depthFound {
 		return result, fmt.Errorf("parent occurrence or edge was not found")
 	}
@@ -26,10 +26,10 @@ func applyAddRoute(workspace *Workspace, catalog CatalogSnapshot, commandID stri
 	to, toOK := catalogNode(catalog, edge.ToNodeID)
 	parentNodeID, parentNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, parent.OccurrenceID, catalog)
 	if !fromOK || !toOK || !parentNodeFound || edge.FromNodeID != parentNodeID || from.ResourceType != parent.ResourceType {
-		return result, fmt.Errorf("edge %q does not extend occurrence %q", edge.ID, command.ParentOccurrenceID)
+		return result, fmt.Errorf("edge %q does not extend occurrence %q", edge.ID, command.ParentOccurrenceID())
 	}
 	if !catalog.RoutePolicy.AllowRepeatedEdges {
-		used, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, command.ParentOccurrenceID, edge.ID, catalog)
+		used, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, command.ParentOccurrenceID(), edge.ID, catalog)
 		if err != nil {
 			return result, fmt.Errorf("route parent does not resolve to an exact path: %w", err)
 		}
@@ -51,8 +51,8 @@ func applyUpdateRouteEdge(workspace *Workspace, catalog CatalogSnapshot, command
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
-	parent, occurrence := findRouteWithParent(&workspace.Documents[document].Route, command.OccurrenceID)
-	edge, ok := catalogEdge(catalog, command.EdgeID)
+	parent, occurrence := findRouteWithParent(&workspace.Documents[document].Route, command.OccurrenceID())
+	edge, ok := catalogEdge(catalog, command.EdgeID())
 	if parent == nil || occurrence == nil || !ok {
 		return result, fmt.Errorf("route occurrence, parent, or edge was not found")
 	}
@@ -64,7 +64,7 @@ func applyUpdateRouteEdge(workspace *Workspace, catalog CatalogSnapshot, command
 	from, fromOK := catalogNode(catalog, edge.FromNodeID)
 	to, toOK := catalogNode(catalog, edge.ToNodeID)
 	if !fromOK || !toOK || edge.FromNodeID != parentNodeID || edge.ToNodeID != occurrenceNodeID || from.ResourceType != parent.ResourceType || to.ResourceType != occurrence.ResourceType {
-		return result, fmt.Errorf("edge %q cannot replace the relationship for occurrence %q", edge.ID, command.OccurrenceID)
+		return result, fmt.Errorf("edge %q cannot replace the relationship for occurrence %q", edge.ID, command.OccurrenceID())
 	}
 	if !catalog.RoutePolicy.AllowRepeatedEdges {
 		usedOnPath, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, parent.OccurrenceID, edge.ID, catalog)
@@ -91,11 +91,11 @@ func applySetRouteMatchMode(workspace *Workspace, catalog CatalogSnapshot, comma
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
-	occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID)
+	occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID())
 	if occurrence == nil || occurrence.OccurrenceID == RootOccurrenceID {
-		return result, fmt.Errorf("non-root route occurrence %q was not found", command.OccurrenceID)
+		return result, fmt.Errorf("non-root route occurrence %q was not found", command.OccurrenceID())
 	}
-	occurrence.MatchMode = command.MatchMode.Normalized()
+	occurrence.MatchMode = command.MatchMode().Normalized()
 	result.OccurrenceID = occurrence.OccurrenceID
 	return result, nil
 }
@@ -107,8 +107,8 @@ func applyRemoveRoute(workspace *Workspace, catalog CatalogSnapshot, commandID s
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	removed := map[string]bool{}
-	if !removeRoute(&workspace.Documents[document].Route, command.OccurrenceID, removed) {
-		return result, fmt.Errorf("occurrence %q was not found", command.OccurrenceID)
+	if !removeRoute(&workspace.Documents[document].Route, command.OccurrenceID(), removed) {
+		return result, fmt.Errorf("occurrence %q was not found", command.OccurrenceID())
 	}
 	columns := workspace.Documents[document].Columns[:0]
 	for _, column := range workspace.Documents[document].Columns {
@@ -123,31 +123,31 @@ func applyRemoveRoute(workspace *Workspace, catalog CatalogSnapshot, commandID s
 }
 
 func (c Command) validateAddRoute() error {
-	if !commandFieldsPresent(c.OutputID, c.ParentOccurrenceID, c.EdgeID) {
+	if !commandFieldsPresent(c.OutputID, c.ParentOccurrenceID(), c.EdgeID()) {
 		return fmt.Errorf("ADD_ROUTE requires outputId, parentOccurrenceId, and edgeId")
 	}
 	return nil
 }
 
 func (c Command) validateUpdateRouteEdge() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID, c.EdgeID) || c.OccurrenceID == RootOccurrenceID {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), c.EdgeID()) || c.OccurrenceID() == RootOccurrenceID {
 		return fmt.Errorf("UPDATE_ROUTE_EDGE requires a non-root occurrenceId and edgeId")
 	}
 	return nil
 }
 
 func (c Command) validateSetRouteMatchMode() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID, string(c.MatchMode)) || c.OccurrenceID == RootOccurrenceID {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), string(c.MatchMode())) || c.OccurrenceID() == RootOccurrenceID {
 		return fmt.Errorf("SET_ROUTE_MATCH_MODE requires a non-root occurrenceId and matchMode")
 	}
-	if c.MatchMode != RouteMatchOptional && c.MatchMode != RouteMatchRequired {
+	if c.MatchMode() != RouteMatchOptional && c.MatchMode() != RouteMatchRequired {
 		return fmt.Errorf("SET_ROUTE_MATCH_MODE matchMode must be OPTIONAL or REQUIRED")
 	}
 	return nil
 }
 
 func (c Command) validateRemoveRoute() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID) || c.OccurrenceID == RootOccurrenceID {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID()) || c.OccurrenceID() == RootOccurrenceID {
 		return fmt.Errorf("REMOVE_ROUTE requires a non-root occurrenceId")
 	}
 	return nil

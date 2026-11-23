@@ -330,7 +330,11 @@ func cloneAuthoringCommands(commands []authoringv2.Command) []authoringv2.Comman
 	cloned := make([]authoringv2.Command, len(commands))
 	copy(cloned, commands)
 	for i := range cloned {
-		cloned[i].SemanticSelections = append([]authoringv2.SemanticSelection(nil), commands[i].SemanticSelections...)
+		if payload, ok := cloned[i].Payload.(*authoringv2.SemanticPayload); ok {
+			copied := *payload
+			copied.SemanticSelections = append([]authoringv2.SemanticSelection(nil), commands[i].SemanticSelections()...)
+			cloned[i].Payload = &copied
+		}
 	}
 	return cloned
 }

@@ -29,7 +29,7 @@ func commandCatalog() CatalogSnapshot {
 }
 
 func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
-	workspace, results, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "browser-request-with-hyphens", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, results, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "browser-request-with-hyphens", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,16 +75,14 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 
 func TestApplyAddColumnAssignsStableIDBeforeConstruction(t *testing.T) {
 	catalog := commandCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{
-		Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient",
-	}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if workspace.Documents[0].Construction != nil || workspace.Documents[0].Rows.Kind == RowDefinitionGroups {
 		t.Fatalf("fixture is not a plain table before its first source column: %#v", workspace.Documents[0])
 	}
-	command := Command{Type: CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}
+	command := Command{Type: CommandAddColumn, OutputID: created[0].OutputID, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}}
 
 	added, _, err := ApplyCommands(workspace, catalog, "add-patient-id", []Command{command})
 	if err != nil {
@@ -104,11 +102,11 @@ func TestApplyAddColumnAssignsStableIDBeforeConstruction(t *testing.T) {
 }
 
 func TestDeletingOnlyTableKeepsCommandResponseCollectionsAsArrays(t *testing.T) {
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-only-table", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-only-table", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deleted, _, err := ApplyCommands(workspace, commandCatalog(), "delete-only-table", []Command{{Type: CommandDeleteTable, OutputID: created[0].OutputID}})
+	deleted, _, err := ApplyCommands(workspace, commandCatalog(), "delete-only-table", []Command{{Type: CommandDeleteTable, OutputID: created[0].OutputID, Payload: &TablePayload{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,14 +133,12 @@ func TestDeletingOnlyTableKeepsCommandResponseCollectionsAsArrays(t *testing.T) 
 
 func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 	catalog := commandCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{
-		Type: CommandSetTablePopulation, OutputID: outputID, SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"},
-	}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{Type: CommandSetTablePopulation, OutputID: outputID, Payload: &TablePayload{SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +153,7 @@ func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 	if !strings.Contains(string(encoded), `"catalogEdgeId":"patient-encounter"`) {
 		t.Fatalf("catalog edge ID was not persisted in population route: %s", encoded)
 	}
-	workspace, _, err = ApplyCommands(workspace, catalog, "clear-population", []Command{{Type: CommandClearTablePopulation, OutputID: outputID}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-population", []Command{{Type: CommandClearTablePopulation, OutputID: outputID, Payload: &TablePayload{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,21 +177,18 @@ func TestSetPopulationRouteEncodesZeroHopRouteAsArray(t *testing.T) {
 
 func TestApplyCommandsSetsAndClearsContributorExplicitly(t *testing.T) {
 	catalog := commandCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, added, err := ApplyCommands(workspace, catalog, "aggregate", []Command{{
-		Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID,
-		Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}},
-	}})
+	workspace, added, err := ApplyCommands(workspace, catalog, "aggregate", []Command{{Type: CommandAddColumnSource, OutputID: outputID, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	columnID := added[0].Column
 	predicate := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("active")}}
-	set := Command{Type: CommandSetColumnContributor, OutputID: outputID, Column: columnID, Contributor: predicate}
+	set := Command{Type: CommandSetColumnContributor, OutputID: outputID, Payload: &ColumnPayload{Column: columnID, Contributor: predicate}}
 	workspace, _, err = ApplyCommands(workspace, catalog, "set-contributor", []Command{set})
 	if err != nil {
 		t.Fatal(err)
@@ -207,14 +200,14 @@ func TestApplyCommandsSetsAndClearsContributorExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Column: columnID}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Payload: &ColumnPayload{Column: columnID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if workspace.Documents[0].Columns[0].Contributor != nil {
 		t.Fatalf("contributor was not cleared: %#v", workspace.Documents[0].Columns[0].Contributor)
 	}
-	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor-retry", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Column: columnID}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor-retry", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Payload: &ColumnPayload{Column: columnID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,14 +254,14 @@ func TestValidateEditableNumericAggregateUsesResolvedTypeAndRows(t *testing.T) {
 func TestApplyCommandsAllowsIndependentOccurrencesThroughOneRelationship(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.RoutePolicy.AllowRepeatedEdges = false
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
 	workspace, results, err := ApplyCommands(workspace, catalog, "contributors", []Command{
-		{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"},
-		{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"},
+		{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}},
+		{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -294,14 +287,14 @@ func TestApplyCommandsSetTableRootPreservesSameRootAndRejectsDestructiveRebase(t
 		Documents: []Document{{Kind: Kind, Rows: RecordsRowDefinition(), Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
 		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
-	preserved, _, err := ApplyCommands(workspace, catalog, "same-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "patient"}})
+	preserved, _, err := ApplyCommands(workspace, catalog, "same-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(preserved.Documents[0].Route.Children) != 1 || len(preserved.Documents[0].Columns) != 1 {
 		t.Fatalf("same-root command discarded configured meaning: %#v", preserved.Documents[0])
 	}
-	if _, _, err := ApplyCommands(workspace, catalog, "change-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "encounter"}}); err == nil || !strings.Contains(err.Error(), "ROOT_REBASE_REQUIRED") {
+	if _, _, err := ApplyCommands(workspace, catalog, "change-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", Payload: &TablePayload{RootNodeID: "encounter"}}}); err == nil || !strings.Contains(err.Error(), "ROOT_REBASE_REQUIRED") {
 		t.Fatalf("destructive root rebase error = %v", err)
 	}
 }
@@ -311,11 +304,11 @@ func TestApplyCommandsRejectsPopulationRouteBeyondCatalogMaxHops(t *testing.T) {
 	maxHops := 0
 	catalog.RoutePolicy.MaxHops = &maxHops
 	catalog.RoutePolicy.Unbounded = false
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{Type: CommandSetTablePopulation, OutputID: created[0].OutputID, SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"}}})
+	_, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{Type: CommandSetTablePopulation, OutputID: created[0].OutputID, Payload: &TablePayload{SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"}}}})
 	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
 		t.Fatalf("population over-depth error = %v, want ROUTE_TOO_LONG", err)
 	}
@@ -337,7 +330,7 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 		Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
 		Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 	}}
-	updated, results, err := ApplyCommands(workspace, catalog, "add-correlated", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: source}})
+	updated, results, err := ApplyCommands(workspace, catalog, "add-correlated", []Command{{Type: CommandAddColumnSource, OutputID: "observations", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: source}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +345,7 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 
 func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) {
 	catalogSnapshot := semanticSelectionCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +358,7 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "Changed label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
 		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "FIRST", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
 	}
-	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: outputID, ContextToken: "context", SemanticSelections: selections}})
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: outputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: selections}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +408,7 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 
 func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *testing.T) {
 	catalogSnapshot := semanticSelectionCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,10 +421,7 @@ func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *
 		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
 	}
 	plan := ResolveSemanticSelectionPlan(observation)
-	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-identifier", []Command{{
-		Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context",
-		SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &semantic.Entry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}},
-	}})
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-identifier", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &semantic.Entry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +444,7 @@ func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *
 
 func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
 	catalogSnapshot := semanticSelectionCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +457,7 @@ func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
 		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
 	}
 	versionedPlan := ResolveSemanticSelectionPlan(selections[1].ResolvedObservation.Observation)
-	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context", SemanticSelections: selections}}); err == nil || !strings.Contains(err.Error(), versionedPlan.Readiness.Code) || !strings.Contains(err.Error(), versionedPlan.Readiness.Message) {
+	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: selections}}}); err == nil || !strings.Contains(err.Error(), versionedPlan.Readiness.Code) || !strings.Contains(err.Error(), versionedPlan.Readiness.Message) {
 		t.Fatalf("versioned last selection error = %v", err)
 	}
 	after, err := workspace.Digest()
@@ -489,10 +479,7 @@ func TestApplySemanticSelectionsPreservesExistingGraphAuthoredConfig(t *testing.
 	existingFilters := append([]FixedFilter(nil), document.FixedFilters...)
 	existingActions := append([]Action(nil), document.Actions...)
 	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{document}, Tabs: []Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
-	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{
-		Type: CommandAddSemanticSelections, OutputID: "patients", ContextToken: "context",
-		SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept", "binding", "urn:system", "code", "")}},
-	}})
+	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: "patients", Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept", "binding", "urn:system", "code", "")}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,12 +490,12 @@ func TestApplySemanticSelectionsPreservesExistingGraphAuthoredConfig(t *testing.
 }
 
 func TestSemanticSelectionIntentRequiresExplicitPolicyAndRejectsTrustedPayload(t *testing.T) {
-	command := Command{Type: CommandAddSemanticSelections, OutputID: "out", ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", ProjectionMode: "VALUE"}}}
+	command := Command{Type: CommandAddSemanticSelections, OutputID: "out", Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", ProjectionMode: "VALUE"}}}}
 	if err := command.validate(); err == nil || !strings.Contains(err.Error(), "routeEdgeIds must be explicit") {
 		t.Fatalf("omitted route list error = %v", err)
 	}
-	command.SemanticSelections[0].RouteEdgeIDs = []string{}
-	command.SemanticSelections[0].ProjectionMode = ""
+	command.SemanticSelections()[0].RouteEdgeIDs = []string{}
+	command.SemanticSelections()[0].ProjectionMode = ""
 	if err := command.validate(); err == nil || !strings.Contains(err.Error(), "projectionMode") {
 		t.Fatalf("missing projection mode error = %v", err)
 	}
@@ -566,7 +553,7 @@ func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *test
 	typed := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
 	}}}
-	updated, results, err := ApplyCommands(workspace, catalog, "add-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: typed}})
+	updated, results, err := ApplyCommands(workspace, catalog, "add-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: typed}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,25 +561,25 @@ func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *test
 		t.Fatalf("typed extension result = %#v", updated)
 	}
 	legacy := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Match: "leaf", Path: "extension[].valueString"}}
-	if _, _, err := ApplyCommands(workspace, catalog, "legacy-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: legacy}}); err == nil || !strings.Contains(err.Error(), "explicit typed binding") {
+	if _, _, err := ApplyCommands(workspace, catalog, "legacy-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: legacy}}}); err == nil || !strings.Contains(err.Error(), "explicit typed binding") {
 		t.Fatalf("legacy extension write error = %v", err)
 	}
 	wrongArm := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueInteger", LogicalType: "string",
 	}}}
-	if _, _, err := ApplyCommands(workspace, catalog, "wrong-extension-arm", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: wrongArm}}); err == nil || !strings.Contains(err.Error(), "incompatible") {
+	if _, _, err := ApplyCommands(workspace, catalog, "wrong-extension-arm", []Command{{Type: CommandAddColumnSource, OutputID: "observations", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: wrongArm}}}); err == nil || !strings.Contains(err.Error(), "incompatible") {
 		t.Fatalf("wrong extension arm error = %v", err)
 	}
 	missingParent := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
 	}}}
-	if _, _, err := ApplyCommands(workspace, catalog, "missing-extension-parent", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: missingParent}}); err == nil || !strings.Contains(err.Error(), "one URL per extension boundary") {
+	if _, _, err := ApplyCommands(workspace, catalog, "missing-extension-parent", []Command{{Type: CommandAddColumnSource, OutputID: "observations", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: missingParent}}}); err == nil || !strings.Contains(err.Error(), "one URL per extension boundary") {
 		t.Fatalf("missing extension parent error = %v", err)
 	}
 }
 
 func TestApplyCommandsRequestRequiresSemanticsV3(t *testing.T) {
-	request := ApplyCommandsRequest{CommandID: "cmd", SnapshotToken: "token", Commands: []Command{{Type: CommandDeleteTable, OutputID: "out"}}}
+	request := ApplyCommandsRequest{CommandID: "cmd", SnapshotToken: "token", Commands: []Command{{Type: CommandDeleteTable, OutputID: "out", Payload: &TablePayload{}}}}
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
 		t.Fatalf("version zero error=%v", err)
 	}
@@ -607,7 +594,7 @@ func TestRestoreDraftRevisionCommandIsStrictAndRestoresServerResolvedWorkspace(t
 	base.Explorer.Title = "Before edit"
 	base.Documents = []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition()}}
 	base.Tabs = []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
-	command := Command{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}
+	command := Command{Type: CommandRestoreDraftRevision, Payload: &ProposalPayload{DraftRevisionID: "draft_revision_1"}}
 	if err := command.ResolveDraftRevision(base); err != nil {
 		t.Fatal(err)
 	}
@@ -624,12 +611,12 @@ func TestRestoreDraftRevisionCommandIsStrictAndRestoresServerResolvedWorkspace(t
 
 	request := ApplyCommandsRequest{
 		CommandID: "restore-command", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot",
-		ExpectedDraftVersion: 2, ExpectedDraftDigest: "sha256:current", Commands: []Command{{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}},
+		ExpectedDraftVersion: 2, ExpectedDraftDigest: "sha256:current", Commands: []Command{{Type: CommandRestoreDraftRevision, Payload: &ProposalPayload{DraftRevisionID: "draft_revision_1"}}},
 	}
 	if err := request.Validate(); err != nil {
 		t.Fatalf("valid restore request rejected: %v", err)
 	}
-	request.Commands = append(request.Commands, Command{Type: CommandDeleteTable, OutputID: "patients"})
+	request.Commands = append(request.Commands, Command{Type: CommandDeleteTable, OutputID: "patients", Payload: &TablePayload{}})
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "only command") {
 		t.Fatalf("mixed restore request error = %v", err)
 	}
@@ -641,16 +628,16 @@ func TestRestoreDraftRevisionCommandIsStrictAndRestoresServerResolvedWorkspace(t
 }
 
 func TestApplyCommandsOwnsNestedRouteAndColumnIdentities(t *testing.T) {
-	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := create[0].OutputID
-	workspace, route, err := ApplyCommands(workspace, commandCatalog(), "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	workspace, route, err := ApplyCommands(workspace, commandCatalog(), "route", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, columns, err := ApplyCommands(workspace, commandCatalog(), "column", []Command{{Type: CommandAddColumn, OutputID: outputID, OccurrenceID: route[0].OccurrenceID, CandidateID: "encounter-id"}})
+	workspace, columns, err := ApplyCommands(workspace, commandCatalog(), "column", []Command{{Type: CommandAddColumn, OutputID: outputID, Payload: &ColumnPayload{OccurrenceID: route[0].OccurrenceID, CandidateID: "encounter-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,10 +661,7 @@ func TestUpdateColumnRowValuePolicyEditsOnlyAnExistingExplicitGroupBinding(t *te
 		RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueAll}},
 	}}
 	workspace := constructionWorkspace(document)
-	command := Command{
-		Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
-		Column: column.Column, RowValuePolicy: ConstructionRowValueOne,
-	}
+	command := Command{Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID, Payload: &ColumnPayload{Column: column.Column, RowValuePolicy: ConstructionRowValueOne}}
 	updated, results, err := ApplyCommands(workspace, commandCatalog(), "row-value-policy", []Command{command})
 	if err != nil {
 		t.Fatalf("update existing row-value policy: %v", err)
@@ -721,10 +705,7 @@ func TestUpdateColumnRowValuePolicyPreservesExactCategoryRecode(t *testing.T) {
 		RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueAll}},
 	}}
 	workspace := constructionWorkspace(document)
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "transformed-row-value-policy", []Command{{
-		Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
-		Column: column.Column, RowValuePolicy: ConstructionRowValueOne,
-	}})
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "transformed-row-value-policy", []Command{{Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID, Payload: &ColumnPayload{Column: column.Column, RowValuePolicy: ConstructionRowValueOne}}})
 	if err != nil {
 		t.Fatalf("update policy on recoded scalar field: %v", err)
 	}
@@ -759,10 +740,7 @@ func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testin
 		document := newDocument()
 		document.Rows.Groups.RowValues = nil
 		workspace := constructionWorkspace(document)
-		_, _, err := ApplyCommands(workspace, commandCatalog(), "missing-row-value-binding", []Command{{
-			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
-			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
-		}})
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "missing-row-value-binding", []Command{{Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID, Payload: &ColumnPayload{Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne}}})
 		if err == nil || !strings.Contains(err.Error(), "row value binding") {
 			t.Fatalf("missing binding error = %v", err)
 		}
@@ -772,10 +750,7 @@ func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testin
 	})
 
 	t.Run("unsupported policy is rejected", func(t *testing.T) {
-		command := Command{
-			Type: CommandUpdateColumnRowValuePolicy, OutputID: "patients", Column: "patient_active",
-			RowValuePolicy: ConstructionRowValuePolicy("SOME"),
-		}
+		command := Command{Type: CommandUpdateColumnRowValuePolicy, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_active", RowValuePolicy: ConstructionRowValuePolicy("SOME")}}
 		if err := command.validate(); err == nil || !strings.Contains(err.Error(), "ALL or ONE") {
 			t.Fatalf("unsupported policy validation error = %v", err)
 		}
@@ -785,10 +760,7 @@ func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testin
 		document := newDocument()
 		document.Rows = RecordsRowDefinition()
 		workspace := constructionWorkspace(document)
-		_, _, err := ApplyCommands(workspace, commandCatalog(), "not-grouped", []Command{{
-			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
-			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
-		}})
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "not-grouped", []Command{{Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID, Payload: &ColumnPayload{Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne}}})
 		if err == nil || !strings.Contains(err.Error(), "explicit grouped rows") {
 			t.Fatalf("non-grouped rows error = %v", err)
 		}
@@ -798,10 +770,7 @@ func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testin
 		document := newDocument()
 		document.Columns[0].OccurrenceID = "related_patient"
 		workspace := constructionWorkspace(document)
-		_, _, err := ApplyCommands(workspace, commandCatalog(), "related-field", []Command{{
-			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
-			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
-		}})
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "related-field", []Command{{Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID, Payload: &ColumnPayload{Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne}}})
 		if err == nil || !strings.Contains(err.Error(), "root FHIR field") {
 			t.Fatalf("non-root field error = %v", err)
 		}
@@ -811,23 +780,23 @@ func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testin
 func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "patient-encounter-secondary", FromNodeID: "patient", ToNodeID: "encounter", Label: "researchEncounters"})
-	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := create[0].OutputID
-	workspace, route, err := ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	workspace, route, err := ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	occurrenceID := route[0].OccurrenceID
-	workspace, _, err = ApplyCommands(workspace, catalog, "column", []Command{{Type: CommandAddColumn, OutputID: outputID, OccurrenceID: occurrenceID, CandidateID: "encounter-id"}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "column", []Command{{Type: CommandAddColumn, OutputID: outputID, Payload: &ColumnPayload{OccurrenceID: occurrenceID, CandidateID: "encounter-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace.Documents[0].Route.Children[0].Children = []RouteNode{{OccurrenceID: "nested", ResourceType: "Encounter", Relationship: "revisits"}}
 
-	updated, _, err := ApplyCommands(workspace, catalog, "update-edge", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, OccurrenceID: occurrenceID, EdgeID: "patient-encounter-secondary"}})
+	updated, _, err := ApplyCommands(workspace, catalog, "update-edge", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, Payload: &RoutePayload{OccurrenceID: occurrenceID, EdgeID: "patient-encounter-secondary"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,32 +810,32 @@ func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing
 }
 
 func TestApplyCommandsSetsRouteMatchModeWithoutChangingFeatureState(t *testing.T) {
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, routes, err := ApplyCommands(workspace, commandCatalog(), "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	workspace, routes, err := ApplyCommands(workspace, commandCatalog(), "route", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	occurrenceID := routes[0].OccurrenceID
 
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "required", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: occurrenceID, MatchMode: RouteMatchRequired}})
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "required", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, Payload: &RoutePayload{OccurrenceID: occurrenceID, MatchMode: RouteMatchRequired}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := updated.Documents[0].Route.Children[0].MatchMode; got != RouteMatchRequired {
 		t.Fatalf("matchMode=%q, want REQUIRED", got)
 	}
-	updated, _, err = ApplyCommands(updated, commandCatalog(), "optional", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: occurrenceID, MatchMode: RouteMatchOptional}})
+	updated, _, err = ApplyCommands(updated, commandCatalog(), "optional", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, Payload: &RoutePayload{OccurrenceID: occurrenceID, MatchMode: RouteMatchOptional}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := updated.Documents[0].Route.Children[0].MatchMode; got != RouteMatchOptional {
 		t.Fatalf("matchMode=%q, want OPTIONAL", got)
 	}
-	_, _, err = ApplyCommands(updated, commandCatalog(), "root", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired}})
+	_, _, err = ApplyCommands(updated, commandCatalog(), "root", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired}}})
 	if err == nil || !strings.Contains(err.Error(), "non-root") {
 		t.Fatalf("root match-mode error=%v", err)
 	}
@@ -879,24 +848,24 @@ func TestApplyCommandsRejectsRouteUpdateThatRepeatsADescendantEdge(t *testing.T)
 		CatalogEdge{ID: "patient-encounter-secondary", FromNodeID: "patient", ToNodeID: "encounter", Label: "researchEncounters"},
 		CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"},
 	)
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter-secondary"}})
+	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter-secondary"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}})
+	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = ApplyCommands(workspace, catalog, "descendant", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "descendant", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, catalog, "update", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, OccurrenceID: encounter[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	_, _, err = ApplyCommands(workspace, catalog, "update", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, Payload: &RoutePayload{OccurrenceID: encounter[0].OccurrenceID, EdgeID: "patient-encounter"}}})
 	if err == nil || !strings.Contains(err.Error(), "already used in this route") {
 		t.Fatalf("route update error=%v", err)
 	}
@@ -906,20 +875,20 @@ func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing
 	catalog := commandCatalog()
 	catalog.RoutePolicy.AllowRepeatedEdges = false
 	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
-	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := create[0].OutputID
-	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}})
+	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, catalog, "repeat", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	_, _, err = ApplyCommands(workspace, catalog, "repeat", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}}})
 	if err == nil || !strings.Contains(err.Error(), "already used in this route") {
 		t.Fatalf("error=%v", err)
 	}
@@ -930,12 +899,12 @@ func TestApplyCommandsRejectsRouteBeyondCatalogMaxHopsWithoutMutation(t *testing
 	maxHops := 0
 	catalog.RoutePolicy.MaxHops = &maxHops
 	catalog.RoutePolicy.Unbounded = false
-	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := create[0].OutputID
-	_, _, err = ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	_, _, err = ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
 		t.Fatalf("over-depth route error = %v, want ROUTE_TOO_LONG", err)
 	}
@@ -944,7 +913,7 @@ func TestApplyCommandsRejectsRouteBeyondCatalogMaxHopsWithoutMutation(t *testing
 	}
 
 	maxHops = 1
-	allowed, _, err := ApplyCommands(workspace, catalog, "route-allowed", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	allowed, _, err := ApplyCommands(workspace, catalog, "route-allowed", []Command{{Type: CommandAddRoute, OutputID: outputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil || len(allowed.Documents[0].Route.Children) != 1 {
 		t.Fatalf("bounded route = %#v, err=%v", allowed.Documents[0].Route, err)
 	}
@@ -954,12 +923,12 @@ func TestApplyCommandsAddsFilterAndChartWithoutMakingColumnTableVisible(t *testi
 	catalog := commandCatalog()
 	catalog.Candidates[0].Filterable = true
 	catalog.Candidates[0].Chartable = true
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, added, err := ApplyCommands(workspace, catalog, "filter", []Command{{Type: CommandAddColumn, OutputID: outputID, OccurrenceID: RootOccurrenceID, CandidateID: "patient-id", InitialPresentation: InitialPresentationFilter}})
+	workspace, added, err := ApplyCommands(workspace, catalog, "filter", []Command{{Type: CommandAddColumn, OutputID: outputID, InitialPresentation: InitialPresentationFilter, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -971,7 +940,7 @@ func TestApplyCommandsAddsFilterAndChartWithoutMakingColumnTableVisible(t *testi
 		t.Fatalf("filter-only column=%#v", column)
 	}
 
-	workspace, _, err = ApplyCommands(workspace, catalog, "chart", []Command{{Type: CommandAddColumn, OutputID: outputID, OccurrenceID: RootOccurrenceID, CandidateID: "patient-id", InitialPresentation: InitialPresentationChart}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "chart", []Command{{Type: CommandAddColumn, OutputID: outputID, InitialPresentation: InitialPresentationChart, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -982,11 +951,11 @@ func TestApplyCommandsAddsFilterAndChartWithoutMakingColumnTableVisible(t *testi
 }
 
 func TestApplyCommandsRejectsUnsupportedInitialPresentation(t *testing.T) {
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, commandCatalog(), "filter", []Command{{Type: CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: RootOccurrenceID, CandidateID: "patient-id", InitialPresentation: InitialPresentationFilter}})
+	_, _, err = ApplyCommands(workspace, commandCatalog(), "filter", []Command{{Type: CommandAddColumn, OutputID: created[0].OutputID, InitialPresentation: InitialPresentationFilter, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}}})
 	if err == nil || !strings.Contains(err.Error(), "does not support filters") {
 		t.Fatalf("error=%v", err)
 	}
@@ -995,8 +964,8 @@ func TestApplyCommandsRejectsUnsupportedInitialPresentation(t *testing.T) {
 func TestApplyCommandsRejectsBatchAtomically(t *testing.T) {
 	original := emptyCommandWorkspace()
 	_, _, err := ApplyCommands(original, commandCatalog(), "batch", []Command{
-		{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"},
-		{Type: CommandDeleteTable, OutputID: "missing"},
+		{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}},
+		{Type: CommandDeleteTable, OutputID: "missing", Payload: &TablePayload{}},
 	})
 	if err == nil {
 		t.Fatal("invalid second command unexpectedly succeeded")
@@ -1007,13 +976,13 @@ func TestApplyCommandsRejectsBatchAtomically(t *testing.T) {
 }
 
 func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testing.T) {
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
 	count := &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}
-	workspace, added, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Title: "Patient count"}})
+	workspace, added, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, Title: "Patient count", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: count}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1024,7 +993,7 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 	if column.Source.Aggregate == nil || column.Source.Aggregate.Operation != "COUNT" || column.Label != "Patient count" {
 		t.Fatalf("column=%#v", column)
 	}
-	workspace, replayed, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Title: "Different title"}})
+	workspace, replayed, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, Title: "Different title", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: count}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1032,7 +1001,7 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 		t.Fatalf("idempotent replay columns=%#v result=%#v", workspace.Documents[0].Columns, replayed)
 	}
 	presentation := workspace.Documents[0].Columns[0].Table
-	updated, results, err := ApplyCommands(workspace, commandCatalog(), "exists", []Command{{Type: CommandUpdateColumnSource, OutputID: outputID, Column: column.Column, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "EXISTS"}}}})
+	updated, results, err := ApplyCommands(workspace, commandCatalog(), "exists", []Command{{Type: CommandUpdateColumnSource, OutputID: outputID, Payload: &ColumnPayload{Column: column.Column, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "EXISTS"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1046,11 +1015,11 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 	if updatedColumn.LogicalType != "boolean" {
 		t.Fatalf("source update did not rederive logical type: %q", updatedColumn.LogicalType)
 	}
-	workspaceA, createdA, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "same-create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspaceA, createdA, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "same-create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaceB, createdB, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "same-create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspaceB, createdB, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "same-create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1062,11 +1031,11 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 	if err := json.Unmarshal(rawSource, &decodedSource); err != nil {
 		t.Fatal(err)
 	}
-	workspaceA, addedA, err := ApplyCommands(workspaceA, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdA[0].OutputID, OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}, Title: "Count"}})
+	workspaceA, addedA, err := ApplyCommands(workspaceA, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdA[0].OutputID, Title: "Count", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, addedB, err := ApplyCommands(workspaceB, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdB[0].OutputID, OccurrenceID: RootOccurrenceID, Source: &decodedSource, Title: "Count"}})
+	_, addedB, err := ApplyCommands(workspaceB, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdB[0].OutputID, Title: "Count", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &decodedSource}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1076,7 +1045,7 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 }
 
 func TestApplyCommandsKeepsIdenticalAggregateSourcesWithDifferentContributors(t *testing.T) {
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1085,11 +1054,11 @@ func TestApplyCommandsKeepsIdenticalAggregateSourcesWithDifferentContributors(t 
 	firstContributor := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("case")}}
 	secondContributor := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("control")}}
 
-	workspace, first, err := ApplyCommands(workspace, commandCatalog(), "case-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: firstContributor, Title: "Case count"}})
+	workspace, first, err := ApplyCommands(workspace, commandCatalog(), "case-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, Title: "Case count", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: count, Contributor: firstContributor}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, second, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor, Title: "Control count"}})
+	workspace, second, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, Title: "Control count", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1104,7 +1073,7 @@ func TestApplyCommandsKeepsIdenticalAggregateSourcesWithDifferentContributors(t 
 		t.Fatalf("second contributor=%#v", got)
 	}
 
-	replayed, result, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor, Title: "Control count"}})
+	replayed, result, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, Title: "Control count", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1114,11 +1083,11 @@ func TestApplyCommandsKeepsIdenticalAggregateSourcesWithDifferentContributors(t 
 }
 
 func TestApplyCommandsSourceValidationChecksCatalogProjectionMode(t *testing.T) {
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, commandCatalog(), "bad-mode", []Command{{Type: CommandAddColumnSource, OutputID: created[0].OutputID, OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "FIRST"}}}})
+	_, _, err = ApplyCommands(workspace, commandCatalog(), "bad-mode", []Command{{Type: CommandAddColumnSource, OutputID: created[0].OutputID, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "FIRST"}}}}})
 	if err == nil || !strings.Contains(err.Error(), "projection mode") {
 		t.Fatalf("unsupported source projection accepted: %v", err)
 	}
@@ -1126,15 +1095,15 @@ func TestApplyCommandsSourceValidationChecksCatalogProjectionMode(t *testing.T) 
 
 func TestApplyCommandsAddsUnacknowledgedRelatedSelectionForChildScalar(t *testing.T) {
 	catalog := commandCatalog()
-	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, route, err := ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: created[0].OutputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	workspace, route, err := ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: created[0].OutputID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = ApplyCommands(workspace, catalog, "child", []Command{{Type: CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: route[0].OccurrenceID, CandidateID: "encounter-id"}})
+	workspace, _, err = ApplyCommands(workspace, catalog, "child", []Command{{Type: CommandAddColumn, OutputID: created[0].OutputID, Payload: &ColumnPayload{OccurrenceID: route[0].OccurrenceID, CandidateID: "encounter-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

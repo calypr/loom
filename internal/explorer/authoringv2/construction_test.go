@@ -1030,16 +1030,12 @@ func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t
 	document := documentWithDependentSteps()
 	workspace := constructionWorkspace(document)
 	visible, order := false, 7
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", []Command{{
-		Type:     CommandUpdateConstructionOutput,
-		OutputID: "patients",
-		ConstructionOutput: &ConstructionOutputPresentation{
-			StepID:   "bonus_step",
-			ColumnID: "score_id",
-			Label:    "Patient score",
-			Table:    &TablePresentation{Visible: &visible, Order: &order},
-		},
-	}})
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", []Command{{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
+		StepID:   "bonus_step",
+		ColumnID: "score_id",
+		Label:    "Patient score",
+		Table:    &TablePresentation{Visible: &visible, Order: &order},
+	}}}})
 	if err != nil {
 		t.Fatalf("update construction output presentation: %v", err)
 	}
@@ -1083,8 +1079,8 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 	}
 	catalog := commandCatalog()
 	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", []Command{
-		{Type: CommandAddColumn, OutputID: "patients", OccurrenceID: RootOccurrenceID, CandidateID: "patient-id", Title: "Added catalog ID"},
-		{Type: CommandAddColumnSource, OutputID: "patients", OccurrenceID: RootOccurrenceID, Title: "Added source ID", Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+		{Type: CommandAddColumn, OutputID: "patients", Title: "Added catalog ID", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}},
+		{Type: CommandAddColumnSource, OutputID: "patients", Title: "Added source ID", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 	})
 	if err != nil {
 		t.Fatalf("add source columns to staged document: %v", err)
@@ -1176,10 +1172,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate RELATED_EXPAND source workspace: %v", err)
 	}
-	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{
-		Type: CommandAddColumnSource, OutputID: document.Output.ID, OccurrenceID: RootOccurrenceID,
-		Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}},
-	}})
+	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}})
 	if err != nil {
 		t.Fatalf("ADD_COLUMN_SOURCE after RELATED_EXPAND: %v", err)
 	}
@@ -1352,17 +1345,11 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	one := 1
 
 	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", []Command{
-		{
-			Type: CommandUpdateColumn, OutputID: "patients", Column: "group_id",
-			ColumnValue: &Column{Label: "Specimen ID", Table: &TablePresentation{Order: &one}},
-		},
-		{
-			Type: CommandUpdateConstructionOutput, OutputID: "patients",
-			ConstructionOutput: &ConstructionOutputPresentation{
-				StepID: "pivot_step", ColumnID: "group_id", Label: "Group",
-				Table: &TablePresentation{Order: &one},
-			},
-		},
+		{Type: CommandUpdateColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "group_id", ColumnValue: &Column{Label: "Specimen ID", Table: &TablePresentation{Order: &one}}}},
+		{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
+			StepID: "pivot_step", ColumnID: "group_id", Label: "Group",
+			Table: &TablePresentation{Order: &one},
+		}}},
 	})
 	if err != nil {
 		t.Fatalf("apply source and Pivot group-key presentation updates: %v", err)

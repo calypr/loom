@@ -1117,7 +1117,7 @@ func TestPopulationRoutesApplyAndColumnSourceAreGenericAndReadOnly(t *testing.T)
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "set-observation-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -1271,7 +1271,7 @@ func TestPopulationRouteChoicePersistsExactParallelEdgeAndReloads(t *testing.T) 
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "set-parallel-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: choiceID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: choiceID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -1333,7 +1333,7 @@ func TestPopulationRouteRejectionIsAtomicWhenChoiceIsTampered(t *testing.T) {
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "tampered-population-route", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: strings.Join(parts, ".")}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: strings.Join(parts, ".")}}},
 	}, "alice")
 	if err == nil || store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
 		t.Fatalf("tampered population route err=%v saves=%d", err, store.saveDraftCalls)

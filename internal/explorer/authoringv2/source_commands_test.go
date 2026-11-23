@@ -18,7 +18,7 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 			t.Fatalf("accepted injected or incomplete source change: %s", raw)
 		}
 	}
-	command := Command{Type: CommandRefreshImportedSource, OutputID: "patients"}
+	command := Command{Type: CommandRefreshImportedSource, OutputID: "patients", Payload: &ImportedSourcePayload{}}
 	migrated, err := migrateStoredDocumentFixture(legacyPivotDocument())
 	if err != nil {
 		t.Fatal(err)
@@ -80,16 +80,16 @@ func TestImportedGraphAndRowsCannotMutateProjectedDocument(t *testing.T) {
 		document.Columns[i].Source = ColumnSource{Kind: SourceImported, Imported: &ImportedSource{OutputColumn: document.Columns[i].Column}}
 	}
 	for _, command := range []Command{
-		{Type: CommandAddRoute, OutputID: document.Output.ID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "edge"},
-		{Type: CommandUpdateRouteEdge, OutputID: document.Output.ID, OccurrenceID: RootOccurrenceID, EdgeID: "edge"},
-		{Type: CommandSetRouteMatchMode, OutputID: document.Output.ID, OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired},
-		{Type: CommandRemoveRoute, OutputID: document.Output.ID, OccurrenceID: RootOccurrenceID},
+		{Type: CommandAddRoute, OutputID: document.Output.ID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "edge"}},
+		{Type: CommandUpdateRouteEdge, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID, EdgeID: "edge"}},
+		{Type: CommandSetRouteMatchMode, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired}},
+		{Type: CommandRemoveRoute, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID}},
 	} {
 		if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-guard", []Command{command}); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_REQUIRED") {
 			t.Fatalf("projected route mutation error=%v", err)
 		}
 	}
-	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: document.Output.ID, ProposalID: "receipt"}
+	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: document.Output.ID, Payload: &ProposalPayload{ProposalID: "receipt"}}
 	if err := command.ResolveRowDefinitionProposal(RecordsRowDefinition()); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestImportedSourceProposalCannotDeleteOrChangeUnrelatedAuthoredWork(t *test
 	}
 	changed := *document
 	changed.Output.Title = "Changed outside source edit"
-	command := Command{Type: CommandApplyImportedRelationshipProposal, OutputID: document.Output.ID, ProposalID: "receipt"}
+	command := Command{Type: CommandApplyImportedRelationshipProposal, OutputID: document.Output.ID, Payload: &ImportedSourcePayload{ProposalID: "receipt"}}
 	if err := command.ResolveImportedDocument(changed); err != nil {
 		t.Fatal(err)
 	}

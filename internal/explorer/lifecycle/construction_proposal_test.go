@@ -798,7 +798,7 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	apply := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(receipt *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		sinkFactoryCalls++
@@ -869,7 +869,7 @@ func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T)
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-capture-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		return nil, errors.New("bounded response encoder is unavailable")
 	})
@@ -903,7 +903,7 @@ func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-row-capture-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error {
 			rowVisits++
@@ -935,7 +935,7 @@ func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-empty-preview", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	})
@@ -970,7 +970,7 @@ func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-construction-cas-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	})
@@ -1000,7 +1000,7 @@ func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *tes
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "failed-apply-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice")
 	if lifecycleErrorCode(err) != "CONSTRUCTION_PREVIEW_FAILED" {
 		t.Fatalf("preview failure error = %v", err)
@@ -1239,7 +1239,7 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 	_, err = service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-empty-target-append", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("apply APPEND candidate after canonical receipt round-trip: %v", err)

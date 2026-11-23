@@ -28,26 +28,26 @@ func TestConstructionChoiceRequestAcceptsOnlyBoundedChoiceBatches(t *testing.T) 
 	request := ApplyCommandsRequest{
 		CommandID: "choice-batch", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot", ExpectedDraftVersion: 1,
 		Commands: []Command{
-			{Type: CommandApplyConstructionChoice, OutputID: "patients", ConstructionChoice: selection},
-			{Type: CommandApplyConstructionChoice, OutputID: "patients", ConstructionChoice: selection},
+			{Type: CommandApplyConstructionChoice, OutputID: "patients", Payload: &ConstructionChoicePayload{ConstructionChoice: selection}},
+			{Type: CommandApplyConstructionChoice, OutputID: "patients", Payload: &ConstructionChoicePayload{ConstructionChoice: selection}},
 		},
 	}
 	if err := request.Validate(); err != nil {
 		t.Fatalf("valid choice batch rejected: %v", err)
 	}
-	request.Commands = append(request.Commands, Command{Type: CommandCreateTable, Title: "Other", RootNodeID: "patient"})
+	request.Commands = append(request.Commands, Command{Type: CommandCreateTable, Title: "Other", Payload: &TablePayload{RootNodeID: "patient"}})
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "entire request") {
 		t.Fatalf("mixed command batch error = %v", err)
 	}
 	request.Commands = request.Commands[:2]
-	request.Commands[0].ConstructionChoice.Form = "INDEXED"
+	request.Commands[0].ConstructionChoice().Form = "INDEXED"
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "form is unsupported") {
 		t.Fatalf("unsupported form error = %v", err)
 	}
 	selection.Form = capability.ConstructionChoiceValue
 	request.Commands = make([]Command, 101)
 	for index := range request.Commands {
-		request.Commands[index] = Command{Type: CommandApplyConstructionChoice, OutputID: "patients", ConstructionChoice: selection}
+		request.Commands[index] = Command{Type: CommandApplyConstructionChoice, OutputID: "patients", Payload: &ConstructionChoicePayload{ConstructionChoice: selection}}
 	}
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "at most 100") {
 		t.Fatalf("oversized construction-choice batch error = %v", err)
@@ -61,8 +61,8 @@ func TestConstructionChoiceAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 	}
 	workspace := constructionWorkspace(document)
 	command := Command{
-		Type: CommandApplyConstructionChoice, OutputID: "patients", OccurrenceID: RootOccurrenceID,
-		ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue},
+		Type: CommandApplyConstructionChoice, OutputID: "patients",
+		Payload: &ConstructionChoicePayload{OccurrenceID: RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue}},
 	}
 	_, err := applyColumnSource(&workspace, commandCatalog(), "imported-additive", 0, command,
 		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
@@ -108,8 +108,8 @@ func TestConstructionChoiceAddsMemberFieldToExplicitCohort(t *testing.T) {
 		Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: "EXCLUDE"},
 	}}}
 	workspace := constructionWorkspace(document)
-	command := Command{Type: CommandApplyConstructionChoice, OutputID: "patients", OccurrenceID: RootOccurrenceID,
-		ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue, RowValuePolicy: ConstructionRowValueAll},
+	command := Command{Type: CommandApplyConstructionChoice, OutputID: "patients",
+		Payload: &ConstructionChoicePayload{OccurrenceID: RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue, RowValuePolicy: ConstructionRowValueAll}},
 	}
 	_, err := applyColumnSource(&workspace, commandCatalog(), "cohort-field", 0, command,
 		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")

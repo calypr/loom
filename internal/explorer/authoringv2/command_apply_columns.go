@@ -9,16 +9,16 @@ import (
 func applyAddColumn(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
-	candidate, ok := catalogCandidate(catalog, command.CandidateID)
+	candidate, ok := catalogCandidate(catalog, command.CandidateID())
 	if document < 0 || !ok {
 		return result, fmt.Errorf("output or candidate was not found")
 	}
-	occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID)
+	occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID())
 	node, nodeOK := catalogNode(catalog, candidate.NodeID)
 	if occurrence == nil || !nodeOK || occurrence.ResourceType != node.ResourceType {
-		return result, fmt.Errorf("candidate %q does not belong to occurrence %q", candidate.ID, command.OccurrenceID)
+		return result, fmt.Errorf("candidate %q does not belong to occurrence %q", candidate.ID, command.OccurrenceID())
 	}
-	mode := strings.ToUpper(strings.TrimSpace(command.ProjectionMode))
+	mode := strings.ToUpper(strings.TrimSpace(command.ProjectionMode()))
 	if mode == "" {
 		mode = candidate.DefaultProjectionMode
 	}
@@ -37,21 +37,21 @@ func applyAddColumn(workspace *Workspace, catalog CatalogSnapshot, commandID str
 	}
 	for i := range workspace.Documents[document].Columns {
 		column := &workspace.Documents[document].Columns[i]
-		if column.OccurrenceID == command.OccurrenceID && column.Source.Kind == SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
+		if column.OccurrenceID == command.OccurrenceID() && column.Source.Kind == SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
 			applyInitialPresentation(column, presentation, nextTableOrder(workspace.Documents[document]))
 			return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: column.Column}, nil
 		}
 	}
-	columnID := commandGeneratedID("col_", command.OutputID, command.OccurrenceID, candidate.ID, mode)
-	if command.OccurrenceID != RootOccurrenceID {
-		columnID = command.OccurrenceID + "__" + columnID
+	columnID := commandGeneratedID("col_", command.OutputID, command.OccurrenceID(), candidate.ID, mode)
+	if command.OccurrenceID() != RootOccurrenceID {
+		columnID = command.OccurrenceID() + "__" + columnID
 	}
 	label := strings.TrimSpace(command.Title)
 	if label == "" {
 		label = candidate.Label
 	}
-	source := editableSource(command.OccurrenceID, ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
-	column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID, Source: source}
+	source := editableSource(command.OccurrenceID(), ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
+	column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID(), Source: source}
 	column.ColumnID = stagedSourceColumnID(workspace.Documents[document].Output.ID, commandID, index, command.Type, column.Column)
 	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document]))
 	workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
@@ -59,7 +59,7 @@ func applyAddColumn(workspace *Workspace, catalog CatalogSnapshot, commandID str
 }
 
 func applyAddColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
-	return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source, "", InitialPresentationTable)
+	return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source(), "", InitialPresentationTable)
 }
 
 func applyApplyConstructionChoice(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -110,7 +110,9 @@ func applyApplyConstructionChoice(workspace *Workspace, catalog CatalogSnapshot,
 	if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
 		return result, err
 	}
-	command.OccurrenceID = occurrenceID
+	if payload, ok := command.Payload.(*ConstructionChoicePayload); ok {
+		payload.OccurrenceID = occurrenceID
+	}
 	applied, err := applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
 	if err != nil {
 		return result, err
@@ -151,10 +153,10 @@ func applyUpdateColumn(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	}
 	for i := range workspace.Documents[document].Columns {
 		current := &workspace.Documents[document].Columns[i]
-		if current.Column != command.Column {
+		if current.Column != command.Column() {
 			continue
 		}
-		value := command.ColumnValue
+		value := command.ColumnValue()
 		if strings.TrimSpace(value.Label) == "" {
 			return result, fmt.Errorf("column label is required")
 		}
@@ -165,7 +167,7 @@ func applyUpdateColumn(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		}
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 	}
-	return result, fmt.Errorf("column %q was not found", command.Column)
+	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
 func applyUpdateConstructionOutput(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -178,7 +180,7 @@ func applyUpdateConstructionOutput(workspace *Workspace, catalog CatalogSnapshot
 	if construction == nil {
 		return result, fmt.Errorf("output %q has no construction", command.OutputID)
 	}
-	presentation := command.ConstructionOutput
+	presentation := command.ConstructionOutput()
 	outputName := ""
 	for _, step := range construction.Steps {
 		if step.ID != presentation.StepID {
@@ -221,23 +223,23 @@ func applyUpdateColumnTransformation(workspace *Workspace, catalog CatalogSnapsh
 	}
 	for i := range workspace.Documents[document].Columns {
 		current := &workspace.Documents[document].Columns[i]
-		if current.Column != command.Column {
+		if current.Column != command.Column() {
 			continue
 		}
-		if command.TransformationChange.Kind == "REMOVE" {
+		if command.TransformationChange().Kind == "REMOVE" {
 			current.ValueTransformation = nil
 		} else {
 			if err := validateColumnValueTransformationForCatalog(
-				workspace.Documents[document], catalog, *current, current.Source, *command.TransformationChange.Transformation,
+				workspace.Documents[document], catalog, *current, current.Source, *command.TransformationChange().Transformation,
 			); err != nil {
 				return result, err
 			}
-			transformation := command.TransformationChange.Transformation.Clone()
+			transformation := command.TransformationChange().Transformation.Clone()
 			current.ValueTransformation = &transformation
 		}
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 	}
-	return result, fmt.Errorf("column %q was not found", command.Column)
+	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
 func applySetColumnContributor(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -248,17 +250,17 @@ func applySetColumnContributor(workspace *Workspace, catalog CatalogSnapshot, co
 	}
 	for i := range workspace.Documents[document].Columns {
 		current := &workspace.Documents[document].Columns[i]
-		if current.Column != command.Column {
+		if current.Column != command.Column() {
 			continue
 		}
-		contributor := command.Contributor.Normalized()
+		contributor := command.Contributor().Normalized()
 		if err := ValidateContributorForCatalog(workspace.Documents[document], catalog, current.OccurrenceID, current.Source, contributor); err != nil {
 			return result, err
 		}
 		current.Contributor = &contributor
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 	}
-	return result, fmt.Errorf("column %q was not found", command.Column)
+	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
 func applyClearColumnContributor(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -269,13 +271,13 @@ func applyClearColumnContributor(workspace *Workspace, catalog CatalogSnapshot, 
 	}
 	for i := range workspace.Documents[document].Columns {
 		current := &workspace.Documents[document].Columns[i]
-		if current.Column != command.Column {
+		if current.Column != command.Column() {
 			continue
 		}
 		current.Contributor = nil
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 	}
-	return result, fmt.Errorf("column %q was not found", command.Column)
+	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
 func applyUpdateColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -286,10 +288,10 @@ func applyUpdateColumnSource(workspace *Workspace, catalog CatalogSnapshot, comm
 	}
 	for i := range workspace.Documents[document].Columns {
 		current := &workspace.Documents[document].Columns[i]
-		if current.Column != command.Column {
+		if current.Column != command.Column() {
 			continue
 		}
-		source := editableSource(current.OccurrenceID, *command.Source)
+		source := editableSource(current.OccurrenceID, *command.Source())
 		if err := validateEditableSource(workspace.Documents[document], catalog, current.OccurrenceID, source); err != nil {
 			return result, err
 		}
@@ -302,7 +304,7 @@ func applyUpdateColumnSource(workspace *Workspace, catalog CatalogSnapshot, comm
 		current.LogicalType = inferredSourceLogicalType(workspace.Documents[document], catalog, current.OccurrenceID, source, current.LogicalType)
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 	}
-	return result, fmt.Errorf("column %q was not found", command.Column)
+	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
 func applyUpdateColumnRowValuePolicy(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
@@ -321,20 +323,20 @@ func applyUpdateColumnRowValuePolicy(workspace *Workspace, catalog CatalogSnapsh
 	}
 	columnIndex := -1
 	for index := range document.Columns {
-		if document.Columns[index].Column != command.Column {
+		if document.Columns[index].Column != command.Column() {
 			continue
 		}
 		if columnIndex >= 0 {
-			return result, fmt.Errorf("column %q is ambiguous", command.Column)
+			return result, fmt.Errorf("column %q is ambiguous", command.Column())
 		}
 		columnIndex = index
 	}
 	if columnIndex < 0 {
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return result, fmt.Errorf("column %q was not found", command.Column())
 	}
 	column := document.Columns[columnIndex]
 	if column.ColumnID == "" || !supportsExplicitGroupRowValueColumn(column) {
-		return result, fmt.Errorf("column %q must be a supported root FHIR field with a stable columnId", command.Column)
+		return result, fmt.Errorf("column %q must be a supported root FHIR field with a stable columnId", command.Column())
 	}
 	matchingBinding := -1
 	for index := range document.Rows.Groups.RowValues {
@@ -349,7 +351,7 @@ func applyUpdateColumnRowValuePolicy(workspace *Workspace, catalog CatalogSnapsh
 	if matchingBinding < 0 {
 		return result, fmt.Errorf("row value binding for columnId %q was not found", column.ColumnID)
 	}
-	document.Rows.Groups.RowValues[matchingBinding].Policy = command.RowValuePolicy
+	document.Rows.Groups.RowValues[matchingBinding].Policy = command.RowValuePolicy()
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: column.Column}, nil
 }
 
@@ -362,7 +364,7 @@ func applyRemoveColumn(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	columns := workspace.Documents[document].Columns[:0]
 	found := false
 	for _, column := range workspace.Documents[document].Columns {
-		if column.Column == command.Column {
+		if column.Column == command.Column() {
 			found = true
 			removeConstructionColumnValues(&workspace.Documents[document], column.ColumnID)
 			removeExplicitGroupRowValue(&workspace.Documents[document], column.ColumnID)
@@ -371,7 +373,7 @@ func applyRemoveColumn(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		columns = append(columns, column)
 	}
 	if !found {
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return result, fmt.Errorf("column %q was not found", command.Column())
 	}
 	workspace.Documents[document].Columns = columns
 	cleanupDocumentReferences(&workspace.Documents[document])
@@ -388,22 +390,22 @@ func applyRemoveProjectedField(workspace *Workspace, catalog CatalogSnapshot, co
 	current := workspace.Documents[documentPos]
 	targetIndex := -1
 	for index := range current.Columns {
-		if current.Columns[index].ColumnID != command.ColumnID {
+		if current.Columns[index].ColumnID != command.ColumnID() {
 			continue
 		}
 		if targetIndex >= 0 {
-			return result, fmt.Errorf("columnId %q is ambiguous", command.ColumnID)
+			return result, fmt.Errorf("columnId %q is ambiguous", command.ColumnID())
 		}
 		targetIndex = index
 	}
 	if targetIndex < 0 {
-		return result, fmt.Errorf("columnId %q was not found", command.ColumnID)
+		return result, fmt.Errorf("columnId %q was not found", command.ColumnID())
 	}
 	if current.Columns[targetIndex].Source.Kind != SourceImported {
 		if command.resolvedImportedDocument != nil {
 			return result, fmt.Errorf("authored projected field removal cannot replace the document")
 		}
-		if err := removeDocumentColumnByID(workspace, documentPos, command.ColumnID); err != nil {
+		if err := removeDocumentColumnByID(workspace, documentPos, command.ColumnID()); err != nil {
 			return result, err
 		}
 		return result, nil
@@ -430,19 +432,19 @@ func applyRemoveProjectedField(workspace *Workspace, catalog CatalogSnapshot, co
 	}
 	foundTarget := false
 	for _, column := range current.Columns {
-		if column.ColumnID == command.ColumnID && column.Source.Kind == SourceImported {
+		if column.ColumnID == command.ColumnID() && column.Source.Kind == SourceImported {
 			if foundTarget {
-				return result, fmt.Errorf("projected columnId %q is ambiguous", command.ColumnID)
+				return result, fmt.Errorf("projected columnId %q is ambiguous", command.ColumnID())
 			}
 			foundTarget = true
 		}
 	}
 	if !foundTarget {
-		return result, fmt.Errorf("pinned projected field %q was not found", command.ColumnID)
+		return result, fmt.Errorf("pinned projected field %q was not found", command.ColumnID())
 	}
 	for _, column := range resolved.Columns {
-		if column.ColumnID == command.ColumnID {
-			return result, fmt.Errorf("pinned projected field %q remains in the resolved source edit", command.ColumnID)
+		if column.ColumnID == command.ColumnID() {
+			return result, fmt.Errorf("pinned projected field %q remains in the resolved source edit", command.ColumnID())
 		}
 	}
 	workspace.Documents[documentPos] = resolved
@@ -451,7 +453,7 @@ func applyRemoveProjectedField(workspace *Workspace, catalog CatalogSnapshot, co
 }
 
 func (c Command) validateAddColumn() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID, c.CandidateID) {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), c.CandidateID()) {
 		return fmt.Errorf("ADD_COLUMN requires outputId, occurrenceId, and candidateId")
 	}
 	if c.InitialPresentation != "" && !contains([]string{InitialPresentationTable, InitialPresentationFilter, InitialPresentationChart}, strings.ToUpper(strings.TrimSpace(c.InitialPresentation))) {
@@ -461,75 +463,75 @@ func (c Command) validateAddColumn() error {
 }
 
 func (c Command) validateUpdateColumn() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) || c.ColumnValue == nil {
+	if !commandFieldsPresent(c.OutputID, c.Column()) || c.ColumnValue() == nil {
 		return fmt.Errorf("UPDATE_COLUMN requires outputId, column, and columnValue")
 	}
 	return nil
 }
 
 func (c Command) validateUpdateColumnRowValuePolicy() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) {
+	if !commandFieldsPresent(c.OutputID, c.Column()) {
 		return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY requires outputId and column")
 	}
-	if c.RowValuePolicy != ConstructionRowValueAll && c.RowValuePolicy != ConstructionRowValueOne {
+	if c.RowValuePolicy() != ConstructionRowValueAll && c.RowValuePolicy() != ConstructionRowValueOne {
 		return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY rowValuePolicy must be ALL or ONE")
 	}
-	if c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
-		len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
-		c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.ColumnValue != nil || c.ConstructionOutput != nil || c.TransformationChange != nil || c.Contributor != nil ||
-		c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ProposalID != "" || c.DraftRevisionID != "" || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
-		c.ConstructionChoice != nil || c.FrameChoiceID != "" || c.FrameID != "" || c.FrameForm != "" || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
+	if c.SourceOutputID() != "" || c.Title != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
+		len(c.EdgeIDs()) != 0 || c.RouteChoiceID() != "" || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
+		c.CandidateID() != "" || c.ProjectionMode() != "" || c.InitialPresentation != "" || c.ColumnValue() != nil || c.ConstructionOutput() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
+		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ProposalID() != "" || c.DraftRevisionID() != "" || c.ContextToken() != "" || len(c.SemanticSelections()) != 0 ||
+		c.ConstructionChoice() != nil || c.FrameChoiceID() != "" || c.FrameID() != "" || c.FrameForm() != "" || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs()) != 0 {
 		return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY accepts only outputId, column, and rowValuePolicy")
 	}
 	return nil
 }
 
 func (c Command) validateUpdateConstructionOutput() error {
-	if !commandFieldsPresent(c.OutputID) || c.ConstructionOutput == nil {
+	if !commandFieldsPresent(c.OutputID) || c.ConstructionOutput() == nil {
 		return fmt.Errorf("UPDATE_CONSTRUCTION_OUTPUT requires outputId and constructionOutput")
 	}
-	if err := c.ConstructionOutput.Validate(); err != nil {
+	if err := c.ConstructionOutput().Validate(); err != nil {
 		return fmt.Errorf("constructionOutput: %w", err)
 	}
 	return nil
 }
 
 func (c Command) validateUpdateColumnTransformation() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) || c.TransformationChange == nil {
+	if !commandFieldsPresent(c.OutputID, c.Column()) || c.TransformationChange() == nil {
 		return fmt.Errorf("UPDATE_COLUMN_TRANSFORMATION requires outputId, column, and transformationChange")
 	}
-	if err := c.TransformationChange.Validate(); err != nil {
+	if err := c.TransformationChange().Validate(); err != nil {
 		return fmt.Errorf("transformationChange: %w", err)
 	}
 	return nil
 }
 
 func (c Command) validateSetColumnContributor() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) || c.Contributor == nil {
+	if !commandFieldsPresent(c.OutputID, c.Column()) || c.Contributor() == nil {
 		return fmt.Errorf("SET_COLUMN_CONTRIBUTOR requires outputId, column, and contributor")
 	}
-	if err := c.Contributor.Validate(); err != nil {
+	if err := c.Contributor().Validate(); err != nil {
 		return fmt.Errorf("contributor: %w", err)
 	}
 	return nil
 }
 
 func (c Command) validateClearColumnContributor() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) {
+	if !commandFieldsPresent(c.OutputID, c.Column()) {
 		return fmt.Errorf("CLEAR_COLUMN_CONTRIBUTOR requires outputId and column")
 	}
 	return nil
 }
 
 func (c Command) validateAddColumnSource() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID) || c.Source == nil {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID()) || c.Source() == nil {
 		return fmt.Errorf("ADD_COLUMN_SOURCE requires outputId, occurrenceId, and source")
 	}
-	if err := c.Source.ValidateSource("source"); err != nil {
+	if err := c.Source().ValidateSource("source"); err != nil {
 		return err
 	}
-	if c.Contributor != nil {
-		if err := c.Contributor.Validate(); err != nil {
+	if c.Contributor() != nil {
+		if err := c.Contributor().Validate(); err != nil {
 			return fmt.Errorf("contributor: %w", err)
 		}
 	}
@@ -537,37 +539,38 @@ func (c Command) validateAddColumnSource() error {
 }
 
 func (c Command) validateUpdateColumnSource() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) || c.Source == nil {
+	if !commandFieldsPresent(c.OutputID, c.Column()) || c.Source() == nil {
 		return fmt.Errorf("UPDATE_COLUMN_SOURCE requires outputId, column, and source")
 	}
-	if err := c.Source.ValidateSource("source"); err != nil {
+	if err := c.Source().ValidateSource("source"); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (c Command) validateRemoveColumn() error {
-	if !commandFieldsPresent(c.OutputID, c.Column) {
+	if !commandFieldsPresent(c.OutputID, c.Column()) {
 		return fmt.Errorf("REMOVE_COLUMN requires outputId and column")
 	}
 	return nil
 }
 
 func (c Command) validateRemoveProjectedField() error {
-	if !commandFieldsPresent(c.OutputID, c.ColumnID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ColumnID != strings.TrimSpace(c.ColumnID) {
+	if !commandFieldsPresent(c.OutputID, c.ColumnID()) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ColumnID() != strings.TrimSpace(c.ColumnID()) {
 		return fmt.Errorf("REMOVE_PROJECTED_FIELD requires exact outputId and columnId")
 	}
-	if !reflect.DeepEqual(c, Command{Type: c.Type, OutputID: c.OutputID, ColumnID: c.ColumnID}) {
+	payload, ok := c.Payload.(*ColumnPayload)
+	if !ok || !reflect.DeepEqual(*payload, ColumnPayload{ColumnID: c.ColumnID()}) || c.Title != "" || c.InitialPresentation != "" {
 		return fmt.Errorf("REMOVE_PROJECTED_FIELD accepts only outputId and columnId")
 	}
 	return nil
 }
 
 func (c Command) validateAddSemanticSelections() error {
-	if !commandFieldsPresent(c.OutputID, c.ContextToken) || len(c.SemanticSelections) == 0 || len(c.SemanticSelections) > 100 {
+	if !commandFieldsPresent(c.OutputID, c.ContextToken()) || len(c.SemanticSelections()) == 0 || len(c.SemanticSelections()) > 100 {
 		return fmt.Errorf("ADD_SEMANTIC_SELECTIONS requires outputId, contextToken, and between 1 and 100 selections")
 	}
-	for i, selection := range c.SemanticSelections {
+	for i, selection := range c.SemanticSelections() {
 		if err := selection.validate(); err != nil {
 			return fmt.Errorf("semanticSelections[%d]: %w", i, err)
 		}
@@ -576,17 +579,17 @@ func (c Command) validateAddSemanticSelections() error {
 }
 
 func (c Command) validateApplyConstructionChoice() error {
-	if !commandFieldsPresent(c.OutputID) || c.ConstructionChoice == nil {
+	if !commandFieldsPresent(c.OutputID) || c.ConstructionChoice() == nil {
 		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE requires outputId and constructionChoice")
 	}
-	if err := c.ConstructionChoice.validate(); err != nil {
+	if err := c.ConstructionChoice().validate(); err != nil {
 		return err
 	}
-	if c.ResolvedChoice != nil || c.SourceOutputID != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
-		len(c.EdgeIDs) != 0 || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
-		c.CandidateID != "" || c.ProjectionMode != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
-		c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" ||
-		len(c.SemanticSelections) != 0 || len(c.OutputIDs) != 0 {
+	if c.ResolvedChoice != nil || c.SourceOutputID() != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
+		len(c.EdgeIDs()) != 0 || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
+		c.CandidateID() != "" || c.ProjectionMode() != "" || c.Column() != "" || c.ColumnValue() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
+		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ContextToken() != "" ||
+		len(c.SemanticSelections()) != 0 || len(c.OutputIDs()) != 0 {
 		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE accepts only its choice identity and authored-column presentation fields")
 	}
 	if c.InitialPresentation != "" && !contains([]string{InitialPresentationTable, InitialPresentationFilter, InitialPresentationChart}, strings.ToUpper(strings.TrimSpace(c.InitialPresentation))) {

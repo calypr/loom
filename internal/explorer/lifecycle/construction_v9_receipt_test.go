@@ -63,7 +63,7 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 	apply := authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-v9-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", apply, "alice")
 	if err != nil {

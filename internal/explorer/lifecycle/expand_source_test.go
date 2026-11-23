@@ -1070,7 +1070,7 @@ func TestApplyConstructionProposalRefusesStaleExpandSourceBinding(t *testing.T) 
 			_, err = harness.service.ApplyCommands(context.Background(), harness.store.created.Project, harness.store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 				CommandID: "expand-source-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "procedures", ProposalID: proposal.ProposalID}},
+				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "procedures", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 			}, "expand-source-actor")
 			if stale {
 				if err == nil || lifecycleErrorCode(err) != "STALE_EXPAND_SOURCE_BINDING" {

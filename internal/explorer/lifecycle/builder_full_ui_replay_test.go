@@ -532,7 +532,7 @@ func TestBuilderFullUIEmptyRootCreationDispatchUsesRealService(t *testing.T) {
 	body, err := json.Marshal(authoringv2.ApplyCommandsRequest{
 		CommandID: "create-first-table", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: prepared.SnapshotToken, ExpectedDraftVersion: 0,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "node-patient"}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "node-patient"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -673,7 +673,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	apply, err := harness.Service.ApplyCommands(context.Background(), fixture.Project, fixture.ExplorerID, authoringv2.ApplyCommandsRequest{
 		CommandID: "builder-full-ui-apply-mean", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: fixture.Snapshot.Token, ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: acceptedDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: fixture.OutputID, ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: fixture.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "builder-full-ui-replay")
 	if err != nil {
 		t.Fatalf("actual ApplyCommands for reviewed proposal: %v", err)

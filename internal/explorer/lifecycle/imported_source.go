@@ -23,7 +23,7 @@ func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID
 	if document == nil || document.ImportedRecipe == nil {
 		return nil, malformed("commands", "source editing requires an imported dataframe", nil)
 	}
-	updated, err := s.config.EditImportedSource(ctx, project, authorized, *document, command.SourceStep)
+	updated, err := s.config.EditImportedSource(ctx, project, authorized, *document, command.SourceStep())
 	if err != nil {
 		var typed *ports.Error
 		if errors.As(err, &typed) {

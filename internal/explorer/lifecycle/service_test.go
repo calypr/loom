@@ -474,7 +474,7 @@ func TestListGetCreateUseApplicationStore(t *testing.T) {
 
 func TestApplyCommandsMapsCASFailures(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	request := authoringv2.ApplyCommandsRequest{CommandID: "command-a", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: "token", Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "node"}}}
+	request := authoringv2.ApplyCommandsRequest{CommandID: "command-a", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: "token", Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "node"}}}}
 	for _, test := range []struct {
 		name string
 		err  error
@@ -526,13 +526,13 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "add-correlated", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", OccurrenceID: authoringv2.RootOccurrenceID, Source: &authoringv2.ColumnSource{
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", Payload: &authoringv2.ColumnPayload{OccurrenceID: authoringv2.RootOccurrenceID, Source: &authoringv2.ColumnSource{
 			Kind: authoringv2.SourceCodedValue,
 			Lookup: &authoringv2.LookupSource{
 				Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
 				Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 			},
-		}}},
+		}}}},
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "observations", request, "alice")
 	if err != nil {
@@ -589,7 +589,7 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "set-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -661,7 +661,7 @@ func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testin
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "set-incomplete-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: choiceID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: choiceID}}},
 	}, "alice")
 	if err == nil || store.created.DraftVersion != 1 {
 		t.Fatalf("incomplete selection err=%v persisted=%#v", err, store.created)
@@ -689,7 +689,7 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 	request := authoringv2.ApplyCommandsRequest{
 		CommandID: "migrate-legacy", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: migration.MigratedCanonicalDigest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Renamed"}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Renamed", Payload: &authoringv2.TablePayload{}}},
 	}
 	first, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err != nil {
@@ -721,7 +721,7 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 
 	stale := request
 	stale.CommandID = "stale-command"
-	stale.Commands = []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Stale"}}
+	stale.Commands = []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Stale", Payload: &authoringv2.TablePayload{}}}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", stale, "alice")
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "DRAFT_CONFLICT" {

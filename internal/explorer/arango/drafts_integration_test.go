@@ -295,7 +295,7 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 	results := make(chan error, 2)
 	for i := range 2 {
 		go func(i int) {
-			_, err := service.ApplyCommands(ctx, before.Project, before.ExplorerID, authoringv2.ApplyCommandsRequest{CommandID: fmt.Sprintf("race-command-%d", i), SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: before.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: fmt.Sprintf("Patients-%d", i), RootNodeID: "node"}}}, "actor")
+			_, err := service.ApplyCommands(ctx, before.Project, before.ExplorerID, authoringv2.ApplyCommandsRequest{CommandID: fmt.Sprintf("race-command-%d", i), SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: before.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: fmt.Sprintf("Patients-%d", i), Payload: &authoringv2.TablePayload{RootNodeID: "node"}}}}, "actor")
 			results <- err
 		}(i)
 	}

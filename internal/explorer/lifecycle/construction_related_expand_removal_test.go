@@ -109,7 +109,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 				_, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 					CommandID: "apply-cascading-removal", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 					SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-					Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+					Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 				}, "alice")
 				if err != nil {
 					t.Fatalf("apply cascade-bound proposal: %v", err)
@@ -328,7 +328,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-group-cascade", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("apply GROUP edit cascade: %v", err)

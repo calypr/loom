@@ -117,12 +117,9 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 	response, err := service.ApplyCommands(context.Background(), project, "explorer", authoringv2.ApplyCommandsRequest{
 		CommandID: "saved-frame-after-coverage-version", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		Commands: []authoringv2.Command{{
-			Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable,
-			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{
-				ChoiceID: after.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID,
-			},
-		}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{
+			ChoiceID: after.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID,
+		}}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("same saved semantic binding did not add under the coverage-versioned build: %v", err)

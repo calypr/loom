@@ -108,45 +108,99 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+type CommandPayload interface {
+	commandPayload()
+}
+
+type TablePayload struct {
+	SourceOutputID      string   `json:"sourceOutputId,omitempty"`
+	RootNodeID          string   `json:"rootNodeId,omitempty"`
+	SelectionRevisionID string   `json:"selectionRevisionId,omitempty"`
+	EdgeIDs             []string `json:"edgeIds,omitempty"`
+	RouteChoiceID       string   `json:"routeChoiceId,omitempty"`
+	OutputIDs           []string `json:"outputIds,omitempty"`
+}
+
+func (*TablePayload) commandPayload() {}
+
+type RowPayload struct {
+	RowChange *RowChangeProposal `json:"rowChange,omitempty"`
+}
+
+func (*RowPayload) commandPayload() {}
+
+type RoutePayload struct {
+	ParentOccurrenceID string         `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID       string         `json:"occurrenceId,omitempty"`
+	EdgeID             string         `json:"edgeId,omitempty"`
+	MatchMode          RouteMatchMode `json:"matchMode,omitempty"`
+}
+
+func (*RoutePayload) commandPayload() {}
+
+type ColumnPayload struct {
+	OccurrenceID            string                          `json:"occurrenceId,omitempty"`
+	CandidateID             string                          `json:"candidateId,omitempty"`
+	ProjectionMode          string                          `json:"projectionMode,omitempty"`
+	Column                  string                          `json:"column,omitempty"`
+	ColumnID                string                          `json:"columnId,omitempty"`
+	RowValuePolicy          ConstructionRowValuePolicy      `json:"rowValuePolicy,omitempty"`
+	ColumnValue             *Column                         `json:"columnValue,omitempty"`
+	ConstructionOutput      *ConstructionOutputPresentation `json:"constructionOutput,omitempty"`
+	TransformationChange    *ColumnTransformationChange     `json:"transformationChange,omitempty"`
+	Contributor             *ContributorPredicate           `json:"contributor,omitempty"`
+	Source                  *ColumnSource                   `json:"source,omitempty"`
+	InterpretationCandidate *ApplyInterpretationCandidate   `json:"interpretationCandidate,omitempty"`
+}
+
+func (*ColumnPayload) commandPayload() {}
+
+type ProposalPayload struct {
+	ProposalID      string `json:"proposalId,omitempty"`
+	DraftRevisionID string `json:"draftRevisionId,omitempty"`
+}
+
+func (*ProposalPayload) commandPayload() {}
+
+type SemanticPayload struct {
+	ContextToken       string              `json:"contextToken,omitempty"`
+	SemanticSelections []SemanticSelection `json:"semanticSelections,omitempty"`
+}
+
+func (*SemanticPayload) commandPayload() {}
+
+type ConstructionChoicePayload struct {
+	OccurrenceID       string                       `json:"-"`
+	ConstructionChoice *ConstructionChoiceSelection `json:"constructionChoice,omitempty"`
+}
+
+func (*ConstructionChoicePayload) commandPayload() {}
+
+type FramePayload struct {
+	FrameChoiceID string                            `json:"frameChoiceId,omitempty"`
+	FrameID       string                            `json:"frameId,omitempty"`
+	FrameForm     capability.ConstructionChoiceForm `json:"form,omitempty"`
+}
+
+func (*FramePayload) commandPayload() {}
+
+type ImportedSourcePayload struct {
+	ProposalID string                    `json:"proposalId,omitempty"`
+	SourceStep *ImportedSourceStepChange `json:"sourceStep,omitempty"`
+}
+
+func (*ImportedSourcePayload) commandPayload() {}
+
 type Command struct {
-	Type                     string                            `json:"type"`
-	OutputID                 string                            `json:"outputId,omitempty"`
-	SourceOutputID           string                            `json:"sourceOutputId,omitempty"`
-	Title                    string                            `json:"title,omitempty"`
-	RootNodeID               string                            `json:"rootNodeId,omitempty"`
-	SelectionRevisionID      string                            `json:"selectionRevisionId,omitempty"`
-	EdgeIDs                  []string                          `json:"edgeIds,omitempty"`
-	RouteChoiceID            string                            `json:"routeChoiceId,omitempty"`
-	ParentOccurrenceID       string                            `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID             string                            `json:"occurrenceId,omitempty"`
-	EdgeID                   string                            `json:"edgeId,omitempty"`
-	MatchMode                RouteMatchMode                    `json:"matchMode,omitempty"`
-	CandidateID              string                            `json:"candidateId,omitempty"`
-	ProjectionMode           string                            `json:"projectionMode,omitempty"`
-	InitialPresentation      string                            `json:"initialPresentation,omitempty"`
-	Column                   string                            `json:"column,omitempty"`
-	ColumnID                 string                            `json:"columnId,omitempty"`
-	RowValuePolicy           ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
-	ColumnValue              *Column                           `json:"columnValue,omitempty"`
-	ConstructionOutput       *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
-	TransformationChange     *ColumnTransformationChange       `json:"transformationChange,omitempty"`
-	Contributor              *ContributorPredicate             `json:"contributor,omitempty"`
-	Source                   *ColumnSource                     `json:"source,omitempty"`
-	RowChange                *RowChangeProposal                `json:"rowChange,omitempty"`
-	InterpretationCandidate  *ApplyInterpretationCandidate     `json:"interpretationCandidate,omitempty"`
-	ProposalID               string                            `json:"proposalId,omitempty"`
-	DraftRevisionID          string                            `json:"draftRevisionId,omitempty"`
-	ContextToken             string                            `json:"contextToken,omitempty"`
-	SemanticSelections       []SemanticSelection               `json:"semanticSelections,omitempty"`
-	ConstructionChoice       *ConstructionChoiceSelection      `json:"constructionChoice,omitempty"`
-	FrameChoiceID            string                            `json:"frameChoiceId,omitempty"`
-	FrameID                  string                            `json:"frameId,omitempty"`
-	FrameForm                capability.ConstructionChoiceForm `json:"form,omitempty"`
-	ResolvedChoice           *ResolvedConstructionChoice       `json:"-"`
+	Type                string         `json:"type"`
+	OutputID            string         `json:"outputId,omitempty"`
+	Title               string         `json:"title,omitempty"`
+	InitialPresentation string         `json:"initialPresentation,omitempty"`
+	Payload             CommandPayload `json:"-"`
+
+	ResolvedChoice           *ResolvedConstructionChoice `json:"-"`
 	resolvedFrame            *FrameDefinition
-	ResolvedPopulationRoute  []PopulationRouteStep     `json:"-"`
-	OutputIDs                []string                  `json:"outputIds,omitempty"`
-	SourceStep               *ImportedSourceStepChange `json:"sourceStep,omitempty"`
+	ResolvedPopulationRoute  []PopulationRouteStep `json:"-"`
 	resolvedColumnPolicy     *resolvedColumnPolicy
 	resolvedImportedDocument *Document
 	resolvedRowDefinition    *RowDefinition
@@ -156,6 +210,318 @@ type Command struct {
 	resolvedPopulation       *Population
 	resolvedPopulationSet    bool
 	resolvedDraftRevision    *Workspace
+}
+
+type commandWire struct {
+	Type                    string                            `json:"type"`
+	OutputID                string                            `json:"outputId,omitempty"`
+	SourceOutputID          string                            `json:"sourceOutputId,omitempty"`
+	Title                   string                            `json:"title,omitempty"`
+	RootNodeID              string                            `json:"rootNodeId,omitempty"`
+	SelectionRevisionID     string                            `json:"selectionRevisionId,omitempty"`
+	EdgeIDs                 []string                          `json:"edgeIds,omitempty"`
+	RouteChoiceID           string                            `json:"routeChoiceId,omitempty"`
+	ParentOccurrenceID      string                            `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID            string                            `json:"occurrenceId,omitempty"`
+	EdgeID                  string                            `json:"edgeId,omitempty"`
+	MatchMode               RouteMatchMode                    `json:"matchMode,omitempty"`
+	CandidateID             string                            `json:"candidateId,omitempty"`
+	ProjectionMode          string                            `json:"projectionMode,omitempty"`
+	InitialPresentation     string                            `json:"initialPresentation,omitempty"`
+	Column                  string                            `json:"column,omitempty"`
+	ColumnID                string                            `json:"columnId,omitempty"`
+	RowValuePolicy          ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
+	ColumnValue             *Column                           `json:"columnValue,omitempty"`
+	ConstructionOutput      *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
+	TransformationChange    *ColumnTransformationChange       `json:"transformationChange,omitempty"`
+	Contributor             *ContributorPredicate             `json:"contributor,omitempty"`
+	Source                  *ColumnSource                     `json:"source,omitempty"`
+	RowChange               *RowChangeProposal                `json:"rowChange,omitempty"`
+	InterpretationCandidate *ApplyInterpretationCandidate     `json:"interpretationCandidate,omitempty"`
+	ProposalID              string                            `json:"proposalId,omitempty"`
+	DraftRevisionID         string                            `json:"draftRevisionId,omitempty"`
+	ContextToken            string                            `json:"contextToken,omitempty"`
+	SemanticSelections      []SemanticSelection               `json:"semanticSelections,omitempty"`
+	ConstructionChoice      *ConstructionChoiceSelection      `json:"constructionChoice,omitempty"`
+	FrameChoiceID           string                            `json:"frameChoiceId,omitempty"`
+	FrameID                 string                            `json:"frameId,omitempty"`
+	FrameForm               capability.ConstructionChoiceForm `json:"form,omitempty"`
+	OutputIDs               []string                          `json:"outputIds,omitempty"`
+	SourceStep              *ImportedSourceStepChange         `json:"sourceStep,omitempty"`
+}
+
+func (c Command) toWire() commandWire {
+	w := commandWire{Type: c.Type, OutputID: c.OutputID, Title: c.Title, InitialPresentation: c.InitialPresentation}
+	switch p := c.Payload.(type) {
+	case *TablePayload:
+		w.SourceOutputID, w.RootNodeID, w.SelectionRevisionID = p.SourceOutputID, p.RootNodeID, p.SelectionRevisionID
+		w.EdgeIDs, w.RouteChoiceID, w.OutputIDs = p.EdgeIDs, p.RouteChoiceID, p.OutputIDs
+	case *RowPayload:
+		w.RowChange = p.RowChange
+	case *RoutePayload:
+		w.ParentOccurrenceID, w.OccurrenceID, w.EdgeID, w.MatchMode = p.ParentOccurrenceID, p.OccurrenceID, p.EdgeID, p.MatchMode
+	case *ColumnPayload:
+		w.OccurrenceID, w.CandidateID, w.ProjectionMode = p.OccurrenceID, p.CandidateID, p.ProjectionMode
+		w.Column, w.ColumnID, w.RowValuePolicy = p.Column, p.ColumnID, p.RowValuePolicy
+		w.ColumnValue, w.ConstructionOutput, w.TransformationChange = p.ColumnValue, p.ConstructionOutput, p.TransformationChange
+		w.Contributor, w.Source, w.InterpretationCandidate = p.Contributor, p.Source, p.InterpretationCandidate
+	case *ProposalPayload:
+		w.ProposalID, w.DraftRevisionID = p.ProposalID, p.DraftRevisionID
+	case *SemanticPayload:
+		w.ContextToken, w.SemanticSelections = p.ContextToken, p.SemanticSelections
+	case *ConstructionChoicePayload:
+		w.ConstructionChoice = p.ConstructionChoice
+	case *FramePayload:
+		w.FrameChoiceID, w.FrameID, w.FrameForm = p.FrameChoiceID, p.FrameID, p.FrameForm
+	case *ImportedSourcePayload:
+		w.ProposalID, w.SourceStep = p.ProposalID, p.SourceStep
+	}
+	return w
+}
+
+func (c *Command) fromWire(w commandWire) {
+	*c = Command{Type: w.Type, OutputID: w.OutputID, Title: w.Title, InitialPresentation: w.InitialPresentation}
+	switch w.Type {
+	case CommandCreateTable, CommandDuplicateTable, CommandDeleteTable, CommandRenameTable, CommandReorderTables,
+		CommandSetTableRoot, CommandSetTablePopulation, CommandClearTablePopulation:
+		c.Payload = &TablePayload{SourceOutputID: w.SourceOutputID, RootNodeID: w.RootNodeID, SelectionRevisionID: w.SelectionRevisionID,
+			EdgeIDs: w.EdgeIDs, RouteChoiceID: w.RouteChoiceID, OutputIDs: w.OutputIDs}
+	case CommandApplyTableRootRebase:
+		c.Payload = &RowPayload{RowChange: w.RowChange}
+	case CommandAddRoute, CommandUpdateRouteEdge, CommandSetRouteMatchMode, CommandRemoveRoute:
+		c.Payload = &RoutePayload{ParentOccurrenceID: w.ParentOccurrenceID, OccurrenceID: w.OccurrenceID, EdgeID: w.EdgeID, MatchMode: w.MatchMode}
+	case CommandAddColumn, CommandAddColumnSource, CommandUpdateColumn, CommandUpdateColumnRowValuePolicy,
+		CommandUpdateConstructionOutput, CommandUpdateColumnTransformation, CommandSetColumnContributor,
+		CommandClearColumnContributor, CommandApplyInterpretationCandidate, CommandUpdateColumnSource,
+		CommandRemoveColumn, CommandRemoveProjectedField:
+		c.Payload = &ColumnPayload{OccurrenceID: w.OccurrenceID, CandidateID: w.CandidateID, ProjectionMode: w.ProjectionMode,
+			Column: w.Column, ColumnID: w.ColumnID, RowValuePolicy: w.RowValuePolicy, ColumnValue: w.ColumnValue,
+			ConstructionOutput: w.ConstructionOutput, TransformationChange: w.TransformationChange, Contributor: w.Contributor,
+			Source: w.Source, InterpretationCandidate: w.InterpretationCandidate}
+	case CommandApplyColumnPolicyProposal, CommandApplyRowDefinitionProposal, CommandApplyConstructionProposal,
+		CommandApplyPopulationMemberProposal, CommandRestoreDraftRevision:
+		c.Payload = &ProposalPayload{ProposalID: w.ProposalID, DraftRevisionID: w.DraftRevisionID}
+	case CommandAddSemanticSelections:
+		c.Payload = &SemanticPayload{ContextToken: w.ContextToken, SemanticSelections: w.SemanticSelections}
+	case CommandApplyConstructionChoice:
+		c.Payload = &ConstructionChoicePayload{ConstructionChoice: w.ConstructionChoice}
+	case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
+		c.Payload = &FramePayload{FrameChoiceID: w.FrameChoiceID, FrameID: w.FrameID, FrameForm: w.FrameForm}
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
+		c.Payload = &ImportedSourcePayload{ProposalID: w.ProposalID, SourceStep: w.SourceStep}
+	}
+}
+
+func (c Command) tablePayload() *TablePayload       { p, _ := c.Payload.(*TablePayload); return p }
+func (c Command) rowPayload() *RowPayload           { p, _ := c.Payload.(*RowPayload); return p }
+func (c Command) routePayload() *RoutePayload       { p, _ := c.Payload.(*RoutePayload); return p }
+func (c Command) columnPayload() *ColumnPayload     { p, _ := c.Payload.(*ColumnPayload); return p }
+func (c Command) proposalPayload() *ProposalPayload { p, _ := c.Payload.(*ProposalPayload); return p }
+func (c Command) semanticPayload() *SemanticPayload { p, _ := c.Payload.(*SemanticPayload); return p }
+func (c Command) constructionChoicePayload() *ConstructionChoicePayload {
+	p, _ := c.Payload.(*ConstructionChoicePayload)
+	return p
+}
+func (c Command) framePayload() *FramePayload { p, _ := c.Payload.(*FramePayload); return p }
+func (c Command) importedSourcePayload() *ImportedSourcePayload {
+	p, _ := c.Payload.(*ImportedSourcePayload)
+	return p
+}
+
+func (c Command) SourceOutputID() string {
+	if p := c.tablePayload(); p != nil {
+		return p.SourceOutputID
+	}
+	return ""
+}
+func (c Command) RootNodeID() string {
+	if p := c.tablePayload(); p != nil {
+		return p.RootNodeID
+	}
+	return ""
+}
+func (c Command) SelectionRevisionID() string {
+	if p := c.tablePayload(); p != nil {
+		return p.SelectionRevisionID
+	}
+	return ""
+}
+func (c Command) EdgeIDs() []string {
+	if p := c.tablePayload(); p != nil {
+		return p.EdgeIDs
+	}
+	return nil
+}
+func (c Command) RouteChoiceID() string {
+	if p := c.tablePayload(); p != nil {
+		return p.RouteChoiceID
+	}
+	return ""
+}
+func (c Command) OutputIDs() []string {
+	if p := c.tablePayload(); p != nil {
+		return p.OutputIDs
+	}
+	return nil
+}
+func (c Command) RowChange() *RowChangeProposal {
+	if p := c.rowPayload(); p != nil {
+		return p.RowChange
+	}
+	return nil
+}
+func (c Command) ParentOccurrenceID() string {
+	if p := c.routePayload(); p != nil {
+		return p.ParentOccurrenceID
+	}
+	return ""
+}
+func (c Command) OccurrenceID() string {
+	if p := c.routePayload(); p != nil {
+		return p.OccurrenceID
+	}
+	if p := c.columnPayload(); p != nil {
+		return p.OccurrenceID
+	}
+	if p := c.constructionChoicePayload(); p != nil {
+		return p.OccurrenceID
+	}
+	return ""
+}
+func (c Command) EdgeID() string {
+	if p := c.routePayload(); p != nil {
+		return p.EdgeID
+	}
+	return ""
+}
+func (c Command) MatchMode() RouteMatchMode {
+	if p := c.routePayload(); p != nil {
+		return p.MatchMode
+	}
+	return ""
+}
+func (c Command) CandidateID() string {
+	if p := c.columnPayload(); p != nil {
+		return p.CandidateID
+	}
+	return ""
+}
+func (c Command) ProjectionMode() string {
+	if p := c.columnPayload(); p != nil {
+		return p.ProjectionMode
+	}
+	return ""
+}
+func (c Command) Column() string {
+	if p := c.columnPayload(); p != nil {
+		return p.Column
+	}
+	return ""
+}
+func (c Command) ColumnID() string {
+	if p := c.columnPayload(); p != nil {
+		return p.ColumnID
+	}
+	return ""
+}
+func (c Command) RowValuePolicy() ConstructionRowValuePolicy {
+	if p := c.columnPayload(); p != nil {
+		return p.RowValuePolicy
+	}
+	return ""
+}
+func (c Command) ColumnValue() *Column {
+	if p := c.columnPayload(); p != nil {
+		return p.ColumnValue
+	}
+	return nil
+}
+func (c Command) ConstructionOutput() *ConstructionOutputPresentation {
+	if p := c.columnPayload(); p != nil {
+		return p.ConstructionOutput
+	}
+	return nil
+}
+func (c Command) TransformationChange() *ColumnTransformationChange {
+	if p := c.columnPayload(); p != nil {
+		return p.TransformationChange
+	}
+	return nil
+}
+func (c Command) Contributor() *ContributorPredicate {
+	if p := c.columnPayload(); p != nil {
+		return p.Contributor
+	}
+	return nil
+}
+func (c Command) Source() *ColumnSource {
+	if p := c.columnPayload(); p != nil {
+		return p.Source
+	}
+	return nil
+}
+func (c Command) InterpretationCandidate() *ApplyInterpretationCandidate {
+	if p := c.columnPayload(); p != nil {
+		return p.InterpretationCandidate
+	}
+	return nil
+}
+func (c Command) ProposalID() string {
+	if p := c.proposalPayload(); p != nil {
+		return p.ProposalID
+	}
+	if p := c.importedSourcePayload(); p != nil {
+		return p.ProposalID
+	}
+	return ""
+}
+func (c Command) DraftRevisionID() string {
+	if p := c.proposalPayload(); p != nil {
+		return p.DraftRevisionID
+	}
+	return ""
+}
+func (c Command) ContextToken() string {
+	if p := c.semanticPayload(); p != nil {
+		return p.ContextToken
+	}
+	return ""
+}
+func (c Command) SemanticSelections() []SemanticSelection {
+	if p := c.semanticPayload(); p != nil {
+		return p.SemanticSelections
+	}
+	return nil
+}
+func (c Command) ConstructionChoice() *ConstructionChoiceSelection {
+	if p := c.constructionChoicePayload(); p != nil {
+		return p.ConstructionChoice
+	}
+	return nil
+}
+func (c Command) FrameChoiceID() string {
+	if p := c.framePayload(); p != nil {
+		return p.FrameChoiceID
+	}
+	return ""
+}
+func (c Command) FrameID() string {
+	if p := c.framePayload(); p != nil {
+		return p.FrameID
+	}
+	return ""
+}
+func (c Command) FrameForm() capability.ConstructionChoiceForm {
+	if p := c.framePayload(); p != nil {
+		return p.FrameForm
+	}
+	return ""
+}
+func (c Command) SourceStep() *ImportedSourceStepChange {
+	if p := c.importedSourcePayload(); p != nil {
+		return p.SourceStep
+	}
+	return nil
 }
 
 type ConstructionOutputPresentation struct {
@@ -183,7 +549,7 @@ func (p ConstructionOutputPresentation) Validate() error {
 }
 
 func (c *Command) ResolveDraftRevision(workspace Workspace) error {
-	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID) == "" || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
+	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID()) == "" || c.DraftRevisionID() != strings.TrimSpace(c.DraftRevisionID()) {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
 	}
 	cloned, err := cloneWorkspace(workspace)
@@ -293,9 +659,12 @@ type ApplyInterpretationCandidate struct {
 	RevisionID         string `json:"revisionId"`
 }
 
+func (c Command) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.toWire())
+}
+
 func (c *Command) UnmarshalJSON(raw []byte) error {
-	type wire Command
-	var decoded wire
+	var decoded commandWire
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
 	}
@@ -367,7 +736,7 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			return err
 		}
 	}
-	*c = Command(decoded)
+	c.fromWire(decoded)
 	return nil
 }
 
@@ -412,7 +781,7 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
 	}
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
-		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+		strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
 		return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires outputId and proposalId")
 	}
 	if err := rows.Validate(); err != nil {
@@ -431,7 +800,7 @@ func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
 	}
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
-		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+		strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
 		return fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL requires outputId and proposalId")
 	}
 	if candidate == nil || candidate.Output.ID != c.OutputID || candidate.Construction == nil {
@@ -458,7 +827,7 @@ func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, ro
 	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
 		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
 	}
-	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) || strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) || strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
 		return fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL requires outputId and proposalId")
 	}
 	population := Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: clonePopulationRouteSteps(route)}
@@ -534,7 +903,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
 			frameSourceCommandCount++
 		}
-		if command.Type == CommandApplyColumnPolicyProposal || command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
+		if command.Type == CommandApplyColumnPolicyProposal || command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange() != nil && command.RowChange().Mode == RowChangeModeReplace {
 			proposalCommandCount++
 		}
 		if command.Type == CommandRestoreDraftRevision {
@@ -586,13 +955,13 @@ func (r ApplyCommandsRequest) Digest() (string, error) {
 }
 
 func (c Command) validate() error {
-	if c.Type != CommandUpdateColumnRowValuePolicy && c.RowValuePolicy != "" {
+	if c.Type != CommandUpdateColumnRowValuePolicy && c.RowValuePolicy() != "" {
 		return fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
-	if c.Type != CommandRemoveProjectedField && c.ColumnID != "" {
+	if c.Type != CommandRemoveProjectedField && c.ColumnID() != "" {
 		return fmt.Errorf("columnId is only accepted by REMOVE_PROJECTED_FIELD")
 	}
-	if c.Type != CommandUpdateImportedSourceStep && c.SourceStep != nil {
+	if c.Type != CommandUpdateImportedSourceStep && c.SourceStep() != nil {
 		return fmt.Errorf("sourceStep is only accepted by UPDATE_IMPORTED_SOURCE_STEP")
 	}
 	switch c.Type {
@@ -701,7 +1070,7 @@ func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID strin
 
 func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if command.Type != CommandUpdateColumnRowValuePolicy && command.RowValuePolicy != "" {
+	if command.Type != CommandUpdateColumnRowValuePolicy && command.RowValuePolicy() != "" {
 		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
 	switch command.Type {
@@ -711,86 +1080,101 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, fmt.Errorf("IMPORTED_SOURCE_REQUIRED: edit imported relationships through a native source proposal")
 		}
 	}
-	switch command.Type {
-	case CommandApplyColumnPolicyProposal:
-		return applyApplyColumnPolicyProposal(workspace, catalog, commandID, index, command)
-	case CommandUpdateImportedSourceStep:
-		return applyUpdateImportedSourceStepVariants(workspace, catalog, commandID, index, command)
-	case CommandRefreshImportedSource:
-		return applyUpdateImportedSourceStepVariants(workspace, catalog, commandID, index, command)
-	case CommandApplyImportedRelationshipProposal:
-		return applyUpdateImportedSourceStepVariants(workspace, catalog, commandID, index, command)
-	case CommandSetFrameSource:
-		return applySetFrameSourceVariants(workspace, catalog, commandID, index, command)
-	case CommandReplaceFrameSource:
-		return applySetFrameSourceVariants(workspace, catalog, commandID, index, command)
-	case CommandRemoveFrameSource:
-		return applySetFrameSourceVariants(workspace, catalog, commandID, index, command)
-	case CommandCreateTable:
-		return applyCreateTable(workspace, catalog, commandID, index, command)
-	case CommandDuplicateTable:
-		return applyDuplicateTable(workspace, catalog, commandID, index, command)
-	case CommandDeleteTable:
-		return applyDeleteTable(workspace, catalog, commandID, index, command)
-	case CommandRenameTable:
-		return applyRenameTable(workspace, catalog, commandID, index, command)
-	case CommandReorderTables:
-		return applyReorderTables(workspace, catalog, commandID, index, command)
-	case CommandSetTableRoot:
-		return applySetTableRoot(workspace, catalog, commandID, index, command)
-	case CommandApplyTableRootRebase:
-		return applyApplyTableRootRebase(workspace, catalog, commandID, index, command)
-	case CommandSetTablePopulation:
-		return applySetTablePopulation(workspace, catalog, commandID, index, command)
-	case CommandClearTablePopulation:
-		return applyClearTablePopulation(workspace, catalog, commandID, index, command)
-	case CommandAddRoute:
-		return applyAddRoute(workspace, catalog, commandID, index, command)
-	case CommandUpdateRouteEdge:
-		return applyUpdateRouteEdge(workspace, catalog, commandID, index, command)
-	case CommandSetRouteMatchMode:
-		return applySetRouteMatchMode(workspace, catalog, commandID, index, command)
-	case CommandRemoveRoute:
-		return applyRemoveRoute(workspace, catalog, commandID, index, command)
-	case CommandAddColumn:
-		return applyAddColumn(workspace, catalog, commandID, index, command)
-	case CommandAddColumnSource:
-		return applyAddColumnSource(workspace, catalog, commandID, index, command)
-	case CommandApplyConstructionChoice:
-		return applyApplyConstructionChoice(workspace, catalog, commandID, index, command)
-	case CommandAddSemanticSelections:
-		return applyAddSemanticSelections(workspace, catalog, commandID, index, command)
-	case CommandUpdateColumn:
-		return applyUpdateColumn(workspace, catalog, commandID, index, command)
-	case CommandUpdateConstructionOutput:
-		return applyUpdateConstructionOutput(workspace, catalog, commandID, index, command)
-	case CommandUpdateColumnTransformation:
-		return applyUpdateColumnTransformation(workspace, catalog, commandID, index, command)
-	case CommandSetColumnContributor:
-		return applySetColumnContributor(workspace, catalog, commandID, index, command)
-	case CommandClearColumnContributor:
-		return applyClearColumnContributor(workspace, catalog, commandID, index, command)
-	case CommandApplyInterpretationCandidate:
-		return applyApplyInterpretationCandidate(workspace, catalog, commandID, index, command)
-	case CommandApplyRowDefinitionProposal:
-		return applyApplyRowDefinitionProposal(workspace, catalog, commandID, index, command)
-	case CommandApplyPopulationMemberProposal:
-		return applyApplyPopulationMemberProposal(workspace, catalog, commandID, index, command)
-	case CommandApplyConstructionProposal:
-		return applyApplyConstructionProposal(workspace, catalog, commandID, index, command)
-	case CommandRestoreDraftRevision:
-		return applyRestoreDraftRevision(workspace, catalog, commandID, index, command)
-	case CommandUpdateColumnSource:
-		return applyUpdateColumnSource(workspace, catalog, commandID, index, command)
-	case CommandUpdateColumnRowValuePolicy:
-		return applyUpdateColumnRowValuePolicy(workspace, catalog, commandID, index, command)
-	case CommandRemoveColumn:
-		return applyRemoveColumn(workspace, catalog, commandID, index, command)
-	case CommandRemoveProjectedField:
-		return applyRemoveProjectedField(workspace, catalog, commandID, index, command)
-	default:
-		return result, fmt.Errorf("unsupported command type %q", command.Type)
+	switch command.Payload.(type) {
+	case *TablePayload:
+		switch command.Type {
+		case CommandCreateTable:
+			return applyCreateTable(workspace, catalog, commandID, index, command)
+		case CommandDuplicateTable:
+			return applyDuplicateTable(workspace, catalog, commandID, index, command)
+		case CommandDeleteTable:
+			return applyDeleteTable(workspace, catalog, commandID, index, command)
+		case CommandRenameTable:
+			return applyRenameTable(workspace, catalog, commandID, index, command)
+		case CommandReorderTables:
+			return applyReorderTables(workspace, catalog, commandID, index, command)
+		case CommandSetTableRoot:
+			return applySetTableRoot(workspace, catalog, commandID, index, command)
+		case CommandSetTablePopulation:
+			return applySetTablePopulation(workspace, catalog, commandID, index, command)
+		case CommandClearTablePopulation:
+			return applyClearTablePopulation(workspace, catalog, commandID, index, command)
+		}
+	case *RowPayload:
+		if command.Type == CommandApplyTableRootRebase {
+			return applyApplyTableRootRebase(workspace, catalog, commandID, index, command)
+		}
+	case *RoutePayload:
+		switch command.Type {
+		case CommandAddRoute:
+			return applyAddRoute(workspace, catalog, commandID, index, command)
+		case CommandUpdateRouteEdge:
+			return applyUpdateRouteEdge(workspace, catalog, commandID, index, command)
+		case CommandSetRouteMatchMode:
+			return applySetRouteMatchMode(workspace, catalog, commandID, index, command)
+		case CommandRemoveRoute:
+			return applyRemoveRoute(workspace, catalog, commandID, index, command)
+		}
+	case *ColumnPayload:
+		switch command.Type {
+		case CommandAddColumn:
+			return applyAddColumn(workspace, catalog, commandID, index, command)
+		case CommandAddColumnSource:
+			return applyAddColumnSource(workspace, catalog, commandID, index, command)
+		case CommandUpdateColumn:
+			return applyUpdateColumn(workspace, catalog, commandID, index, command)
+		case CommandUpdateConstructionOutput:
+			return applyUpdateConstructionOutput(workspace, catalog, commandID, index, command)
+		case CommandUpdateColumnTransformation:
+			return applyUpdateColumnTransformation(workspace, catalog, commandID, index, command)
+		case CommandSetColumnContributor:
+			return applySetColumnContributor(workspace, catalog, commandID, index, command)
+		case CommandClearColumnContributor:
+			return applyClearColumnContributor(workspace, catalog, commandID, index, command)
+		case CommandApplyInterpretationCandidate:
+			return applyApplyInterpretationCandidate(workspace, catalog, commandID, index, command)
+		case CommandUpdateColumnSource:
+			return applyUpdateColumnSource(workspace, catalog, commandID, index, command)
+		case CommandUpdateColumnRowValuePolicy:
+			return applyUpdateColumnRowValuePolicy(workspace, catalog, commandID, index, command)
+		case CommandRemoveColumn:
+			return applyRemoveColumn(workspace, catalog, commandID, index, command)
+		case CommandRemoveProjectedField:
+			return applyRemoveProjectedField(workspace, catalog, commandID, index, command)
+		}
+	case *ProposalPayload:
+		switch command.Type {
+		case CommandApplyColumnPolicyProposal:
+			return applyApplyColumnPolicyProposal(workspace, catalog, commandID, index, command)
+		case CommandApplyRowDefinitionProposal:
+			return applyApplyRowDefinitionProposal(workspace, catalog, commandID, index, command)
+		case CommandApplyPopulationMemberProposal:
+			return applyApplyPopulationMemberProposal(workspace, catalog, commandID, index, command)
+		case CommandApplyConstructionProposal:
+			return applyApplyConstructionProposal(workspace, catalog, commandID, index, command)
+		case CommandRestoreDraftRevision:
+			return applyRestoreDraftRevision(workspace, catalog, commandID, index, command)
+		}
+	case *SemanticPayload:
+		if command.Type == CommandAddSemanticSelections {
+			return applyAddSemanticSelections(workspace, catalog, commandID, index, command)
+		}
+	case *ConstructionChoicePayload:
+		if command.Type == CommandApplyConstructionChoice {
+			return applyApplyConstructionChoice(workspace, catalog, commandID, index, command)
+		}
+	case *FramePayload:
+		switch command.Type {
+		case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
+			return applySetFrameSourceVariants(workspace, catalog, commandID, index, command)
+		}
+	case *ImportedSourcePayload:
+		switch command.Type {
+		case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
+			return applyUpdateImportedSourceStepVariants(workspace, catalog, commandID, index, command)
+		}
 	}
+	return result, fmt.Errorf("unsupported command type %q", command.Type)
 }
 
 func authoredColumns(columns []Column) []Column {

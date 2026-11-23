@@ -20,14 +20,14 @@ func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, p
 		if len(request.Commands) != 1 {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE must be the only command in its batch")
 		}
-		if command.InterpretationCandidate == nil {
+		if command.InterpretationCandidate() == nil {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE payload is required")
 		}
-		receipt, err := s.lookupReceipt(ctx, project, explorerID, command.InterpretationCandidate.CandidateReceiptID)
+		receipt, err := s.lookupReceipt(ctx, project, explorerID, command.InterpretationCandidate().CandidateReceiptID)
 		if err != nil {
 			return err
 		}
-		if receipt == nil || receipt.ID != command.InterpretationCandidate.CandidateReceiptID {
+		if receipt == nil || receipt.ID != command.InterpretationCandidate().CandidateReceiptID {
 			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt ID does not match the command", nil, nil)
 		}
 		if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {

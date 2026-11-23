@@ -105,7 +105,7 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 		t.Fatalf("assessment mutated workspace\nbefore=%s\nafter=%s", before, after)
 	}
 
-	rebased, _, err := ApplyCommands(workspace, catalog, "apply-rebase", []Command{{Type: CommandApplyTableRootRebase, RowChange: assessment.Proposal}})
+	rebased, _, err := ApplyCommands(workspace, catalog, "apply-rebase", []Command{{Type: CommandApplyTableRootRebase, Payload: &RowPayload{RowChange: assessment.Proposal}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,8 +734,8 @@ func TestApplyRowChangeRejectsStaleProposalWithoutPartialMutation(t *testing.T) 
 		t.Fatal(err)
 	}
 	_, _, err = ApplyCommands(workspace, catalog, "atomic-rebase", []Command{
-		{Type: CommandRenameTable, OutputID: "patients", Title: "Renamed"},
-		{Type: CommandApplyTableRootRebase, RowChange: assessment.Proposal},
+		{Type: CommandRenameTable, OutputID: "patients", Title: "Renamed", Payload: &TablePayload{}},
+		{Type: CommandApplyTableRootRebase, Payload: &RowPayload{RowChange: assessment.Proposal}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "ROW_REBASE_PROPOSAL_STALE") {
 		t.Fatalf("stale proposal error=%v", err)

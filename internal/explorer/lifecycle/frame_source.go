@@ -376,20 +376,20 @@ func (s *Service) prepareFrameSourceCommand(
 			Family: family.Family, CandidateID: provenCandidate.ID, NodeID: provenCandidate.NodeID, FieldPath: provenCandidate.FieldPath,
 		}, resolvedRoute, provenCandidate,
 	)
-	if err != nil || !constructionChoiceIdentityMatches(expectedChoice, command.FrameChoiceID, identity) ||
+	if err != nil || !constructionChoiceIdentityMatches(expectedChoice, command.FrameChoiceID(), identity) ||
 		!reflect.DeepEqual(expectedChoice.Source, sourceIdentity) || !reflect.DeepEqual(expectedChoice.Route, identity.Route) {
 		return nil, invalidFrameSource("the frame source token does not match current semantic and route evidence")
 	}
-	if !constructionChoiceSupports(expectedChoice, command.FrameForm) {
+	if !constructionChoiceSupports(expectedChoice, command.FrameForm()) {
 		return nil, invalidFrameSource("the selected form is not supported for this exact frame source")
 	}
-	if command.FrameForm != capability.ConstructionChoiceValue && command.FrameForm != capability.ConstructionChoiceFirst &&
-		command.FrameForm != capability.ConstructionChoiceAll && command.FrameForm != capability.ConstructionChoiceDistinct {
+	if command.FrameForm() != capability.ConstructionChoiceValue && command.FrameForm() != capability.ConstructionChoiceFirst &&
+		command.FrameForm() != capability.ConstructionChoiceAll && command.FrameForm() != capability.ConstructionChoiceDistinct {
 		return nil, invalidFrameSource("frame sources support only VALUE, FIRST, ALL, or DISTINCT forms")
 	}
 	frame, err := authoringv2.NewFrameDefinition(
 		frameSourceTitle(family.Family), frameSourceDescription(family.Family, resolvedRoute),
-		family.Family, resolvedRoute, command.FrameForm,
+		family.Family, resolvedRoute, command.FrameForm(),
 	)
 	if err != nil {
 		return nil, invalidFrameSource("the selected frame definition is invalid")

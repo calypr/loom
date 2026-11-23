@@ -361,10 +361,7 @@ func TestApplyConstructionChoiceBatchUsesOneAtomicColumnFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := constructionChoiceRequest(snapshot, "field-batch", fieldChoice.ChoiceID, capability.ConstructionChoiceValue)
-	request.Commands = append(request.Commands, authoringv2.Command{
-		Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", InitialPresentation: authoringv2.InitialPresentationFilter,
-		ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: repeatedChoice.ChoiceID, Form: capability.ConstructionChoiceAll},
-	})
+	request.Commands = append(request.Commands, authoringv2.Command{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", InitialPresentation: authoringv2.InitialPresentationFilter, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: repeatedChoice.ChoiceID, Form: capability.ConstructionChoiceAll}}})
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -393,10 +390,7 @@ func TestApplyConstructionChoiceBatchUsesOneAtomicColumnFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	request = constructionChoiceRequest(snapshot, "field-batch-reject", fieldChoice.ChoiceID, capability.ConstructionChoiceValue)
-	request.Commands = append(request.Commands, authoringv2.Command{
-		Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients",
-		ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: repeatedChoice.ChoiceID, Form: capability.ConstructionChoiceValue},
-	})
+	request.Commands = append(request.Commands, authoringv2.Command{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: repeatedChoice.ChoiceID, Form: capability.ConstructionChoiceValue}}})
 	before := append([]byte(nil), store.created.DraftConfig...)
 	beforeDigest, beforeVersion := store.created.DraftDigest, store.created.DraftVersion
 	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil {
@@ -520,7 +514,7 @@ func fieldChoicePointer(t *testing.T, snapshot capability.Snapshot, candidate ca
 func constructionChoiceRequest(snapshot capability.Snapshot, commandID, choiceID string, form capability.ConstructionChoiceForm) authoringv2.ApplyCommandsRequest {
 	return authoringv2.ApplyCommandsRequest{
 		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choiceID, Form: form}}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choiceID, Form: form}}}},
 	}
 }
 

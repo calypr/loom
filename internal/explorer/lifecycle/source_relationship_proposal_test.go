@@ -176,7 +176,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	compileFailure = false
 	store.receipt = candidateReceipt
-	apply := authoringv2.ApplyCommandsRequest{CommandID: "relationship-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: proposal.ProposalID}}}
+	apply := authoringv2.ApplyCommandsRequest{CommandID: "relationship-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: proposal.ProposalID}}}}
 
 	forgedWorkspace, err := authoringv2.DecodeWorkspace(candidateReceipt.NormalizedBundle)
 	if err != nil {
@@ -194,7 +194,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	forgedApply := apply
 	forgedApply.CommandID = "forged-other-output"
-	forgedApply.Commands = []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: forgedReceipt.ID}}
+	forgedApply.Commands = []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: forgedReceipt.ID}}}
 	_, err = service.ApplyCommands(ctx, "project-a", "patients", forgedApply, "tester")
 	var rejected *ports.Error
 	if !errors.As(err, &rejected) || rejected.Code != "INVALID_SOURCE_RELATIONSHIP_PROPOSAL" {
@@ -266,7 +266,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
 		t.Fatal("source-step removal Preview wrote the draft")
 	}
-	removed, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "source-step-remove", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: stepProposal.ProposalID}}}, "tester")
+	removed, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "source-step-remove", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: stepProposal.ProposalID}}}}, "tester")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		result, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{
 			CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
-			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: proposalID}},
+			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: proposalID}}},
 		}, "tester")
 		if err != nil {
 			t.Fatal(err)

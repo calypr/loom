@@ -54,10 +54,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 		if selection.Title != nil {
 			title = *selection.Title
 		}
-		commands[index] = authoringv2.Command{
-			Type: authoringv2.CommandApplyConstructionChoice, OutputID: request.OutputID, Title: title,
-			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form, FrameID: selection.FrameID, RowValuePolicy: selection.RowValuePolicy},
-		}
+		commands[index] = authoringv2.Command{Type: authoringv2.CommandApplyConstructionChoice, OutputID: request.OutputID, Title: title, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form, FrameID: selection.FrameID, RowValuePolicy: selection.RowValuePolicy}}}
 	}
 	applyRequest := authoringv2.ApplyCommandsRequest{
 		CommandID: request.CommandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,

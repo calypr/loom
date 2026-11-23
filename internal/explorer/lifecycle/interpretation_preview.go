@@ -51,12 +51,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 	}
 
 	catalog := s.catalog(snapshot, request.ExplorerID)
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "interpretation-preview", []authoringv2.Command{{
-		Type:                    authoringv2.CommandApplyInterpretationCandidate,
-		OutputID:                request.OutputID,
-		Column:                  request.Column,
-		InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "preview", RevisionID: request.RevisionID},
-	}})
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "interpretation-preview", []authoringv2.Command{{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: request.OutputID, Payload: &authoringv2.ColumnPayload{Column: request.Column, InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "preview", RevisionID: request.RevisionID}}}})
 	if err != nil {
 		return PreviewInterpretationCandidateResult{}, unprocessable("interpretation-preview", "INVALID_INTERPRETATION_CANDIDATE", err.Error(), err)
 	}

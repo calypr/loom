@@ -33,48 +33,48 @@ func (c Command) validateUpdateImportedSourceStep() error {
 		return fmt.Errorf("%s requires an exact outputId", c.Type)
 	}
 	if c.Type == CommandApplyImportedRelationshipProposal {
-		if !commandFieldsPresent(c.ProposalID) {
+		if !commandFieldsPresent(c.ProposalID()) {
 			return fmt.Errorf("proposalId is required")
 		}
 		return nil
 	}
 	if c.Type == CommandUpdateImportedSourceStep {
-		if c.SourceStep == nil {
+		if c.SourceStep() == nil {
 			return fmt.Errorf("sourceStep is required")
 		}
-		return c.SourceStep.Validate()
+		return c.SourceStep().Validate()
 	}
-	if c.SourceStep != nil {
+	if c.SourceStep() != nil {
 		return fmt.Errorf("REFRESH_IMPORTED_SOURCE accepts only outputId")
 	}
 	return nil
 }
 
 func (c Command) validateSetFrameSource() error {
-	if !commandFieldsPresent(c.OutputID, c.FrameChoiceID) || c.FrameForm == "" {
+	if !commandFieldsPresent(c.OutputID, c.FrameChoiceID()) || c.FrameForm() == "" {
 		return fmt.Errorf("SET_FRAME_SOURCE requires outputId, frameChoiceId, and form")
 	}
-	if c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameChoiceID != strings.TrimSpace(c.FrameChoiceID) || !validFrameForm(c.FrameForm) ||
-		c.FrameID != "" || c.ConstructionChoice != nil || c.Title != "" || c.InitialPresentation != "" {
+	if c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameChoiceID() != strings.TrimSpace(c.FrameChoiceID()) || !validFrameForm(c.FrameForm()) ||
+		c.FrameID() != "" || c.ConstructionChoice() != nil || c.Title != "" || c.InitialPresentation != "" {
 		return fmt.Errorf("SET_FRAME_SOURCE accepts only exact outputId, frameChoiceId, and supported form")
 	}
 	return nil
 }
 
 func (c Command) validateReplaceFrameSource() error {
-	if !commandFieldsPresent(c.OutputID, c.FrameID, c.FrameChoiceID) || c.FrameForm == "" {
+	if !commandFieldsPresent(c.OutputID, c.FrameID(), c.FrameChoiceID()) || c.FrameForm() == "" {
 		return fmt.Errorf("REPLACE_FRAME_SOURCE requires outputId, frameId, frameChoiceId, and form")
 	}
-	if c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameID != strings.TrimSpace(c.FrameID) || c.FrameChoiceID != strings.TrimSpace(c.FrameChoiceID) || !validFrameForm(c.FrameForm) ||
-		c.ConstructionChoice != nil || c.Title != "" || c.InitialPresentation != "" {
+	if c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameID() != strings.TrimSpace(c.FrameID()) || c.FrameChoiceID() != strings.TrimSpace(c.FrameChoiceID()) || !validFrameForm(c.FrameForm()) ||
+		c.ConstructionChoice() != nil || c.Title != "" || c.InitialPresentation != "" {
 		return fmt.Errorf("REPLACE_FRAME_SOURCE accepts only exact outputId, frameId, frameChoiceId, and supported form")
 	}
 	return nil
 }
 
 func (c Command) validateRemoveFrameSource() error {
-	if !commandFieldsPresent(c.OutputID, c.FrameID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameID != strings.TrimSpace(c.FrameID) ||
-		c.FrameChoiceID != "" || c.FrameForm != "" || c.ConstructionChoice != nil || c.Title != "" || c.InitialPresentation != "" {
+	if !commandFieldsPresent(c.OutputID, c.FrameID()) || c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameID() != strings.TrimSpace(c.FrameID()) ||
+		c.FrameChoiceID() != "" || c.FrameForm() != "" || c.ConstructionChoice() != nil || c.Title != "" || c.InitialPresentation != "" {
 		return fmt.Errorf("REMOVE_FRAME_SOURCE requires exact outputId and frameId only")
 	}
 	return nil

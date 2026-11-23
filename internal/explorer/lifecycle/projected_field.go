@@ -47,7 +47,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 	var projected *authoringv2.ProjectedField
 	for index := range network.ProjectedFields {
 		field := &network.ProjectedFields[index]
-		if field.ColumnID != command.ColumnID {
+		if field.ColumnID != command.ColumnID() {
 			continue
 		}
 		if projected != nil {

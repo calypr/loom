@@ -20,7 +20,7 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 	if err != nil {
 		t.Fatalf("migrate proposal base: %v", err)
 	}
-	proposal := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", ProposalID: "receipt-1"}
+	proposal := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
 	if err := proposal.ResolveConstructionProposal(&candidate); err != nil {
 		t.Fatalf("resolve proposal: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestApplyConstructionProposalRejectsClientPlanAndUnresolvedApply(t *testing
 		}
 	}
 
-	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", ProposalID: "receipt-1"}
+	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
 	if err := command.validate(); err != nil {
 		t.Fatalf("closed proposal command invalid: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.
 		t.Fatalf("candidate anchor was not rebased to source projection: %#v", candidate.Rows.Groups)
 	}
 
-	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", ProposalID: "receipt-1"}
+	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
 	if err := command.ResolveConstructionProposal(&candidate); err != nil {
 		t.Fatalf("resolve exact candidate: %v", err)
 	}

@@ -19,7 +19,7 @@ func TestRetiredTableShapeProposalCannotBeValidated(t *testing.T) {
 			}
 		}
 	}
-	request := ApplyCommandsRequest{CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft", Commands: []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", ProposalID: "receipt-1"}}}
+	request := ApplyCommandsRequest{CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft", Commands: []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}}}
 	if err := request.Validate(); err == nil {
 		t.Fatal("retired command validated")
 	}
@@ -31,7 +31,7 @@ func TestRetiredTableShapeProposalCannotMutateCurrentWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, proposal := range []string{"receipt-1", "receipt-removal", ""} {
-		_, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", ProposalID: proposal}})
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: proposal}}})
 		if err == nil {
 			t.Fatal("retired proposal reached reducer")
 		}

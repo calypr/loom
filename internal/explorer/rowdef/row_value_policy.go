@@ -27,7 +27,7 @@ func (s *Service) ValidateRowValuePolicyCandidate(
 	if s.config.ValidateReceiptStream == nil || s.config.Capability.ForExecution == nil {
 		return support.Unavailable("commands", "ROW_VALUE_POLICY_VALIDATION_UNAVAILABLE", "full-stream row-value policy validation is not configured", nil)
 	}
-	if command.Type != authoringv2.CommandUpdateColumnRowValuePolicy || strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column) == "" {
+	if command.Type != authoringv2.CommandUpdateColumnRowValuePolicy || strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column()) == "" {
 		return support.Malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY requires outputId and column", nil)
 	}
 

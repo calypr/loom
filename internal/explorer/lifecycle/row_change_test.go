@@ -233,7 +233,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	result, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "replace-root-with-consumer", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: "patients", RowChange: replacement.Assessment.Proposal}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: "patients", Payload: &authoringv2.RowPayload{RowChange: replacement.Assessment.Proposal}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("replacement Apply with invalidated consumer: %v", err)
@@ -738,7 +738,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	apply, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "apply-replacement", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 7, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: "patients", RowChange: replacement.Assessment.Proposal}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: "patients", Payload: &authoringv2.RowPayload{RowChange: replacement.Assessment.Proposal}}},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("apply replacement: %v", err)

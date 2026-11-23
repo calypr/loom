@@ -64,7 +64,7 @@ func columnPolicyRequest(store *fakeStore, snapshot capability.Snapshot) ColumnP
 	return ColumnPolicyProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest, OutputID: "patients", ColumnID: "row_proposal_source_0", ProjectionMode: "FIRST"}
 }
 func columnPolicyApply(store *fakeStore, snapshot capability.Snapshot, id, commandID string) authoringv2.ApplyCommandsRequest {
-	return authoringv2.ApplyCommandsRequest{CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyColumnPolicyProposal, OutputID: "patients", ProposalID: id}}}
+	return authoringv2.ApplyCommandsRequest{CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyColumnPolicyProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: id}}}}
 }
 
 func TestColumnPolicyProposalPreviewCancelApplyReloadAndStale(t *testing.T) {

@@ -114,13 +114,13 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
 	catalog := config.Capability.Catalog(snapshot, "patients")
-	command := authoringv2.Command{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: "patients", Column: "patient_id", InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "placeholder", RevisionID: string(revision.ID)}}
+	command := authoringv2.Command{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_id", InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "placeholder", RevisionID: string(revision.ID)}}}
 	proposed, _, err := authoringv2.ApplyCommands(workspace, catalog, "preview-command", []authoringv2.Command{command})
 	if err != nil {
 		t.Fatal(err)
 	}
 	receipt := lifecycleCandidatePreviewReceipt(t, snapshot, proposed, &revision)
-	command.InterpretationCandidate.CandidateReceiptID = receipt.ID
+	command.InterpretationCandidate().CandidateReceiptID = receipt.ID
 
 	tests := []struct {
 		name   string
@@ -130,11 +130,11 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 		{name: "exact candidate", wantOK: true},
 		{name: "wrong receipt", mutate: func(request *authoringv2.ApplyCommandsRequest) {
 			request.CommandID = "wrong-receipt"
-			request.Commands[0].InterpretationCandidate.CandidateReceiptID = "receipt_wrong"
+			request.Commands[0].InterpretationCandidate().CandidateReceiptID = "receipt_wrong"
 		}},
 		{name: "wrong revision", mutate: func(request *authoringv2.ApplyCommandsRequest) {
 			request.CommandID = "wrong-revision"
-			request.Commands[0].InterpretationCandidate.RevisionID = "revision_other"
+			request.Commands[0].InterpretationCandidate().RevisionID = "revision_other"
 		}},
 		{name: "wrong output", mutate: func(request *authoringv2.ApplyCommandsRequest) {
 			request.CommandID = "wrong-output"
@@ -142,7 +142,7 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 		}},
 		{name: "wrong column", mutate: func(request *authoringv2.ApplyCommandsRequest) {
 			request.CommandID = "wrong-column"
-			request.Commands[0].Column = "other"
+			request.Commands[0].Payload.(*authoringv2.ColumnPayload).Column = "other"
 		}},
 		{name: "stale draft", mutate: func(request *authoringv2.ApplyCommandsRequest) {
 			request.CommandID = "stale-draft"

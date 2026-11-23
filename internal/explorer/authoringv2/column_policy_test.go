@@ -7,7 +7,7 @@ import (
 
 func TestColumnPolicyCannotApplyUnresolvedOrAmbiguousIdentity(t *testing.T) {
 	workspace := Workspace{Documents: []Document{{Output: Output{ID: "out"}, Columns: []Column{{ColumnID: "same", Column: "first"}, {ColumnID: "same", Column: "second"}}}}}
-	command := Command{Type: CommandApplyColumnPolicyProposal, OutputID: "out", ProposalID: "receipt"}
+	command := Command{Type: CommandApplyColumnPolicyProposal, OutputID: "out", Payload: &ProposalPayload{ProposalID: "receipt"}}
 	if _, err := applyColumnPolicyProposal(&workspace, CatalogSnapshot{}, "id", 0, command); err == nil {
 		t.Fatal("applied an unresolved client proposal")
 	}

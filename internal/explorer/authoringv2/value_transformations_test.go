@@ -26,10 +26,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	original := workspace.Documents[0].Columns[0]
-	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", []Command{{
-		Type: CommandUpdateColumnTransformation, OutputID: "patients", Column: original.Column,
-		TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())},
-	}})
+	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,10 +53,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 		t.Fatalf("persisted transformation did not round-trip: %#v", got.ValueTransformation)
 	}
 
-	reloaded, _, err = ApplyCommands(reloaded, catalog, "remove-recode", []Command{{
-		Type: CommandUpdateColumnTransformation, OutputID: "patients", Column: original.Column,
-		TransformationChange: &ColumnTransformationChange{Kind: "REMOVE"},
-	}})
+	reloaded, _, err = ApplyCommands(reloaded, catalog, "remove-recode", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "REMOVE"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +71,7 @@ func TestUpdateColumnTransformationRejectsUnsupportedAndIncompleteMappings(t *te
 	catalog := commandCatalog()
 	catalog.Candidates[0].LogicalType = "boolean"
 	command := func(transformation columntransform.ValueTransformation) Command {
-		return Command{
-			Type: CommandUpdateColumnTransformation, OutputID: "patients", Column: "patient_id",
-			TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(transformation)},
-		}
+		return Command{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(transformation)}}}
 	}
 	if _, _, err := ApplyCommands(workspace, catalog, "unsupported-type", []Command{command(exactCategoryTransformation())}); err == nil || !strings.Contains(err.Error(), "COLUMN_VALUE_TYPE_UNSUPPORTED") {
 		t.Fatalf("unsupported source type error = %v, want COLUMN_VALUE_TYPE_UNSUPPORTED", err)
