@@ -9,3 +9,10 @@ type PublicOutputContract = receiptmodel.PublicOutputContract
 type PublicOutputColumn = receiptmodel.PublicOutputColumn
 
 var DecodePublicOutputContracts = receiptmodel.DecodePublicOutputContracts
+
+type RowDefinitionProposalBinding = receiptmodel.RowDefinitionProposalBinding
+type TableShapeProposalBinding = receiptmodel.TableShapeProposalBinding
+type PopulationMemberRemovalProposalBinding = receiptmodel.PopulationMemberRemovalProposalBinding
+type ConstructionProposalBinding = receiptmodel.ConstructionProposalBinding
+type SourceRelationshipProposalBinding = receiptmodel.SourceRelationshipProposalBinding
+type ColumnPolicyProposalBinding = receiptmodel.ColumnPolicyProposalBinding
