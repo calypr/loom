@@ -208,11 +208,11 @@ func TestOwnedAcceptanceTransport(t *testing.T) {
 	if err != nil || bytes.Equal(originalIR, controlIR) {
 		t.Fatalf("IR control did not vary canonical bytes: %v", err)
 	}
-	forward, err := aql.RenderPhysicalPlan(plan)
+	forward, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	diagnostic, err := aql.RenderPhysicalPlan(control)
+	diagnostic, err := aql.Render(control, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
