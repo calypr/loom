@@ -154,22 +154,25 @@ func runApply(root, ledgerPath, currentPkg string) error {
 			if target == srcAbs {
 				continue
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			if err := gitMove(root, srcAbs, target); err != nil {
-				return err
-			}
-			newName := packageName(destPkg)
-			if newName != oldPkg {
-				if err := rewritePackage(target, oldPkg, newName); err != nil {
+			if _, statErr := os.Stat(target); statErr == nil {
+				// A merge target already exists: append this unit below instead.
+			} else {
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 					return err
 				}
+				if err := gitMove(root, srcAbs, target); err != nil {
+					return err
+				}
+				newName := packageName(destPkg)
+				if newName != oldPkg {
+					if err := rewritePackage(target, oldPkg, newName); err != nil {
+						return err
+					}
+				}
+				touched[target] = true
+				continue
 			}
-			touched[target] = true
-			continue
 		}
-
 		pieces := map[string][][]byte{}
 		var cut []applyRange
 		var keepRows int
