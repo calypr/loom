@@ -1,5 +1,9 @@
 package workspace
 
+import (
+	"encoding/json"
+)
+
 func workspaceDocument(id string) Document {
 	visible := true
 	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition(), Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible}}}}
@@ -135,3 +139,36 @@ func commandCatalog() CatalogSnapshot {
 func stringPtr(value string) *string { return &value }
 
 func int64Pointer(value int64) *int64 { return &value }
+
+func migrateStoredDocumentFixture(document Document) (Document, error) {
+	if document.ArchiveRetiredShape == nil {
+		return StartDocumentConstruction(document)
+	}
+	raw, err := json.Marshal(constructionWorkspace(document))
+	if err != nil {
+		return Document{}, err
+	}
+	result, err := MigrateStoredTableShapeWorkspace(raw, CatalogSnapshot{})
+	if err != nil {
+		return Document{}, err
+	}
+	return result.Workspace.Documents[0], nil
+}
+
+func cloneStoredShapeFixture(shape *storedTableShape) (*storedTableShape, error) {
+	raw, err := json.Marshal(shape)
+	if err != nil {
+		return nil, err
+	}
+	var out *storedTableShape
+	err = json.Unmarshal(raw, &out)
+	return out, err
+}
+
+func storedDigestFixture(workspace Workspace) (string, error) {
+	raw, err := CanonicalStoredWorkspaceForMigration(workspace)
+	if err != nil {
+		return "", err
+	}
+	return workspaceDigest(raw), nil
+}
