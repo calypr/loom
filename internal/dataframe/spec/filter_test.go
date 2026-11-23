@@ -1,8 +1,9 @@
 package spec
 
 import (
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"testing"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 func TestCorrelatedCategoryFilterRequiresExplicitScope(t *testing.T) {
