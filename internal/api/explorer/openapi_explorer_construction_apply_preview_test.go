@@ -17,7 +17,7 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -326,7 +326,7 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 			}
 			return dataframeexecution.PreviewSummary{
 				Output: "patients", Columns: []string{"c_patient"}, RowCount: rowCount, Complete: true, PartialValidation: true,
-				RowLineageCapability: compiler.RowLineageCapability{Available: true},
+				RowLineageCapability: rowlineage.RowLineageCapability{Available: true},
 			}, nil
 		},
 	}

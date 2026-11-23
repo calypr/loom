@@ -14,10 +14,10 @@ import (
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -238,7 +238,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		}
 	})
 	t.Run("opted-in-single-execution", func(t *testing.T) {
-		previewSummary = dataframeexecution.PreviewSummary{RowCount: 1, Truncated: true, PartialValidation: true, RowLineageCapability: compiler.RowLineageCapability{Available: true}}
+		previewSummary = dataframeexecution.PreviewSummary{RowCount: 1, Truncated: true, PartialValidation: true, RowLineageCapability: rowlineage.RowLineageCapability{Available: true}}
 		beforeCalls := previews
 		response := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", proposalBody(`,"includePreview":true,"limit":2`))
 		if response.StatusCode != http.StatusOK {
