@@ -49,7 +49,7 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 2 || output.RowIdentity.Fields[0] != "project" || output.RowIdentity.Fields[1] != "_key" {
 		t.Fatalf("normal grouped-Pivot lowering identity = %#v", output.RowIdentity)
 	}
-	preview, err := aql.RenderPhysicalPlan(output.Plan)
+	preview, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 		t.Fatalf("composed cohort Preview identity schema = %#v, want a required compiler-owned object", finalIdentity)
 	}
 
-	preview, err := aql.RenderPhysicalPlan(output.Plan)
+	preview, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 				trace.OmissionColumn:         "",
 			})
 		}}
-		result, traceErr := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+		result, traceErr := engine.cellTraceCompiled(context.Background(), trace, CellTraceRequest{
 			Output: "cohort_cell_trace_identity", RowID: rowID, Column: "group_label", Limit: 10,
 		})
 		if traceErr != nil || result.Status != CellTraceValue || result.Value != "Pair" {
@@ -218,7 +218,7 @@ func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *te
 					},
 				})
 			}}
-			_, traceErr := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+			_, traceErr := engine.cellTraceCompiled(context.Background(), trace, CellTraceRequest{
 				Output: "cohort_cell_trace_identity", RowID: test.rowID, Column: "group_label", Limit: 10,
 			})
 			if traceErr == nil || !strings.Contains(traceErr.Error(), test.wantErr) {
@@ -279,7 +279,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 			trace.OmissionColumn: "",
 		})
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+	result, err := engine.cellTraceCompiled(context.Background(), trace, CellTraceRequest{
 		Output: "grouped_specimens", RowID: `{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace"}`, Column: "resourceType", Limit: 10,
 	})
 	if err != nil || result.Status != CellTraceValue || result.Value != "Specimen" {
@@ -300,7 +300,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 			queried = true
 			return visit(map[string]any{})
 		}}
-		_, traceErr := malformedEngine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+		_, traceErr := malformedEngine.cellTraceCompiled(context.Background(), trace, CellTraceRequest{
 			Output: "grouped_specimens", RowID: rowID, Column: "resourceType", Limit: 10,
 		})
 		if traceErr == nil || !strings.Contains(traceErr.Error(), "invalid object identity") || queried {
@@ -344,7 +344,7 @@ func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
 			trace.OmissionColumn:         "",
 		})
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+	result, err := engine.cellTraceCompiled(context.Background(), trace, CellTraceRequest{
 		Output: "cohort_cell_trace_identity", RowID: rowID, Column: "ordinal_pair", Limit: 10,
 	})
 	if err != nil || result.Status != CellTraceValue || result.Value != int64(2) {
@@ -454,7 +454,7 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 		}
 		return nil
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: rowID, Column: "gender", Offset: 5, Limit: 1})
+	result, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: rowID, Column: "gender", Offset: 5, Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *tes
 			"contributors": contributors, "hasMore": false, "omission": "",
 		})
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "patient-key", Column: "observation_status", Limit: 10})
+	result, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "patient-key", Column: "observation_status", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"identity": "patient-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "patient-7", Column: "condition", Limit: 10})
+	result, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "patient-7", Column: "condition", Limit: 10})
 	if err != nil || result.Status != CellTraceNoMatch || !result.Complete {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -527,7 +527,7 @@ func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
 		}
 		return nil
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "later", Column: "gender", MaxWitnessRows: 1})
+	result, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "later", Column: "gender", MaxWitnessRows: 1})
 	if err != nil || result.Complete || result.Status != CellTraceIncomplete || result.OmissionCode == "" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -547,7 +547,7 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 			engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 				return dataframeerrors.NewError(test.code, "")
 			}}
-			result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-1", Column: "feature"})
+			result, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-1", Column: "feature"})
 			if err != nil || !result.Complete || result.Status != test.status || result.OmissionCode != string(test.code) || result.Contributions == nil {
 				t.Fatalf("result=%#v err=%v", result, err)
 			}
@@ -561,13 +561,13 @@ func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
 		engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{"identity": "row", "status": "MAYBE", "contributors": []any{}})
 		}}
-		if _, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"}); err == nil {
+		if _, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"}); err == nil {
 			t.Fatal("expected malformed trace error")
 		}
 	})
 	t.Run("missing", func(t *testing.T) {
 		engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
-		_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"})
+		_, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"})
 		if err == nil || errors.Is(err, errCellTraceFound) {
 			t.Fatalf("missing row error = %v", err)
 		}
@@ -644,7 +644,7 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 			t.Fatalf("build expected row identity for %q: %v", want.id, err)
 		}
 		rowID, _ := identity["__loom_row_id"].(string)
-		result, traceErr := engine.CellTraceCompiled(ctx, trace, CellTraceRequest{
+		result, traceErr := engine.cellTraceCompiled(ctx, trace, CellTraceRequest{
 			Output: compiledOutput.Name, RowID: rowID, Column: "total", Limit: 25,
 		})
 		if traceErr != nil {
@@ -751,7 +751,7 @@ func assertCellTraceMissingRowUserFault(t *testing.T, err error, wantRowID, want
 func TestEngineCellTraceCompiledMissingRowIsUserFault(t *testing.T) {
 	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
-	_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-does-not-exist", Column: "gender"})
+	_, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-does-not-exist", Column: "gender"})
 	assertCellTraceMissingRowUserFault(t, err, "row-does-not-exist", "patients")
 }
 
@@ -769,7 +769,7 @@ func TestEngineCellTraceKnownRowNeverTakesTheNotFoundArm(t *testing.T) {
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"identity": "row-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
 	}}
-	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-7", Column: "condition"})
+	result, err := engine.cellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-7", Column: "condition"})
 	if err != nil || result.Status != CellTraceNoMatch {
 		t.Fatalf("matched row must not take the missing-row arm: result=%#v err=%v", result, err)
 	}

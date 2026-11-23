@@ -72,13 +72,12 @@ func revisionFor(rowGrain, digest string) recipe.RecipeRevision {
 
 func TestValidateDigestAddressedRevisionResolves(t *testing.T) {
 	controlEngine, registry := valControl(t, &valRevisions{revision: revisionFor("patient", "abc")})
-	control := Control{Engine: controlEngine}
-	validation, err := control.Validate(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT", RecipeDigest: "abc"})
+	validation, err := controlEngine.entry(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT", RecipeDigest: "abc"})
 	if err != nil {
 		t.Fatalf("digest-addressed validation of a stored revision failed (pre-repair: named-only lookup => RECIPE_NOT_FOUND): %v", err)
 	}
-	if validation.Entry.Digest != "abc" {
-		t.Fatalf("validation entry digest = %q, want abc", validation.Entry.Digest)
+	if validation.Digest != "abc" {
+		t.Fatalf("validation entry digest = %q, want abc", validation.Digest)
 	}
 	if registry.loads != 0 {
 		t.Fatalf("digest-addressed validate fell through to named registry: %d loads", registry.loads)
@@ -90,8 +89,7 @@ func TestValidateDigestAddressedRevisionResolves(t *testing.T) {
 
 func TestValidateByNameStillUsesNamedRegistry(t *testing.T) {
 	controlEngine, registry := valControl(t, &valRevisions{revision: revisionFor("patient", "abc")})
-	control := Control{Engine: controlEngine}
-	_, err := control.Validate(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT"})
+	_, err := controlEngine.Resolve(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT"})
 	if !errors.Is(err, recipe.ErrRecipeNotFound) {
 		t.Fatalf("name-only validation must keep the named-registry lane, got %v", err)
 	}
@@ -103,8 +101,7 @@ func TestValidateByNameStillUsesNamedRegistry(t *testing.T) {
 func TestValidateDigestBlankProjectGuardedFirst(t *testing.T) {
 	revisions := &valRevisions{revision: revisionFor("patient", "abc")}
 	controlEngine, _ := valControl(t, revisions)
-	control := Control{Engine: controlEngine}
-	_, err := control.Validate(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "  ", RecipeDigest: "abc"})
+	_, err := controlEngine.Resolve(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "  ", RecipeDigest: "abc"})
 	if userErr, ok := dataframeerrors.AsUserError(err); !ok || userErr.Code() != string(dataframeerrors.CodeProjectRequired) {
 		t.Fatalf("blank project must stay PROJECT_REQUIRED pre-store: ok=%v err=%v", ok, err)
 	}
@@ -115,8 +112,7 @@ func TestValidateDigestBlankProjectGuardedFirst(t *testing.T) {
 
 func TestValidateDigestAddressedStructuralFaultStaysTyped(t *testing.T) {
 	controlEngine, _ := valControl(t, &valRevisions{revision: revisionFor("Patient", "abc")})
-	control := Control{Engine: controlEngine}
-	_, err := control.Validate(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT", RecipeDigest: "abc"})
+	_, err := controlEngine.Resolve(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT", RecipeDigest: "abc"})
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok || userErr.Code() != string(dataframeerrors.CodeInvalidRequest) || userErr.Retryable() {
 		t.Fatalf("structural user fault through validate escaped classification: ok=%v err=%v", ok, err)
@@ -128,8 +124,7 @@ func TestValidateDigestAddressedStructuralFaultStaysTyped(t *testing.T) {
 
 func TestValidateUnknownDigestStaysResolverClassifiable(t *testing.T) {
 	controlEngine, _ := valControl(t, &valRevisions{revision: revisionFor("patient", "abc")})
-	control := Control{Engine: controlEngine}
-	_, err := control.Validate(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT", RecipeDigest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"})
+	_, err := controlEngine.Resolve(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT", RecipeDigest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"})
 	if !errors.Is(err, recipe.ErrRecipeRevisionNotFound) {
 		t.Fatalf("wrong digest lost its sentinel: %v", err)
 	}

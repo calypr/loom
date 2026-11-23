@@ -1105,7 +1105,7 @@ func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
 					},
 				}},
 			}
-			rendered, err := aql.RenderPhysicalPlan(plan)
+			rendered, err := aql.Render(plan, aql.Options{})
 			if err != nil {
 				t.Fatalf("render %s terminal primitive selector: %v", mode, err)
 			}

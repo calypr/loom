@@ -2,8 +2,13 @@ package aql
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql/internal/aqlsyntax"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func selectorHasNoArrays(sel spec.Selector) bool {
@@ -45,4 +50,461 @@ func extractFinalExpr(cur string, step spec.SelectorStep) string {
 	default:
 		return fmt.Sprintf("%s.%s", cur, step.Field)
 	}
+}
+
+func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (string, error) {
+	extract := expression.Extract
+	if extract == nil {
+		return "", fmt.Errorf("EXTRACT expression is missing payload")
+	}
+	if extract.UnitNormalization != nil {
+		return r.renderUnitNormalizedExtract(expression)
+	}
+	if extract.Prepared != nil {
+		value := ""
+		if r.preparedItem != "" {
+			value = r.preparedItem + "." + extract.Prepared.Field
+		} else {
+			value = "(FOR __loom_prepared_value IN " + extract.Prepared.SetVariable + " RETURN __loom_prepared_value." + extract.Prepared.Field + ")"
+		}
+		if expression.Cardinality == ir.PhysicalArrayCardinality {
+			if extract.Distinct {
+				return "SORTED_UNIQUE(FLATTEN(" + value + "))", nil
+			}
+			return value, nil
+		}
+		return "FIRST(FLATTEN(" + value + "))", nil
+	}
+	source, err := r.renderValue(extract.Source)
+	if err != nil {
+		return "", err
+	}
+	setSource := extract.Source.Variable != "" && r.setVariables[extract.Source.Variable] != ""
+
+	if setSource {
+		source = extract.Source.Variable
+	}
+	if len(extract.Fallbacks) == 0 && extract.Selector.Filter == nil {
+		switch extract.ExecutionMode {
+		case ir.PhysicalSelectorDirectScalar:
+			if !setSource && expression.Cardinality != ir.PhysicalArrayCardinality {
+				if storedParentValue, ok := r.renderDirectScalarFromStoredParent(extract); ok {
+					return storedParentValue, nil
+				}
+				return compileDirectExpr(source, extract.Selector.Steps), nil
+			}
+		case ir.PhysicalSelectorConditionalArray:
+			if setSource {
+				break
+			}
+			values, err := r.renderConditionalSelectorArray(source, extract.Selector, expression.Cardinality != ir.PhysicalArrayCardinality)
+			if err != nil {
+				return "", err
+			}
+			if expression.Cardinality == ir.PhysicalArrayCardinality {
+				if selectorEndsWithRepeatedValue(extract.Selector) {
+					values = r.flattenTerminalRepeatedValues(values)
+				}
+				if extract.Distinct {
+					return "SORTED_UNIQUE(" + values + ")", nil
+				}
+				return values, nil
+			}
+			return "FIRST(" + values + ")", nil
+		}
+	}
+	arrays := make([]string, 0, 1+len(extract.Fallbacks))
+	array, err := r.renderSelectorArrayFromSource(source, extract.Selector, setSource, false)
+	if err != nil {
+		return "", err
+	}
+	if expression.Cardinality == ir.PhysicalArrayCardinality && selectorEndsWithRepeatedValue(extract.Selector) {
+		array = r.flattenTerminalRepeatedValues(array)
+	}
+	arrays = append(arrays, array)
+	for _, fallback := range extract.Fallbacks {
+		fallbackSource, err := r.renderValue(fallback.Source)
+		if err != nil {
+			return "", err
+		}
+		fallbackSetSource := fallback.Source.Variable != "" && r.setVariables[fallback.Source.Variable] != ""
+		if fallbackSetSource {
+			fallbackSource = fallback.Source.Variable
+		}
+		fallbackArray, err := r.renderSelectorArrayFromSource(fallbackSource, fallback.Selector, fallbackSetSource, false)
+		if err != nil {
+			return "", err
+		}
+		if expression.Cardinality == ir.PhysicalArrayCardinality && selectorEndsWithRepeatedValue(fallback.Selector) {
+			fallbackArray = r.flattenTerminalRepeatedValues(fallbackArray)
+		}
+		arrays = append(arrays, fallbackArray)
+	}
+	values := arrays[0]
+	if len(arrays) > 1 {
+		values = "FLATTEN([" + strings.Join(arrays, ", ") + "])"
+	}
+	if expression.Cardinality == ir.PhysicalArrayCardinality {
+		if extract.Distinct {
+			return "SORTED_UNIQUE(" + values + ")", nil
+		}
+		return values, nil
+	}
+	if !setSource && len(arrays) == 1 && extract.Selector.Filter == nil && selectorHasNoArrays(extract.Selector) {
+		return compileDirectExpr(source, extract.Selector.Steps), nil
+	}
+	return "FIRST(" + values + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderDirectScalarFromStoredParent(extract *ir.PhysicalExtract) (string, bool) {
+	if len(r.storedPresenceParentPath) == 0 || extract == nil || extract.Source.Variable != r.rootVariable ||
+		extract.Source.BindKey != "" || len(extract.Fallbacks) != 0 || extract.Distinct || extract.Selector.Filter != nil {
+		return "", false
+	}
+	path := append([]string(nil), extract.Source.Path...)
+	for _, step := range extract.Selector.Steps {
+		if step.Field == "" || step.Iterate || step.Index != nil {
+			return "", false
+		}
+		path = append(path, step.Field)
+	}
+	if !aqlsyntax.PathHasPrefix(path, r.storedPresenceParentPath) {
+		return "", false
+	}
+	parent := aqlsyntax.RenderPropertyPath(r.rootVariable, r.storedPresenceParentPath)
+	return aqlsyntax.RenderPropertyPath("FIRST(["+parent+"])", path[len(r.storedPresenceParentPath):]), true
+}
+
+func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
+	return len(selector.Steps) != 0 && selector.Steps[len(selector.Steps)-1].Iterate
+}
+
+func (r *physicalPlanRenderer) flattenTerminalRepeatedValues(values string) string {
+	flatValues := "FLATTEN(" + values + ", 1)"
+	valueVariable := r.newInternalVariable("selector_terminal_value")
+	return fmt.Sprintf("(FOR %s IN %s FILTER %s != null RETURN %s)", valueVariable, flatValues, valueVariable, valueVariable)
+}
+
+func rebindPhysicalExtractSource(extract *ir.PhysicalExtract, source ir.PhysicalValue) {
+	if extract == nil {
+		return
+	}
+	previous := extract.Source
+	extract.Source = source
+	extract.Fallbacks = append([]ir.PhysicalSelectorFallback(nil), extract.Fallbacks...)
+	for index := range extract.Fallbacks {
+		if samePhysicalValue(extract.Fallbacks[index].Source, previous) {
+			extract.Fallbacks[index].Source = source
+		}
+	}
+}
+
+func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.PhysicalExpression) (string, error) {
+	extract := expression.Extract
+	if extract == nil || extract.UnitNormalization == nil {
+		return "", fmt.Errorf("unit normalization requires an extract policy")
+	}
+	normalization := extract.UnitNormalization
+	if len(normalization.Rules) == 0 {
+		return "", fmt.Errorf("unit normalization requires pinned rules")
+	}
+	source, err := r.renderValue(extract.Source)
+	if err != nil {
+		return "", err
+	}
+	setSource := extract.Source.Variable != "" && r.setVariables[extract.Source.Variable] != ""
+	items := source
+	if !setSource {
+		items = "[" + source + "]"
+	}
+	ruleBindKey := r.newInternalBindKey("unit_rules")
+	r.bindVars[ruleBindKey] = unitRuleBindings(normalization.Rules)
+	item := r.newInternalVariable("unit_item")
+	itemSource := item + ".payload"
+	if !setSource {
+		itemSource = item
+	}
+	valueValues, err := r.renderSelectorArrayFromSource(itemSource, normalization.OriginalValue, false, false)
+	if err != nil {
+		return "", fmt.Errorf("unit original value selector: %w", err)
+	}
+	systemValues, err := r.renderSelectorArrayFromSource(itemSource, normalization.SourceSystem, false, true)
+	if err != nil {
+		return "", fmt.Errorf("unit system selector: %w", err)
+	}
+	codeValues, err := r.renderSelectorArrayFromSource(itemSource, normalization.SourceCode, false, true)
+	if err != nil {
+		return "", fmt.Errorf("unit code selector: %w", err)
+	}
+	value := r.newInternalVariable("unit_value")
+	rule := r.newInternalVariable("unit_rule")
+	lines := []string{
+		"(FOR " + item + " IN " + items,
+		"  FOR " + value + " IN FLATTEN(" + valueValues + ")",
+		"    FILTER " + value + " != null",
+		"  LET __loom_unit_system = FIRST(FLATTEN(" + systemValues + "))",
+		"  LET __loom_unit_code = FIRST(FLATTEN(" + codeValues + "))",
+		"  LET " + rule + " = FIRST(FOR __loom_unit_rule_candidate IN @" + ruleBindKey + " FILTER __loom_unit_rule_candidate.source_system == __loom_unit_system AND __loom_unit_rule_candidate.source_code == __loom_unit_code RETURN __loom_unit_rule_candidate)",
+		"    FILTER ASSERT(" + rule + " != null, \"UNIT_IDENTITY_UNKNOWN\")",
+		"    RETURN " + value + " * " + rule + ".scale + " + rule + ".offset",
+		")",
+	}
+	result := strings.Join(lines, "\n")
+	if expression.Cardinality != ir.PhysicalArrayCardinality {
+		return "FIRST(" + result + ")", nil
+	}
+	if extract.Distinct {
+		return "SORTED_UNIQUE(FLATTEN(" + result + "))", nil
+	}
+	return result, nil
+}
+
+func unitRuleBindings(rules []unit.UnitConversionRule) []map[string]any {
+	bindings := make([]map[string]any, 0, len(rules))
+	for _, rule := range rules {
+		bindings = append(bindings, map[string]any{
+			"id": rule.ID, "version": rule.Version, "kind": string(rule.Kind),
+			"source_system": rule.Source.System, "source_code": rule.Source.Code,
+			"target_system": rule.Target.System, "target_code": rule.Target.Code,
+			"scale": rule.Scale, "offset": rule.Offset,
+		})
+	}
+	return bindings
+}
+
+func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector spec.Selector, mode ir.PhysicalSelectorExecutionMode, demand ir.PhysicalSelectorValueDemand) (string, error) {
+	if mode == ir.PhysicalSelectorDirectScalar && selectorHasNoArrays(selector) && selector.Filter == nil {
+		value := compileDirectExpr(source, selector.Steps)
+		return "(" + value + " == null ? [] : [" + value + "])", nil
+	}
+	if mode == ir.PhysicalSelectorConditionalArray && selectorHasIteratedArray(selector) && selector.Filter == nil {
+		return r.renderConditionalSelectorArray(source, selector, demand == ir.PhysicalSelectorFirstValue)
+	}
+	return r.renderSelectorArrayFromSource(source, selector, false, demand == ir.PhysicalSelectorFirstValue)
+}
+
+func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, selector spec.Selector, firstOnly bool) (string, error) {
+	if len(selector.Steps) == 0 {
+		return "", fmt.Errorf("selector is required")
+	}
+	if !firstOnly {
+		if expanded, ok := renderSingleConditionalArrayExpansion(source, selector); ok {
+			return expanded, nil
+		}
+	}
+	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
+	lines := make([]string, 0, len(prefix)+3)
+	current := source
+	for index, step := range prefix {
+		next := fmt.Sprintf("__loom_selector_%d", index)
+		switch {
+		case step.Iterate:
+			lines = append(lines, fmt.Sprintf("FOR %s IN (%s.%s ? %s.%s : [])", next, current, step.Field, current, step.Field))
+		case step.Index != nil:
+			lines = append(lines, fmt.Sprintf("LET %s = ((%s.%s ? %s.%s : [])[%d])", next, current, step.Field, current, step.Field, *step.Index), "FILTER "+next+" != null")
+		default:
+			lines = append(lines, fmt.Sprintf("LET %s = %s.%s", next, current, step.Field), "FILTER "+next+" != null")
+		}
+		current = next
+	}
+	lines = append(lines, "LET __value = "+extractFinalExpr(current, last), "FILTER __value != null")
+	if firstOnly {
+		lines = append(lines, "LIMIT 1")
+	}
+	lines = append(lines, "RETURN __value")
+	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
+}
+
+func renderSingleConditionalArrayExpansion(source string, selector spec.Selector) (string, bool) {
+	if selector.Filter != nil {
+		return "", false
+	}
+	iterated := -1
+	for index, step := range selector.Steps {
+		if step.Index != nil {
+			return "", false
+		}
+		if !step.Iterate {
+			continue
+		}
+		if iterated >= 0 {
+			return "", false
+		}
+		iterated = index
+	}
+	if iterated < 0 || iterated == len(selector.Steps)-1 {
+		return "", false
+	}
+
+	arrayPath := compileDirectExpr(source, selector.Steps[:iterated+1])
+	valuePath := "CURRENT"
+	for _, step := range selector.Steps[iterated+1:] {
+		valuePath += "." + step.Field
+	}
+	array := fmt.Sprintf(
+		"(%s == null ? [] : (ASSERT(IS_ARRAY(%s), \"CONSTRUCTION_SELECTOR_ARRAY_TYPE_MISMATCH\") ? %s : []))",
+		arrayPath, arrayPath, arrayPath,
+	)
+	return fmt.Sprintf("(%s)[* FILTER %s != null RETURN %s]", array, valuePath, valuePath), true
+}
+
+func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector spec.Selector, setSource, firstOnly bool) (string, error) {
+	if len(selector.Steps) == 0 {
+		return "", fmt.Errorf("selector is required")
+	}
+	if !setSource && selector.Filter == nil && selectorHasNoArrays(selector) {
+		value := compileDirectExpr(source, selector.Steps)
+		return "(" + value + " == null ? [] : [" + value + "])", nil
+	}
+	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
+	lines, current := []string{"LET __root = " + source}, "__root"
+	if setSource {
+		lines, current = []string{"FOR __item IN " + source, "  LET __root = __item.payload"}, "__root"
+	}
+	for index, step := range prefix {
+		next := fmt.Sprintf("__s%d", index)
+		switch {
+		case step.Iterate:
+			lines = append(lines, fmt.Sprintf("  FOR %s IN (%s.%s ? %s.%s : [])", next, current, step.Field, current, step.Field))
+		case step.Index != nil:
+			lines = append(lines, fmt.Sprintf("  LET %s = ((%s.%s ? %s.%s : [])[%d])", next, current, step.Field, current, step.Field, *step.Index), "  FILTER "+next+" != null")
+		default:
+			lines = append(lines, fmt.Sprintf("  LET %s = %s.%s", next, current, step.Field), "  FILTER "+next+" != null")
+		}
+		current = next
+	}
+	if selector.Filter != nil {
+		key := r.newInternalBindKey("selector_contains")
+		r.bindVars[key] = selector.Filter.Needle
+		lines = append(lines, fmt.Sprintf("  FILTER CONTAINS(%s.%s ? %s.%s : \"\", @%s)", current, selector.Filter.Field, current, selector.Filter.Field, key))
+	}
+	lines = append(lines, "  LET __value = "+extractFinalExpr(current, last), "  FILTER __value != null")
+	if firstOnly {
+		lines = append(lines, "  LIMIT 1")
+	}
+	lines = append(lines, "  RETURN __value")
+	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
+}
+
+func (r *physicalPlanRenderer) renderDerivedLet(derived ir.PhysicalDerivedLet) (string, error) {
+	if strings.ToUpper(strings.TrimSpace(derived.Operator)) != "AUTH_RESOURCE_PATH_ALLOWED" {
+		return "", fmt.Errorf("unsupported physical derived LET operator %q", derived.Operator)
+	}
+	if len(derived.Inputs) < 3 {
+		return "", fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED requires one or more scope values plus paths and unrestricted inputs")
+	}
+
+	paths := derived.Inputs[len(derived.Inputs)-2]
+	unrestricted := derived.Inputs[len(derived.Inputs)-1]
+	if paths.BindKey == "" || paths.Variable != "" || unrestricted.BindKey == "" || unrestricted.Variable != "" {
+		return "", fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED requires paths and unrestricted bind inputs")
+	}
+	pathsExpression, err := r.renderValue(paths)
+	if err != nil {
+		return "", err
+	}
+	unrestrictedExpression, err := r.renderValue(unrestricted)
+	if err != nil {
+		return "", err
+	}
+
+	scopeChecks := make([]string, 0, len(derived.Inputs)-2)
+	for _, input := range derived.Inputs[:len(derived.Inputs)-2] {
+		if input.Variable == "" || input.BindKey != "" {
+			return "", fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED scope inputs must be variable paths")
+		}
+		scopeValue, err := r.renderValue(input)
+		if err != nil {
+			return "", err
+		}
+		scopeChecks = append(scopeChecks, scopeValue+" IN "+pathsExpression)
+	}
+
+	scopeExpression := strings.Join(scopeChecks, " AND ")
+	if len(scopeChecks) > 1 {
+		scopeExpression = "(" + scopeExpression + ")"
+	}
+	return unrestrictedExpression + " == true OR " + scopeExpression, nil
+}
+
+func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string, error) {
+	if len(returnOp.Projections) == 0 {
+		return "{}", nil
+	}
+	projections := make([]string, 0, len(returnOp.Projections))
+	for index, projection := range returnOp.Projections {
+		nameBindKey := r.newInternalBindKey(fmt.Sprintf("projection_%d_name", index))
+		r.bindVars[nameBindKey] = projection.Name
+		var value string
+		var err error
+		if projection.PresenceOutput {
+			if projection.Name == r.storedPresenceOutputName {
+				value, err = r.renderProjectionPresenceOnStoredParent(*projection.Presence)
+			} else {
+				value, err = r.renderProjectionPresence(*projection.Presence)
+			}
+		} else if projection.Expression != nil {
+			value, err = r.renderExpression(*projection.Expression)
+		} else {
+			value, err = r.renderValue(projection.Value)
+		}
+		if err != nil {
+			return "", err
+		}
+		entry := fmt.Sprintf("[@%s]: %s", nameBindKey, value)
+		if r.projectionPresenceMarkerColumn != "" {
+			if _, preserve := r.preserveProjectionPresenceNames[projection.Name]; preserve {
+				present := "true"
+				if projection.Presence != nil {
+					if marker, ok := r.passThroughPresenceMarker(projection); ok {
+						present = marker
+					} else {
+						present, err = r.renderProjectionPresence(*projection.Presence)
+						if err != nil {
+							return "", fmt.Errorf("render projection presence for %q: %w", projection.Name, err)
+						}
+					}
+				}
+				projections = append(projections, entry, fmt.Sprintf("%s: %s", strconv.Quote(r.projectionPresenceMarkerColumn), present))
+				continue
+			}
+		}
+		projections = append(projections, entry)
+	}
+	return "{ " + strings.Join(projections, ", ") + " }", nil
+}
+
+func (r *physicalPlanRenderer) passThroughPresenceMarker(projection ir.PhysicalProjection) (string, bool) {
+	if projection.Expression != nil || projection.Presence == nil || projection.Presence.Source.Variable == "" ||
+		projection.Value.Variable != projection.Presence.Source.Variable || len(projection.Value.Path) != 1 {
+		return "", false
+	}
+	if _, isStageRow := r.projectionPresenceMarkerRows[projection.Presence.Source.Variable]; !isStageRow {
+		return "", false
+	}
+	if len(projection.Presence.Paths) != 1 || len(projection.Presence.Paths[0]) != 1 ||
+		projection.Presence.Paths[0][0] != projection.Value.Path[0] {
+		return "", false
+	}
+	return projection.Presence.Source.Variable + "[" + strconv.Quote(r.projectionPresenceMarkerColumn) + "]", true
+}
+
+func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, error) {
+	if value.BindKey != "" {
+		if _, collectionBinding := r.collectionKeys[value.BindKey]; collectionBinding {
+			return "", fmt.Errorf("bind key %q cannot be used as both a collection and scalar bind", value.BindKey)
+		}
+		return "@" + value.BindKey, nil
+	}
+	if value.Variable == "" {
+		return "", fmt.Errorf("physical value has no variable or bind key")
+	}
+	if len(value.Path) == 0 {
+		return value.Variable, nil
+	}
+	if value.Variable == r.rootVariable && aqlsyntax.PathHasPrefix(value.Path, r.storedPresenceParentPath) {
+		parent := aqlsyntax.RenderPropertyPath(value.Variable, r.storedPresenceParentPath)
+		return aqlsyntax.RenderPropertyPath("FIRST(["+parent+"])", value.Path[len(r.storedPresenceParentPath):]), nil
+	}
+	return aqlsyntax.RenderPropertyPath(value.Variable, value.Path), nil
 }

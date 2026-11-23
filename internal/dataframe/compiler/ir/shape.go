@@ -586,13 +586,6 @@ func groupedPivotVariables(keys []PhysicalGroupedPivotKey) []string {
 	return variables
 }
 
-type PhysicalTableShapeExclusionReturn struct {
-	Pivot             PhysicalGroupedPivot
-	OffsetBindKey     string
-	LimitBindKey      string
-	FetchLimitBindKey string
-}
-
 type PhysicalGroupedPivot struct {
 	ConstructionID    string
 	InputRowVariable  string
@@ -690,31 +683,6 @@ type PhysicalUnpivotInput struct {
 type PhysicalUnpivotIdentityPart struct {
 	Name  string
 	Value PhysicalValue
-}
-
-func validatePhysicalTableShapeExclusionReturn(terminal PhysicalTableShapeExclusionReturn, defined map[string]bool, bindVars map[string]any) error {
-	if terminal.Pivot.UnlistedCategoryPolicy != PhysicalPivotUnlistedCategoryExcludeWithEvidence {
-		return fmt.Errorf("table-shape exclusions require EXCLUDE_WITH_EVIDENCE")
-	}
-	if err := validatePhysicalGroupedPivot(terminal.Pivot, defined, bindVars); err != nil {
-		return fmt.Errorf("exclusion pivot: %w", err)
-	}
-	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" || strings.TrimSpace(terminal.FetchLimitBindKey) == "" {
-		return fmt.Errorf("exclusion offset, limit, and fetch-limit binds are required")
-	}
-	offset, ok := bindVars[terminal.OffsetBindKey].(int)
-	if !ok || offset < 0 {
-		return fmt.Errorf("exclusion offset bind %q must be a non-negative int", terminal.OffsetBindKey)
-	}
-	limit, ok := bindVars[terminal.LimitBindKey].(int)
-	if !ok || limit <= 0 {
-		return fmt.Errorf("exclusion limit bind %q must be a positive int", terminal.LimitBindKey)
-	}
-	fetchLimit, ok := bindVars[terminal.FetchLimitBindKey].(int)
-	if !ok || fetchLimit != limit+1 {
-		return fmt.Errorf("exclusion fetch-limit bind %q must be limit plus one", terminal.FetchLimitBindKey)
-	}
-	return nil
 }
 
 func groupedPivotOutputNames(pivot PhysicalGroupedPivot) []string {

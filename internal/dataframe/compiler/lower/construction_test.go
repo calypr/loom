@@ -115,7 +115,7 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 		t.Fatalf("Pivot stage did not expose its compiler-proven root contributors: %#v", compiled.Stages[1].RelatedExpandAnchors)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 		contributorFilter.Expression.Comparison.LeftExpression.Extract.Selector.CanonicalPath() != "status" {
 		t.Fatalf("related source predicate did not target the selected scalar field: %#v", contributorFilter)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func TestCompileRelatedSourceOnePolicyReducesDistinctPresentValuesToNullableScal
 		projected.Expression.Call.Args[0].Subplan.DistinctBy == nil {
 		t.Fatalf("ONE expression did not retain the exact distinct related-source subplan: %#v", projected)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestCompileRelatedFieldCarriesExactTerminalIdentityThroughRowPreservingStag
 					t.Fatalf("row-preserving stage %q lost a compiler-proven expansion anchor: %#v", stage.ID, descriptor.RelatedExpandAnchors)
 				}
 			}
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -548,7 +548,7 @@ func TestRelatedSourceCapabilityAfterRelatedExpandUsesRetainedRootAnchor(t *test
 	if relatedSource == nil || relatedSource.AnchorColumnID != constructionRowID || relatedSource.RootContributorColumn != "_key" || relatedSource.RootResourceType != "Patient" {
 		t.Fatalf("RELATED_SOURCE anchors = %#v, want current row identity plus typed Patient root contributor", relatedSource)
 	}
-	if _, err := aql.RenderPhysicalPlan(compiled.Plan); err != nil {
+	if _, err := aql.Render(compiled.Plan, aql.Options{}); err != nil {
 		t.Fatalf("render RelatedExpand→FILTER→RELATED_SOURCE plan: %v", err)
 	}
 }
@@ -627,7 +627,7 @@ func TestRelatedSourceAfterExpandCarriesExactRootKey(t *testing.T) {
 	if relatedSource == nil || relatedSource.AnchorColumnID != constructionRowID || relatedSource.RootContributorColumn != "_key" {
 		t.Fatalf("RELATED_SOURCE anchors after EXPAND = %#v, want current generated identity plus typed root key", relatedSource)
 	}
-	if _, err := aql.RenderPhysicalPlan(compiled.Plan); err != nil {
+	if _, err := aql.Render(compiled.Plan, aql.Options{}); err != nil {
 		t.Fatalf("render EXPAND→RELATED_SOURCE plan: %v", err)
 	}
 }
@@ -678,7 +678,7 @@ func TestGroupRootContributorSetStaysLazyUntilRelatedSourceIsAdded(t *testing.T)
 	if sourceCapability == nil || !sourceCapability.Supported {
 		t.Fatalf("Group should advertise a future related source backed by its lazy compiler proof: %#v", sourceCapability)
 	}
-	baseQuery, err := aql.RenderPhysicalPlan(base.Plan)
+	baseQuery, err := aql.Render(base.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render unmodified Group plan: %v", err)
 	}
@@ -1005,7 +1005,7 @@ func TestRelatedSourceRebindsRootAnchorAfterSourceRowExpansion(t *testing.T) {
 		stage.RelatedSource.RootContributorColumn != "_key" || stage.RelatedSource.RootResourceType != "Patient" {
 		t.Fatalf("RELATED_SOURCE lost its expanded-row identity or Patient root correlation: %#v", stage.RelatedSource)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render expanded RELATED_SOURCE plan: %v", err)
 	}
@@ -1103,7 +1103,7 @@ func TestCompileRelatedExpandChainFromIdentityOnlySource(t *testing.T) {
 		}
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

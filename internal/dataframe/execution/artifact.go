@@ -14,14 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 )
 
-func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*chartifact.Artifact, error) {
-	capture, err := s.materializeClickHouseArtifact(ctx, manager, executionID, stageID, columns)
-	if err != nil {
-		return nil, err
-	}
-	return capture.Artifact, nil
-}
-
 func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*materializedClickHouseCapture, error) {
 	if ctx == nil || manager == nil {
 		return nil, fmt.Errorf("private artifact context and manager are required")
@@ -29,9 +21,11 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if s.captureExecutionID != "" && executionID != s.captureExecutionID {
 		return nil, fmt.Errorf("private artifact execution ID differs from its owning workspace capture")
 	}
-	aqlSource := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.stream != nil
-	clickHouseSource := s.physicalEngine == ir.PhysicalEngineClickHouse && s.clickHouseCombine != nil && s.clickHouseQueryRows != nil && s.compiledOutput
-	if !aqlSource && !clickHouseSource {
+	arango, _ := s.source.(*arangoSource)
+	clickHouse, _ := s.source.(*clickHouseSource)
+	aqlSource := arango != nil && arango.stream != nil
+	validClickHouse := clickHouse != nil && clickHouse.clickHouseCombine != nil && clickHouse.clickHouseQueryRows != nil && s.compiledOutput
+	if !aqlSource && !validClickHouse {
 		return nil, fmt.Errorf("private artifact requires a compiler-resolved streamable AQL or ClickHouse output")
 	}
 	if s.queryLimit != 0 {
@@ -97,7 +91,7 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if err := validateStreamSchema(s.Columns, normalized); err != nil {
 		return nil, err
 	}
-	if clickHouseSource {
+	if validClickHouse {
 		return s.materializePreparedClickHouse(ctx, manager, executionID, stageID, normalized)
 	}
 	identity := chartifact.Identity{
@@ -135,10 +129,11 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 }
 
 func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*materializedClickHouseCapture, error) {
+	source := s.source.(*clickHouseSource)
 	var capture *materializedClickHouseCapture
 	captureStream := s
 	captureStream.captureExecutionID = executionID
-	err := captureStream.withPreparedClickHouse(ctx, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
+	err := source.withPreparedClickHouse(ctx, captureStream, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
 		if prepared.Identity.ExecutionID != executionID || prepared.Identity.OutputID != s.Name || prepared.Identity.StageID != stageID {
 			return fmt.Errorf("prepared ClickHouse artifact identity differs from its exact execution, output, or stage")
 		}
@@ -166,7 +161,17 @@ func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager
 		if err != nil {
 			return fmt.Errorf("begin private ClickHouse artifact: %w", err)
 		}
-		streamResult, err := s.streamPreparedClickHouse(preparedCtx, prepared, func(row map[string]any) error {
+		streamResult, err := s.streamRows(preparedCtx, func(ctx context.Context, visit func(map[string]any) error) error {
+			if ctx == nil || source.clickHouseQueryRows == nil || strings.TrimSpace(prepared.Query) == "" {
+				return fmt.Errorf("prepared ClickHouse stream requires context, query executor, query, and visitor")
+			}
+			return source.clickHouseQueryRows(ctx, prepared.Query, prepared.Columns, func(row map[string]any) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return visit(row)
+			}, prepared.Args...)
+		}, func(row map[string]any) error {
 			return writer.Write(preparedCtx, row)
 		})
 		if err != nil {

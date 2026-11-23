@@ -67,8 +67,6 @@ const (
 
 	PhysicalCellTraceReturnOp PhysicalOperationKind = "CELL_TRACE_RETURN"
 
-	PhysicalTableShapeExclusionReturnOp PhysicalOperationKind = "TABLE_SHAPE_EXCLUSION_RETURN"
-
 	PhysicalGroupRowsOp PhysicalOperationKind = "GROUP_ROWS"
 
 	PhysicalGroupedPivotOp PhysicalOperationKind = "GROUPED_PIVOT"
@@ -77,30 +75,29 @@ const (
 )
 
 type PhysicalOperation struct {
-	Kind                      PhysicalOperationKind
-	Source                    PhysicalSource
-	RootScan                  *PhysicalRootScan
-	Traversal                 *PhysicalTraversal
-	Filter                    *PhysicalFilter
-	DerivedLet                *PhysicalDerivedLet
-	ExpressionLet             *PhysicalExpressionLet
-	Set                       *PhysicalSet
-	Unnest                    *PhysicalUnnest
-	Sort                      *PhysicalSort
-	Limit                     *PhysicalLimit
-	Return                    *PhysicalReturn
-	PathSeed                  *PhysicalPathSeed
-	PathExtend                *PhysicalPathExtend
-	GraphReturn               *PhysicalGraphReturn
-	CollectionScan            *PhysicalCollectionScan
-	KeySetLookup              *PhysicalKeySetLookup
-	DocumentLookup            *PhysicalDocumentLookup
-	PopulationMappingReturn   *PhysicalPopulationMappingReturn
-	CellTraceReturn           *PhysicalCellTraceReturn
-	TableShapeExclusionReturn *PhysicalTableShapeExclusionReturn
-	GroupRows                 *PhysicalGroupRows
-	GroupedPivot              *PhysicalGroupedPivot
-	Unpivot                   *PhysicalUnpivot
+	Kind                    PhysicalOperationKind
+	Source                  PhysicalSource
+	RootScan                *PhysicalRootScan
+	Traversal               *PhysicalTraversal
+	Filter                  *PhysicalFilter
+	DerivedLet              *PhysicalDerivedLet
+	ExpressionLet           *PhysicalExpressionLet
+	Set                     *PhysicalSet
+	Unnest                  *PhysicalUnnest
+	Sort                    *PhysicalSort
+	Limit                   *PhysicalLimit
+	Return                  *PhysicalReturn
+	PathSeed                *PhysicalPathSeed
+	PathExtend              *PhysicalPathExtend
+	GraphReturn             *PhysicalGraphReturn
+	CollectionScan          *PhysicalCollectionScan
+	KeySetLookup            *PhysicalKeySetLookup
+	DocumentLookup          *PhysicalDocumentLookup
+	PopulationMappingReturn *PhysicalPopulationMappingReturn
+	CellTraceReturn         *PhysicalCellTraceReturn
+	GroupRows               *PhysicalGroupRows
+	GroupedPivot            *PhysicalGroupedPivot
+	Unpivot                 *PhysicalUnpivot
 }
 
 type PhysicalGroupRows struct {

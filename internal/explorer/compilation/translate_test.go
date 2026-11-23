@@ -84,7 +84,7 @@ func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScope
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.Render(physical.Outputs[0].Plan, facade.RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestCompileAuthoredRequiredRouteLowersToPopulationMatch(t *testing.T) {
 	if len(physical.Outputs) != 1 || physical.Outputs[0].Plan.RequiredMatchReuseCount != 0 {
 		t.Fatalf("physical required route=%#v", physical.Outputs)
 	}
-	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.Render(physical.Outputs[0].Plan, facade.RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -953,7 +953,7 @@ func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.Render(physical.Outputs[0].Plan, facade.RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

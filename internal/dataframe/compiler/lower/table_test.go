@@ -54,7 +54,7 @@ func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *t
 		t.Fatalf("physical output projection order = %#v, want %#v", got, wantSchema)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestCompileGroupedTablePivotRendersDuplicateAndMissingErrors(t *testing.T) 
 		},
 	})
 	compiled := compileDerivedTestOutput(t, output)
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *test
 		})
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +437,7 @@ func TestCompileDirectIDGroupedPivotPreservesNullAndMissingCategoryIdentity(t *t
 	if !pivot.CategoryPresenceFromInput || pivot.CategoryPresenceColumn == "" {
 		t.Fatalf("direct root-ID pivot lost its category presence contract: %#v", pivot)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +485,7 @@ func TestCompileGroupedPivotOrdinaryFalseZeroAndEmptyStringUseTypedBinds(t *test
 			if got := compiled.Plan.BindVars[category.ValueBindKey]; !reflect.DeepEqual(got, test.wantBind) {
 				t.Fatalf("ordinary value bind = %#v, want %#v", got, test.wantBind)
 			}
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -539,7 +539,7 @@ func TestCompileUnpivotPreservesColumnOrderNullPolicyAndIdentity(t *testing.T) {
 			if len(unpivot.IdentityParts) != 1 || unpivot.IdentityParts[0].Name != "_key" || unpivot.IdentityParts[0].Value.Variable != unpivot.InputRowVariable || !reflect.DeepEqual(unpivot.IdentityParts[0].Value.Path, []string{"_key"}) {
 				t.Fatalf("unpivot has no stable input identity parts: %#v", unpivot.IdentityParts)
 			}
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}

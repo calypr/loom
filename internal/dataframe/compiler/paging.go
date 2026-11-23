@@ -35,6 +35,7 @@ type CompiledOutputPage struct {
 	RowsBindVars     map[string]any
 	RowsPartitions   []CompiledOutputPagePartition
 	RowsDiagnostics  ir.CompilerPlanDiagnostics
+	RowsPlanDigest   string
 }
 
 type CompiledOutputPagePartition struct {
@@ -80,7 +81,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 			return CompiledOutputPage{}, err
 		}
 	}
-	keys, err := aql.RenderPhysicalPlan(keysPlan)
+	keys, err := aql.Render(keysPlan, aql.Options{})
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render root-key page: %w", err)
 	}
@@ -90,11 +91,11 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	}
 	var rows aql.RenderedPhysicalPlan
 	if keyWindow {
-		rows, err = aql.RenderPhysicalPlanWithRootPageKeys(rowsPlan, RootPageKeysBind, previewLimit)
+		rows, err = aql.Render(rowsPlan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: RootPageKeysBind, RelatedExpandLimit: previewLimit}})
 	} else if bindings.PreviewLimit > 0 {
-		rows, err = aql.RenderPhysicalPlanWithRelatedExpandPreviewLimit(rowsPlan, bindings.PreviewLimit)
+		rows, err = aql.Render(rowsPlan, aql.Options{Preview: aql.RelatedExpandPreview{Limit: bindings.PreviewLimit}})
 	} else {
-		rows, err = aql.RenderPhysicalPlan(rowsPlan)
+		rows, err = aql.Render(rowsPlan, aql.Options{})
 	}
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
@@ -107,10 +108,17 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 			return CompiledOutputPage{}, fmt.Errorf("render selected-root projection partitions: %w", err)
 		}
 	}
+	var rowsPlanDigest string
+	if previewLimit == 0 {
+		rowsPlanDigest = ir.ArtifactAQLPlanDigest(
+			ir.ArtifactAQLQuery{Query: keys.Query, BindVars: keys.BindVars},
+			ir.ArtifactAQLQuery{Query: rows.Query, BindVars: rows.BindVars},
+		)
+	}
 	return CompiledOutputPage{
 		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
 		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsPartitions: partitions,
-		RowsDiagnostics: PhysicalPlanDiagnostics(rowsPlan),
+		RowsDiagnostics: PhysicalPlanDiagnostics(rowsPlan), RowsPlanDigest: rowsPlanDigest,
 	}, nil
 }
 
@@ -209,7 +217,7 @@ func renderSelectedRootProjectionPartitions(plan ir.PhysicalPlan, fullRendered a
 		if !pruned {
 			return nil, nil
 		}
-		rendered, err := aql.RenderPhysicalPlanWithRootPageKeys(partitionPlan, bindKey, relatedExpandPreviewLimit)
+		rendered, err := aql.Render(partitionPlan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: bindKey, RelatedExpandLimit: relatedExpandPreviewLimit}})
 		if err != nil {
 			return nil, err
 		}
@@ -245,7 +253,7 @@ func groupPreviewProjections(columns []ir.PhysicalProjection) ([][]ir.PhysicalPr
 	current := make([]ir.PhysicalProjection, 0, previewProjectionPartitionSize)
 	var weight int
 	for _, projection := range columns {
-		encoded, err := json.Marshal(projection)
+		encoded, err := ir.MarshalLegacyPhysical(projection)
 		if err != nil {
 			return nil, false
 		}
@@ -284,7 +292,7 @@ type previewPartitionCost struct {
 }
 
 func previewPartitionCostFor(plan ir.PhysicalPlan, query string, bindVars map[string]any) (previewPartitionCost, bool) {
-	planBytes, err := json.Marshal(plan)
+	planBytes, err := ir.MarshalLegacyPhysical(plan)
 	if err != nil {
 		return previewPartitionCost{}, false
 	}

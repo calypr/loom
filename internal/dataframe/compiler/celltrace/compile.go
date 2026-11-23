@@ -103,7 +103,7 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("verify cell trace physical scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
 	}

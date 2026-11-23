@@ -27,7 +27,7 @@ func TestConstructionCodedPivotRepeatedCodeableConceptDisplayHonorsErrorCardinal
 		t.Fatalf("physical correlated fallback = %#v, want repeated displays and blank-string fallback enabled", pivot.CodedCorrelation)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestConstructionCodedPivotGenericStringKeepsDefaultEmptyPrimaryBehavior(t *
 	if pivot == nil || pivot.CodedCorrelation == nil || pivot.CodedCorrelation.FallbackOnBlankString {
 		t.Fatalf("generic string correlation = %#v, want blank-string fallback disabled by default", pivot)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

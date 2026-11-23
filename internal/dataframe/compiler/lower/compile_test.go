@@ -237,7 +237,7 @@ func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
 	if err := compiled.Outputs[0].Plan.Validate(); err != nil {
 		t.Fatalf("document plan validation: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *tes
 	if public["occ_parent__occ_child__id"] {
 		t.Fatalf("nested column unexpectedly used a path-scoped name: %#v", public)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -660,7 +660,7 @@ func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testin
 	if err := output.Plan.Validate(); err != nil {
 		t.Fatalf("extension plan validation: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -831,7 +831,7 @@ func TestCompileResolvedRecipePlanRendersDynamicLookupThroughCanonicalRenderer(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -862,7 +862,7 @@ func TestWideDynamicFamilyUsesOneSourceComputation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -895,7 +895,7 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	if value, ok := compiled.Outputs[0].Plan.BindVars["recipe_dynamic_patient__identifiers_key_0"].(string); !ok || value != "identifier" {
 		t.Fatalf("missing traversal dynamic key bind vars: %#v", compiled.Outputs[0].Plan.BindVars)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -943,7 +943,7 @@ func TestCompileResolvedRecipePlanNamesTraversalDynamicMapExactly(t *testing.T) 
 	if !found {
 		t.Fatalf("exact dynamic column is not array-valued in output schema: %#v", compiled.Outputs[0].OutputSchema)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -969,7 +969,7 @@ func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1014,7 +1014,7 @@ func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *test
 	if !found {
 		t.Fatalf("compiled schema missing flattened pivot column: %#v", compiled.Outputs[0].OutputSchema)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1205,7 +1205,7 @@ func TestRecipeExpressionOperationMatrixChecksLowersAndRenders(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+			rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}

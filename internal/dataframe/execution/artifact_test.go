@@ -24,10 +24,11 @@ func TestMaterializeClickHouseArtifactUsesCompleteScopedAQLStream(t *testing.T) 
 		t.Fatal(err)
 	}
 	stream, columns := compiledPrivateCaptureStream(t, "patients", "name", "Ada")
-	artifact, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns)
+	capture, err := stream.materializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns)
 	if err != nil {
 		t.Fatal(err)
 	}
+	artifact := capture.Artifact
 	manifest := artifact.Manifest()
 	if manifest.Identity.ExecutionID != "execution-9" || manifest.Identity.OutputID != stream.Name || manifest.Identity.RecipeDigest != stream.recipeDigest || manifest.Identity.PlanDigest != stream.planFingerprint || manifest.RowCount != 1 {
 		t.Fatalf("private artifact lost its exact source identity: %#v", manifest)
@@ -48,12 +49,12 @@ func TestMaterializeClickHouseArtifactRejectsPreviewAndMissingRowScope(t *testin
 	}
 	stream, columns := compiledPrivateCaptureStream(t, "patients", "name", "Ada")
 	stream.queryLimit = 10
-	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
+	if _, err := stream.materializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
 		t.Fatal("private artifact accepted a bounded preview")
 	}
 	stream.queryLimit = 0
 	stream.bindings.IncludeAuthResourcePath = false
-	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
+	if _, err := stream.materializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
 		t.Fatal("private artifact accepted restricted scope without row-level paths")
 	}
 	if len(catalog.items) != 0 {
@@ -189,7 +190,7 @@ func TestWithPrivateClickHouseArtifactsPinPublishedInputsThroughAllCaptures(t *t
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 	for index := range sources {
 		outputID := sources[index].OutputID
-		sources[index].Stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		sources[index].Stream.source.(*arangoSource).stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			if !pinned {
 				return fmt.Errorf("workspace output %q streamed outside published pins", outputID)
 			}
@@ -218,7 +219,7 @@ func TestWithPrivateClickHouseArtifactsCleansEarlierCaptureAfterSecondFailure(t 
 		t.Fatal(err)
 	}
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-	sources[1].Stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+	sources[1].Stream.source.(*arangoSource).stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 		return errors.New("second source failed")
 	}
 	consumeCalled := false
@@ -304,7 +305,7 @@ func TestWithPrivateClickHouseArtifactsCleansCapturesAfterCancellationAndConsume
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-		sources[1].Stream.stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+		sources[1].Stream.source.(*arangoSource).stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
 			cancel()
 			<-ctx.Done()
 			return ctx.Err()
@@ -346,7 +347,7 @@ func TestWithPrivateClickHouseArtifactsLeaseLossCancelsNextSourceStream(t *testi
 		t.Fatal(err)
 	}
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-	sources[1].Stream.stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+	sources[1].Stream.source.(*arangoSource).stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
 		catalog.mu.Lock()
 		if len(catalog.createdIDs) == 0 {
 			catalog.mu.Unlock()
@@ -452,14 +453,14 @@ func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName
 	if err != nil {
 		t.Fatalf("compile fixture capture output %q: %v", outputID, err)
 	}
-	stream, _, err := engine.outputStreams().streamForOutput(resolved, outputID, 0)
+	stream, _, err := engine.streamExecutor.streamForOutput(resolved, outputID, 0)
 	if err != nil {
 		t.Fatalf("build fixture capture stream %q: %v", outputID, err)
 	}
 	if stream.scopeEvidence == nil || stream.scopeEvidenceIdentity == nil || !stream.scopeEvidence.Matches(stream.physicalPlan, *stream.scopeEvidenceIdentity) {
 		t.Fatalf("fixture capture stream %q has no compiler-issued source evidence", outputID)
 	}
-	stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(privateCaptureRowFor(columnName, value))
 	}
 	columns, err := chartifact.ColumnsFromCompiledOutput(stream.outputSchema)

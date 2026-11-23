@@ -63,7 +63,7 @@ func TestCompileResolvedRecipePlanLowersTypedDerivedColumnsAfterTransforms(t *te
 		t.Fatalf("derived LETs are not immediately in the final row scope before RETURN: lastLET=%d RETURN=%d", lastLet, returnIndex)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiledOutput.Plan)
+	rendered, err := aql.Render(compiledOutput.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

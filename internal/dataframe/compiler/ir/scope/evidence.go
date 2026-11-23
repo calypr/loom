@@ -265,14 +265,18 @@ func sameWholeRelationStrings(left, right []string) bool {
 	return true
 }
 
+type wholeRelationScopeEvidenceIdentityV1 struct {
+	Version         int
+	PlanFingerprint string
+	IssuerKind      string
+	OperandProof    string
+	Identity        WholeRelationScopeIdentity
+}
+
 func wholeRelationScopeEvidenceDigest(planFingerprint string, identity WholeRelationScopeIdentity, issuerKind, operandProof string) (string, error) {
-	encoded, err := json.Marshal(struct {
-		Version         int
-		PlanFingerprint string
-		IssuerKind      string
-		OperandProof    string
-		Identity        WholeRelationScopeIdentity
-	}{Version: 1, PlanFingerprint: planFingerprint, IssuerKind: issuerKind, OperandProof: operandProof, Identity: identity})
+	encoded, err := json.Marshal(wholeRelationScopeEvidenceIdentityV1{
+		Version: 1, PlanFingerprint: planFingerprint, IssuerKind: issuerKind, OperandProof: operandProof, Identity: identity,
+	})
 	if err != nil {
 		return "", fmt.Errorf("marshal whole-relation scope evidence identity: %w", err)
 	}

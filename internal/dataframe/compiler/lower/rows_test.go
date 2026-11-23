@@ -51,7 +51,7 @@ func TestCompileExplicitGroupRowsUsesPinnedRevisionTerminal(t *testing.T) {
 	if output.Plan.BindVars["auth_resource_paths_unrestricted"] != false || !reflect.DeepEqual(output.Plan.BindVars["auth_resource_paths"], []string{"/programs/loom_dev_verify_example/projects/allowed"}) {
 		t.Fatalf("resource authorization did not remain restricted to the exact allowed path: %#v", output.Plan.BindVars)
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestCompileExplicitGroupRowsRecodeEachMemberBeforeReduction(t *testing.T) {
 	if len(memberValues) != 1 || memberValues[0].Expression.Kind != ir.PhysicalCallExpression || memberValues[0].Expression.Call == nil || memberValues[0].Expression.Call.Name != "case" {
 		t.Fatalf("member projection = %#v, want exact recode expression before reduction", memberValues)
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestSourceOnlyGroupRowsEmitsRootContributorsForRelatedAppend(t *testing.T) 
 	if got := compiledPublicSchemaNames(output.OutputSchema); !reflect.DeepEqual(got, []string{"group_id", "group_label", "group_ordinal", "members"}) {
 		t.Fatalf("public group output schema changed: %#v", got)
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 	if !result.Plan.StageSequence.Stages[0].CohortGroup.PreserveMissingMembers {
 		t.Fatal("adding a related source to an unfiltered explicit cohort must preserve pinned missing members")
 	}
-	rendered, err := aql.RenderPhysicalPlan(result.Plan)
+	rendered, err := aql.Render(result.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 	if strings.Contains(rendered.Query, "__loom_construction_related_0_root_1._key IN __loom_construction_input_1.__loom_root_contributor_keys") {
 		t.Fatalf("related source uses a correlated collection IN scan instead of exact key lookups:\n%s", rendered.Query)
 	}
-	cloned, err := aql.RenderPhysicalPlan(ir.ClonePhysicalPlan(result.Plan))
+	cloned, err := aql.Render(ir.ClonePhysicalPlan(result.Plan), aql.Options{})
 	if err != nil {
 		t.Fatalf("render cloned related COUNT plan: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 		if compileErr != nil {
 			t.Fatalf("compile %s related cohort plan: %v", test.form+string(test.rowValuePolicy), compileErr)
 		}
-		variantRendered, renderErr := aql.RenderPhysicalPlan(variantCompiled.Outputs[0].Plan)
+		variantRendered, renderErr := aql.Render(variantCompiled.Outputs[0].Plan, aql.Options{})
 		if renderErr != nil {
 			t.Fatalf("render %s related cohort plan: %v", test.form+string(test.rowValuePolicy), renderErr)
 		}
@@ -493,7 +493,7 @@ func TestCohortMissingMembersFollowPreCohortFilterBoundary(t *testing.T) {
 		if cohort == nil {
 			t.Fatal("compiled plan has no explicit cohort stage")
 		}
-		rendered, err := aql.RenderPhysicalPlan(physical)
+		rendered, err := aql.Render(physical, aql.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -586,7 +586,7 @@ func TestCohortMissingMembersTrackPreAnchorDropStages(t *testing.T) {
 		physical := compiled.Outputs[0].Plan
 		for _, stage := range physical.StageSequence.Stages {
 			if stage.Kind == ir.PhysicalStageCohortGroupOp {
-				rendered, renderErr := aql.RenderPhysicalPlan(physical)
+				rendered, renderErr := aql.Render(physical, aql.Options{})
 				if renderErr != nil {
 					t.Fatal(renderErr)
 				}
@@ -871,7 +871,7 @@ func TestCompileCohortAtPersistedConstructionBoundary(t *testing.T) {
 			t.Errorf("composed cohort capability %q = %#v, supported = %t; want supported", operation, capability, ok && capability.Supported)
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(got.Plan)
+	rendered, err := aql.Render(got.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -936,7 +936,7 @@ func TestCohortAfterGroupUsesRetainedRootContributorSet(t *testing.T) {
 	if cohort.CohortGroup == nil || cohort.CohortGroup.ContributorInputColumn != rootContributorSetColumn {
 		t.Fatalf("cohort did not consume the compiler-proven contributor set: %#v", cohort)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

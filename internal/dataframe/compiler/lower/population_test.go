@@ -316,7 +316,7 @@ func compilePopulationRecipe(t *testing.T, output recipe.Output) (aql.RenderedPh
 	if len(compiled.Outputs) != 1 {
 		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

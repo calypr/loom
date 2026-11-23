@@ -179,10 +179,3 @@ func populationMappingIncomplete(err error) bool {
 func incompletePopulationMappingResult() PopulationMappingResult {
 	return PopulationMappingResult{Status: PopulationMappingIncomplete, Diagnostics: []PopulationMappingDiagnostic{{Code: "INCOMPLETE", Message: "population mapping did not finish within the request limits"}}}
 }
-
-func min(left, right int) int {
-	if left < right {
-		return left
-	}
-	return right
-}

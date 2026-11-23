@@ -99,7 +99,7 @@ func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 		t.Fatalf("group count output types = %#v, want integers", compiled.OutputSchema[1:4])
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestConstructionPivotTracksMissingAfterDirectNestedSourceProjection(t *test
 	if nullStage.GroupedPivot == nil || !nullStage.GroupedPivot.CategoryPresenceFromInput || nullStage.GroupedPivot.CategoryPresenceColumn == "" {
 		t.Fatalf("NULL-only category has no materialized source-presence companion: %#v", nullStage.GroupedPivot)
 	}
-	nullRendered, err := aql.RenderPhysicalPlan(nullCompiled.Plan)
+	nullRendered, err := aql.Render(nullCompiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestConstructionPivotTracksPresenceForExactRelatedField(t *testing.T) {
 	if pivot == nil || !pivot.CategoryPresenceFromInput || pivot.CategoryPresenceColumn == "" {
 		t.Fatalf("related-field Pivot lost its materialized presence input: %#v", pivot)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestConstructionPivotTracksPresenceForExactRelatedField(t *testing.T) {
 	if nullPivotStage == nil || !nullPivotStage.CategoryPresenceFromInput || nullPivotStage.CategoryPresenceColumn == "" {
 		t.Fatalf("related-field NULL category lost its materialized presence input: %#v", nullPivotStage)
 	}
-	nullRendered, err := aql.RenderPhysicalPlan(nullCompiled.Plan)
+	nullRendered, err := aql.Render(nullCompiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestConstructionExpandExcludeUsesRequiredItemAndOrdinal(t *testing.T) {
 			}
 		}
 	}
-	if _, err := aql.RenderPhysicalPlan(compiled.Plan); err != nil {
+	if _, err := aql.Render(compiled.Plan, aql.Options{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -351,7 +351,7 @@ func TestConstructionExpandErrorUsesStableAssertionCode(t *testing.T) {
 		},
 	}
 	compiled := compileDerivedTestOutput(t, output)
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +407,7 @@ func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) 
 	if compiled.OutputSchema[4].Kind != string(expression.KindDecimal) {
 		t.Fatalf("mean output type = %q, want decimal", compiled.OutputSchema[4].Kind)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestConstructionGroupMissingKeyPoliciesLowerToTypedIRAndAQL(t *testing.T) {
 			if stage.Group.MissingKeyPolicy != test.wantPolicy {
 				t.Fatalf("lowered missing-key policy = %q, want %q", stage.Group.MissingKeyPolicy, test.wantPolicy)
 			}
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatalf("render physical plan: %v", err)
 			}
@@ -583,7 +583,7 @@ func TestCodingIdentityGroupCompilesTypedSourceSchemaAndRenders(t *testing.T) {
 	if err := compiled.Plan.Validate(); err != nil {
 		t.Fatalf("validate compiled expanded Coding Group: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render compiled expanded Coding Group: %v", err)
 	}

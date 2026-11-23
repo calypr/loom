@@ -57,6 +57,7 @@ var ResolveGroupRelatedOccurrenceSource = lower.ResolveGroupRelatedOccurrenceSou
 var TableReshapeScalarKind = lower.TableReshapeScalarKind
 
 var CanonicalExecutionPhysicalPlan = ir.CanonicalExecutionPhysicalPlan
+var MarshalLegacyPhysical = ir.MarshalLegacyPhysical
 var ClickHouseCombineScalarBaseType = ir.ClickHouseCombineScalarBaseType
 var DefaultPhysicalOptimizationPolicy = ir.DefaultPhysicalOptimizationPolicy
 
@@ -92,6 +93,8 @@ type Scope = capability.Scope
 type Traversal = capability.Traversal
 type TraversalRequest = capability.TraversalRequest
 
-var RenderPhysicalPlan = aql.RenderPhysicalPlan
+var Render = aql.Render
+
+type RenderOptions = aql.Options
 
 type RenderedPhysicalPlan = aql.RenderedPhysicalPlan

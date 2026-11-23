@@ -196,11 +196,6 @@ func (walker *physicalScopeWalker) operationChildren(operation *PhysicalOperatio
 			}
 		}
 	}
-	if operation.TableShapeExclusionReturn != nil {
-		if err := walker.projections(operation.TableShapeExclusionReturn.Pivot.InputProjections, owner+" table-shape Pivot input projections"); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -488,7 +483,7 @@ func physicalScopeWindowEnd(operations []PhysicalOperation, start int) int {
 	for index := start; index < len(operations); index++ {
 		switch operations[index].Kind {
 		case PhysicalRootScanOp, PhysicalTraversalOp, PhysicalCollectionScanOp, PhysicalKeySetLookupOp, PhysicalDocumentLookupOp,
-			PhysicalSetOp, PhysicalUnnestOp, PhysicalReturnOp, PhysicalPopulationMappingReturnOp, PhysicalCellTraceReturnOp, PhysicalTableShapeExclusionReturnOp:
+			PhysicalSetOp, PhysicalUnnestOp, PhysicalReturnOp, PhysicalPopulationMappingReturnOp, PhysicalCellTraceReturnOp:
 			return index
 		}
 	}

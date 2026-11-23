@@ -37,7 +37,7 @@ func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.P
 	if err := physical.Validate(); err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("validate group-row cell trace plan: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(*physical)
+	rendered, err := aql.Render(*physical, aql.Options{})
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render group-row cell trace physical plan: %w", err)
 	}
@@ -73,7 +73,7 @@ func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *i
 	if err := ir.ValidateGenericPhysicalPlanScope(*physical); err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("verify construction cell trace physical scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(*physical)
+	rendered, err := aql.Render(*physical, aql.Options{})
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render construction cell trace physical plan: %w", err)
 	}

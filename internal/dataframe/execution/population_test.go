@@ -33,7 +33,7 @@ func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 		}
 		return nil
 	})
-	result, err := engine.PopulationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
+	result, err := engine.populationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query:        "RETURN witnesses",
 		MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
@@ -59,7 +59,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 	reader := PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")
 	})
-	result, err := engine.PopulationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
+	result, err := engine.populationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{MaxWitnessRows: 0}, reader)
@@ -71,7 +71,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	incomplete, err := engine.PopulationMappingCompiled(ctx, population.CompiledPopulationMappingQuery{
+	incomplete, err := engine.populationMappingCompiled(ctx, population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{}, reader)
@@ -142,7 +142,7 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 			return nil
 		},
 	}
-	result, err := engine.PopulationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
+	result, err := engine.populationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", ExplicitIdentityColumn: "identity",
 	}, PopulationMappingRequest{MaxUnmapped: 10}, PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")

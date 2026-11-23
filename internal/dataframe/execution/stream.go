@@ -102,11 +102,11 @@ func (e streamExecutor) buildCompiledOutputStream(resolved Resolved, output lowe
 	if limit > 0 && limit < rootPageRows {
 		rootPageRows = limit
 	}
+	source := &arangoSource{query: query.Query, bindVars: query.BindVars, stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows}
 	stream := OutputStream{
 		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
-		DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
-		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
-		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
+		DynamicChecks: dynamicChecks(output.DynamicColumns), source: source,
+		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest,
 		bindings: bindings,
 		stageID:  compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
 		physicalPlan: query.PhysicalPlan,
@@ -142,7 +142,7 @@ func (e streamExecutor) buildCompiledOutputStream(resolved Resolved, output lowe
 		}
 	}
 	sampledAggregate := wholeInput && bindings.AllowSampledAggregatePreview
-	stream.sampledAggregate = sampledAggregate
+	source.sampledAggregate = sampledAggregate
 	if rootPageRows > 0 && (!wholeInput || sampledAggregate) {
 		pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 		pageBindings.PreviewLimit = limit
@@ -150,9 +150,11 @@ func (e streamExecutor) buildCompiledOutputStream(resolved Resolved, output lowe
 		if pageErr != nil {
 			return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 		}
-		stream.page = &page
+		source.page = &page
 		query.PlanDiagnostics = page.RowsDiagnostics
-		stream.planFingerprint = query.PlanDiagnostics.Fingerprint
+		stream.planFingerprint = page.RowsPlanDigest
+	} else if limit == 0 {
+		stream.planFingerprint = query.ArtifactPlanDigest
 	}
 	return stream, query, nil
 }

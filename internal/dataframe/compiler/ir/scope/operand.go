@@ -43,7 +43,7 @@ func NewWorkspaceOutputScopeOperand(inputIndex int, ref ir.PhysicalCombineInputR
 	if err := validateWholeRelationIdentityShape(sourceIdentity); err != nil {
 		return WorkspaceCombineScopeOperand{}, fmt.Errorf("workspace Combine output operand identity: %w", err)
 	}
-	fingerprint := ir.PhysicalPlanFingerprint(sourcePlan)
+	fingerprint := sourceEvidence.planFingerprint
 	provenance, err := workspaceCombineOperandDigest(workspaceCombineOutputOperand, inputIndex, ref, sourceIdentity, fingerprint, sourceEvidence.Digest(), nil)
 	if err != nil {
 		return WorkspaceCombineScopeOperand{}, err

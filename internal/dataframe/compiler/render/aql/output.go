@@ -102,13 +102,13 @@ func (render stageSequenceRendering) renderStages(lines []string, priorRows stri
 			}
 
 			previewLimitBindKey := ""
-			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 && !options.twoScanPivotPreview {
+			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 && !options.twoScanPivot() {
 				previewLimitBindKey = sequence.PreviewLimitBindKey
 			}
 			if inlineCodedPivotStage && stage.GroupedPivot.CodedSourceVariable != inlineCodedPivotRoot {
 				return nil, "", fmt.Errorf("coded Pivot source variable differs from the inlined root scan")
 			}
-			rendered, renderErr := renderer.tableShape().renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup, previewLimitBindKey)
+			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup, previewLimitBindKey)
 			if renderErr != nil {
 				return nil, "", fmt.Errorf("render stage %q pivot: %w", stage.ID, renderErr)
 			}
@@ -118,7 +118,7 @@ func (render stageSequenceRendering) renderStages(lines []string, priorRows stri
 			if stage.Unpivot == nil {
 				return nil, "", fmt.Errorf("stage %q is missing unpivot payload", stage.ID)
 			}
-			rendered, renderErr := renderer.tableShape().renderTableUnpivot(*stage.Unpivot)
+			rendered, renderErr := renderer.renderTableUnpivot(*stage.Unpivot)
 			if renderErr != nil {
 				return nil, "", fmt.Errorf("render stage %q unpivot: %w", stage.ID, renderErr)
 			}
@@ -135,7 +135,7 @@ func (render stageSequenceRendering) renderStages(lines []string, priorRows stri
 			if index == relatedExpandPreviewStageIndex {
 				previewLimitBindKey = relatedExpandPreviewLimitBindKey
 			}
-			rendered, renderErr := renderer.navigation().renderConstructionRelatedExpandStage(stage, previewLimitBindKey)
+			rendered, renderErr := renderer.renderConstructionRelatedExpandStage(stage, previewLimitBindKey)
 			if renderErr != nil {
 				return nil, "", fmt.Errorf("render stage %q related expansion: %w", stage.ID, renderErr)
 			}
@@ -181,7 +181,7 @@ func (render stageSequenceRendering) renderFinal(lines []string, priorRows strin
 	hasRelatedGroupPreview := render.hasRelatedGroupPreview
 	finalRow := "__loom_construction_final_row"
 	if hasRelatedGroupPreview && options.previewGroupIdentityFilter != nil && options.previewGroupIdentityFilter.StageIndex < 0 {
-		groupRows := renderer.navigation().newInternalVariable("related_group_preview_filtered_rows")
+		groupRows := renderer.newInternalVariable("related_group_preview_filtered_rows")
 		lines = append(lines, fmt.Sprintf("LET %s = (", groupRows))
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", finalRow, priorRows))
 		filter := options.previewGroupIdentityFilter
@@ -271,7 +271,7 @@ func (render stageSequenceRendering) renderFinal(lines []string, priorRows strin
 		} else {
 			return nil, fmt.Errorf("construction trace has an unsupported published row identity")
 		}
-		traceLines, traceErr := renderer.cellTraces().renderCellTraceReturn(terminal)
+		traceLines, traceErr := renderer.renderCellTraceReturn(terminal)
 		if traceErr != nil {
 			return nil, fmt.Errorf("render construction cell trace: %w", traceErr)
 		}

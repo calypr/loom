@@ -69,7 +69,7 @@ func TestSchemaDefinedSecondShapeKeepsIndependentArraysSeparate(t *testing.T) {
 		unnest.Expression.Extract.Selector.Steps[0].Field != "member" || !unnest.Expression.Extract.Selector.Steps[0].Iterate {
 		t.Fatalf("selected repeated scope does not resolve only Group.member[]: owner=%#v expression=%#v", unnest.Owner, unnest.Expression)
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestCompileRecipeRootExpansionBuildsOccurrenceIdentity(t *testing.T) {
 	if fields["ordinal"].Value == nil || fields["ordinal"].Value.Variable != "position" {
 		t.Fatalf("ordinal identity = %#v", fields["ordinal"])
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestExpandedNestedSiblingProjectionUsesItsRepeatedAncestor(t *testing.T) {
 		t.Fatalf("expanded leaf projection was rebound away from item: %#v", coding)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestExpandedSiblingProjectionKeepsUnrelatedFallbackAtRoot(t *testing.T) {
 		}
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestExpandedDeepSiblingProjectionUsesTheNearestRepeatedAncestor(t *testing.
 			t.Errorf("deep sibling projection %q = %#v; want %s.%s", name, projection.Expression, want.variable, want.selector)
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestCompileRecipeRelatedExpansionReusesDeepOwnerRoute(t *testing.T) {
 	if len(edgeWitnesses) != 2 || edgeWitnesses[0] != "edge_0_id" || edgeWitnesses[1] != "edge_1_id" {
 		t.Fatalf("ordered route witnesses = %#v", edgeWitnesses)
 	}
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

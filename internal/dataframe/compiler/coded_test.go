@@ -7,7 +7,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -52,20 +51,6 @@ func TestCodedGroupPreviewWithSourceIdentityKeepsStageInputScoped(t *testing.T) 
 	}
 	if paths, ok := query.BindVars["auth_resource_paths"].([]string); !ok || !reflect.DeepEqual(paths, []string{"BodyStructure/allowed"}) {
 		t.Fatalf("inlined source changed the authorized paths: %#v", query.BindVars["auth_resource_paths"])
-	}
-}
-
-func TestCodedGroupTerminalProjectionRetainsProjectionFallback(t *testing.T) {
-	bindings := recipe.RuntimeBindings{Project: "coded-group-project", DatasetGeneration: "coded-group-generation"}
-	compiled := lowerConstructionOutput(t, bodyStructureCodedGroupOutput(), bindings)
-	query, err := aql.RenderPhysicalPlanWithTerminalProjection(compiled.Plan, "source_records")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(query.Query, "LET __loom_construction_source_projection = (") ||
-		!strings.Contains(query.Query, "FOR __loom_construction_input_1 IN __loom_construction_source_projection") ||
-		!strings.Contains(query.Query, "DOCUMENT(@@root_collection,") {
-		t.Fatalf("terminal projection should retain source projection and document-lookup fallback:\n%s", query.Query)
 	}
 }
 

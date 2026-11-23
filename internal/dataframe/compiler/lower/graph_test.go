@@ -377,7 +377,7 @@ func TestBuildGraphPhysicalPlanRootOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildGraphPhysicalPlan() error = %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -391,7 +391,7 @@ func TestBuildGraphPhysicalPlanOneHopRequired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildGraphPhysicalPlan() error = %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}

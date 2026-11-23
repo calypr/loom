@@ -110,9 +110,16 @@ func TestPreviewRootPagesUseOneSnapshotAndReturnFullRows(t *testing.T) {
 		calls = append(calls, "end")
 		return err
 	}
-	stream := OutputStream{rootPageRows: 2, batchSize: 10, withPreviewReadSnapshot: snapshot, page: &compiler.CompiledOutputPage{
-		RootKeysQuery: "keys", RowsQuery: "full", RowsPartitions: []compiler.CompiledOutputPagePartition{{RowsQuery: "first"}, {RowsQuery: "second"}},
-	}}
+	stream := OutputStream{
+		source: &arangoSource{
+			rootPageRows:            2,
+			batchSize:               10,
+			withPreviewReadSnapshot: snapshot,
+			page: &compiler.CompiledOutputPage{
+				RootKeysQuery: "keys", RowsQuery: "full", RowsPartitions: []compiler.CompiledOutputPagePartition{{RowsQuery: "first"}, {RowsQuery: "second"}},
+			},
+		},
+	}
 	var rows []map[string]any
 	err := stream.streamRaw(context.Background(), func(row map[string]any) error { rows = append(rows, row); return nil })
 	if err != nil || !reflect.DeepEqual(calls, []string{"begin", "keys", "first", "second", "end"}) || !reflect.DeepEqual(rows, []map[string]any{{"_key": "a", "a": 1, "b": 2}}) {
@@ -122,10 +129,17 @@ func TestPreviewRootPagesUseOneSnapshotAndReturnFullRows(t *testing.T) {
 
 func TestPreviewRootPagesWithoutSnapshotUseUnsplitQuery(t *testing.T) {
 	var calls []string
-	stream := OutputStream{rootPageRows: 2, batchSize: 10, page: &compiler.CompiledOutputPage{RootKeysQuery: "keys", RowsQuery: "full", RowsPartitions: []compiler.CompiledOutputPagePartition{{RowsQuery: "part"}}}, stream: func(_ context.Context, q string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-		calls = append(calls, q)
-		return visit(map[string]any{"_key": "a"})
-	}}
+	stream := OutputStream{
+		source: &arangoSource{
+			rootPageRows: 2,
+			batchSize:    10,
+			page:         &compiler.CompiledOutputPage{RootKeysQuery: "keys", RowsQuery: "full", RowsPartitions: []compiler.CompiledOutputPagePartition{{RowsQuery: "part"}}},
+			stream: func(_ context.Context, q string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				calls = append(calls, q)
+				return visit(map[string]any{"_key": "a"})
+			},
+		},
+	}
 	err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil })
 	if err != nil || !reflect.DeepEqual(calls, []string{"keys", "full"}) {
 		t.Fatalf("calls=%v error=%v", calls, err)

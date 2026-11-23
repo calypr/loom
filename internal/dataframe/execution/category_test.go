@@ -85,9 +85,11 @@ func TestScanColumnPopulationCompiledUsesPreviewExecutorAndHonorsCancellation(t 
 			normalCalls.Add(1)
 			return nil
 		},
-		previewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			previewCalls.Add(1)
-			return visit(map[string]any{"populated_0": false})
+		previewExecutor: previewExecutor{
+			previewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				previewCalls.Add(1)
+				return visit(map[string]any{"populated_0": false})
+			},
 		},
 	}
 	_, err := engine.ScanColumnPopulationCompiled(context.Background(), compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
@@ -256,12 +258,14 @@ func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
 			t.Fatal("category discovery used the unbounded execution query path")
 			return nil
 		},
-		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			called = true
-			if query != "scan" {
-				t.Fatalf("query = %q", query)
-			}
-			return visit(map[string]any{"present": true, "value": "category"})
+		previewExecutor: previewExecutor{
+			previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				called = true
+				if query != "scan" {
+					t.Fatalf("query = %q", query)
+				}
+				return visit(map[string]any{"present": true, "value": "category"})
+			},
 		},
 	}
 	result, err := engine.ScanCategoriesCompiled(context.Background(), compiledCategoryScan(256))
@@ -281,32 +285,34 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 			t.Fatal("category discovery used the unbounded executor")
 			return nil
 		},
-		preparePreviewIndex: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
-			if spec.Collection != "Patient" || spec.Name != "loom_pivot_preview_test" || !reflect.DeepEqual(spec.Fields, []string{"project", "payload.gender"}) {
-				t.Errorf("prewarm spec = %+v", spec)
-			}
-			prepareCalls.Add(1)
-			close(prepareStarted)
-			select {
-			case <-prepareRelease:
-				close(prepareFinished)
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		},
-		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			if query != "scan" {
-				t.Fatalf("query = %q", query)
-			}
-			if queryCalls.Add(1) == 1 {
-				select {
-				case <-prepareStarted:
-				case <-time.After(time.Second):
-					t.Fatal("covering-index prewarm did not start before category query")
+		previewExecutor: previewExecutor{
+			preparePreviewIndex: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
+				if spec.Collection != "Patient" || spec.Name != "loom_pivot_preview_test" || !reflect.DeepEqual(spec.Fields, []string{"project", "payload.gender"}) {
+					t.Errorf("prewarm spec = %+v", spec)
 				}
-			}
-			return visit(map[string]any{"present": true, "value": "category"})
+				prepareCalls.Add(1)
+				close(prepareStarted)
+				select {
+				case <-prepareRelease:
+					close(prepareFinished)
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			},
+			previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				if query != "scan" {
+					t.Fatalf("query = %q", query)
+				}
+				if queryCalls.Add(1) == 1 {
+					select {
+					case <-prepareStarted:
+					case <-time.After(time.Second):
+						t.Fatal("covering-index prewarm did not start before category query")
+					}
+				}
+				return visit(map[string]any{"present": true, "value": "category"})
+			},
 		},
 	}
 	compiled := compiledCategoryScan(256)
@@ -389,9 +395,11 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
 	prepared := false
 	engine := &Engine{
-		preparePreviewIndex: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
-			prepared = true
-			return nil
+		previewExecutor: previewExecutor{
+			preparePreviewIndex: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
+				prepared = true
+				return nil
+			},
 		},
 		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			if !prepared {

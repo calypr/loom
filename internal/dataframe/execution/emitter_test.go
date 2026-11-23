@@ -111,7 +111,8 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		Semantic:           recipeplan.ResolvedRecipePlan{SemanticPlan: recipeplan.RecipePlan{Bindings: bindings}},
 		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{terminal}, WorkspaceDependencies: []lower.CompiledRecipeOutput{inner, leafA, leafB}},
 	}
-	stream, _, err := engine.outputStreams().streamForOutput(resolved, "terminal", 3)
+	engine.streamExecutor.clickHouseStreamForOutput = engine.clickHouseStreamForOutput
+	stream, _, err := engine.streamExecutor.streamForOutput(resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		t.Fatalf("nested execution leaked %d private artifact manifests", len(catalog.items))
 	}
 
-	stream, _, err = engine.outputStreams().streamForOutput(resolved, "terminal", 3)
+	stream, _, err = engine.streamExecutor.streamForOutput(resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		t.Fatalf("nested execution leaked %d private artifact manifests after consumer cancellation", len(catalog.items))
 	}
 
-	stream, _, err = engine.outputStreams().streamForOutput(resolved, "terminal", 3)
+	stream, _, err = engine.streamExecutor.streamForOutput(resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,14 +357,14 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile Group/Pivot workspace fixture: %v", err)
 	}
-	stream, _, err := engine.outputStreams().streamForOutput(resolved, "joined", 2)
+	stream, _, err := engine.streamExecutor.streamForOutput(resolved, "joined", 2)
 	if err != nil {
 		t.Fatalf("build Group/Pivot workspace stream: %v", err)
 	}
-	if len(stream.workspaceArtifactSources) != 2 {
-		t.Fatalf("Group/Pivot capture dependencies = %d, want two", len(stream.workspaceArtifactSources))
+	if len(stream.source.(*clickHouseSource).workspaceArtifactSources) != 2 {
+		t.Fatalf("Group/Pivot capture dependencies = %d, want two", len(stream.source.(*clickHouseSource).workspaceArtifactSources))
 	}
-	for _, source := range stream.workspaceArtifactSources {
+	for _, source := range stream.source.(*clickHouseSource).workspaceArtifactSources {
 		if source.Stream.artifactScopeMode != chartifact.ScopeModeWhole || source.Stream.scopeEvidence == nil || source.Stream.scopeEvidenceIdentity == nil {
 			t.Fatalf("workspace source %q lacks compiler-issued whole-relation evidence", source.OutputID)
 		}
@@ -383,7 +384,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("Group/Pivot source calls or cleanup = %d AQL calls, %d manifests, %d tables", aqlCalls, len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.outputStreams().streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamExecutor.streamForOutput(resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build Group/Pivot cancellation capture: %v", err)
 	}
@@ -404,7 +405,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("terminal query cancellation leaked %d manifests and %d ClickHouse tables", len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.outputStreams().streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamExecutor.streamForOutput(resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build Group/Pivot terminal failure capture: %v", err)
 	}
@@ -419,7 +420,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("terminal query failure leaked %d manifests and %d ClickHouse tables", len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.outputStreams().streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamExecutor.streamForOutput(resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build unbounded Group/Pivot capture stream: %v", err)
 	}
@@ -571,7 +572,7 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			resolved.Compiled.Outputs = []lower.CompiledRecipeOutput{joined}
 			resolved.Compiled.WorkspaceDependencies = dependencies
 
-			stream, _, err := engine.outputStreams().streamForOutput(resolved, "joined", 1)
+			stream, _, err := engine.streamExecutor.streamForOutput(resolved, "joined", 1)
 			if err != nil {
 				t.Fatalf("build restricted workspace Combine: %v", err)
 			}
@@ -581,10 +582,10 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			if !reflect.DeepEqual(stream.outputSchema, resolved.Compiled.Outputs[0].OutputSchema) {
 				t.Fatal("private source projection changed the selected Combine output schema")
 			}
-			if len(stream.workspaceArtifactSources) != 2 {
-				t.Fatalf("workspace capture sources = %d, want two", len(stream.workspaceArtifactSources))
+			if len(stream.source.(*clickHouseSource).workspaceArtifactSources) != 2 {
+				t.Fatalf("workspace capture sources = %d, want two", len(stream.source.(*clickHouseSource).workspaceArtifactSources))
 			}
-			for index, source := range stream.workspaceArtifactSources {
+			for index, source := range stream.source.(*clickHouseSource).workspaceArtifactSources {
 				if !source.Stream.bindings.IncludeAuthResourcePath {
 					t.Fatalf("restricted row-scoped source %q was not compiled with its private auth-path projection", source.OutputID)
 				}
@@ -740,7 +741,7 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		Semantic: recipeplan.ResolvedRecipePlan{SemanticPlan: recipeplan.RecipePlan{Bindings: bindings}},
 		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
 	}
-	stream, _, err := engine.outputStreams().streamForOutput(resolved, "joined", 0)
+	stream, _, err := engine.streamExecutor.streamForOutput(resolved, "joined", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -887,7 +888,7 @@ func TestPublicationRowStreamRejectsPayloadMetadataSmuggling(t *testing.T) {
 		t.Fatalf("streamed __loom_row_id = %#v, want compiler-derived identity rather than payload value", row["__loom_row_id"])
 	}
 	wantIdentity := map[string]any{"project": project, "_key": key}
-	if err := ensureStableRowIdentity(wantIdentity, streams[0].RowIdentity, streams[0].bindVars); err != nil {
+	if err := ensureStableRowIdentity(wantIdentity, streams[0].RowIdentity, streams[0].source.(*arangoSource).bindVars); err != nil {
 		t.Fatalf("derive expected compiler row identity: %v", err)
 	}
 	if row["__loom_row_id"] != wantIdentity["__loom_row_id"] {
@@ -938,7 +939,7 @@ func runOutputResolved(names ...string) Resolved {
 
 func TestEngineRunUnknownOutputIsUserFault(t *testing.T) {
 	e, _ := newRunTestFixture(t)
-	_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved("does-not-exist"), 0)
+	_, err := e.streamExecutor.streamsWithLimit(context.Background(), runOutputResolved("does-not-exist"), 0)
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
 		t.Fatalf("unknown run output escaped as untyped (Engine.Run -> recipeControlBackend publishes retryable BACKEND_UNAVAILABLE for the raw leaf; the receipt-validation Streams channel reaches the leaf, and Control.Run's own output-selection rejection is a separate pre-wrapper 500 channel): %v", err)
@@ -957,7 +958,7 @@ func TestEngineRunUnknownOutputIsUserFault(t *testing.T) {
 func TestEngineRunBlankOutputIsUserFault(t *testing.T) {
 	e, _ := newRunTestFixture(t)
 	for _, name := range []string{"", "   "} {
-		_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved(name), 0)
+		_, err := e.streamExecutor.streamsWithLimit(context.Background(), runOutputResolved(name), 0)
 		userErr, ok := dataframeerrors.AsUserError(err)
 		if !ok {
 			t.Fatalf("blank run output %q escaped as untyped: %v", name, err)
@@ -970,7 +971,7 @@ func TestEngineRunBlankOutputIsUserFault(t *testing.T) {
 
 func TestEngineRunKnownOutputStillResolves(t *testing.T) {
 	e, _ := newRunTestFixture(t)
-	_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved("patients"), 0)
+	_, err := e.streamExecutor.streamsWithLimit(context.Background(), runOutputResolved("patients"), 0)
 	if err != nil && strings.Contains(err.Error(), "was not found") {
 		t.Fatalf("valid output must not take the unknown-output arm: %v", err)
 	}
