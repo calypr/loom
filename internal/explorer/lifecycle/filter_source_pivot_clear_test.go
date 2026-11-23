@@ -101,9 +101,6 @@ func rs05CloneConstruction(c authoringv2.Construction) authoringv2.Construction 
 	return out
 }
 
-
-
-
 func rs05OtherHelperStep() authoringv2.ConstructionStep {
 	return authoringv2.ConstructionStep{
 		ID: rs05Helper2ID, OwnerStepID: rs05OtherPivotID,
@@ -242,7 +239,6 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 	}
 }
 
-
 func TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-owner-isolation")
 	service := filterSourceService(t)
@@ -287,8 +283,6 @@ func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 	}
 }
 
-
-
 func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-set-pivot-clear")
 	service := filterSourceService(t)
@@ -321,7 +315,6 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 	}
 }
 
-
 func rs05IndexOwned(projections []authoringv2.ConstructionSourceProjection, ownerStepID string) int {
 	for index, projection := range projections {
 		if projection.OwnerStepID == ownerStepID {
@@ -330,7 +323,6 @@ func rs05IndexOwned(projections []authoringv2.ConstructionSourceProjection, owne
 	}
 	return -1
 }
-
 
 func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
 	t.Helper()
@@ -684,7 +676,6 @@ func TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput(t *testing.T) {
 		t.Fatalf("derive preparation lost a surviving step: %#v", prepared.Steps)
 	}
 }
-
 
 func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-set-derive-clear")

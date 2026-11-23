@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer/capability"
-
 )
 
 func TestSavedRelatedExpandPagesRespectLimitAndScope(t *testing.T) {

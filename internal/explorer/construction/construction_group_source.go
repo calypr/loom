@@ -224,5 +224,3 @@ func constructionGroupFieldLabel(path string) string {
 	}
 	return strings.Join(parts, " / ")
 }
-
-

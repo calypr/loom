@@ -105,16 +105,16 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 			return FrameSourceFamilyCandidate{Family: expected, Entry: anchor, Candidate: proven}, []capability.ConstructionRouteStep{}, nil
 		},
 		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
-		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted ||
-			len(options.References) != 1 || options.References[0].BindingID != "stage-binding" {
-			t.Fatalf("semantic reauthorization scope = %#v", options)
-		}
-		entry, ok := entries[options.References[0].ConceptID]
-		if !ok {
-			t.Fatalf("unexpected semantic inventory reference: %#v", options.References[0])
-		}
-		return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
-	}}}
+			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted ||
+				len(options.References) != 1 || options.References[0].BindingID != "stage-binding" {
+				t.Fatalf("semantic reauthorization scope = %#v", options)
+			}
+			entry, ok := entries[options.References[0].ConceptID]
+			if !ok {
+				t.Fatalf("unexpected semantic inventory reference: %#v", options.References[0])
+			}
+			return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
+		}}}
 
 	candidateConstruction := base.Construction
 	candidateConstruction.Steps = append([]authoringv2.ConstructionStep(nil), base.Construction.Steps...)

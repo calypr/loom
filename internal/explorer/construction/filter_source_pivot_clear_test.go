@@ -565,7 +565,6 @@ const (
 	rs05ValueCol     = "public-value"
 	rs05DeriveID     = "derive-total"
 	rs05DeriveColumn = "derive-private-input"
-
 )
 
 func rs05CountOwned(projections []authoringv2.ConstructionSourceProjection, ownerStepID string) int {

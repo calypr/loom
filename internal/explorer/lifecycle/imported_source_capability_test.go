@@ -23,7 +23,6 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 		call func(*Service, constructionBase) (bool, string, string, int, error)
 	}{
 
-
 		{name: "filter", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
 			got, err := service.constructionFilterSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err

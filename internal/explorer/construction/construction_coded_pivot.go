@@ -200,4 +200,3 @@ func constructionSourceStage(stages []explorer.ReceiptConstructionStage) *explor
 	}
 	return nil
 }
-

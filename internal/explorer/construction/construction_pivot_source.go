@@ -967,4 +967,3 @@ func validatePivotSourceColumns(steps []authoringv2.ConstructionStep, pivotID st
 	}
 	return nil
 }
-

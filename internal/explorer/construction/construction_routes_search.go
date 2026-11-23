@@ -275,4 +275,3 @@ func (s constructionRouteFlow) resolveConstructionSearchSemanticFamily(ctx conte
 	}
 	return resolved.Families[0], expectedBuild, nil
 }
-
