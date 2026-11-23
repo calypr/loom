@@ -3,7 +3,6 @@ package compiler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -437,7 +436,7 @@ func TestCanonicalExecutionPhysicalPlanPreservesValidRelatedCellTrace(t *testing
 	if physical.StageSequence.CellTraceReturn.Construction.RelatedSource.Subplan.Operations[0].Source != wantSource {
 		t.Fatal("canonicalization mutated the validated source plan")
 	}
-	data, err := json.Marshal(canonical)
+	data, err := ir.MarshalLegacyPhysical(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -57,6 +57,7 @@ var ResolveGroupRelatedOccurrenceSource = lower.ResolveGroupRelatedOccurrenceSou
 var TableReshapeScalarKind = lower.TableReshapeScalarKind
 
 var CanonicalExecutionPhysicalPlan = ir.CanonicalExecutionPhysicalPlan
+var MarshalLegacyPhysical = ir.MarshalLegacyPhysical
 var ClickHouseCombineScalarBaseType = ir.ClickHouseCombineScalarBaseType
 var DefaultPhysicalOptimizationPolicy = ir.DefaultPhysicalOptimizationPolicy
 

@@ -97,7 +97,7 @@ type PhysicalOperation struct {
 	DocumentLookup            *PhysicalDocumentLookup
 	PopulationMappingReturn   *PhysicalPopulationMappingReturn
 	CellTraceReturn           *PhysicalCellTraceReturn
-	TableShapeExclusionReturn *PhysicalTableShapeExclusionReturn
+	TableShapeExclusionReturn *PhysicalTableShapeExclusionReturn `json:",omitempty"`
 	GroupRows                 *PhysicalGroupRows
 	GroupedPivot              *PhysicalGroupedPivot
 	Unpivot                   *PhysicalUnpivot

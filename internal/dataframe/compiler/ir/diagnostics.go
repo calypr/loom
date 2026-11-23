@@ -3,7 +3,6 @@ package ir
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 )
@@ -214,7 +213,7 @@ func countObjectLookupConsumers(expression *PhysicalExpression) int {
 }
 
 func PhysicalPlanFingerprint(plan PhysicalPlan) string {
-	encoded, err := json.Marshal(plan)
+	encoded, err := MarshalLegacyPhysical(plan)
 	if err != nil {
 		return ""
 	}
@@ -255,7 +254,7 @@ func collectRichConsumerGroups(expression *PhysicalExpression, groups map[string
 	if source == "" {
 		return
 	}
-	payload, err := json.Marshal(expression)
+	payload, err := MarshalLegacyPhysical(expression)
 	if err != nil {
 		return
 	}

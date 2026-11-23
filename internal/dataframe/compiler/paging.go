@@ -253,7 +253,7 @@ func groupPreviewProjections(columns []ir.PhysicalProjection) ([][]ir.PhysicalPr
 	current := make([]ir.PhysicalProjection, 0, previewProjectionPartitionSize)
 	var weight int
 	for _, projection := range columns {
-		encoded, err := json.Marshal(projection)
+		encoded, err := ir.MarshalLegacyPhysical(projection)
 		if err != nil {
 			return nil, false
 		}
@@ -292,7 +292,7 @@ type previewPartitionCost struct {
 }
 
 func previewPartitionCostFor(plan ir.PhysicalPlan, query string, bindVars map[string]any) (previewPartitionCost, bool) {
-	planBytes, err := json.Marshal(plan)
+	planBytes, err := ir.MarshalLegacyPhysical(plan)
 	if err != nil {
 		return previewPartitionCost{}, false
 	}
