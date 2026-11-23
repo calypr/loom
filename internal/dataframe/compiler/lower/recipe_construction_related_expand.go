@@ -160,53 +160,8 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 		currentVariable = targetVariable
 	}
 
-	if source := related.ContributorSource; source != nil {
-		if source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
-			(source.Cardinality != "optional_one" && source.Cardinality != "required_one" && source.Cardinality != "many") {
-			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion contributor field is not an exact target scalar or repeated scalar")
-		}
-		if source.Cardinality == "many" && len(source.RepeatedBoundaries) == 0 {
-			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion repeated contributor field is missing its exact repeated boundaries")
-		}
-		if source.Cardinality != "many" && len(source.RepeatedBoundaries) != 0 {
-			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion scalar contributor field cannot carry repeated boundaries")
-		}
-		selectorPath := strings.TrimPrefix(source.Path, source.ResourceType+".")
-		selector, err := spec.ParseSelector(selectorPath)
-		if err != nil {
-			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion contributor path: %w", err)
-		}
-		field := ir.PhysicalExpression{
-			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-			Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}},
-				ResourceType: source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(source.ResourceType, selector)},
-		}
-		if predicate := related.ContributorPredicate; predicate != nil {
-			if predicate.CandidateID != source.CandidateID {
-				return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion predicate differs from its selected contributor field")
-			}
-			comparison := ir.PhysicalPredicate{
-				Operator: string(predicate.Operator), Quantifier: spec.ArrayQuantifier(predicate.Quantifier), LeftExpression: &field,
-			}
-			if predicate.Operator == recipe.FilterEquals {
-				if predicate.Value == nil {
-					return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion EQUALS predicate requires a value")
-				}
-				literal, err := constructionFilterLiteral(*predicate.Value)
-				if err != nil {
-					return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion predicate value: %w", err)
-				}
-				bindKey := nextTableReshapeBindKey(lowerer.plan.BindVars, "related_expand_contributor_value")
-				lowerer.plan.BindVars[bindKey] = literal
-				comparison.Right = &ir.PhysicalValue{BindKey: bindKey}
-				comparison.ValueKind = spec.FilterValueKind(predicate.Value.Kind)
-			}
-			subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
-				Kind:   ir.PhysicalFilterOp,
-				Source: ir.PhysicalSource{SemanticNode: source.NodeID, ResourceType: source.ResourceType, SemanticField: source.CandidateID},
-				Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &comparison}},
-			})
-		}
+	if err := lowerer.lowerConstructionRelatedExpandContributor(&subplan, related, currentVariable); err != nil {
+		return ir.PhysicalStageRelatedExpand{}, nil, nil, err
 	}
 
 	terminalID := ir.PhysicalValue{Variable: currentVariable, Path: []string{"_id"}}
@@ -322,6 +277,60 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 		Name: terminalColumnID, Hidden: true, Value: ir.PhysicalValue{Variable: physical.ItemVariable, Path: []string{"terminal_id"}},
 	})
 	return physical, projections, compiled, nil
+}
+
+func (lowerer *constructionLowerer) lowerConstructionRelatedExpandContributor(subplan *ir.PhysicalSubplan, related recipe.ConstructionRelatedExpand, currentVariable string) error {
+	source := related.ContributorSource
+	if source == nil {
+		return nil
+	}
+	if source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+		(source.Cardinality != "optional_one" && source.Cardinality != "required_one" && source.Cardinality != "many") {
+		return fmt.Errorf("related expansion contributor field is not an exact target scalar or repeated scalar")
+	}
+	if source.Cardinality == "many" && len(source.RepeatedBoundaries) == 0 {
+		return fmt.Errorf("related expansion repeated contributor field is missing its exact repeated boundaries")
+	}
+	if source.Cardinality != "many" && len(source.RepeatedBoundaries) != 0 {
+		return fmt.Errorf("related expansion scalar contributor field cannot carry repeated boundaries")
+	}
+	selectorPath := strings.TrimPrefix(source.Path, source.ResourceType+".")
+	selector, err := spec.ParseSelector(selectorPath)
+	if err != nil {
+		return fmt.Errorf("related expansion contributor path: %w", err)
+	}
+	field := ir.PhysicalExpression{
+		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}},
+			ResourceType: source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(source.ResourceType, selector)},
+	}
+	if predicate := related.ContributorPredicate; predicate != nil {
+		if predicate.CandidateID != source.CandidateID {
+			return fmt.Errorf("related expansion predicate differs from its selected contributor field")
+		}
+		comparison := ir.PhysicalPredicate{
+			Operator: string(predicate.Operator), Quantifier: spec.ArrayQuantifier(predicate.Quantifier), LeftExpression: &field,
+		}
+		if predicate.Operator == recipe.FilterEquals {
+			if predicate.Value == nil {
+				return fmt.Errorf("related expansion EQUALS predicate requires a value")
+			}
+			literal, err := constructionFilterLiteral(*predicate.Value)
+			if err != nil {
+				return fmt.Errorf("related expansion predicate value: %w", err)
+			}
+			bindKey := nextTableReshapeBindKey(lowerer.plan.BindVars, "related_expand_contributor_value")
+			lowerer.plan.BindVars[bindKey] = literal
+			comparison.Right = &ir.PhysicalValue{BindKey: bindKey}
+			comparison.ValueKind = spec.FilterValueKind(predicate.Value.Kind)
+		}
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind:   ir.PhysicalFilterOp,
+			Source: ir.PhysicalSource{SemanticNode: source.NodeID, ResourceType: source.ResourceType, SemanticField: source.CandidateID},
+			Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &comparison}},
+		})
+	}
+	return nil
 }
 
 func relatedExpandIdentityColumnNames(stepID string) (string, string) {
