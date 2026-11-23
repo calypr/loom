@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
 	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 
@@ -15,8 +16,6 @@ type client interface {
 	store.RowQueryer
 	WithTransaction(context.Context, store.TransactionCollections, store.TransactionFunc) error
 }
-
-type ReceiptStore struct{ client client }
 
 type InterpretationStore struct{ client client }
 
@@ -37,7 +36,7 @@ type Store struct {
 	workspacedb.RevisionStore
 	workspacedb.WorkspaceStore
 	ExplicitGroupStore
-	ReceiptStore
+	publicationdb.ReceiptStore
 	InterpretationStore
 	ViewBuilderStore
 	PublicationStore
@@ -55,7 +54,7 @@ func New(client client) (*Store, error) {
 		RevisionStore:       workspacedb.NewRevisionStore(client),
 		WorkspaceStore:      workspacedb.NewWorkspaceStore(client),
 		ExplicitGroupStore:  ExplicitGroupStore{client: client, selections: selections},
-		ReceiptStore:        ReceiptStore{client: client},
+		ReceiptStore:        publicationdb.NewReceiptStore(client),
 		InterpretationStore: InterpretationStore{client: client},
 		ViewBuilderStore:    ViewBuilderStore{client: client},
 		PublicationStore:    PublicationStore{client: client},

@@ -1,4 +1,4 @@
-package arango
+package publicationdb
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt exp
 		return nil, err
 	}
 	for attempt := 0; attempt < compilationReceiptInsertMaxAttempts; attempt++ {
-		err = s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": CompilationReceiptsCollection, "doc": doc}, func(map[string]any) error { return nil })
+		err = s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "doc": doc}, func(map[string]any) error { return nil })
 		if err == nil {
 			return s.getVerifiedCompilationReceipt(ctx, receipt)
 		}
@@ -84,7 +84,7 @@ func waitForCompilationReceiptRetry(ctx context.Context, delay time.Duration) er
 }
 
 func (s *ReceiptStore) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
-	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, map[string]any{"@c": CompilationReceiptsCollection, "key": id, "project": project, "explorerId": explorerID})
+	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, map[string]any{"@c": db.CompilationReceiptsCollection, "key": id, "project": project, "explorerId": explorerID})
 }
 
 func (s *ReceiptStore) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
@@ -146,3 +146,16 @@ func isContentAddressedReceiptID(id string) bool {
 	_, err := hex.DecodeString(strings.TrimPrefix(id, "receipt_"))
 	return err == nil
 }
+
+func ValidateReceipt(receipt explorer.CompilationReceipt) error {
+	return validateReceipt(receipt)
+}
+
+func SameReceipt(a, b explorer.CompilationReceipt) bool {
+	return sameReceipt(a, b)
+}
+
+const (
+	CompilationReceiptInsertMaxAttempts  = compilationReceiptInsertMaxAttempts
+	CompilationReceiptConflictRetryDelay = compilationReceiptConflictRetryDelay
+)
