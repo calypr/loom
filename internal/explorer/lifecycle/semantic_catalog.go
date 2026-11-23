@@ -192,83 +192,21 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if req.SelectionMode == string(semantic.SystemVersionCategory) && (req.FrameID != "" || req.SourceChoiceID != "") {
 		return result, malformed("catalog", "system-version category browsing is available only outside a saved frame or coded source selection", nil)
 	}
-	var frame *authoringv2.FrameDefinition
-	var codedFamily *frameSourceFamilyCandidate
-	var codedRoute []capability.ConstructionRouteStep
+	sourceSelection, err := s.resolveSemanticBrowseSource(ctx, req, authorized, snapshot)
+	if err != nil {
+		return result, err
+	}
 	var outputDocument *authoringv2.Document
 	var presentationCurrent *fieldPresentationCurrentContext
-	bindingFilter := ""
-	if req.FrameID != "" {
-		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
-			return result, malformed("catalog", "outputId is required with frameId", nil)
-		}
-		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
-		if workspaceErr != nil {
-			return result, workspaceErr
-		}
-		documentIndex := -1
-		for index := range workspace.Documents {
-			if workspace.Documents[index].Output.ID == req.OutputID {
-				documentIndex = index
-				break
-			}
-		}
-		if documentIndex < 0 || workspace.Documents[documentIndex].RootResourceType != req.RowRoot {
-			return result, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
-		}
-		for _, candidate := range workspace.Documents[documentIndex].Frames {
-			if candidate.ID == req.FrameID {
-				copy := candidate
-				copy.Route = capability.CloneConstructionRoute(candidate.Route)
-				copy.Source.ChoiceArms = append([]string(nil), candidate.Source.ChoiceArms...)
-				frame = &copy
-			}
-		}
-		if frame == nil {
-			return result, notFound("catalog", "FRAME_NOT_FOUND", "the saved frame source was not found for this row root", nil)
-		}
-		if req.ResourceType != "" && req.ResourceType != frame.Source.ResourceType {
-			return result, malformed("catalog", "resourceType must match the saved frame source", nil)
-		}
-		req.ResourceType = frame.Source.ResourceType
-		bindingFilter = frame.Source.BindingID
-		if isPriorPrimaryOnlySemanticFrameFamily(frame.Source) {
-
-			bindingFilter = ""
-		}
+	frame := sourceSelection.frame
+	codedFamily := sourceSelection.codedFamily
+	codedRoute := sourceSelection.codedRoute
+	bindingFilter := sourceSelection.bindingFilter
+	req.ResourceType = sourceSelection.resourceType
+	if frame != nil {
 		result.FrameID, result.FrameSource = frame.ID, frame
 	}
-	if req.SourceChoiceID != "" {
-		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
-			return result, malformed("catalog", "outputId is required with sourceChoiceId", nil)
-		}
-		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
-		if workspaceErr != nil {
-			return result, workspaceErr
-		}
-		document := findSemanticOutput(workspace, req.OutputID)
-		if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.RootResourceType != req.RowRoot {
-			return result, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
-		}
-		identity, decodeErr := capability.DecodeConstructionChoiceID(req.SourceChoiceID)
-		if decodeErr != nil || identity.SnapshotToken != snapshot.Token {
-			return result, conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "reload the coded source for the current authorized snapshot", nil, decodeErr)
-		}
-		family, route, verifyErr := s.reauthorizeFrameSourceChoice(ctx, req.Project, req.ExplorerID, req.RowRoot, req.OutputID, req.SourceChoiceID, authorized, identity)
-		if verifyErr != nil {
-			return result, verifyErr
-		}
-		if len(route) != 0 || family.Family.ResourceType != req.RowRoot {
-			return result, unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
-		}
-		if req.ResourceType != "" && req.ResourceType != family.Family.ResourceType {
-			return result, malformed("catalog", "resourceType must match sourceChoiceId", nil)
-		}
-		req.ResourceType = family.Family.ResourceType
-		bindingFilter = family.Family.BindingID
-		codedFamily = &family
-		codedRoute = route
-	}
+
 	if req.OutputID != "" && req.OutputID != strings.TrimSpace(req.OutputID) {
 		return result, malformed("catalog", "outputId must be an exact identifier", nil)
 	}
@@ -460,6 +398,96 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		result.NextCursor = base64.RawURLEncoding.EncodeToString(raw)
 	}
 	return result, nil
+}
+
+type semanticBrowseSourceSelection struct {
+	frame         *authoringv2.FrameDefinition
+	codedFamily   *frameSourceFamilyCandidate
+	codedRoute    []capability.ConstructionRouteStep
+	bindingFilter string
+	resourceType  string
+}
+
+func (s *Service) resolveSemanticBrowseSource(ctx context.Context, req BrowseSemanticInventoryRequest, authorized ports.AuthorizedCapability, snapshot capability.Snapshot) (semanticBrowseSourceSelection, error) {
+	var frame *authoringv2.FrameDefinition
+	var codedFamily *frameSourceFamilyCandidate
+	var codedRoute []capability.ConstructionRouteStep
+	bindingFilter := ""
+	if req.FrameID != "" {
+		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
+			return semanticBrowseSourceSelection{}, malformed("catalog", "outputId is required with frameId", nil)
+		}
+		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
+		if workspaceErr != nil {
+			return semanticBrowseSourceSelection{}, workspaceErr
+		}
+		documentIndex := -1
+		for index := range workspace.Documents {
+			if workspace.Documents[index].Output.ID == req.OutputID {
+				documentIndex = index
+				break
+			}
+		}
+		if documentIndex < 0 || workspace.Documents[documentIndex].RootResourceType != req.RowRoot {
+			return semanticBrowseSourceSelection{}, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
+		}
+		for _, candidate := range workspace.Documents[documentIndex].Frames {
+			if candidate.ID == req.FrameID {
+				copy := candidate
+				copy.Route = capability.CloneConstructionRoute(candidate.Route)
+				copy.Source.ChoiceArms = append([]string(nil), candidate.Source.ChoiceArms...)
+				frame = &copy
+			}
+		}
+		if frame == nil {
+			return semanticBrowseSourceSelection{}, notFound("catalog", "FRAME_NOT_FOUND", "the saved frame source was not found for this row root", nil)
+		}
+		if req.ResourceType != "" && req.ResourceType != frame.Source.ResourceType {
+			return semanticBrowseSourceSelection{}, malformed("catalog", "resourceType must match the saved frame source", nil)
+		}
+		req.ResourceType = frame.Source.ResourceType
+		bindingFilter = frame.Source.BindingID
+		if isPriorPrimaryOnlySemanticFrameFamily(frame.Source) {
+
+			bindingFilter = ""
+		}
+	}
+	if req.SourceChoiceID != "" {
+		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
+			return semanticBrowseSourceSelection{}, malformed("catalog", "outputId is required with sourceChoiceId", nil)
+		}
+		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
+		if workspaceErr != nil {
+			return semanticBrowseSourceSelection{}, workspaceErr
+		}
+		document := findSemanticOutput(workspace, req.OutputID)
+		if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.RootResourceType != req.RowRoot {
+			return semanticBrowseSourceSelection{}, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
+		}
+		identity, decodeErr := capability.DecodeConstructionChoiceID(req.SourceChoiceID)
+		if decodeErr != nil || identity.SnapshotToken != snapshot.Token {
+			return semanticBrowseSourceSelection{}, conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "reload the coded source for the current authorized snapshot", nil, decodeErr)
+		}
+		family, route, verifyErr := s.reauthorizeFrameSourceChoice(ctx, req.Project, req.ExplorerID, req.RowRoot, req.OutputID, req.SourceChoiceID, authorized, identity)
+		if verifyErr != nil {
+			return semanticBrowseSourceSelection{}, verifyErr
+		}
+		if len(route) != 0 || family.Family.ResourceType != req.RowRoot {
+			return semanticBrowseSourceSelection{}, unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
+		}
+		if req.ResourceType != "" && req.ResourceType != family.Family.ResourceType {
+			return semanticBrowseSourceSelection{}, malformed("catalog", "resourceType must match sourceChoiceId", nil)
+		}
+		req.ResourceType = family.Family.ResourceType
+		bindingFilter = family.Family.BindingID
+		codedFamily = &family
+		codedRoute = route
+	}
+
+	return semanticBrowseSourceSelection{
+		frame: frame, codedFamily: codedFamily, codedRoute: codedRoute,
+		bindingFilter: bindingFilter, resourceType: req.ResourceType,
+	}, nil
 }
 
 func semanticBrowseCursorSelectionMode(mode string) string {
