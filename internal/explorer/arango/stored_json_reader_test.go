@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	store "github.com/calypr/loom/internal/store/arango"
 	"os"
@@ -134,7 +135,7 @@ func storedJSONVisitorForTest(query string, visit store.RowVisitor) store.RowVis
 	}
 }
 func TestStoredJSONReaderRetainsLegacyNumericTimestampAndRawInteger(t *testing.T) {
-	value, err := decodeMigrationJSON[explorer.Explorer](`{"updatedAt":1776620000000,"draftConfig":{"integer":9007199254740993}}`)
+	value, err := db.DecodeMigrationJSON[explorer.Explorer](`{"updatedAt":1776620000000,"draftConfig":{"integer":9007199254740993}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestStoredJSONReaderRetainsLegacyNumericTimestampAndRawInteger(t *testing.T
 		t.Fatalf("legacy timestamp normalization changed packet: %#v", value)
 	}
 	for _, wrong := range []any{nil, map[string]any{"id": "wrong"}, 17, "{malformed"} {
-		if _, err := decodeMigrationJSON[explorer.Explorer](wrong); err == nil {
+		if _, err := db.DecodeMigrationJSON[explorer.Explorer](wrong); err == nil {
 			t.Fatalf("invalid raw reader envelope accepted: %#v", wrong)
 		}
 	}

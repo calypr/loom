@@ -56,7 +56,7 @@ func (s *DraftStore) saveDraft(ctx context.Context, e explorer.Explorer, expecte
 		Write: writeCollections,
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		var previous *explorer.Explorer
-		if err := tx.QueryRows(txCtx, migrationJSONQuery(`FOR d IN @@c
+		if err := tx.QueryRows(txCtx, db.MigrationJSONQuery(`FOR d IN @@c
 FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId
   AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0))
   AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest)
@@ -66,7 +66,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 			"expected": expected, "expectedDigest": digest,
 			"expectedRevision": expectedRevision,
 		}, func(row map[string]any) error {
-			value, decodeErr := decodeDraftRow[explorer.Explorer](row, migration != nil)
+			value, decodeErr := db.DecodeDraftRow[explorer.Explorer](row, migration != nil)
 			previous = &value
 			return decodeErr
 		}); err != nil {
@@ -85,7 +85,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 		}
 		revisionDoc, err := db.Document(revision, revision.ID)
 		if migration != nil {
-			revisionDoc, err = migrationDocument(revision, revision.ID)
+			revisionDoc, err = db.MigrationDocument(revision, revision.ID)
 		}
 		if err != nil {
 			return fmt.Errorf("encode prior Explorer draft revision: %w", err)
@@ -101,9 +101,9 @@ RETURN d`, migration != nil), 1, map[string]any{
 		}
 		if migration != nil {
 			matched := false
-			err := tx.QueryRows(txCtx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
+			err := tx.QueryRows(txCtx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
 				map[string]any{"@c": DraftRevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
-					stored, err := decodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
+					stored, err := db.DecodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
 					if err != nil {
 						return err
 					}
@@ -127,7 +127,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 		}
 
 		var updated *explorer.Explorer
-		if err := tx.QueryRows(txCtx, migrationJSONQuery(`FOR d IN @@c
+		if err := tx.QueryRows(txCtx, db.MigrationJSONQuery(`FOR d IN @@c
 FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId
   AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0))
   AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest)
@@ -143,7 +143,7 @@ UPDATE d WITH MERGE(base, @doc, {
 			"nextVersion":      expected + 1, "revisionId": revision.ID, "doc": draftPatch,
 			"clearDraftConfig": e.DraftConfig == nil,
 		}, func(row map[string]any) error {
-			value, decodeErr := decodeDraftRow[explorer.Explorer](row, migration != nil)
+			value, decodeErr := db.DecodeDraftRow[explorer.Explorer](row, migration != nil)
 			updated = &value
 			return decodeErr
 		}); err != nil {
@@ -172,13 +172,13 @@ func (s *DraftStore) GetDraftRevision(ctx context.Context, project, explorerID, 
 		return nil, explorer.ErrNotFound
 	}
 	var out *explorer.DraftRevision
-	err := s.client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c
+	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c
 FILTER d._key == @key AND d.id == @revisionId AND d.project == @project AND d.explorerId == @explorerId
 RETURN d`, true), 1, map[string]any{
 		"@c": DraftRevisionsCollection, "key": revisionID, "revisionId": revisionID,
 		"project": project, "explorerId": explorerID,
 	}, func(row map[string]any) error {
-		value, decodeErr := decodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
+		value, decodeErr := db.DecodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
 		out = &value
 		return decodeErr
 	})

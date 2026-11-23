@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -33,6 +34,8 @@ type ExplicitGroupStore struct {
 type Store struct {
 	DraftStore
 	selectiondb.SelectionStore
+	workspacedb.RevisionStore
+	workspacedb.WorkspaceStore
 	ExplicitGroupStore
 	ReceiptStore
 	InterpretationStore
@@ -49,6 +52,8 @@ func New(client client) (*Store, error) {
 	return &Store{
 		DraftStore:          DraftStore{client: client},
 		SelectionStore:      selections,
+		RevisionStore:       workspacedb.NewRevisionStore(client),
+		WorkspaceStore:      workspacedb.NewWorkspaceStore(client),
 		ExplicitGroupStore:  ExplicitGroupStore{client: client, selections: selections},
 		ReceiptStore:        ReceiptStore{client: client},
 		InterpretationStore: InterpretationStore{client: client},

@@ -1,4 +1,4 @@
-package arango
+package workspacedb
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) (*explorer.Revision, error) {
+func (s *RevisionStore) InsertRevision(ctx context.Context, revision explorer.Revision) (*explorer.Revision, error) {
 	if revision.ID == "" {
 		return nil, fmt.Errorf("revision ID is required")
 	}
@@ -23,7 +23,7 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 		out      *explorer.Revision
 		existing *explorer.Revision
 	)
-	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN {new: NEW, old: OLD}`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID, "doc": doc}, func(row map[string]any) error {
+	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN {new: NEW, old: OLD}`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID, "doc": doc}, func(row map[string]any) error {
 		if value, ok := row["new"]; ok && value != nil {
 			decoded, err := db.Decode[explorer.Revision](value)
 			if err != nil {
@@ -43,7 +43,7 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil && !sameRevisionContent(*existing, revision) {
+	if existing != nil && !SameRevisionContent(*existing, revision) {
 		return nil, explorer.ErrImmutableRevision
 	}
 	if out == nil && existing != nil {
@@ -55,7 +55,7 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 	return out, nil
 }
 
-func sameRevisionContent(left, right explorer.Revision) bool {
+func SameRevisionContent(left, right explorer.Revision) bool {
 	leftContent := revisionImmutableContent(left)
 	rightContent := revisionImmutableContent(right)
 	return reflect.DeepEqual(leftContent, rightContent)
@@ -91,10 +91,10 @@ func revisionImmutableContent(value explorer.Revision) immutableRevision {
 	}
 }
 
-func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision, error) {
+func (s *RevisionStore) GetRevision(ctx context.Context, id string) (*explorer.Revision, error) {
 	var out *explorer.Revision
-	err := s.client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": RevisionsCollection, "key": id}, func(row map[string]any) error {
-		value, err := decodeMigrationJSON[explorer.Revision](row["migrationJSON"])
+	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": db.RevisionsCollection, "key": id}, func(row map[string]any) error {
+		value, err := db.DecodeMigrationJSON[explorer.Revision](row["migrationJSON"])
 		out = &value
 		return err
 	})
@@ -107,11 +107,11 @@ func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision,
 	return out, nil
 }
 
-func (s *Store) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+func (s *RevisionStore) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	now := time.Now().UTC()
 	patch := map[string]any{"status": explorer.RevisionFailed, "diagnostics": diagnostics, "failedAt": now}
 	var out *explorer.Revision
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH @patch IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": id, "patch": patch}, func(row map[string]any) error {
+	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH @patch IN @@c RETURN NEW`, 1, map[string]any{"@c": db.RevisionsCollection, "key": id, "patch": patch}, func(row map[string]any) error {
 		value, err := db.Decode[explorer.Revision](row)
 		out = &value
 		return err

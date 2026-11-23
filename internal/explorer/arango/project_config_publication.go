@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"reflect"
 	"strings"
 	"time"
@@ -660,7 +661,7 @@ func validateProjectConfigRevisionGuards(plans []projectConfigOwnerPlan, retired
 }
 
 func sameProjectConfigRevision(existing, candidate explorer.Revision) bool {
-	return sameRevisionContent(existing, candidate) &&
+	return workspacedb.SameRevisionContent(existing, candidate) &&
 		existing.Publication.Generation == candidate.Publication.Generation &&
 		existing.Publication.ExecutionID == candidate.Publication.ExecutionID
 }

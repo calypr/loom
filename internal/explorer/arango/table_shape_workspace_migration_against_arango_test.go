@@ -684,7 +684,7 @@ func TestTableShapeMigrationLargeIntegerOwnerAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := explorer.Explorer{Project: "project-wp17-precision", ExplorerID: "large-integer", Title: "Exact integer", ManagementMode: explorer.ManagementInteractive, DraftVersion: 7, DraftDigest: migrated.OriginalCanonicalDigest, DraftConfig: raw, DraftSnapshotToken: "snapshot-precision", DraftSourceGeneration: "generation-precision", DraftAuthorizationScopeDigest: "scope-precision"}
-	doc, err := migrationDocument(owner, explorerKey(owner.Project, owner.ExplorerID))
+	doc, err := db.MigrationDocument(owner, explorerKey(owner.Project, owner.ExplorerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -775,7 +775,7 @@ func TestTableShapeArchivedLargeIntegerReceiptAgainstArango(t *testing.T) {
 	if err := receipt.ValidateID(); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := migrationDocument(receipt, receipt.ID)
+	doc, err := db.MigrationDocument(receipt, receipt.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

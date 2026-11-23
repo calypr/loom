@@ -89,8 +89,8 @@ func (s *ReceiptStore) GetCompilationReceiptForExplorer(ctx context.Context, pro
 
 func (s *ReceiptStore) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
 	var out *explorer.CompilationReceipt
-	err := s.client.QueryRows(ctx, migrationJSONQuery(query, true), 1, binds, func(row map[string]any) error {
-		value, decodeErr := decodeMigrationJSON[explorer.CompilationReceipt](row["migrationJSON"])
+	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(query, true), 1, binds, func(row map[string]any) error {
+		value, decodeErr := db.DecodeMigrationJSON[explorer.CompilationReceipt](row["migrationJSON"])
 		if decodeErr != nil {
 			return decodeErr
 		}

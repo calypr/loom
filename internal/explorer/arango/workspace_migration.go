@@ -236,9 +236,9 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 				source = explorer.RevisionWorkspaceArtifact(revision)
 			}
 			found := false
-			err := client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
+			err := client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
 				map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(source)}, func(row map[string]any) error {
-					projection, err := decodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
+					projection, err := db.DecodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
 					if err != nil {
 						return err
 					}
@@ -404,7 +404,7 @@ func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, p
 	if err := target.validateProjection(projection, projection.Source); err != nil {
 		return err
 	}
-	doc, err := migrationDocument(projection, target.projectionKey(projection.Source))
+	doc, err := db.MigrationDocument(projection, target.projectionKey(projection.Source))
 	if err != nil {
 		return err
 	}
@@ -412,8 +412,8 @@ func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, p
 	if err := query.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": workspaceProjectionCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		return err
 	}
-	if err := query.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(projection.Source)}, func(row map[string]any) error {
-		value, err := decodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
+	if err := query.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(projection.Source)}, func(row map[string]any) error {
+		value, err := db.DecodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
 		stored = &value
 		return err
 	}); err != nil {

@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -28,9 +29,9 @@ func MigrateStoredSourcePlan(ctx context.Context, client *store.Client, project,
 		Revision string `json:"_rev"`
 	}
 	var stored storedOwner
-	err = client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorer RETURN d`, true), 1,
+	err = client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorer RETURN d`, true), 1,
 		map[string]any{"@c": ExplorersCollection, "key": explorerKey(project, explorerID), "project": project, "explorer": explorerID}, func(row map[string]any) error {
-			value, decodeErr := decodeMigrationJSON[storedOwner](row["migrationJSON"])
+			value, decodeErr := db.DecodeMigrationJSON[storedOwner](row["migrationJSON"])
 			stored = value
 			return decodeErr
 		})

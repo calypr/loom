@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -32,7 +33,7 @@ FOR projection IN @@projections
 		map[string]any{"@ledger": workspaceMigrationLedger, "encodingVersion": workspaceMigrationVersion,
 			"constructionVersion": tableShapeWorkspaceMigrationVersion, "@projections": workspaceProjectionCollection,
 			"encodingKey": source.Key(), "constructionKey": tableShapeConstructionTarget.projectionKey(source)}, func(row map[string]any) error {
-			value, err := decodeMigrationJSON[explorer.WorkspaceProjection](row["projection"])
+			value, err := db.DecodeMigrationJSON[explorer.WorkspaceProjection](row["projection"])
 			if err != nil {
 				return err
 			}
