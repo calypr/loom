@@ -57,10 +57,10 @@ func (s *Core) Preview(ctx context.Context, request PreviewRequest) (PreviewResu
 	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
 		return PreviewResult{}, support.Conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
-	if err := ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return PreviewResult{}, support.Conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if !ReceiptHasOutput(receipt.Bundle, request.OutputID) || ValidateReceiptOutputContract(receipt, request.OutputID) != nil {
+	if !support.ReceiptHasOutput(receipt.Bundle, request.OutputID) || support.ValidateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return PreviewResult{}, support.Unprocessable("preview", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
 	bindings := recipe.RuntimeBindings{
@@ -69,7 +69,7 @@ func (s *Core) Preview(ctx context.Context, request PreviewRequest) (PreviewResu
 		PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true, IncludeSourceIdentity: true,
 		AllowSampledAggregatePreview: request.AllowSampledAggregatePreview,
 	}
-	ApplyAuthorizedScope(&bindings, authorized, false)
+	support.ApplyAuthorizedScope(&bindings, authorized, false)
 	columns := EmittedColumnsForOutput(receipt, request.OutputID)
 	result := PreviewResult{Receipt: receipt, Columns: columns}
 	if request.SinkFactory == nil {

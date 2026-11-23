@@ -75,10 +75,10 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
 		return CellTraceResult{}, support.Conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
-	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return CellTraceResult{}, support.Conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if !authoringcore.ReceiptHasOutput(receipt.Bundle, request.OutputID) || authoringcore.ValidateReceiptOutputContract(receipt, request.OutputID) != nil {
+	if !support.ReceiptHasOutput(receipt.Bundle, request.OutputID) || support.ValidateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return CellTraceResult{}, support.Unprocessable("cellTrace", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
 	feature, ok := receiptCellTraceFeature(receipt, request.OutputID, request.Column)
@@ -91,7 +91,7 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		OutputNames: []string{request.OutputID},
 	}
-	authoringcore.ApplyAuthorizedScope(&bindings, authorized, false)
+	support.ApplyAuthorizedScope(&bindings, authorized, false)
 	trace, err := s.config.CellTrace(ctx, receipt, bindings, dataframeexecution.CellTraceRequest{
 		Output: request.OutputID, RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column),
 		Offset: request.Offset, Limit: request.Limit,
