@@ -326,211 +326,23 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 		}
 	}
 
+	workerState := &fileLoadWorkerState{
+		opts: opts, datasetGeneration: datasetGeneration, resourceType: resourceType,
+		semanticSourceFile: semanticSourceFile, file: file, shapeCache: shapeCache,
+		fileCtx: fileCtx, ctx: ctx, linesChan: linesChan, writeChan: writeChan,
+		workerTimingsChan: workerTimingsChan, workerCatalogsChan: workerCatalogsChan,
+		workerInventoryChan: workerInventoryChan, setPipelineErr: setPipelineErr,
+		recordRowError: recordRowError, inventoryRunsMu: &inventoryRunsMu, inventoryRuns: &inventoryRuns,
+		fileRows: &fileRows, fileVertices: &fileVertices, fileEdges: &fileEdges,
+		verticesInserted: &verticesInserted, edgesInserted: &edgesInserted,
+		validationErrors: &validationErrors, generationErrors: &generationErrors, edgeErrors: &edgeErrors,
+		rowBuilder: rowBuilder, start: start, priorVertices: priorVertices, priorEdges: priorEdges,
+	}
 	for worker := 0; worker < workerCount; worker++ {
 		workersWG.Add(1)
 		go func() {
 			defer workersWG.Done()
-			localTimings := make(map[string]float64)
-			localCatalog := fieldprofile.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
-			localInventory := semantic.NewEntryAggregator(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, semantic.SourceFile)
-			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
-			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
-			edgeRelationshipCounts := make(map[catalog.RelationshipKey]int64)
-			edgeRelationshipsKnown := true
-			semanticInventoryFailed := false
-			flushInventoryRun := func() bool {
-				if localInventory.Len() == 0 {
-					return true
-				}
-				spillStart := time.Now()
-				path, spillErr := writeSemanticInventoryEntryRun(localInventory)
-				localTimings["semantic_inventory_spill"] += time.Since(spillStart).Seconds()
-				if spillErr != nil {
-					semanticInventoryFailed = true
-					setPipelineErr(fmt.Errorf("spill semantic inventory for %s: %w", filepath.Base(file), spillErr))
-					return false
-				}
-				inventoryRunsMu.Lock()
-				inventoryRuns = append(inventoryRuns, path)
-				inventoryRunsMu.Unlock()
-				return true
-			}
-
-			flushVertexBatch := func() bool {
-				if len(vertexBatch) == 0 {
-					return true
-				}
-				waitStart := time.Now()
-				select {
-				case writeChan <- fileWriteTask{collection: resourceType, docs: vertexBatch}:
-					localTimings["vertex_queue_wait"] += time.Since(waitStart).Seconds()
-					localTimings["vertex_batches"]++
-					vertexBatch = make([]json.RawMessage, 0, opts.BatchSize)
-					return true
-				case <-fileCtx.Done():
-					localTimings["vertex_queue_wait"] += time.Since(waitStart).Seconds()
-					return false
-				}
-			}
-			flushEdgeBatch := func() bool {
-				if len(edgeBatch) == 0 {
-					return true
-				}
-				relationshipCounts := edgeRelationshipCounts
-				if !edgeRelationshipsKnown {
-					var countErr error
-					relationshipCounts, countErr = catalog.RelationshipCountsFromRawEdges(edgeBatch)
-					if countErr != nil {
-						setPipelineErr(countErr)
-						return false
-					}
-				}
-				waitStart := time.Now()
-				select {
-				case writeChan <- fileWriteTask{collection: bootstrap.EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
-					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
-					localTimings["edge_batches"]++
-					edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
-					edgeRelationshipCounts = make(map[catalog.RelationshipKey]int64)
-					edgeRelationshipsKnown = true
-					return true
-				case <-fileCtx.Done():
-					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
-					return false
-				}
-			}
-			for {
-				select {
-				case <-fileCtx.Done():
-					return
-				case lines, open := <-linesChan:
-					if !open {
-						if !flushVertexBatch() || !flushEdgeBatch() {
-							return
-						}
-						select {
-						case workerTimingsChan <- localTimings:
-						case <-ctx.Done():
-						}
-						select {
-						case workerCatalogsChan <- localCatalog:
-						case <-ctx.Done():
-						}
-						workerInventoryChan <- localInventory
-						return
-					}
-					if opts.fileWorkerBudget != nil {
-						select {
-						case opts.fileWorkerBudget <- struct{}{}:
-						case <-fileCtx.Done():
-							return
-						}
-					}
-					releaseWorkerBudget := func() {
-						if opts.fileWorkerBudget != nil {
-							<-opts.fileWorkerBudget
-						}
-					}
-					for _, line := range lines {
-						select {
-						case <-fileCtx.Done():
-							releaseWorkerBudget()
-							return
-						default:
-						}
-						built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
-						if buildErr != nil {
-							if opts.FailFast {
-								setPipelineErr(&row.RowError{File: filepath.Base(file), ResourceType: resourceType,
-									Row: line.number, Category: string(errorType), Cause: buildErr})
-								releaseWorkerBudget()
-								return
-							}
-							recordRowError(line.number, errorType, buildErr)
-							switch errorType {
-							case row.RowErrorValidation:
-								atomic.AddInt64(&validationErrors, 1)
-							case row.RowErrorGeneration:
-								atomic.AddInt64(&generationErrors, 1)
-							case row.RowErrorEdge:
-								atomic.AddInt64(&edgeErrors, 1)
-							}
-							continue
-						}
-
-						if semanticSourceFile == "" {
-							if observeErr := localCatalog.ObservePayload(built.Payload(), localTimings); observeErr != nil {
-								setPipelineErr(fmt.Errorf("observe payload for %s row %d: %w", filepath.Base(file), line.number, observeErr))
-								releaseWorkerBudget()
-								return
-							}
-						} else {
-							sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
-							semanticSink := func(contribution semantic.Contribution) {
-								if semanticInventoryFailed || fileCtx.Err() != nil {
-									return
-								}
-								if addErr := localInventory.Add(contribution); addErr != nil {
-									semanticInventoryFailed = true
-									setPipelineErr(fmt.Errorf("aggregate semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, addErr))
-								}
-							}
-							if observeErr := localCatalog.ObservePayloadWithInventory(built.Payload(), localTimings, sourceID, semanticSink); observeErr != nil {
-								semanticInventoryFailed = true
-								setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
-							}
-							if fileCtx.Err() != nil {
-								releaseWorkerBudget()
-								return
-							}
-							if localInventory.Len() >= semanticInventoryRunKeyLimit && !flushInventoryRun() {
-								releaseWorkerBudget()
-								return
-							}
-						}
-						vertexBatch = append(vertexBatch, built.Vertex())
-						atomic.AddInt64(&fileVertices, 1)
-						if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
-							releaseWorkerBudget()
-							return
-						}
-						for edgeIndex, edge := range built.Edges() {
-							if edgeIndex < len(built.Relationships()) {
-								edgeRelationshipCounts[built.Relationships()[edgeIndex]]++
-							} else {
-								edgeRelationshipsKnown = false
-							}
-							edgeBatch = append(edgeBatch, edge)
-							atomic.AddInt64(&fileEdges, 1)
-							if len(edgeBatch) >= opts.BatchSize && !flushEdgeBatch() {
-								releaseWorkerBudget()
-								return
-							}
-						}
-
-						currentRows := atomic.AddInt64(&fileRows, 1)
-						if currentRows%int64(opts.ProgressEvery) == 0 {
-							verticesTotal := priorVertices + int(atomic.LoadInt64(&verticesInserted))
-							edgesTotal := priorEdges + int(atomic.LoadInt64(&edgesInserted))
-							if opts.fileInsertedCounters != nil {
-								verticesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.vertices))
-								edgesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.edges))
-							}
-							ingestevent.EmitEvent(opts.EventSink, "go_load_progress", map[string]any{
-								"file":              filepath.Base(file),
-								"resource":          resourceType,
-								"file_rows":         currentRows,
-								"file_vertices":     atomic.LoadInt64(&fileVertices),
-								"file_edges":        atomic.LoadInt64(&fileEdges),
-								"vertices_inserted": verticesTotal,
-								"edges_inserted":    edgesTotal,
-								"seconds":           ingestevent.SecondsSince(start),
-							})
-						}
-					}
-					releaseWorkerBudget()
-				}
-			}
+			runFileLoadWorker(workerState)
 		}()
 	}
 
@@ -632,6 +444,261 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 	result.StageSeconds["semantic_inventory_aggregate_encode"] = inventoryBuildSeconds
 	result.Catalog = mergedCatalog
 	return result, nil
+}
+
+type fileLoadWorkerState struct {
+	opts                LoadOptions
+	datasetGeneration   string
+	resourceType        string
+	semanticSourceFile  string
+	file                string
+	shapeCache          *fieldprofile.ShapePlanCache
+	fileCtx             context.Context
+	ctx                 context.Context
+	linesChan           chan []fileLine
+	writeChan           chan fileWriteTask
+	workerTimingsChan   chan map[string]float64
+	workerCatalogsChan  chan *fieldprofile.Profiler
+	workerInventoryChan chan *semantic.EntryAggregator
+	setPipelineErr      func(error)
+	recordRowError      func(int, row.RowErrorType, error)
+	inventoryRunsMu     *sync.Mutex
+	inventoryRuns       *[]string
+	fileRows            *int64
+	fileVertices        *int64
+	fileEdges           *int64
+	verticesInserted    *int64
+	edgesInserted       *int64
+	validationErrors    *int64
+	generationErrors    *int64
+	edgeErrors          *int64
+	rowBuilder          row.RowBuilder
+	start               time.Time
+	priorVertices       int
+	priorEdges          int
+}
+
+func runFileLoadWorker(state *fileLoadWorkerState) {
+	opts := state.opts
+	datasetGeneration := state.datasetGeneration
+	resourceType := state.resourceType
+	semanticSourceFile := state.semanticSourceFile
+	file := state.file
+	shapeCache := state.shapeCache
+	fileCtx := state.fileCtx
+	ctx := state.ctx
+	linesChan := state.linesChan
+	writeChan := state.writeChan
+	workerTimingsChan := state.workerTimingsChan
+	workerCatalogsChan := state.workerCatalogsChan
+	workerInventoryChan := state.workerInventoryChan
+	setPipelineErr := state.setPipelineErr
+	recordRowError := state.recordRowError
+	rowBuilder := state.rowBuilder
+	start := state.start
+	priorVertices := state.priorVertices
+	priorEdges := state.priorEdges
+	localTimings := make(map[string]float64)
+	localCatalog := fieldprofile.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
+	localInventory := semantic.NewEntryAggregator(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, semantic.SourceFile)
+	vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
+	edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
+	edgeRelationshipCounts := make(map[catalog.RelationshipKey]int64)
+	edgeRelationshipsKnown := true
+	semanticInventoryFailed := false
+	flushInventoryRun := func() bool {
+		if localInventory.Len() == 0 {
+			return true
+		}
+		spillStart := time.Now()
+		path, spillErr := writeSemanticInventoryEntryRun(localInventory)
+		localTimings["semantic_inventory_spill"] += time.Since(spillStart).Seconds()
+		if spillErr != nil {
+			semanticInventoryFailed = true
+			setPipelineErr(fmt.Errorf("spill semantic inventory for %s: %w", filepath.Base(file), spillErr))
+			return false
+		}
+		state.inventoryRunsMu.Lock()
+		*state.inventoryRuns = append(*state.inventoryRuns, path)
+		state.inventoryRunsMu.Unlock()
+		return true
+	}
+
+	flushVertexBatch := func() bool {
+		if len(vertexBatch) == 0 {
+			return true
+		}
+		waitStart := time.Now()
+		select {
+		case writeChan <- fileWriteTask{collection: resourceType, docs: vertexBatch}:
+			localTimings["vertex_queue_wait"] += time.Since(waitStart).Seconds()
+			localTimings["vertex_batches"]++
+			vertexBatch = make([]json.RawMessage, 0, opts.BatchSize)
+			return true
+		case <-fileCtx.Done():
+			localTimings["vertex_queue_wait"] += time.Since(waitStart).Seconds()
+			return false
+		}
+	}
+	flushEdgeBatch := func() bool {
+		if len(edgeBatch) == 0 {
+			return true
+		}
+		relationshipCounts := edgeRelationshipCounts
+		if !edgeRelationshipsKnown {
+			var countErr error
+			relationshipCounts, countErr = catalog.RelationshipCountsFromRawEdges(edgeBatch)
+			if countErr != nil {
+				setPipelineErr(countErr)
+				return false
+			}
+		}
+		waitStart := time.Now()
+		select {
+		case writeChan <- fileWriteTask{collection: bootstrap.EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
+			localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
+			localTimings["edge_batches"]++
+			edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
+			edgeRelationshipCounts = make(map[catalog.RelationshipKey]int64)
+			edgeRelationshipsKnown = true
+			return true
+		case <-fileCtx.Done():
+			localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
+			return false
+		}
+	}
+	for {
+		select {
+		case <-fileCtx.Done():
+			return
+		case lines, open := <-linesChan:
+			if !open {
+				if !flushVertexBatch() || !flushEdgeBatch() {
+					return
+				}
+				select {
+				case workerTimingsChan <- localTimings:
+				case <-ctx.Done():
+				}
+				select {
+				case workerCatalogsChan <- localCatalog:
+				case <-ctx.Done():
+				}
+				workerInventoryChan <- localInventory
+				return
+			}
+			if opts.fileWorkerBudget != nil {
+				select {
+				case opts.fileWorkerBudget <- struct{}{}:
+				case <-fileCtx.Done():
+					return
+				}
+			}
+			releaseWorkerBudget := func() {
+				if opts.fileWorkerBudget != nil {
+					<-opts.fileWorkerBudget
+				}
+			}
+			for _, line := range lines {
+				select {
+				case <-fileCtx.Done():
+					releaseWorkerBudget()
+					return
+				default:
+				}
+				built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
+				if buildErr != nil {
+					if opts.FailFast {
+						setPipelineErr(&row.RowError{File: filepath.Base(file), ResourceType: resourceType,
+							Row: line.number, Category: string(errorType), Cause: buildErr})
+						releaseWorkerBudget()
+						return
+					}
+					recordRowError(line.number, errorType, buildErr)
+					switch errorType {
+					case row.RowErrorValidation:
+						atomic.AddInt64(state.validationErrors, 1)
+					case row.RowErrorGeneration:
+						atomic.AddInt64(state.generationErrors, 1)
+					case row.RowErrorEdge:
+						atomic.AddInt64(state.edgeErrors, 1)
+					}
+					continue
+				}
+
+				if semanticSourceFile == "" {
+					if observeErr := localCatalog.ObservePayload(built.Payload(), localTimings); observeErr != nil {
+						setPipelineErr(fmt.Errorf("observe payload for %s row %d: %w", filepath.Base(file), line.number, observeErr))
+						releaseWorkerBudget()
+						return
+					}
+				} else {
+					sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
+					semanticSink := func(contribution semantic.Contribution) {
+						if semanticInventoryFailed || fileCtx.Err() != nil {
+							return
+						}
+						if addErr := localInventory.Add(contribution); addErr != nil {
+							semanticInventoryFailed = true
+							setPipelineErr(fmt.Errorf("aggregate semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, addErr))
+						}
+					}
+					if observeErr := localCatalog.ObservePayloadWithInventory(built.Payload(), localTimings, sourceID, semanticSink); observeErr != nil {
+						semanticInventoryFailed = true
+						setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
+					}
+					if fileCtx.Err() != nil {
+						releaseWorkerBudget()
+						return
+					}
+					if localInventory.Len() >= semanticInventoryRunKeyLimit && !flushInventoryRun() {
+						releaseWorkerBudget()
+						return
+					}
+				}
+				vertexBatch = append(vertexBatch, built.Vertex())
+				atomic.AddInt64(state.fileVertices, 1)
+				if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
+					releaseWorkerBudget()
+					return
+				}
+				for edgeIndex, edge := range built.Edges() {
+					if edgeIndex < len(built.Relationships()) {
+						edgeRelationshipCounts[built.Relationships()[edgeIndex]]++
+					} else {
+						edgeRelationshipsKnown = false
+					}
+					edgeBatch = append(edgeBatch, edge)
+					atomic.AddInt64(state.fileEdges, 1)
+					if len(edgeBatch) >= opts.BatchSize && !flushEdgeBatch() {
+						releaseWorkerBudget()
+						return
+					}
+				}
+
+				currentRows := atomic.AddInt64(state.fileRows, 1)
+				if currentRows%int64(opts.ProgressEvery) == 0 {
+					verticesTotal := priorVertices + int(atomic.LoadInt64(state.verticesInserted))
+					edgesTotal := priorEdges + int(atomic.LoadInt64(state.edgesInserted))
+					if opts.fileInsertedCounters != nil {
+						verticesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.vertices))
+						edgesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.edges))
+					}
+					ingestevent.EmitEvent(opts.EventSink, "go_load_progress", map[string]any{
+						"file":              filepath.Base(file),
+						"resource":          resourceType,
+						"file_rows":         currentRows,
+						"file_vertices":     atomic.LoadInt64(state.fileVertices),
+						"file_edges":        atomic.LoadInt64(state.fileEdges),
+						"vertices_inserted": verticesTotal,
+						"edges_inserted":    edgesTotal,
+						"seconds":           ingestevent.SecondsSince(start),
+					})
+				}
+			}
+			releaseWorkerBudget()
+		}
+	}
 }
 
 func semanticInventorySourceFileID(root, file string) string {
