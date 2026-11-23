@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
@@ -23,8 +24,10 @@ type ClickHouseQueryer interface {
 }
 
 type ReaderCatalog interface {
-	bundlepublication.BundleCatalog
-	bundlepublication.ExactExecutionCatalog
+	GetExecution(context.Context, string) (bundlepublication.BundleExecution, error)
+	FindExecutionBySelector(context.Context, string, string, bundlepublication.DataframeSelector) (bundlepublication.BundleExecution, bundlepublication.BundleOutputRecord, error)
+	ListExecutions(context.Context, bundlepublication.BundleState, time.Time) ([]bundlepublication.BundleExecution, error)
+	GetPointer(context.Context, string) (bundlepublication.BundlePointer, error)
 }
 
 type Reader struct {
