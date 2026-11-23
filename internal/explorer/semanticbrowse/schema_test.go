@@ -1,4 +1,4 @@
-package lifecycle
+package semanticbrowse
 
 import (
 	"context"
@@ -98,11 +98,11 @@ func TestSearchSchemaFieldsRejectsCursorAfterAuthorizationScopeChange(t *testing
 	initialScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := schemaFieldsTestSnapshot(initialScope, nil)
 	currentScope := initialScope
-	service := &Service{config: Config{Capability: ports.CapabilityResolver{
+	service := NewService(Config{Capability: ports.CapabilityResolver{
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
 		},
-	}}}
+	}})
 	first, err := service.SearchSchemaFields(context.Background(), SearchSchemaFieldsRequest{
 		Project: snapshot.Identity.Project, ExplorerID: "builder", SnapshotToken: snapshot.Token,
 		NodeID: "observation-node", Limit: 1,
@@ -195,11 +195,11 @@ func schemaFieldsTestSnapshot(scope authscope.ReadScope, candidates []capability
 }
 
 func schemaFieldsTestService(snapshot capability.Snapshot, scope authscope.ReadScope) *Service {
-	return &Service{config: Config{Capability: ports.CapabilityResolver{
+	return NewService(Config{Capability: ports.CapabilityResolver{
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		},
-	}}}
+	}})
 }
 
 func schemaFieldsErrorCode(err error, code string) bool {

@@ -1100,7 +1100,7 @@ func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 			priorFamily.ValueFallbacks = nil
 			priorFamily.FallbackOnBlankString = false
 
-			projected, plan, ok := semanticEntryForFrameFamily(currentEntry, priorFamily)
+			projected, plan, ok := semanticbrowse.SemanticEntryForFrameFamily(currentEntry, priorFamily)
 			if !ok || !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
 				t.Fatalf("prior frame did not reauthorize against the exact current inventory: ok=%v plan=%#v family=%#v", ok, plan, priorFamily)
 			}
@@ -1136,7 +1136,7 @@ func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 				t.Run(test.name, func(t *testing.T) {
 					changed := priorFamily
 					test.mutate(&changed)
-					if _, _, accepted := semanticEntryForFrameFamily(currentEntry, changed); accepted {
+					if _, _, accepted := semanticbrowse.SemanticEntryForFrameFamily(currentEntry, changed); accepted {
 						t.Fatalf("accepted tampered or unknown legacy frame identity: %#v", changed)
 					}
 
@@ -1147,11 +1147,11 @@ func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 			changedObservation.Key.Version = "2024"
 			changedEntry := currentEntry
 			changedEntry.Observation = changedObservation
-			if _, _, accepted := semanticEntryForFrameFamily(changedEntry, priorFamily); accepted {
+			if _, _, accepted := semanticbrowse.SemanticEntryForFrameFamily(changedEntry, priorFamily); accepted {
 				t.Fatal("accepted a version-specific code for a prior versionless frame")
 			}
 
-			fresh, freshPlan, freshOK := semanticEntryForFrameFamily(currentEntry, currentFamily)
+			fresh, freshPlan, freshOK := semanticbrowse.SemanticEntryForFrameFamily(currentEntry, currentFamily)
 			if !freshOK || !freshPlan.Readiness.Addable() || !reflect.DeepEqual(fresh.Observation.Value, observation.Value) {
 				t.Fatalf("current frame did not keep current fallback semantics: ok=%v plan=%#v value=%#v", freshOK, freshPlan, fresh.Observation.Value)
 			}

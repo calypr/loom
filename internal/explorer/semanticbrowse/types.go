@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	semanticFieldPresentationRevision = "semantic-field-presentation/v1"
-	fieldPresentationCandidateLimit   = 50
-	fieldPresentationReplacementLimit = 100
+	SemanticFieldPresentationRevision = "semantic-field-presentation/v1"
+	FieldPresentationCandidateLimit   = 50
+	FieldPresentationReplacementLimit = 100
 )
 
 type BrowseSemanticInventoryRequest struct {
@@ -54,7 +54,7 @@ func (request FieldPresentationRequest) Validate() error {
 	if request.StageID != nil && (strings.TrimSpace(*request.StageID) == "" || *request.StageID != strings.TrimSpace(*request.StageID)) {
 		return errors.New("fieldPresentation stageId must be a non-empty exact identifier when present")
 	}
-	if len(request.CandidateIDs) < 1 || len(request.CandidateIDs) > fieldPresentationCandidateLimit {
+	if len(request.CandidateIDs) < 1 || len(request.CandidateIDs) > FieldPresentationCandidateLimit {
 		return errors.New("fieldPresentation candidateIds must contain between 1 and 50 opaque candidate IDs")
 	}
 	seen := make(map[string]struct{}, len(request.CandidateIDs))

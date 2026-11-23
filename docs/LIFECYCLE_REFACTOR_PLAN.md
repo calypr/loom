@@ -240,7 +240,19 @@ actual symbol moves, behavior checks, and audit registration remain Phase 3 work
   (Go diff and new-file fingerprint `ee9e753f265638067feb486595f15f706611e543081ac1aa2ee77b102d365f83`).
   Their focused compile and receipt, preview and owner, and service wiring checks found
   no proven behavioral regressions.
-- Phase 4 — worktree verification in progress.
+- Phase 4 — done. Semantic inventory, field presentation, schema
+  search, column source, and frame options moved to `semanticbrowse`. Coded Pivot
+  reauthorization moved to construction, where its caller and direct-root constraint
+  live. General frame commands retain routed reauthorization and their original error
+  stages. Review caught a coded-only restriction leaking into general frame apply.
+  SET and REPLACE now have a regression test. The focused Go suites and unchanged
+  Explorer API tests passed. The Loom verify flow passed its related-field and
+  starting-record Chrome cases on the repaired source. The UI suite passed 1,600
+  tests with isolated lockfile dependencies. Lifecycle source went from 6,173 to
+  3,350 lines and tests went from 28,516 to 28,379 lines. Build, vet, lint, focused
+  and full audits, and integration passed. A prep worker briefly modified unstaged
+  Go files during verification. Those edits were reversed and the full audit and
+  integration both passed on the restored snapshot.
 - Phase 5 — done. Publish, repository publish, and artifact preparation, download,
   descriptors, identity, and row delay now belong to `explorer/publication`. The name
   identifies Explorer publication and artifacts. `server/sourcepublication` remains

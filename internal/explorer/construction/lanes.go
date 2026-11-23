@@ -5,8 +5,6 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 )
 
@@ -83,11 +81,4 @@ func (s *Service) constructionCandidateWithUnpivotSources(ctx context.Context, b
 
 func (s *Service) reauthorizeConstructionUnpivotSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
 	return s.sourceLanes().ReauthorizeConstructionUnpivotSources(ctx, base, outputID, construction)
-}
-
-func (s *Service) reauthorizeFrameSourceChoice(ctx context.Context, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity, base Base) (FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
-	if s.config.ReauthorizeFrameSourceChoice == nil {
-		return FrameSourceFamilyCandidate{}, nil, unavailable("construction-proposal", "FRAME_SOURCE_UNAVAILABLE", "frame source reauthorization is not configured", nil)
-	}
-	return s.config.ReauthorizeFrameSourceChoice(ctx, base, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
 }

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+
 	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -348,7 +350,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete || resolved.Build.BuildID != expectedBuildID {
 		return nil, support.Conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
 	}
-	expectedContext, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, expectedBuildID)
+	expectedContext, err := semanticbrowse.SemanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, expectedBuildID)
 	if err != nil {
 		return nil, err
 	}

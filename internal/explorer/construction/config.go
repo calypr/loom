@@ -82,8 +82,6 @@ type Config struct {
 	Now                          func() time.Time
 
 	SourceLanes SourceLanes
-
-	ReauthorizeFrameSourceChoice func(context.Context, Base, string, string, string, string, string, ports.AuthorizedCapability, capability.ConstructionChoiceIdentity) (FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error)
 }
 
 type SourceLanes interface {

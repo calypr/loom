@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"bytes"
 	"context"
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	"reflect"
 	"strings"
 	"testing"
@@ -395,5 +396,5 @@ func constructionSemanticChoiceSetup(t *testing.T, mutateEntry func(*semantic.En
 }
 
 func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	return semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
+	return semanticbrowse.SemanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
 }

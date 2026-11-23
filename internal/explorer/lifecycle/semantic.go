@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	"reflect"
 
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -35,5 +36,9 @@ func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string)
 	if found {
 		return match, true
 	}
-	return resolveSchemaFieldCandidate(snapshot, candidateID)
+	return semanticbrowse.ResolveSchemaFieldCandidate(snapshot, candidateID)
+}
+
+func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string) (string, error) {
+	return semanticbrowse.SemanticInventoryContextToken(snapshot, explorerID, rowRoot, buildID)
 }

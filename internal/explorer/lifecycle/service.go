@@ -27,6 +27,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/explorer/selection"
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -45,6 +46,7 @@ type Service struct {
 	populationService     *population.Service
 	proposalService       *proposal.Service
 	publicationService    *publication.Service
+	semanticBrowse        *semanticbrowse.Service
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -146,6 +148,18 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.constructionService = constructionService
+	service.semanticBrowse = semanticbrowse.NewService(semanticbrowse.Config{
+		Core:                               service.core,
+		Capability:                         config.Capability,
+		SemanticInventory:                  config.SemanticInventory,
+		SemanticCoverage:                   config.SemanticCoverage,
+		ResolveSemanticInventorySelections: config.ResolveSemanticInventorySelections,
+		ProvePopulationRoute:               provePopulationRoute,
+		ReauthorizeFrameSourceChoice: func(ctx context.Context, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (semanticbrowse.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+			family, route, err := service.constructionService.ReauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
+			return semanticbrowse.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err
+		},
+	})
 	populationService, err := population.NewService(service.populationConfig())
 	if err != nil {
 		return nil, err
@@ -203,10 +217,6 @@ func (s *Service) constructionConfig() construction.Config {
 		ConstructionBaseCacheEntries:       s.config.ConstructionBaseCacheEntries,
 		Now:                                s.now,
 		SourceLanes:                        s.rowSourceService,
-		ReauthorizeFrameSourceChoice: func(ctx context.Context, base construction.Base, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (construction.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
-			family, route, err := s.reauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
-			return construction.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err
-		},
 	}
 }
 

@@ -85,7 +85,7 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 		if err != nil || identity.SnapshotToken != base.Snapshot.Token {
 			return candidate, nil, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the coded source for the current authorized snapshot", nil, err)
 		}
-		family, route, err := s.reauthorizeFrameSourceChoice(ctx, base.Snapshot.Identity.Project, base.ExplorerID, base.Document.RootResourceType, outputID, coded.SourceChoiceID, base.Authorized, identity, base)
+		family, route, err := s.ReauthorizeFrameSourceChoice(ctx, base.Snapshot.Identity.Project, base.ExplorerID, base.Document.RootResourceType, outputID, coded.SourceChoiceID, base.Authorized, identity)
 		if err != nil {
 			return candidate, nil, err
 		}
