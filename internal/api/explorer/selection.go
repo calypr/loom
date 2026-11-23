@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 )
 
 func (h *Handlers) createSelection(ctx context.Context, request loomapi.CreateExplorerSelectionRequestObject) (loomapi.SelectionRevision, error) {
@@ -76,17 +77,33 @@ func (h *Handlers) readSelection(ctx context.Context, request loomapi.GetExplore
 	}
 	members := make([]loomapi.SelectionMember, 0, len(value.Members))
 	for _, member := range value.Members {
-		wire, err := directAuthoringJSON[loomapi.SelectionMember](member)
-		if err != nil {
-			return result, err
-		}
-		members = append(members, wire)
+		members = append(members, selectionMemberToWire(member))
 	}
 	result = loomapi.SelectionPage{Revision: revision, Members: members}
 	if value.NextCursor != "" {
 		result.NextCursor = &value.NextCursor
 	}
 	return result, nil
+}
+
+func selectionMemberToWire(member explorerselection.SelectionMember) loomapi.SelectionMember {
+	result := loomapi.SelectionMember{
+		Ref: loomapi.SelectionResourceRef{
+			Project:      member.Ref.Project,
+			Generation:   member.Ref.Generation,
+			ResourceType: member.Ref.ResourceType,
+			Id:           member.Ref.ID,
+		},
+	}
+	if member.Ordinal != 0 {
+		ordinal := member.Ordinal
+		result.Ordinal = &ordinal
+	}
+	if member.MemberKey != "" {
+		memberKey := member.MemberKey
+		result.MemberKey = &memberKey
+	}
+	return result
 }
 
 func (r *Handlers) CreateExplorerSelection(ctx context.Context, request loomapi.CreateExplorerSelectionRequestObject) (loomapi.CreateExplorerSelectionResponseObject, error) {
