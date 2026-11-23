@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -32,29 +33,13 @@ func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, p
 		if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
 			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt is not usable for this Explorer", nil, err)
 		}
-		if err := receiptmodel.ValidateCandidateReceiptIdentity(receipt, project, explorerID, request.SnapshotToken, snapshot); err != nil {
-			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt capability identity does not match the apply request", nil, err)
+		if err := receiptmodel.ValidateInterpretationCandidate(receipt, project, explorerID, request.SnapshotToken, snapshot, proposed, command); err != nil {
+			if errors.Is(err, receiptmodel.ErrInvalidCandidateReceipt) {
+				return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt does not match the apply request", nil, err)
+			}
+			return conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt does not match the apply request", nil, err)
 		}
-		proposedDigest, err := proposed.Digest()
-		if err != nil {
-			return fmt.Errorf("digest proposed interpretation workspace: %w", err)
-		}
-		if receipt.IntentDigest != proposedDigest {
-			return conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt was not compiled from this exact command result", nil, nil)
-		}
-		candidateWorkspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
-		if err != nil {
-			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt normalized workspace is invalid", nil, err)
-		}
-		if candidateDigest, digestErr := candidateWorkspace.Digest(); digestErr != nil || candidateDigest != receipt.IntentDigest {
-			return conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt normalized workspace digest does not match its intent digest", nil, digestErr)
-		}
-		if err := receiptmodel.VerifyCandidateWorkspacePin(candidateWorkspace, command.OutputID, command.Column, command.InterpretationCandidate.RevisionID); err != nil {
-			return conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt does not contain the requested exact pin", nil, err)
-		}
-		if err := receiptmodel.VerifyCandidateReceiptInterpretation(receipt, command.OutputID, command.Column, command.InterpretationCandidate.RevisionID); err != nil {
-			return conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt does not freeze the requested exact revision", nil, err)
-		}
+
 	}
 	if candidateCount == 0 {
 		return nil
