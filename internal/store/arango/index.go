@@ -6,17 +6,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	"github.com/arangodb/go-driver/v2/utils"
 	"slices"
 	"strings"
 	"time"
 	"unicode"
-
-	driver "github.com/arangodb/go-driver/v2/arangodb"
-	"github.com/arangodb/go-driver/v2/utils"
 )
 
 const previewCoveringIndexPrefix = "loom_pivot_preview_"
+
 const maxPreviewCoveringIndexesPerCollection = 4
+
 const previewCoveringIndexCleanupTimeout = 3 * time.Second
 
 var ErrPreviewCoveringIndexLimit = errors.New("preview covering index limit reached")
@@ -30,16 +31,6 @@ type PreviewCoveringIndex struct {
 
 type PreviewIndexes struct {
 	client *Client
-}
-
-func (c *Client) PreviewIndexes() PreviewIndexes {
-	return PreviewIndexes{client: c}
-}
-
-type previewIndexCollection interface {
-	Indexes(context.Context) ([]driver.IndexResponse, error)
-	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
-	DeleteIndexByID(context.Context, string) error
 }
 
 func (preview PreviewIndexes) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
@@ -56,24 +47,6 @@ func (preview PreviewIndexes) ListPreviewCoveringIndexes(ctx context.Context, co
 		return nil, fmt.Errorf("list preview covering indexes: %w", err)
 	}
 	return previewCoveringIndexDefinitions(collection, indexes), nil
-}
-
-func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexResponse) []PreviewCoveringIndex {
-	definitions := make([]PreviewCoveringIndex, 0, len(indexes))
-	for _, index := range indexes {
-		if index.Type != driver.IndexType("persistent") || index.RegularIndex == nil ||
-			index.Unique == nil || *index.Unique || index.Sparse == nil || *index.Sparse ||
-			!validPreviewCoveringIndexDefinition(collection, index.Name, index.RegularIndex.Fields, index.RegularIndex.StoredValues) {
-			continue
-		}
-		definitions = append(definitions, PreviewCoveringIndex{
-			Collection:   collection,
-			Name:         index.Name,
-			Fields:       append([]string(nil), index.RegularIndex.Fields...),
-			StoredValues: append([]string(nil), index.RegularIndex.StoredValues...),
-		})
-	}
-	return definitions
 }
 
 func (preview PreviewIndexes) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
@@ -117,6 +90,30 @@ func (preview PreviewIndexes) ensurePreviewCoveringIndexDefinition(ctx context.C
 		return fmt.Errorf("open preview covering collection: %w", err)
 	}
 	return ensurePreviewCoveringIndexDefinition(ctx, col, name, fields, storedValues)
+}
+
+type previewIndexCollection interface {
+	Indexes(context.Context) ([]driver.IndexResponse, error)
+	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
+	DeleteIndexByID(context.Context, string) error
+}
+
+func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexResponse) []PreviewCoveringIndex {
+	definitions := make([]PreviewCoveringIndex, 0, len(indexes))
+	for _, index := range indexes {
+		if index.Type != driver.IndexType("persistent") || index.RegularIndex == nil ||
+			index.Unique == nil || *index.Unique || index.Sparse == nil || *index.Sparse ||
+			!validPreviewCoveringIndexDefinition(collection, index.Name, index.RegularIndex.Fields, index.RegularIndex.StoredValues) {
+			continue
+		}
+		definitions = append(definitions, PreviewCoveringIndex{
+			Collection:   collection,
+			Name:         index.Name,
+			Fields:       append([]string(nil), index.RegularIndex.Fields...),
+			StoredValues: append([]string(nil), index.RegularIndex.StoredValues...),
+		})
+	}
+	return definitions
 }
 
 func ensurePreviewCoveringIndex(ctx context.Context, col previewIndexCollection, name string, fields []string) error {

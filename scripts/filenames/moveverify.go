@@ -175,7 +175,7 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 						for _, spec := range d.Specs {
 							ts := spec.(*ast.TypeSpec)
 							name := ts.Name.Name
-							normalizeNode(ts, aliases)
+							normalizeNode(ts, aliases, nil)
 							h := hashNode(fset, ts)
 							types[name] = &typeUnit{hash: h}
 							typeFile[name] = f.path
@@ -191,7 +191,7 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 							for _, n := range vs.Names {
 								names = append(names, n.Name)
 							}
-							normalizeNode(vs, aliases)
+							normalizeNode(vs, aliases, nil)
 							h := hashNode(fset, vs)
 							for _, n := range names {
 								decls = append(decls, mvDecl{Kind: kind, Name: n, File: f.path, Hash: h})
@@ -201,13 +201,13 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 				case *ast.FuncDecl:
 					if d.Recv == nil {
 						name := d.Name.Name
-						normalizeNode(d, aliases)
+						normalizeNode(d, aliases, localNames(d))
 						decls = append(decls, mvDecl{Kind: "func", Name: name, File: f.path, Hash: hashNode(fset, d)})
 						continue
 					}
 					recv := receiverBase(d.Recv.List[0].Type)
 					name := d.Name.Name
-					normalizeNode(d, aliases)
+					normalizeNode(d, aliases, localNames(d))
 					methods = append(methods, struct {
 						recv string
 						hash string
@@ -251,10 +251,10 @@ func importAliases(f *ast.File) map[string]bool {
 	return aliases
 }
 
-func normalizeNode(n ast.Node, aliases map[string]bool) {
+func normalizeNode(n ast.Node, aliases map[string]bool, locals map[string]bool) {
 	ast.Inspect(n, func(x ast.Node) bool {
 		if sel, ok := x.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok && aliases[id.Name] {
+			if id, ok := sel.X.(*ast.Ident); ok && aliases[id.Name] && !locals[id.Name] {
 				id.Name = "pkg"
 			}
 		}
@@ -263,6 +263,70 @@ func normalizeNode(n ast.Node, aliases map[string]bool) {
 		}
 		return true
 	})
+}
+
+func localNames(fn *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	if fn.Recv != nil {
+		for _, f := range fn.Recv.List {
+			for _, n := range f.Names {
+				out[n.Name] = true
+			}
+		}
+	}
+	for _, f := range fn.Type.Params.List {
+		for _, n := range f.Names {
+			out[n.Name] = true
+		}
+	}
+	if fn.Type.Results != nil {
+		for _, f := range fn.Type.Results.List {
+			for _, n := range f.Names {
+				out[n.Name] = true
+			}
+		}
+	}
+	if fn.Body == nil {
+		return out
+	}
+	ast.Inspect(fn.Body, func(x ast.Node) bool {
+		switch x := x.(type) {
+		case *ast.AssignStmt:
+			if x.Tok == token.DEFINE {
+				for _, e := range x.Lhs {
+					if id, ok := e.(*ast.Ident); ok {
+						out[id.Name] = true
+					}
+				}
+			}
+		case *ast.ValueSpec:
+			for _, id := range x.Names {
+				out[id.Name] = true
+			}
+		case *ast.RangeStmt:
+			if id, ok := x.Key.(*ast.Ident); ok {
+				out[id.Name] = true
+			}
+			if id, ok := x.Value.(*ast.Ident); ok {
+				out[id.Name] = true
+			}
+		case *ast.FuncLit:
+			for _, f := range x.Type.Params.List {
+				for _, id := range f.Names {
+					out[id.Name] = true
+				}
+			}
+			if x.Type.Results != nil {
+				for _, f := range x.Type.Results.List {
+					for _, id := range f.Names {
+						out[id.Name] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	return out
 }
 
 func hashNode(fset *token.FileSet, n ast.Node) string {

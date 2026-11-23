@@ -124,10 +124,6 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	return sourceLoadPublicationReceipt(record, false), nil
 }
 
-func sourceLoadPublicationReceipt(record sourceLoadRecord, reused bool) SourcePublishReceipt {
-	return SourcePublishReceipt{OperationID: record.OperationID, SourceRevision: record.SourceRevision, ManifestHash: record.ManifestHash, ExecutionID: record.ExecutionID, State: "PUBLISHED", Reused: reused}
-}
-
 func (p *RepositorySourceLoader) claimSourceLoadPublication(ctx context.Context, key, owner, manifestHash string) (bool, error) {
 	claimed := false
 	err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads, @key)

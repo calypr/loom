@@ -2,13 +2,12 @@ package sourceload
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/calypr/loom/internal/ingest/bootstrap"
-	"io"
+
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -192,29 +191,6 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		"rehash_ms", hashDone.Sub(catalogDone).Milliseconds(),
 		"complete_ms", time.Since(hashDone).Milliseconds())
 	return receipt, nil
-}
-
-func sourceLoadFileForType(files []SourceManifestFile, resourceType string) (SourceManifestFile, bool) {
-	for _, file := range files {
-		typeName, err := canonicalSourceResourceType(file.Path)
-		if err == nil && typeName == resourceType {
-			return file, true
-		}
-	}
-	return SourceManifestFile{}, false
-}
-
-func hashSourceLoadFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open source file: %w", err)
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", fmt.Errorf("hash source file: %w", err)
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (p *RepositorySourceLoader) completeSourceLoadFile(ctx context.Context, key, path, owner string, receipt SourceFileReceipt) error {

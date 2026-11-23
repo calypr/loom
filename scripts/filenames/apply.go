@@ -144,7 +144,7 @@ func runApply(root, ledgerPath, currentPkg string) error {
 				sameDest = false
 			}
 		}
-		allDeclsCovered := declsCovered(fset, af, rowsForFile)
+		allDeclsCovered := declsCovered(fset, af, file, rowsForFile)
 		primaryOnly := true
 		for _, r := range rowsForFile {
 			if r.file != file {
@@ -175,7 +175,9 @@ func runApply(root, ledgerPath, currentPkg string) error {
 				continue
 			}
 		}
+		imports := sourceImports(fset, af, srcBytes)
 		pieces := map[string][][]byte{}
+		pieceImports := map[string]map[string]string{}
 		var cut []applyRange
 		var keepRows int
 		for _, r := range rowsForFile {
@@ -191,7 +193,13 @@ func runApply(root, ledgerPath, currentPkg string) error {
 				if rg.file != "" && rg.file != file {
 					continue
 				}
+				if normalizePkg(r.destPkg) == normalizePkg(r.curPackage) && rg.file != "" && rg.file != r.file {
+					continue
+				}
 				if rg.start < 0 || rg.end > len(srcBytes) || rg.start > rg.end {
+					continue
+				}
+				if destPath(root, r.destPkg, r.destFile, rg.file) == absPath(root, rg.file) {
 					continue
 				}
 				rel = append(rel, rg)
@@ -201,7 +209,14 @@ func runApply(root, ledgerPath, currentPkg string) error {
 				continue
 			}
 			key := r.destPkg + "\x00" + r.destFile
-			pieces[key] = append(pieces[key], extractRanges(srcBytes, rel))
+			piece := extractRanges(srcBytes, rel)
+			pieces[key] = append(pieces[key], piece)
+			if pieceImports[key] == nil {
+				pieceImports[key] = map[string]string{}
+			}
+			for k, v := range usedImports(piece, imports) {
+				pieceImports[key][k] = v
+			}
 		}
 		_ = keepRows
 		var keys []string
@@ -255,6 +270,9 @@ func runApply(root, ledgerPath, currentPkg string) error {
 				}
 			}
 			f.Close()
+			if err := addImports(target, pieceImports[k]); err != nil {
+				return err
+			}
 			touched[target] = true
 		}
 		if len(cut) == 0 {
@@ -278,6 +296,98 @@ func runApply(root, ledgerPath, currentPkg string) error {
 	}
 	fmt.Printf("apply: processed %d rows in %d files for %s\n", len(selected), len(files), currentPkg)
 	return nil
+}
+
+func sourceImports(fset *token.FileSet, af *ast.File, src []byte) map[string]string {
+	out := map[string]string{}
+	for _, imp := range af.Imports {
+		local := ""
+		if imp.Name != nil {
+			local = imp.Name.Name
+		} else {
+			path := strings.Trim(imp.Path.Value, "\"")
+			local = path[strings.LastIndex(path, "/")+1:]
+		}
+		if local == "_" || local == "." || local == "" {
+			continue
+		}
+		spec := ""
+		if imp.Name != nil {
+			spec = imp.Name.Name + " "
+		}
+		spec += imp.Path.Value
+		out[local] = spec
+	}
+	return out
+}
+
+func usedImports(piece []byte, imports map[string]string) map[string]string {
+	src := append([]byte("package p\n\n"), piece...)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "piece.go", src, 0)
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if spec, ok := imports[id.Name]; ok {
+			out[id.Name] = spec
+		}
+		return true
+	})
+	return out
+}
+
+func addImports(path string, imports map[string]string) error {
+	if len(imports) == 0 {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	fset := token.NewFileSet()
+	af, err := parser.ParseFile(fset, path, b, parser.ParseComments)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for _, imp := range af.Imports {
+		local := ""
+		if imp.Name != nil {
+			local = imp.Name.Name
+		} else {
+			p := strings.Trim(imp.Path.Value, "\"")
+			local = p[strings.LastIndex(p, "/")+1:]
+		}
+		have[local] = true
+	}
+	var specs []string
+	for local, spec := range imports {
+		if !have[local] {
+			specs = append(specs, spec)
+		}
+	}
+	if len(specs) == 0 {
+		return nil
+	}
+	sort.Strings(specs)
+	nameEnd := fset.Position(af.Name.End()).Offset
+	block := "\n\nimport (\n" + strings.Join(prefixTabs(specs), "\n") + "\n)\n"
+	out := append(append(append([]byte{}, b[:nameEnd]...), []byte(block)...), b[nameEnd:]...)
+	return os.WriteFile(path, out, 0o644)
+}
+
+func prefixTabs(specs []string) []string {
+	out := make([]string, len(specs))
+	for i, spec := range specs {
+		out[i] = "\t" + spec
+	}
+	return out
 }
 
 func packageName(pkg string) string {
@@ -338,10 +448,14 @@ func rewritePackage(path, oldPkg, newPkg string) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
-func declsCovered(fset *token.FileSet, af *ast.File, rows []applyRow) bool {
+func declsCovered(fset *token.FileSet, af *ast.File, file string, rows []applyRow) bool {
 	var ranges []applyRange
 	for _, r := range rows {
-		ranges = append(ranges, r.ranges...)
+		for _, rg := range r.ranges {
+			if rg.file == "" || rg.file == file {
+				ranges = append(ranges, rg)
+			}
+		}
 	}
 	tf := fset.File(af.Pos())
 	for _, d := range af.Decls {
@@ -369,6 +483,9 @@ func extractRanges(src []byte, ranges []applyRange) []byte {
 	for _, rg := range ranges {
 		if rg.start < 0 || rg.end > len(src) || rg.start > rg.end {
 			continue
+		}
+		if len(out) > 0 {
+			out = append(out, '\n', '\n')
 		}
 		out = append(out, src[rg.start:rg.end]...)
 	}

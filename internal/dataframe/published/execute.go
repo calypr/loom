@@ -1,6 +1,11 @@
 package published
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+)
+
+import (
 	"bytes"
 	"context"
 	"encoding/json"
@@ -444,4 +449,9 @@ func aggregateNumber(value any) (*big.Rat, bool) {
 	}
 	valueRat, ok := new(big.Rat).SetString(text)
 	return valueRat, ok
+}
+
+func shortQueryID(query string) string {
+	digest := sha256.Sum256([]byte(query))
+	return hex.EncodeToString(digest[:8])
 }

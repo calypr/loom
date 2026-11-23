@@ -51,9 +51,9 @@ func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
 			"(`%s` IS NULL OR `%s` %s ? OR (`%s` = ? AND `__loom_row_id` > ?))",
 			"`%s` %s NULLS LAST, `__loom_row_id` ASC",
 		},
-		"errors.go":                                  {`dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")`},
-		"../../api/dataframe/dataframe/rows.go":      {"Sort: convertSort(input)"},
-		"../publication/clickhouse/bundle_output.go": {`columnType = "Nullable(" + columnType + ")"`},
+		"errors.go":                             {`dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")`},
+		"../../api/dataframe/dataframe/rows.go": {"Sort: convertSort(input)"},
+		"../publication/clickhouse/output.go":   {`columnType = "Nullable(" + columnType + ")"`},
 	} {
 		body, err := readFileForGate(path)
 		if err != nil {

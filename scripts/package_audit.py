@@ -206,6 +206,8 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/testkit/recipetest': 'Share receipt construction, workspace, and recipe registry fixtures.',
  'scripts': 'Hold repository developer, verification, migration, and release utilities that are not part of the Go '
             'module runtime packages.',
+ 'scripts/filenames': 'Inventory underscore filenames, validate package boundaries, apply declaration moves, and verify '
+                      'that declarations survive moves.',
  'tests/ci': 'Exercise repository-wide Go formatting and vet gates, including injected fault detection.',
  'tests/conformance': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
                       'performance checks.',
