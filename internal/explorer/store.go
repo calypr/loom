@@ -46,9 +46,3 @@ type Store interface {
 type DraftRevisionReader interface {
 	GetDraftRevision(context.Context, string, string, string) (*DraftRevision, error)
 }
-
-type InterpretationRepository interface {
-	ListInterpretationLibraries(context.Context, string) ([]InterpretationLibrary, error)
-	GetInterpretationRevision(context.Context, string, InterpretationRevisionID) (*InterpretationRevision, error)
-	CreateInterpretationRevision(context.Context, InterpretationRevision, *InterpretationRevisionID) (*InterpretationRevision, error)
-}

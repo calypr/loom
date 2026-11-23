@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -219,7 +220,7 @@ func configuredPinnedRevisionIDs(workspace authoringv2.Workspace) (map[explorer.
 	return ids, nil
 }
 
-func loadInterpretationContextRevisions(ctx context.Context, repository explorer.InterpretationRepository, project string, ids map[explorer.InterpretationRevisionID]struct{}) (map[explorer.InterpretationRevisionID]explorer.InterpretationRevision, error) {
+func loadInterpretationContextRevisions(ctx context.Context, repository interpretation.Repository, project string, ids map[explorer.InterpretationRevisionID]struct{}) (map[explorer.InterpretationRevisionID]explorer.InterpretationRevision, error) {
 	ordered := make([]string, 0, len(ids))
 	for id := range ids {
 		ordered = append(ordered, string(id))

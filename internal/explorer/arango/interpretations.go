@@ -6,10 +6,11 @@ import (
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/interpretation"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-var _ explorer.InterpretationRepository = (*Store)(nil)
+var _ interpretation.Repository = (*Store)(nil)
 
 func interpretationLibraryKey(project string, id explorer.InterpretationLibraryID) string {
 	return "interpretation_library_" + db.Key(project, string(id))

@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
@@ -53,7 +54,7 @@ type Config struct {
 	SemanticCoverage                   func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error)
 	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 
-	InterpretationRepository explorer.InterpretationRepository
+	InterpretationRepository interpretation.Repository
 
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator

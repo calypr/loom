@@ -4,9 +4,10 @@ import (
 	"context"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/interpretation"
 )
 
-func (s *Service) interpretationRepository() (explorer.InterpretationRepository, error) {
+func (s *Service) interpretationRepository() (interpretation.Repository, error) {
 	if s == nil || s.config.InterpretationRepository == nil {
 		return nil, unavailable("interpretations", "INTERPRETATION_UNAVAILABLE", "interpretation repository is not configured", nil)
 	}
