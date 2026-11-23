@@ -185,6 +185,8 @@ profiles.find(p => p.id === 'compiler').alsoRequired = [
     'TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango',
     'TestCurrentPivotNullMissingPartitionAgainstArango',
     'TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango',
+    'TestGroupRowLineagePartitionsForwardRowsAgainstArango',
+    'TestFilteredSourceCellTraceMatchesForwardValueAgainstArango',
     'TestS04TableReshapeOracleAgainstArango',
     'TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango',
     'TestGroupedPivotReservedPhysicalOutputNameAgainstArango',
