@@ -224,24 +224,9 @@ func (r tableShapeRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivo
 			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") RETURN %s)",
 				typedValuesVariable, valueVariable, valuesVariable, valueVariable, valueVariable, valueTypeBind, valueVariable))
 		}
-		cellValue := "null"
-		switch pivot.DuplicatePolicy {
-		case "ERROR":
-			cardinality := fmt.Sprintf("ASSERT(LENGTH(%s) <= 1, \"TABLE_PIVOT_CELL_CARDINALITY\") ? FIRST(%s) : null", valuesVariable, valuesVariable)
-			if pivot.MissingCellPolicy == "ERROR" {
-				cellValue = fmt.Sprintf("(ASSERT(LENGTH(%s) > 0, \"TABLE_PIVOT_CELL_MISSING\") ? (%s) : null)", valuesVariable, cardinality)
-			} else {
-				cellValue = "(" + cardinality + ")"
-			}
-		case "SUM", "MIN", "MAX":
-			condition := "true"
-			if pivot.MissingCellPolicy == "ERROR" {
-				condition = fmt.Sprintf("LENGTH(%s) > 0", valuesVariable)
-			}
-			reducer := pivot.DuplicatePolicy + "(" + typedValuesVariable + ")"
-			cellValue = fmt.Sprintf("(ASSERT(%s, \"TABLE_PIVOT_CELL_MISSING\") ? (LENGTH(%s) == 0 ? null : %s) : null)", condition, typedValuesVariable, reducer)
-		default:
-			return nil, fmt.Errorf("unsupported grouped pivot duplicate policy %q", pivot.DuplicatePolicy)
+		cellValue, err := groupedPivotCellValue(pivot, valuesVariable, typedValuesVariable, valuesVariable)
+		if err != nil {
+			return nil, fmt.Errorf("category %q: %w", category.Output, err)
 		}
 		cellValueVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_cell_result_%d", index))
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", cellValueVariable, cellValue))
@@ -261,24 +246,9 @@ func (r tableShapeRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivo
 			fmt.Sprintf("  LET %s = (FOR __coded_value IN %s FILTER __coded_value != null FILTER ASSERT(TYPENAME(__coded_value) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") RETURN __coded_value)",
 				typedValuesVariable, valuesVariable, valueTypeBind),
 		)
-		cellValue := "null"
-		switch pivot.DuplicatePolicy {
-		case "ERROR":
-			cardinality := fmt.Sprintf("ASSERT(LENGTH(%s) <= 1, \"TABLE_PIVOT_CELL_CARDINALITY\") ? FIRST(%s) : null", valuesVariable, valuesVariable)
-			if pivot.MissingCellPolicy == "ERROR" {
-				cellValue = fmt.Sprintf("(ASSERT(LENGTH(%s) > 0, \"TABLE_PIVOT_CELL_MISSING\") ? (%s) : null)", valuesVariable, cardinality)
-			} else {
-				cellValue = "(" + cardinality + ")"
-			}
-		case "SUM", "MIN", "MAX":
-			condition := "true"
-			if pivot.MissingCellPolicy == "ERROR" {
-				condition = fmt.Sprintf("LENGTH(%s) > 0", typedValuesVariable)
-			}
-			reducer := pivot.DuplicatePolicy + "(" + typedValuesVariable + ")"
-			cellValue = fmt.Sprintf("(ASSERT(%s, \"TABLE_PIVOT_CELL_MISSING\") ? (LENGTH(%s) == 0 ? null : %s) : null)", condition, typedValuesVariable, reducer)
-		default:
-			return nil, fmt.Errorf("unsupported coded Pivot duplicate policy %q", pivot.DuplicatePolicy)
+		cellValue, err := groupedPivotCellValue(pivot, valuesVariable, typedValuesVariable, typedValuesVariable)
+		if err != nil {
+			return nil, fmt.Errorf("coded category %q: %w", category.Output, err)
 		}
 		cellValueVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_coded_cell_result_%d", index))
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", cellValueVariable, cellValue))
@@ -723,5 +693,25 @@ func aqlTableScalarType(kind string) (string, error) {
 		return "bool", nil
 	default:
 		return "", fmt.Errorf("unsupported table scalar kind %q", kind)
+	}
+}
+
+func groupedPivotCellValue(pivot ir.PhysicalGroupedPivot, valuesVariable, typedValuesVariable, conditionVariable string) (string, error) {
+	switch pivot.DuplicatePolicy {
+	case "ERROR":
+		cardinality := fmt.Sprintf("ASSERT(LENGTH(%s) <= 1, \"TABLE_PIVOT_CELL_CARDINALITY\") ? FIRST(%s) : null", valuesVariable, valuesVariable)
+		if pivot.MissingCellPolicy == "ERROR" {
+			return fmt.Sprintf("(ASSERT(LENGTH(%s) > 0, \"TABLE_PIVOT_CELL_MISSING\") ? (%s) : null)", valuesVariable, cardinality), nil
+		}
+		return "(" + cardinality + ")", nil
+	case "SUM", "MIN", "MAX":
+		condition := "true"
+		if pivot.MissingCellPolicy == "ERROR" {
+			condition = fmt.Sprintf("LENGTH(%s) > 0", conditionVariable)
+		}
+		reducer := pivot.DuplicatePolicy + "(" + typedValuesVariable + ")"
+		return fmt.Sprintf("(ASSERT(%s, \"TABLE_PIVOT_CELL_MISSING\") ? (LENGTH(%s) == 0 ? null : %s) : null)", condition, typedValuesVariable, reducer), nil
+	default:
+		return "", fmt.Errorf("unsupported grouped pivot duplicate policy %q", pivot.DuplicatePolicy)
 	}
 }
