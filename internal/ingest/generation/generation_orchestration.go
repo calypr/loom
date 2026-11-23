@@ -20,6 +20,7 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -137,6 +138,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
+	semanticStore, err := semanticarango.New(client)
+	if err != nil {
+		return summary, err
+	}
 	ingestevent.EmitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":  "arango",
 		"url":      opts.URL,
@@ -186,7 +191,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	}()
 	inventoryBuild := semantic.NewBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
 	inventoryBuild.EntryIndexVersion = semantic.EntryIndexVersion
-	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
+	if err = semanticStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
 		return summary, err
 	}
 	inventoryComplete := false
@@ -196,7 +201,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		}
 		diagnostic := err.Error()
 		err = generationCleanupError(ctx, generationCleanupTimeout, err, "mark semantic inventory build failed", func(cleanupCtx context.Context) error {
-			return catalogStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
+			return semanticStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
 		})
 	}()
 	catalogs := make(map[generationCatalogKey]*fieldprofile.Profiler)
@@ -207,7 +212,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)
 	}()
 	outcomes := newGenerationFileOutcomes(opts.MetaDir, files, func(advanceCtx context.Context, scanned int64, checkpoint string) error {
-		return catalogStore.AdvanceSemanticInventoryBuild(advanceCtx, inventoryBuild, scanned, checkpoint)
+		return semanticStore.AdvanceSemanticInventoryBuild(advanceCtx, inventoryBuild, scanned, checkpoint)
 	})
 	insertCounters := &generationInsertCounters{}
 	eventSink := opts.EventSink
@@ -390,7 +395,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"document_count": resourceInventorySummary.DocumentCount,
 	})
 	recordFinalization("resource_inventory")
-	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+	if err = semanticStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
 	}
 	recordFinalization("semantic_inventory_completion")

@@ -25,6 +25,7 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest/generation"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	"github.com/calypr/loom/internal/semantic/backfill"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -671,7 +672,7 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read backfill generation manifest: %w", err)
 	}
-	store, err := catalogarango.New(client)
+	store, err := semanticarango.New(client)
 	if err != nil {
 		return err
 	}

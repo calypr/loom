@@ -14,7 +14,7 @@ func TestSemanticInventoryAggregatesUseCoveredInputs(t *testing.T) {
 	if !ok {
 		t.Fatal("locate semantic inventory query source")
 	}
-	source, err := os.ReadFile(filepath.Join(filepath.Dir(sourceFile), "semantic_inventory.go"))
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(sourceFile), "inventory.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

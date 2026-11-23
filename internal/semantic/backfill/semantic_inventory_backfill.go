@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 const semanticInventoryBackfillLease = 30 * time.Minute
@@ -64,7 +64,7 @@ type SemanticInventoryBackfillReport struct {
 
 type semanticInventoryBackfillBackend interface {
 	PrepareSemanticInventoryBackfill(context.Context) error
-	ReadRetainedSemanticInventoryPage(context.Context, string, string, string, string, int) (catalogarango.RetainedSemanticInventoryPage, error)
+	ReadRetainedSemanticInventoryPage(context.Context, string, string, string, string, int) (semanticarango.RetainedSemanticInventoryPage, error)
 	ClaimSemanticInventoryBackfill(context.Context, semantic.Build, string, time.Duration) (semantic.Build, bool, error)
 	AdvanceSemanticInventoryBackfill(context.Context, semantic.Build, string, semantic.Checkpoint, semantic.Checkpoint, int64, time.Duration) (semantic.Build, error)
 	CompleteSemanticInventoryBackfill(context.Context, semantic.Build, string, semantic.Checkpoint, int64) (semantic.Build, error)
@@ -290,7 +290,7 @@ func validateSemanticInventoryBackfillRequest(manifest publication.Manifest, opt
 	return nil
 }
 
-func retainedSemanticPayload(source catalogarango.RetainedSemanticInventoryRow, resourceType string) (map[string]any, error) {
+func retainedSemanticPayload(source semanticarango.RetainedSemanticInventoryRow, resourceType string) (map[string]any, error) {
 	if source.Key == "" || len(source.Payload) == 0 || string(source.Payload) == "null" {
 		return nil, fmt.Errorf("retained %s/%s source is missing payload", resourceType, source.Key)
 	}

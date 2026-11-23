@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataset "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operationID string) (SourcePublishReceipt, error) {
@@ -78,7 +78,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		if err != nil {
 			return SourcePublishReceipt{}, err
 		}
-		inventory, err := catalogarango.New(p.client)
+		inventory, err := semanticarango.New(p.client)
 		if err != nil {
 			return SourcePublishReceipt{}, err
 		}

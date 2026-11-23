@@ -58,7 +58,7 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 }
 
 func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComponents, dataframe dataframeComponents, explorerDeps explorerComponents, scopeResolver *authscope.ScopeResolver, releaseService *publicationcontract.ReleaseService, releaseRuntime *publicationcontract.ReleaseRuntime) (lifecycle.Config, error) {
-	recipeRegistry, catalogStore, explorerStore := storage.recipes, storage.catalog, storage.explorer
+	recipeRegistry, explorerStore, semanticStore := storage.recipes, storage.explorer, storage.semantic
 	configuredRecipeName, configuredRecipeVersion := storage.recipeName, storage.recipeVersion
 	recipeEngine, bundleTarget, publishedRegistry := dataframe.engine, dataframe.target, dataframe.registry
 	materializationReader, degradation := dataframe.reader, dataframe.degradation
@@ -120,9 +120,9 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		RemoveImportedOutput:               importedSources.RemoveOutput,
 		EditImportedRelationship:           importedSources.EditRelationship,
 		AuthoringNetwork:                   importedSources.Network,
-		SemanticInventory:                  catalogStore.PageSemanticInventory,
-		SemanticCoverage:                   catalogStore.LookupSemanticCoverage,
-		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
+		SemanticInventory:                  semanticStore.PageSemanticInventory,
+		SemanticCoverage:                   semanticStore.LookupSemanticCoverage,
+		ResolveSemanticInventorySelections: semanticStore.ResolveSemanticInventorySelections,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
 		InterpretationRepository:           explorerStore,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,

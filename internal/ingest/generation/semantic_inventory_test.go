@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -33,7 +33,7 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	})
 	var inventoryCollectionWrites []string
 	result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
-		if collection == catalogarango.SemanticCoverageCollection {
+		if collection == semanticarango.SemanticCoverageCollection {
 			t.Fatalf("normal generation load wrote optional semantic coverage collection %q", collection)
 		}
 		if collection == semantic.Collection || collection == semantic.EntryCollection {

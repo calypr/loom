@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 func TestBackfillSemanticInventoryResumesPartialPageWithoutDuplicates(t *testing.T) {
 	backend := newBackfillFake()
-	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{
+	backend.rows["Observation"] = []semanticarango.RetainedSemanticInventoryRow{
 		backfillSourceRow(t, "a", "scope-a", backfillObservation("shared", "v1", false)),
 		backfillSourceRow(t, "b", "scope-b", backfillObservation("shared", "v1", false)),
 		backfillSourceRow(t, "c", "scope-a", backfillObservation("third", "v1", true)),
@@ -81,7 +81,7 @@ func TestBackfillSemanticInventoryRejectsConcurrentClaim(t *testing.T) {
 	_, err := BackfillSemanticInventory(context.Background(), backend, backfillManifest(t, publication.StateStaged), SemanticInventoryBackfillOptions{
 		Project: "project", DatasetGeneration: "generation",
 	})
-	if !errors.Is(err, catalogarango.ErrSemanticInventoryClaimed) {
+	if !errors.Is(err, semanticarango.ErrSemanticInventoryClaimed) {
 		t.Fatalf("concurrent claim error = %v, want ErrSemanticInventoryClaimed", err)
 	}
 	if backend.readCalls != 0 || len(backend.contributions) != 0 {
@@ -91,7 +91,7 @@ func TestBackfillSemanticInventoryRejectsConcurrentClaim(t *testing.T) {
 
 func TestBackfillSemanticInventoryMalformedPayloadFailsAndPreservesSource(t *testing.T) {
 	backend := newBackfillFake()
-	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{{Key: "bad", AuthResourcePath: strptr("scope-a"), Payload: json.RawMessage(`[]`)}}
+	backend.rows["Observation"] = []semanticarango.RetainedSemanticInventoryRow{{Key: "bad", AuthResourcePath: strptr("scope-a"), Payload: json.RawMessage(`[]`)}}
 	original := cloneBackfillRows(backend.rows["Observation"])
 	_, err := BackfillSemanticInventory(context.Background(), backend, backfillManifest(t, publication.StateReady), SemanticInventoryBackfillOptions{
 		Project: "project", DatasetGeneration: "generation",
@@ -135,7 +135,7 @@ func TestBackfillSemanticInventoryRequiresMatchingImmutableManifest(t *testing.T
 
 func TestBackfillSemanticInventoryMarksMissingUnprofiledRootUnproven(t *testing.T) {
 	backend := newBackfillFake()
-	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{backfillSourceRow(t, "a", "", backfillObservation("one", "v1", false))}
+	backend.rows["Observation"] = []semanticarango.RetainedSemanticInventoryRow{backfillSourceRow(t, "a", "", backfillObservation("one", "v1", false))}
 	backend.missingCollections["Patient"] = true
 	manifest := backfillManifestWithRoots(t, publication.StateStaged, []string{"Observation", "Patient"})
 	report, err := BackfillSemanticInventory(context.Background(), backend, manifest, SemanticInventoryBackfillOptions{
@@ -154,7 +154,7 @@ func TestBackfillSemanticInventoryMarksMissingUnprofiledRootUnproven(t *testing.
 
 func TestBackfillSemanticInventoryCancellationReleasesClaimForImmediateResume(t *testing.T) {
 	backend := newBackfillFake()
-	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{
+	backend.rows["Observation"] = []semanticarango.RetainedSemanticInventoryRow{
 		backfillSourceRow(t, "a", "", backfillObservation("one", "v1", false)),
 		backfillSourceRow(t, "b", "", backfillObservation("two", "v1", false)),
 	}
@@ -214,13 +214,13 @@ func backfillObservation(code, version string, withComponent bool) map[string]an
 	return payload
 }
 
-func backfillSourceRow(t *testing.T, key, authPath string, payload map[string]any) catalogarango.RetainedSemanticInventoryRow {
+func backfillSourceRow(t *testing.T, key, authPath string, payload map[string]any) semanticarango.RetainedSemanticInventoryRow {
 	t.Helper()
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return catalogarango.RetainedSemanticInventoryRow{Key: key, AuthResourcePath: strptr(authPath), Payload: encoded}
+	return semanticarango.RetainedSemanticInventoryRow{Key: key, AuthResourcePath: strptr(authPath), Payload: encoded}
 }
 
 func backfillManifest(t *testing.T, state publication.State) publication.Manifest {
@@ -245,8 +245,8 @@ func backfillManifestWithRoots(t *testing.T, state publication.State, resourceTy
 	return manifest
 }
 
-func cloneBackfillRows(rows []catalogarango.RetainedSemanticInventoryRow) []catalogarango.RetainedSemanticInventoryRow {
-	cloned := make([]catalogarango.RetainedSemanticInventoryRow, len(rows))
+func cloneBackfillRows(rows []semanticarango.RetainedSemanticInventoryRow) []semanticarango.RetainedSemanticInventoryRow {
+	cloned := make([]semanticarango.RetainedSemanticInventoryRow, len(rows))
 	for index, row := range rows {
 		cloned[index] = row
 		cloned[index].Payload = append(json.RawMessage(nil), row.Payload...)
@@ -260,7 +260,7 @@ func cloneBackfillRows(rows []catalogarango.RetainedSemanticInventoryRow) []cata
 func strptr(value string) *string { return &value }
 
 type backfillFake struct {
-	rows               map[string][]catalogarango.RetainedSemanticInventoryRow
+	rows               map[string][]semanticarango.RetainedSemanticInventoryRow
 	contributions      map[string]semantic.Contribution
 	build              semantic.Build
 	claimedByOther     bool
@@ -275,7 +275,7 @@ type backfillFake struct {
 
 func newBackfillFake() *backfillFake {
 	return &backfillFake{
-		rows:               map[string][]catalogarango.RetainedSemanticInventoryRow{},
+		rows:               map[string][]semanticarango.RetainedSemanticInventoryRow{},
 		contributions:      map[string]semantic.Contribution{},
 		missingCollections: map[string]bool{},
 	}
@@ -286,20 +286,20 @@ func (f *backfillFake) PrepareSemanticInventoryBackfill(context.Context) error {
 	return nil
 }
 
-func (f *backfillFake) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalogarango.RetainedSemanticInventoryPage, error) {
+func (f *backfillFake) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (semanticarango.RetainedSemanticInventoryPage, error) {
 	if err := ctx.Err(); err != nil {
-		return catalogarango.RetainedSemanticInventoryPage{}, err
+		return semanticarango.RetainedSemanticInventoryPage{}, err
 	}
 	f.readCalls++
 	if project != "project" || generation != "generation" {
-		return catalogarango.RetainedSemanticInventoryPage{}, fmt.Errorf("unexpected source scope %s/%s", project, generation)
+		return semanticarango.RetainedSemanticInventoryPage{}, fmt.Errorf("unexpected source scope %s/%s", project, generation)
 	}
-	rows := append([]catalogarango.RetainedSemanticInventoryRow(nil), f.rows[collection]...)
+	rows := append([]semanticarango.RetainedSemanticInventoryRow(nil), f.rows[collection]...)
 	if f.missingCollections[collection] {
-		return catalogarango.RetainedSemanticInventoryPage{Rows: []catalogarango.RetainedSemanticInventoryRow{}}, nil
+		return semanticarango.RetainedSemanticInventoryPage{Rows: []semanticarango.RetainedSemanticInventoryRow{}}, nil
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
-	page := catalogarango.RetainedSemanticInventoryPage{Rows: make([]catalogarango.RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
+	page := semanticarango.RetainedSemanticInventoryPage{Rows: make([]semanticarango.RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
 	for _, row := range rows {
 		if row.Key <= afterKey {
 			continue
@@ -315,13 +315,13 @@ func (f *backfillFake) ReadRetainedSemanticInventoryPage(ctx context.Context, pr
 
 func (f *backfillFake) ClaimSemanticInventoryBackfill(_ context.Context, build semantic.Build, token string, lease time.Duration) (semantic.Build, bool, error) {
 	if f.claimedByOther {
-		return semantic.Build{}, false, catalogarango.ErrSemanticInventoryClaimed
+		return semantic.Build{}, false, semanticarango.ErrSemanticInventoryClaimed
 	}
 	if f.build.State == semantic.Complete {
 		return f.build, false, nil
 	}
 	if f.build.LeaseToken != "" && f.build.LeaseToken != token {
-		return semantic.Build{}, false, catalogarango.ErrSemanticInventoryClaimed
+		return semantic.Build{}, false, semanticarango.ErrSemanticInventoryClaimed
 	}
 	if f.build.Key == "" {
 		f.build = build
@@ -340,7 +340,7 @@ func (f *backfillFake) ClaimSemanticInventoryBackfill(_ context.Context, build s
 func (f *backfillFake) AdvanceSemanticInventoryBackfill(_ context.Context, build semantic.Build, token string, expected, next semantic.Checkpoint, scanned int64, lease time.Duration) (semantic.Build, error) {
 	f.advanceCalls++
 	if f.build.LeaseToken != token || f.build.SourceCheckpoint != expected {
-		return semantic.Build{}, catalogarango.ErrSemanticInventoryClaimLost
+		return semantic.Build{}, semanticarango.ErrSemanticInventoryClaimLost
 	}
 	f.build.SourceCheckpoint = next
 	f.build.ScannedResources = scanned
@@ -352,7 +352,7 @@ func (f *backfillFake) AdvanceSemanticInventoryBackfill(_ context.Context, build
 func (f *backfillFake) CompleteSemanticInventoryBackfill(_ context.Context, build semantic.Build, token string, expected semantic.Checkpoint, scanned int64) (semantic.Build, error) {
 	f.completeCalls++
 	if f.build.LeaseToken != token || f.build.SourceCheckpoint != expected {
-		return semantic.Build{}, catalogarango.ErrSemanticInventoryClaimLost
+		return semantic.Build{}, semanticarango.ErrSemanticInventoryClaimLost
 	}
 	f.build.State = semantic.Complete
 	f.build.ScannedResources = scanned
@@ -368,7 +368,7 @@ func (f *backfillFake) FailSemanticInventoryBackfill(ctx context.Context, _ sema
 		return err
 	}
 	if f.build.LeaseToken != token {
-		return catalogarango.ErrSemanticInventoryClaimLost
+		return semanticarango.ErrSemanticInventoryClaimLost
 	}
 	f.build.State = semantic.Failed
 	f.build.LeaseToken = ""

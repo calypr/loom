@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -107,7 +107,7 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 
 func TestBootstrapSpecDoesNotCreateOptionalSemanticCoverageCollection(t *testing.T) {
 	spec := BootstrapSpecWithReporter([]string{"Patient"}, true, nil)
-	if _, found := bootstrapCollection(spec, catalogarango.SemanticCoverageCollection); found {
+	if _, found := bootstrapCollection(spec, semanticarango.SemanticCoverageCollection); found {
 		t.Fatal("normal generation bootstrap created the optional per-source semantic coverage collection")
 	}
 }

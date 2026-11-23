@@ -9,10 +9,11 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.Context, record sourceLoadRecord) error {
-	store, err := catalogarango.New(p.client)
+	store, err := semanticarango.New(p.client)
 	if err != nil {
 		return err
 	}

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -27,7 +27,7 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
-	store, err := catalogarango.New(client)
+	store, err := semanticarango.New(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	if _, claimed, err := store.ClaimSemanticInventoryBackfill(ctx, build, "integration-owner", time.Minute); err != nil || !claimed {
 		t.Fatalf("initial explicit claim claimed=%v err=%v", claimed, err)
 	}
-	if _, claimed, err := store.ClaimSemanticInventoryBackfill(ctx, build, "integration-contender", time.Minute); err != catalogarango.ErrSemanticInventoryClaimed || claimed {
+	if _, claimed, err := store.ClaimSemanticInventoryBackfill(ctx, build, "integration-contender", time.Minute); err != semanticarango.ErrSemanticInventoryClaimed || claimed {
 		t.Fatalf("concurrent explicit claim claimed=%v err=%v, want claim rejection", claimed, err)
 	}
 	if err := store.FailSemanticInventoryBackfill(ctx, build, "integration-owner", "release test claim"); err != nil {
@@ -123,13 +123,13 @@ func backfillIntegrationPayload(scope string, distinct int) map[string]any {
 	return map[string]any{"resourceType": "Observation", "id": scope, "component": components}
 }
 
-func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string) map[string]catalogarango.RetainedSemanticInventoryRow {
+func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *semanticarango.Store, project, generation string) map[string]semanticarango.RetainedSemanticInventoryRow {
 	t.Helper()
 	page, err := store.ReadRetainedSemanticInventoryPage(ctx, project, generation, "Observation", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := make(map[string]catalogarango.RetainedSemanticInventoryRow, len(page.Rows))
+	rows := make(map[string]semanticarango.RetainedSemanticInventoryRow, len(page.Rows))
 	for _, row := range page.Rows {
 		rows[row.Key] = row
 	}
@@ -154,7 +154,7 @@ func integrationBackfillManifest(t *testing.T, project, generation string) publi
 	return manifest
 }
 
-func assertRetainedInventoryPageCodes(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string, paths []string, wantCount int, prefix string, sharedPopulation int64) {
+func assertRetainedInventoryPageCodes(t *testing.T, ctx context.Context, store *semanticarango.Store, project, generation string, paths []string, wantCount int, prefix string, sharedPopulation int64) {
 	t.Helper()
 	codes, err := collectRetainedInventoryPageCodes(ctx, store, project, generation, paths)
 	if err != nil {
@@ -185,7 +185,7 @@ func assertRetainedInventoryPageCodes(t *testing.T, ctx context.Context, store *
 	}
 }
 
-func collectRetainedInventoryPageCodes(ctx context.Context, store *catalogarango.Store, project, generation string, paths []string) (map[string]semantic.Observation, error) {
+func collectRetainedInventoryPageCodes(ctx context.Context, store *semanticarango.Store, project, generation string, paths []string) (map[string]semantic.Observation, error) {
 	options := semantic.PageOptions{
 		Project: project, DatasetGeneration: generation, AuthResourcePaths: paths,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),

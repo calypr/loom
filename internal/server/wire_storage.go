@@ -9,6 +9,7 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/arango"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
@@ -21,6 +22,7 @@ type storageComponents struct {
 	recipes       *recipearango.Registry
 	lifecycle     *publicationarango.Store
 	catalog       *catalogarango.Store
+	semantic      *semanticarango.Store
 	degradation   error
 	recipeName    string
 	recipeVersion string
@@ -33,7 +35,7 @@ func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, 
 	if err := lifecycleClient.Bootstrap(ctx, arangostore.BootstrapSpec{
 		Collections: []arangostore.CollectionSpec{
 			{Name: fieldprofile.FieldCatalogCollection},
-			catalogarango.SemanticCoverageCollectionSpec(),
+			semanticarango.SemanticCoverageCollectionSpec(),
 		},
 	}); err != nil {
 		return storageComponents{}, fmt.Errorf("bootstrap authorization catalog: %w", err)
@@ -81,8 +83,12 @@ func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, 
 	if err != nil {
 		return storageComponents{}, fmt.Errorf("create catalog store: %w", err)
 	}
+	semanticStore, err := semanticarango.New(lifecycleClient)
+	if err != nil {
+		return storageComponents{}, fmt.Errorf("create semantic store: %w", err)
+	}
 	return storageComponents{
-		explorer: explorerStore, recipes: recipeRegistry, lifecycle: lifecycleStore, catalog: catalogStore,
+		explorer: explorerStore, recipes: recipeRegistry, lifecycle: lifecycleStore, catalog: catalogStore, semantic: semanticStore,
 		degradation: degradation, recipeName: configuredRecipeName, recipeVersion: configuredRecipeVersion,
 	}, nil
 }

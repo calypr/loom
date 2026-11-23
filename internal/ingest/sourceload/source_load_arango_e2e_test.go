@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -254,7 +254,7 @@ RETURN {document: doc}`
 	if _, err := loader.Publish(ctx, project, "replace-patient"); err != nil {
 		t.Fatalf("publish Patient replacement: %v", err)
 	}
-	store, err := catalogarango.New(client)
+	store, err := semanticarango.New(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ RETURN {document: doc}`
 
 func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *arangostore.Client, project, source, target string) {
 	t.Helper()
-	store, err := catalogarango.New(client)
+	store, err := semanticarango.New(client)
 	if err != nil {
 		t.Fatal(err)
 	}

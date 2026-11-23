@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -15,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
@@ -50,7 +50,7 @@ type Config struct {
 	SelectionMembersCollection         string
 	Capability                         ports.CapabilityResolver
 	SemanticInventory                  func(context.Context, semantic.PageOptions) (semantic.Page, error)
-	SemanticCoverage                   func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error)
+	SemanticCoverage                   func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error)
 	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 
 	InterpretationRepository explorer.InterpretationRepository

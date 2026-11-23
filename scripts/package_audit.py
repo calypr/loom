@@ -185,7 +185,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
  'internal/semantic': 'Walk FHIR members, extract coded concepts, and build semantic inventory and coverage.',
- 'internal/semantic/arango': 'Expose semantic inventory and coverage persistence contracts.',
+ 'internal/semantic/arango': 'Persist and retrieve semantic inventory and coverage in ArangoDB.',
  'internal/semantic/backfill': 'Drive semantic inventory backfill over leased builds.',
  'internal/server': 'Compose storage, domain services, generated OpenAPI handlers and HTTP routes.',
  'internal/server/sourcepublication': 'Adapt published source loads into the server composition root.',
