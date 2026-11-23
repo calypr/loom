@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -35,7 +37,7 @@ func (s *Service) ApplyBuilderCommands(ctx context.Context, project, explorerID 
 
 func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
-		return nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
+		return nil, support.Malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
 }
@@ -43,9 +45,9 @@ func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, proj
 func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, previewSinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if err := request.Validate(); err != nil {
 		if strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
-			return nil, conflict("commands", "UNSUPPORTED_SEMANTICS_VERSION", "the authoring semantics version is unsupported; reload the workspace", nil, err)
+			return nil, support.Conflict("commands", "UNSUPPORTED_SEMANTICS_VERSION", "the authoring semantics version is unsupported; reload the workspace", nil, err)
 		}
-		return nil, malformed("commands", err.Error(), err)
+		return nil, support.Malformed("commands", err.Error(), err)
 	}
 	intents, err := parseAuthoringCommandIntents(request)
 	if err != nil {
@@ -57,42 +59,42 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	var populationMemberCandidate *explorer.CompilationReceipt
 	var rowChangeReplacementCandidate *explorer.CompilationReceipt
 	if s.config.Capability.Catalog == nil {
-		return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
+		return nil, support.Unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
 	var snapshot capability.Snapshot
 	var authorized ports.AuthorizedCapability
 	if intents.requiresAuthorizedScope() {
 		if s.config.Capability.ForCompilation == nil {
-			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+			return nil, support.Unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
 		authorized, err = s.config.Capability.ForCompilation(ctx, project, request.SnapshotToken)
 		snapshot = authorized.Snapshot
 		if err == nil {
-			if scopeErr := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); scopeErr != nil {
-				return nil, conflict("commands", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, scopeErr)
+			if scopeErr := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); scopeErr != nil {
+				return nil, support.Conflict("commands", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, scopeErr)
 			}
 		}
 	} else {
 		if s.config.Capability.Token == nil {
-			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
+			return nil, support.Unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 		}
 		snapshot, err = s.config.Capability.Token(ctx, project, request.SnapshotToken)
 	}
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || (intents.constructionChoiceCommand && !constructionChoicesMatchSnapshot(intents.constructionIdentities, snapshot.Token)) {
-		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+		return nil, support.Conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || snapshot.Identity.Generation == "" {
-		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
+		return nil, support.Conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
 	}
 	if snapshot.Token != "" && snapshot.Identity.Generation != "" && snapshot.Identity.AuthorizationScopeDigest != "" {
 		if sourceErr := request.ResolveDraftSourceContext(authoringv2.DraftSourceContext{
 			SnapshotToken: snapshot.Token, SourceGeneration: snapshot.Identity.Generation,
 			AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		}); sourceErr != nil {
-			return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, sourceErr)
+			return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, sourceErr)
 		}
 	} else if intents.restoreDraftRevisionCommand {
-		return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
+		return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
 	if explorerID == DefaultDataframeID {
@@ -154,40 +156,40 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	} else if intents.frameSourceCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			if len(commands) != 1 {
-				return nil, malformed("commands", "frame source changes must contain exactly one command", nil)
+				return nil, support.Malformed("commands", "frame source changes must contain exactly one command", nil)
 			}
 			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, catalog, commands[0], intents.frameSourceIdentity)
 		}
 	} else if intents.rowChangeReplacementCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			if len(commands) != 1 || commands[0].RowChange() == nil {
-				return nil, malformed("commands", "row replacement must be the only command", nil)
+				return nil, support.Malformed("commands", "row replacement must be the only command", nil)
 			}
 			proposal := *commands[0].RowChange()
 			if proposal.CatalogSnapshotToken != request.SnapshotToken || proposal.CatalogGeneration != snapshot.Identity.Generation {
-				return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement belongs to a different catalog snapshot", nil, nil)
+				return nil, support.Conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement belongs to a different catalog snapshot", nil, nil)
 			}
 			catalogDigest, digestErr := catalog.Digest()
 			if digestErr != nil || catalogDigest != proposal.CatalogDigest {
-				return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement catalog changed after assessment", nil, digestErr)
+				return nil, support.Conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement catalog changed after assessment", nil, digestErr)
 			}
 			candidate, _, applyErr := authoringv2.ApplyCommands(workspace, catalog, "row-change-replacement-preview", commands)
 			if applyErr != nil {
-				return nil, unprocessable("commands", "INVALID_ROW_CHANGE", applyErr.Error(), applyErr)
+				return nil, support.Unprocessable("commands", "INVALID_ROW_CHANGE", applyErr.Error(), applyErr)
 			}
 			receiptWorkspace, projectionErr := rowChangeReceiptWorkspace(candidate, proposal.OutputID)
 			if projectionErr != nil {
-				return nil, unprocessable("commands", "INVALID_ROW_CHANGE", projectionErr.Error(), projectionErr)
+				return nil, support.Unprocessable("commands", "INVALID_ROW_CHANGE", projectionErr.Error(), projectionErr)
 			}
 			rowChangeReplacementCandidate, err = s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: receiptWorkspace, SnapshotToken: request.SnapshotToken, RequestID: "row-change-replacement-apply-candidate"})
 			if err != nil {
 				return nil, err
 			}
 			if err := verifyPreviewReceiptIntent(rowChangeReplacementCandidate, receiptWorkspace); err != nil {
-				return nil, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the requested row replacement", nil, err)
+				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the requested row replacement", nil, err)
 			}
 			if !receiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || validateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
-				return nil, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row replacement candidate receipt does not contain the requested output", nil, nil)
+				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row replacement candidate receipt does not contain the requested output", nil, nil)
 			}
 			return commands, nil
 		}
@@ -224,15 +226,15 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	})
 	switch {
 	case errors.Is(err, explorer.ErrDraftConflict):
-		return nil, conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before editing", nil, err)
+		return nil, support.Conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before editing", nil, err)
 	case errors.Is(err, explorer.ErrAuthoringCommandConflict):
-		return nil, conflict("commands", "COMMAND_ID_CONFLICT", "commandId was already used for different intent", nil, err)
+		return nil, support.Conflict("commands", "COMMAND_ID_CONFLICT", "commandId was already used for different intent", nil, err)
 	case err != nil:
 		var lifecycleErr *ports.Error
 		if errors.As(err, &lifecycleErr) {
 			return nil, lifecycleErr
 		}
-		return nil, unprocessable("commands", "INVALID_AUTHORING_COMMAND", err.Error(), err)
+		return nil, support.Unprocessable("commands", "INVALID_AUTHORING_COMMAND", err.Error(), err)
 	default:
 		return &ApplyCommandsWithConstructionPreviewResponse{Commands: response, Accepted: acceptedConstruction}, nil
 	}
@@ -247,23 +249,23 @@ func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, exp
 		return err
 	}
 	if request.ExpectedDraftVersion != 1 || strings.TrimSpace(request.ExpectedDraftDigest) == "" {
-		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+		return support.Conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
 	}
 	virtual, err := s.virtualDefaultDataframeOwner(ctx, project, snapshot, catalog)
 	if err != nil {
 		return err
 	}
 	if request.ExpectedDraftDigest != virtual.DraftDigest {
-		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+		return support.Conflict("commands", "DRAFT_CONFLICT", "the default dataframe changed; reload before applying commands", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(virtual.DraftConfig)
 	if err != nil {
-		return conflict("commands", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return support.Conflict("commands", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
 	created, createErr := s.store.CreateSeededDataframe(ctx, project, explorerID, virtual.Title, workspace, actor, authoringv2.DraftSourceContext{SnapshotToken: snapshot.Token, SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest})
 	if createErr == nil {
 		if created.DraftVersion != 1 || created.DraftDigest != virtual.DraftDigest {
-			return conflict("commands", "DEFAULT_DATAFRAME_SEED_CONFLICT", "the default dataframe seed differs from its imported workspace", nil, explorer.ErrDraftConflict)
+			return support.Conflict("commands", "DEFAULT_DATAFRAME_SEED_CONFLICT", "the default dataframe seed differs from its imported workspace", nil, explorer.ErrDraftConflict)
 		}
 		return nil
 	}
@@ -276,44 +278,44 @@ func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, exp
 		return err
 	}
 	if created.DraftVersion != 1 || created.DraftDigest != virtual.DraftDigest || !bytes.Equal(created.DraftConfig, virtual.DraftConfig) {
-		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+		return support.Conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
 	}
 	return nil
 }
 
 func checkRowChangeReplacementResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt, outputID string) error {
 	if receipt == nil || !receiptHasOutput(receipt.Bundle, outputID) || validateReceiptOutputContract(receipt, outputID) != nil {
-		return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement does not match its candidate receipt", nil, nil)
+		return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement does not match its candidate receipt", nil, nil)
 	}
 	for _, document := range workspace.Documents {
 		if document.Output.ID == outputID {
 			if document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.RootResourceType != document.Route.ResourceType || len(document.Columns) != 1 || document.Columns[0].Column != "id" {
-				return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement changed the candidate output shape", nil, nil)
+				return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement changed the candidate output shape", nil, nil)
 			}
 			return nil
 		}
 	}
-	return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement removed its output", nil, nil)
+	return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement removed its output", nil, nil)
 }
 
 func (s *Service) prepareSemanticSelections(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if s.config.ResolveSemanticInventorySelections == nil {
-		return nil, unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
+		return nil, support.Unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandAddSemanticSelections {
-		return nil, malformed("commands", "ADD_SEMANTIC_SELECTIONS must be the only command in its atomic request", nil)
+		return nil, support.Malformed("commands", "ADD_SEMANTIC_SELECTIONS must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
 	document := findSemanticOutput(workspace, command.OutputID)
 	if document == nil || strings.TrimSpace(document.RootResourceType) == "" || document.Route.ResourceType != document.RootResourceType {
-		return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
+		return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 	}
 	rowRootAllowed := false
 	for _, node := range authorized.Snapshot.Nodes {
 		rowRootAllowed = rowRootAllowed || node.RowRootEligible && node.ResourceType == document.RootResourceType
 	}
 	if !rowRootAllowed {
-		return nil, conflict("commands", "STALE_SEMANTIC_CONTEXT", "the selected row root is not available in the current catalog snapshot", nil, nil)
+		return nil, support.Conflict("commands", "STALE_SEMANTIC_CONTEXT", "the selected row root is not available in the current catalog snapshot", nil, nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
 	references := make([]semantic.Reference, 0, len(command.SemanticSelections()))
@@ -334,37 +336,37 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 		References:                    references,
 	})
 	if err != nil {
-		return nil, unavailable("catalog", "CATALOG_UNAVAILABLE", "the selected semantic inventory could not be resolved", err)
+		return nil, support.Unavailable("catalog", "CATALOG_UNAVAILABLE", "the selected semantic inventory could not be resolved", err)
 	}
 	expectedBuildID := semantic.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
 	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete || resolved.Build.BuildID != expectedBuildID {
-		return nil, conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
+		return nil, support.Conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
 	}
 	expectedContext, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, expectedBuildID)
 	if err != nil {
 		return nil, err
 	}
 	if command.ContextToken() != expectedContext {
-		return nil, conflict("catalog", "STALE_SEMANTIC_CONTEXT", "reload the selected concepts before applying them", nil, nil)
+		return nil, support.Conflict("catalog", "STALE_SEMANTIC_CONTEXT", "reload the selected concepts before applying them", nil, nil)
 	}
 	byIdentity := make(map[string]semantic.Entry, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
 		identity := entry.BindingID + "\x00" + entry.ConceptID
 		if _, exists := byIdentity[identity]; exists {
-			return nil, unavailable("catalog", "CATALOG_UNAVAILABLE", "semantic inventory returned duplicate selection identities", nil)
+			return nil, support.Unavailable("catalog", "CATALOG_UNAVAILABLE", "semantic inventory returned duplicate selection identities", nil)
 		}
 		byIdentity[identity] = entry
 	}
 	semanticPayload, ok := command.Payload.(*authoringv2.SemanticPayload)
 	if !ok {
-		return nil, unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "semantic selections require a semantic command payload", nil)
+		return nil, support.Unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "semantic selections require a semantic command payload", nil)
 	}
 	for index := range semanticPayload.SemanticSelections {
 		selection := &semanticPayload.SemanticSelections[index]
 		identity := selection.BindingID + "\x00" + selection.ConceptID
 		entry, found := byIdentity[identity]
 		if !found {
-			return nil, unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "a selected concept binding is unavailable in the current authorized inventory", nil)
+			return nil, support.Unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "a selected concept binding is unavailable in the current authorized inventory", nil)
 		}
 		selection.ResolvedObservation = &entry
 	}
@@ -382,7 +384,7 @@ func findSemanticOutput(workspace authoringv2.Workspace, outputID string) *autho
 
 func (s *Service) compile(ctx context.Context, request compileRequest) (*explorer.CompilationReceipt, error) {
 	if (s.config.Capability.Token == nil && s.config.Capability.ForCompilation == nil) || s.config.CompileReceipt == nil {
-		return nil, unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
+		return nil, support.Unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
 	}
 	authorized, _, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
@@ -393,16 +395,16 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 
 func (s *Service) compileAuthorized(ctx context.Context, request compileRequest, authorized ports.AuthorizedCapability) (*explorer.CompilationReceipt, error) {
 	if s.config.CompileReceipt == nil {
-		return nil, unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
+		return nil, support.Unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
 	}
 	snapshot := authorized.Snapshot
 	workspace := request.Workspace.NormalizePresentationOrders()
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
-		return nil, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
+		return nil, support.Unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
 	}
 	if authorized.Scope.Mode != "" {
-		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-			return nil, conflict("population", "INVALID_POPULATION_SCOPE", "the effective authorization scope is stale", nil, err)
+		if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return nil, support.Conflict("population", "INVALID_POPULATION_SCOPE", "the effective authorization scope is stale", nil, err)
 		}
 	}
 	resolvedInputs, err := s.resolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
@@ -411,7 +413,7 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
-		return nil, unprocessable("population", "INVALID_POPULATION", err.Error(), err)
+		return nil, support.Unprocessable("population", "INVALID_POPULATION", err.Error(), err)
 	}
 	resolvedInterpretations, err := s.resolveWorkspaceInterpretations(ctx, request.Project, workspace, snapshot)
 	if err != nil {
@@ -419,7 +421,7 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
-		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
+		return nil, support.Unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
 	receipt, err := s.config.CompileReceipt(ctx, ports.CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
@@ -432,10 +434,10 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
-		return nil, unavailable("compile", "COMPILATION_UNAVAILABLE", "the Explorer workspace could not be compiled", err)
+		return nil, support.Unavailable("compile", "COMPILATION_UNAVAILABLE", "the Explorer workspace could not be compiled", err)
 	}
 	if receipt == nil || strings.TrimSpace(receipt.ID) == "" {
-		return nil, unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted", nil)
+		return nil, support.Unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted", nil)
 	}
 	if err := s.validateCompiledReceipt(ctx, request, authorized, receipt); err != nil {
 		return nil, err
@@ -445,7 +447,7 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 
 func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRequest, authorized ports.AuthorizedCapability, receipt *explorer.CompilationReceipt) error {
 	if receipt == nil {
-		return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt is required", nil)
+		return support.Unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt is required", nil)
 	}
 	snapshot := authorized.Snapshot
 	identityChecks := []struct {
@@ -463,41 +465,41 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 	}
 	for _, check := range identityChecks {
 		if check.got != check.want {
-			return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
+			return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
 		}
 	}
 	if !reflect.DeepEqual(request.ColumnPolicyProposal, receipt.ColumnPolicyProposal) {
-		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled column policy proposal binding does not match the request", nil, nil)
+		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled column policy proposal binding does not match the request", nil, nil)
 	}
 	if !reflect.DeepEqual(request.SourceRelationshipProposal, receipt.SourceRelationshipProposal) {
-		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
+		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
 	}
 	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
-		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
+		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
 	}
 	if !sameConstructionProposalBinding(request.ConstructionProposal, receipt.ConstructionProposal) {
-		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
+		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
 	}
 	if !samePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal, receipt.PopulationMemberRemovalProposal) {
-		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt population member proposal binding does not match the request", nil, nil)
+		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt population member proposal binding does not match the request", nil, nil)
 	}
 	if authorized.Scope.Mode != "" {
-		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-			return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
+		if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return support.Unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
 		}
 	}
 	if err := receipt.Validate(); err != nil {
-		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt failed integrity validation", nil, err)
+		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt failed integrity validation", nil, err)
 	}
 	persisted, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, receipt.ID)
 	if err != nil {
-		return unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not found after persistence", err)
+		return support.Unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not found after persistence", err)
 	}
 	if persisted == nil || persisted.ID != receipt.ID {
-		return unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not returned from persistence", nil)
+		return support.Unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not returned from persistence", nil)
 	}
 	if err := persisted.Validate(); err != nil {
-		return unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "persisted compilation receipt failed integrity validation", err)
+		return support.Unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "persisted compilation receipt failed integrity validation", err)
 	}
 	return nil
 }
@@ -552,18 +554,18 @@ func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*exp
 
 func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileRequest) (ReconcileResult, error) {
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
-		return ReconcileResult{}, malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
+		return ReconcileResult{}, support.Malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
 	}
 	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
 	if owner.DraftVersion != request.DraftVersion || owner.DraftDigest != request.DraftDigest {
-		return ReconcileResult{}, conflict("reconcile", "DRAFT_CONFLICT", "the Explorer draft changed; reload before reconciling", nil, explorer.ErrDraftConflict)
+		return ReconcileResult{}, support.Conflict("reconcile", "DRAFT_CONFLICT", "the Explorer draft changed; reload before reconciling", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return ReconcileResult{}, conflict("reconcile", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be reconciled", nil, err)
+		return ReconcileResult{}, support.Conflict("reconcile", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be reconciled", nil, err)
 	}
 	if request.OutputID == "" {
 		receipt, compileErr := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken})
@@ -573,23 +575,23 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 		return ReconcileResult{Receipt: receipt, Workspace: workspace}, nil
 	}
 	if strings.TrimSpace(request.OutputID) != request.OutputID {
-		return ReconcileResult{}, malformed("reconcile", "outputId must not contain surrounding whitespace", nil)
+		return ReconcileResult{}, support.Malformed("reconcile", "outputId must not contain surrounding whitespace", nil)
 	}
 	authorized, snapshot, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
-		return ReconcileResult{}, conflict("reconcile", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+		return ReconcileResult{}, support.Conflict("reconcile", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	if authorized.Scope.Mode != "" {
-		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-			return ReconcileResult{}, conflict("reconcile", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+		if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return ReconcileResult{}, support.Conflict("reconcile", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 		}
 	}
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
-		return ReconcileResult{}, unprocessable("reconcile", workspaceValidationCode(err), err.Error(), err)
+		return ReconcileResult{}, support.Unprocessable("reconcile", workspaceValidationCode(err), err.Error(), err)
 	}
 	scoped, err := workspaceOutputClosure(workspace, request.OutputID)
 	if err != nil {
-		return ReconcileResult{}, unprocessable("reconcile", "INVALID_OUTPUT_SCOPE", err.Error(), err)
+		return ReconcileResult{}, support.Unprocessable("reconcile", "INVALID_OUTPUT_SCOPE", err.Error(), err)
 	}
 	receipt, err := s.compileAuthorized(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: scoped, SnapshotToken: request.SnapshotToken}, authorized)
 	if err != nil {
@@ -709,71 +711,71 @@ func (s *Service) prepareDraftRevisionRestore(
 	commands []authoringv2.Command,
 ) ([]authoringv2.Command, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandRestoreDraftRevision {
-		return nil, malformed("commands", "RESTORE_DRAFT_REVISION must be the only command", nil)
+		return nil, support.Malformed("commands", "RESTORE_DRAFT_REVISION must be the only command", nil)
 	}
 	command := &commands[0]
 	owner, err := s.getOwner(ctx, project, explorerID)
 	if err != nil {
-		return nil, persistenceFailure("commands", "the Explorer draft could not be loaded before restoring", err)
+		return nil, support.PersistenceFailure("commands", "the Explorer draft could not be loaded before restoring", err)
 	}
 	if owner == nil || owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return nil, conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before restoring", nil, explorer.ErrDraftConflict)
+		return nil, support.Conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before restoring", nil, explorer.ErrDraftConflict)
 	}
 	if owner.PreviousDraftRevisionID == "" || command.DraftRevisionID() != owner.PreviousDraftRevisionID {
-		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is no longer the current Undo target", nil, nil)
+		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is no longer the current Undo target", nil, nil)
 	}
 	revision, err := s.store.GetDraftRevision(ctx, project, explorerID, command.DraftRevisionID())
 	if errors.Is(err, explorer.ErrNotFound) {
-		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, err)
+		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, err)
 	}
 	if err != nil {
-		return nil, persistenceFailure("commands", "the prior draft revision could not be read", err)
+		return nil, support.PersistenceFailure("commands", "the prior draft revision could not be read", err)
 	}
 	if revision == nil || revision.ID != command.DraftRevisionID() || projectid.Canonical(revision.Project) != projectid.Canonical(project) ||
 		revision.ExplorerID != explorerID || revision.DraftVersion != owner.DraftVersion-1 {
-		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision does not belong to this Explorer draft", nil, nil)
+		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision does not belong to this Explorer draft", nil, nil)
 	}
 	currentSource := request.ResolvedDraftSourceContext()
 	if currentSource == nil || currentSource.SnapshotToken != snapshot.Token || currentSource.SourceGeneration != snapshot.Identity.Generation ||
 		currentSource.AuthorizationScopeDigest != snapshot.Identity.AuthorizationScopeDigest {
-		return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context changed; reload before restoring", nil, nil)
+		return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context changed; reload before restoring", nil, nil)
 	}
 
 	var restored authoringv2.Workspace
 	if len(revision.DraftConfig) != 0 {
 		if revision.SnapshotToken != currentSource.SnapshotToken || revision.SourceGeneration != currentSource.SourceGeneration ||
 			revision.AuthorizationScopeDigest != currentSource.AuthorizationScopeDigest {
-			return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the prior draft was created from another authorized source context", nil, nil)
+			return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the prior draft was created from another authorized source context", nil, nil)
 		}
 		var expectedDigest string
 		restored, expectedDigest, err = s.store.DraftRevisionWorkspace(ctx, *revision)
 		if err != nil {
-			return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision is invalid", nil, err)
+			return nil, support.Conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision is invalid", nil, err)
 		}
 		digest, digestErr := restored.Digest()
 		if digestErr != nil || revision.DraftDigest == "" || digest != expectedDigest {
-			return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision failed its digest check", nil, digestErr)
+			return nil, support.Conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision failed its digest check", nil, digestErr)
 		}
 	} else {
 
 		if owner.ActiveRevisionID != "" {
 			active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
 			if activeErr != nil {
-				return nil, persistenceFailure("commands", "the prior workspace could not be loaded", activeErr)
+				return nil, support.PersistenceFailure("commands", "the prior workspace could not be loaded", activeErr)
 			}
 			if active.SourceGeneration != currentSource.SourceGeneration {
-				return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the active source generation changed since the prior workspace", nil, nil)
+				return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the active source generation changed since the prior workspace", nil, nil)
 			}
 			restored, err = s.store.RevisionWorkspace(ctx, *active)
 			if err != nil {
-				return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior workspace is invalid", nil, err)
+				return nil, support.Conflict("commands", "DRAFT_REVISION_INVALID", "the prior workspace is invalid", nil, err)
 			}
 		} else {
 			restored = authoringv2.NewWorkspace(revision.Title)
 		}
 	}
 	if err := command.ResolveDraftRevision(restored); err != nil {
-		return nil, malformed("commands", err.Error(), err)
+		return nil, support.Malformed("commands", err.Error(), err)
 	}
 	return commands, nil
 }

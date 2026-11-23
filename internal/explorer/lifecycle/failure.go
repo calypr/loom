@@ -3,6 +3,8 @@ package lifecycle
 import (
 	"errors"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -14,11 +16,11 @@ func capabilityResolutionFailure(stage, message string, err error) error {
 func capabilityFailure(stage, code, message string, err error) error {
 	switch {
 	case errors.Is(err, capability.ErrStaleSnapshot), errors.Is(err, capability.ErrSnapshotUnavailable), errors.Is(err, capability.ErrNotFound):
-		return conflict(stage, code, message, nil, err)
+		return support.Conflict(stage, code, message, nil, err)
 	case errors.Is(err, authscope.ErrUnauthenticated), errors.Is(err, authscope.ErrForbidden):
-		return forbidden(stage, message, err)
+		return support.Forbidden(stage, message, err)
 	default:
-		return unavailable(stage, "CAPABILITY_UNAVAILABLE", message, err)
+		return support.Unavailable(stage, "CAPABILITY_UNAVAILABLE", message, err)
 	}
 }
 

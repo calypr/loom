@@ -11,9 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/dataframe/published"
+
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
@@ -48,7 +52,7 @@ type ArtifactOpenRequest struct {
 
 func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) (ArtifactResult, error) {
 	if s.config.ArtifactStore == nil || s.config.PublishedReader == nil {
-		return ArtifactResult{}, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured", nil)
+		return ArtifactResult{}, support.Unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured", nil)
 	}
 	if err := validateArtifactRequest(request); err != nil {
 		return ArtifactResult{}, err
@@ -60,10 +64,10 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	}
 	descriptor, columns, err := artifactDescriptor(receipt, materialization, request.OutputID)
 	if err != nil {
-		return ArtifactResult{}, conflict("artifact", "ARTIFACT_CONTRACT_INVALID", "published output contract cannot describe the materialized artifact", nil, err)
+		return ArtifactResult{}, support.Conflict("artifact", "ARTIFACT_CONTRACT_INVALID", "published output contract cannot describe the materialized artifact", nil, err)
 	}
 	if len(columns) == 0 {
-		return ArtifactResult{}, unprocessable("artifact", "NO_EXPORTABLE_COLUMNS", "the published output has no exportable columns", nil)
+		return ArtifactResult{}, support.Unprocessable("artifact", "NO_EXPORTABLE_COLUMNS", "the published output has no exportable columns", nil)
 	}
 	requestedFormat := artifactformat.ArtifactFormatAuto
 	if !artifactColumnsContainRowIdentity(descriptor, columns) {
@@ -71,7 +75,7 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	}
 	format, err := artifactformat.ResolveArtifactFormat(requestedFormat, columns)
 	if err != nil {
-		return ArtifactResult{}, malformed("artifact", err.Error(), err)
+		return ArtifactResult{}, support.Malformed("artifact", err.Error(), err)
 	}
 
 	executionID := strings.TrimSpace(revision.Publication.ExecutionID)
@@ -96,32 +100,32 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	}
 	artifactID, err := explorer.ArtifactID(identity)
 	if err != nil {
-		return ArtifactResult{}, malformed("artifact", err.Error(), err)
+		return ArtifactResult{}, support.Malformed("artifact", err.Error(), err)
 	}
 	identity.ID = artifactID
 
 	stage, existing, err := s.config.ArtifactStore.Begin(ctx, identity)
 	if err != nil {
-		return ArtifactResult{}, unavailable("artifact", "ARTIFACT_STAGE_FAILED", "artifact staging could not be created", err)
+		return ArtifactResult{}, support.Unavailable("artifact", "ARTIFACT_STAGE_FAILED", "artifact staging could not be created", err)
 	}
 	if existing != nil {
 		if err := validateArtifactRecordIdentity(*existing, identity); err != nil {
-			return ArtifactResult{}, conflict("artifact", "ARTIFACT_ID_COLLISION", "artifact id is bound to different immutable identity", nil, err)
+			return ArtifactResult{}, support.Conflict("artifact", "ARTIFACT_ID_COLLISION", "artifact id is bound to different immutable identity", nil, err)
 		}
 		switch existing.State {
 		case explorer.ArtifactComplete:
 			copy := *existing
 			return ArtifactResult{Record: &copy}, nil
 		case explorer.ArtifactPreparing:
-			return ArtifactResult{}, conflict("artifact", "ARTIFACT_PREPARING", "an artifact with this idempotency key is already preparing", nil, nil)
+			return ArtifactResult{}, support.Conflict("artifact", "ARTIFACT_PREPARING", "an artifact with this idempotency key is already preparing", nil, nil)
 		case explorer.ArtifactFailed:
-			return ArtifactResult{}, unavailable("artifact", "ARTIFACT_FAILED_RETRYABLE", "the prior artifact preparation failed; retry with a new idempotency key", nil)
+			return ArtifactResult{}, support.Unavailable("artifact", "ARTIFACT_FAILED_RETRYABLE", "the prior artifact preparation failed; retry with a new idempotency key", nil)
 		default:
-			return ArtifactResult{}, unavailable("artifact", "ARTIFACT_STATE_INVALID", "artifact has an unsupported state", nil)
+			return ArtifactResult{}, support.Unavailable("artifact", "ARTIFACT_STATE_INVALID", "artifact has an unsupported state", nil)
 		}
 	}
 	if stage == nil {
-		return ArtifactResult{}, internal("artifact", "ARTIFACT_STAGE_INVALID", "artifact store returned no stage", nil)
+		return ArtifactResult{}, support.Internal("artifact", "ARTIFACT_STAGE_INVALID", "artifact store returned no stage", nil)
 	}
 
 	selectionMetadata, interpretationMetadata, provenanceMetadata, qualityMetadata, metadataErr := artifactMetadata(receipt, revision, materialization, request.OutputID, quality)
@@ -208,30 +212,30 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 
 func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest) (io.ReadCloser, *explorer.ArtifactRecord, error) {
 	if s.config.ArtifactStore == nil {
-		return nil, nil, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured", nil)
+		return nil, nil, support.Unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured", nil)
 	}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.ArtifactID) == "" {
-		return nil, nil, malformed("artifact", "project, explorerId, and artifactId are required", nil)
+		return nil, nil, support.Malformed("artifact", "project, explorerId, and artifactId are required", nil)
 	}
 	record, err := s.config.ArtifactStore.Get(ctx, request.ArtifactID)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
-			return nil, nil, notFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", err)
+			return nil, nil, support.NotFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", err)
 		}
-		return nil, nil, unavailable("artifact", "ARTIFACT_STORE_UNAVAILABLE", "the artifact store is unavailable", err)
+		return nil, nil, support.Unavailable("artifact", "ARTIFACT_STORE_UNAVAILABLE", "the artifact store is unavailable", err)
 	}
 	if record == nil {
-		return nil, nil, notFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", nil)
+		return nil, nil, support.NotFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", nil)
 	}
 	project := projectid.Canonical(request.Project)
 	if projectid.Canonical(record.Project) != project || record.ExplorerID != request.ExplorerID {
-		return nil, nil, notFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", explorer.ErrNotFound)
+		return nil, nil, support.NotFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", explorer.ErrNotFound)
 	}
 	if record.State != explorer.ArtifactComplete {
-		return nil, record, unavailable("artifact", "ARTIFACT_NOT_COMPLETE", "artifact is not complete", nil)
+		return nil, record, support.Unavailable("artifact", "ARTIFACT_NOT_COMPLETE", "artifact is not complete", nil)
 	}
 	if !record.ExpiresAt.After(s.now()) {
-		return nil, record, unavailable("artifact", "ARTIFACT_EXPIRED", "artifact has expired", nil)
+		return nil, record, support.Unavailable("artifact", "ARTIFACT_EXPIRED", "artifact has expired", nil)
 	}
 	receipt, err := s.lookupReceipt(ctx, project, request.ExplorerID, record.ReceiptID)
 	if err != nil {
@@ -241,37 +245,37 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 		return nil, record, err
 	}
 	if err := validateArtifactReceiptIdentity(*record, receipt); err != nil {
-		return nil, record, conflict("artifact", "ARTIFACT_IDENTITY_CHANGED", "artifact no longer matches its immutable receipt", nil, err)
+		return nil, record, support.Conflict("artifact", "ARTIFACT_IDENTITY_CHANGED", "artifact no longer matches its immutable receipt", nil, err)
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, record.SnapshotToken)
 	if err != nil {
 		return nil, record, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
-		return nil, record, conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
+		return nil, record, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-		return nil, record, forbidden("artifact", "current caller is not authorized for this artifact", err)
+		return nil, record, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	revision, err := s.store.GetRevision(ctx, record.RevisionID)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
-			return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", err)
+			return nil, record, support.NotFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", err)
 		}
-		return nil, record, unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "artifact revision could not be loaded", err)
+		return nil, record, support.Unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "artifact revision could not be loaded", err)
 	}
 	if revision == nil {
-		return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", nil)
+		return nil, record, support.NotFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", nil)
 	}
 	if err := validateArtifactRevisionIdentity(*record, *revision); err != nil {
-		return nil, record, conflict("artifact", "ARTIFACT_IDENTITY_CHANGED", "artifact no longer matches its immutable revision", nil, err)
+		return nil, record, support.Conflict("artifact", "ARTIFACT_IDENTITY_CHANGED", "artifact no longer matches its immutable revision", nil, err)
 	}
 	reader, opened, err := s.config.ArtifactStore.Open(ctx, request.ArtifactID)
 	if err != nil {
-		return nil, record, unavailable("artifact", "ARTIFACT_STORE_UNAVAILABLE", "the artifact store could not open the archive", err)
+		return nil, record, support.Unavailable("artifact", "ARTIFACT_STORE_UNAVAILABLE", "the artifact store could not open the archive", err)
 	}
 	if reader == nil || opened == nil || opened.State != explorer.ArtifactComplete || !opened.ExpiresAt.After(s.now()) {
-		return nil, record, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact is not available for download", fmt.Errorf("artifact store returned an incomplete or expired archive"))
+		return nil, record, support.Unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact is not available for download", fmt.Errorf("artifact store returned an incomplete or expired archive"))
 	}
 	return reader, opened, nil
 }
@@ -280,18 +284,18 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	revision, err := s.store.GetRevision(ctx, request.RevisionID)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
-			return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
+			return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.NotFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
 		}
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "published revision could not be loaded", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "published revision could not be loaded", err)
 	}
 	if revision == nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", nil)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.NotFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", nil)
 	}
 	if projectid.Canonical(revision.Project) != project || revision.ExplorerID != request.ExplorerID || revision.ID != request.RevisionID {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", explorer.ErrNotFound)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.NotFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", explorer.ErrNotFound)
 	}
 	if strings.TrimSpace(revision.CompilationReceiptID) == "" || strings.TrimSpace(revision.Publication.ExecutionID) == "" {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_NOT_PUBLISHED", "revision has no exact receipt/execution identity", nil, nil)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "REVISION_NOT_PUBLISHED", "revision has no exact receipt/execution identity", nil, nil)
 	}
 	receipt, err := s.lookupReceipt(ctx, project, request.ExplorerID, revision.CompilationReceiptID)
 	if err != nil {
@@ -301,34 +305,34 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
 	if err := validateReceiptOutputContract(receipt, request.OutputID); err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("artifact", "OUTPUT_NOT_PUBLISHED", "requested output is not part of the immutable receipt", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Unprocessable("artifact", "OUTPUT_NOT_PUBLISHED", "requested output is not part of the immutable receipt", err)
 	}
 	if receipt.ID != revision.CompilationReceiptID || receipt.SourceGeneration != revision.SourceGeneration || receipt.SourceGeneration == "" {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision and receipt identities do not match", nil, nil)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision and receipt identities do not match", nil, nil)
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, receipt.SnapshotToken)
 	if err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, forbidden("artifact", "current caller is not authorized for this artifact", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	if err := validateArtifactRevisionReceipt(*revision, *receipt); err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision does not match its immutable receipt", nil, err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision does not match its immutable receipt", nil, err)
 	}
 	quality, err := artifactQualityReport(*revision, request.OutputID, *receipt)
 	if err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("quality", "QUALITY_INCOMPLETE", "artifact export requires complete, passed quality evidence: "+err.Error(), err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Unprocessable("quality", "QUALITY_INCOMPLETE", "artifact export requires complete, passed quality evidence: "+err.Error(), err)
 	}
 	materialization, err := s.config.PublishedReader.ExactExecutionMaterialization(ctx, revision.Publication.ExecutionID, request.OutputID)
 	if err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "MATERIALIZATION_UNAVAILABLE", "the exact published output is not available", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Unavailable("artifact", "MATERIALIZATION_UNAVAILABLE", "the exact published output is not available", err)
 	}
 	if err := validateArtifactMaterialization(materialization, *revision, *receipt, authorized.Scope, request.OutputID); err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "MATERIALIZATION_IDENTITY_CHANGED", "the exact published output no longer matches the revision", nil, err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "MATERIALIZATION_IDENTITY_CHANGED", "the exact published output no longer matches the revision", nil, err)
 	}
 	return receipt, revision, authorized, materialization, quality, nil
 }
@@ -336,7 +340,7 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 func validateArtifactRequest(request ArtifactRequest) error {
 	for label, value := range map[string]string{"project": request.Project, "explorerId": request.ExplorerID, "revisionId": request.RevisionID, "outputId": request.OutputID, "idempotencyKey": request.IdempotencyKey} {
 		if strings.TrimSpace(value) == "" {
-			return malformed("artifact", label+" is required", nil)
+			return support.Malformed("artifact", label+" is required", nil)
 		}
 	}
 	return nil
@@ -710,7 +714,35 @@ func artifactFailureCode(err error) string {
 func (s *Service) abortArtifactStage(ctx context.Context, stage explorer.ArtifactStage, code string, cause error) (ArtifactResult, error) {
 	_, abortErr := stage.Abort(context.WithoutCancel(ctx), code)
 	if abortErr != nil {
-		return ArtifactResult{}, unavailable("artifact", "ARTIFACT_ABORT_FAILED", "artifact preparation failed and its stage could not be aborted", fmt.Errorf("%v: abort: %w", cause, abortErr))
+		return ArtifactResult{}, support.Unavailable("artifact", "ARTIFACT_ABORT_FAILED", "artifact preparation failed and its stage could not be aborted", fmt.Errorf("%v: abort: %w", cause, abortErr))
 	}
-	return ArtifactResult{}, unavailable("artifact", code, "artifact preparation failed; no complete artifact was published", cause)
+	return ArtifactResult{}, support.Unavailable("artifact", code, "artifact preparation failed; no complete artifact was published", cause)
+}
+
+type artifactDelayReader struct {
+	next  ports.ArtifactPublishedReader
+	delay time.Duration
+}
+
+func (r artifactDelayReader) ExactExecutionMaterialization(ctx context.Context, executionID, outputID string) (published.Materialization, error) {
+	return r.next.ExactExecutionMaterialization(ctx, executionID, outputID)
+}
+
+func (r artifactDelayReader) StreamExactExport(ctx context.Context, request published.ExactExportRequest, visit published.ExactExportVisitor) (published.ExactExportResult, error) {
+	return r.next.StreamExactExport(ctx, request, func(row map[string]any) error {
+		timer := time.NewTimer(r.delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return visit(row)
+		}
+	})
+}
+
+var _ ports.ArtifactPublishedReader = artifactDelayReader{}
+
+func DelayArtifactRows(next ports.ArtifactPublishedReader, delay time.Duration) ports.ArtifactPublishedReader {
+	return artifactDelayReader{next: next, delay: delay}
 }

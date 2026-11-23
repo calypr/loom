@@ -1,6 +1,10 @@
 package explorer
 
 import (
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+)
+
+import (
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -458,3 +462,5 @@ func firstNonEmptyString(values ...string) string {
 	}
 	return ""
 }
+
+func workspaceBytesDigest(raw []byte) string { return workspacepkg.BytesDigest(raw) }

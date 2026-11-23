@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -30,13 +32,13 @@ func (s *Service) resolveWorkspaceInterpretations(ctx context.Context, project s
 		return explorercompilation.ResolvedInputs{}, nil
 	}
 	if s.config.InterpretationRepository == nil {
-		return explorercompilation.ResolvedInputs{}, unavailable("interpretation", "INTERPRETATION_UNAVAILABLE", "interpretation revisions are not configured", nil)
+		return explorercompilation.ResolvedInputs{}, support.Unavailable("interpretation", "INTERPRETATION_UNAVAILABLE", "interpretation revisions are not configured", nil)
 	}
 	revisions := make(map[explorer.InterpretationRevisionID]explorer.InterpretationRevision, len(ids))
 	for id := range ids {
 		revision, err := s.config.InterpretationRepository.GetInterpretationRevision(ctx, projectid.Canonical(project), id)
 		if err != nil {
-			return explorercompilation.ResolvedInputs{}, unavailable("interpretation", "INTERPRETATION_UNAVAILABLE", fmt.Sprintf("load interpretation revision %q", id), err)
+			return explorercompilation.ResolvedInputs{}, support.Unavailable("interpretation", "INTERPRETATION_UNAVAILABLE", fmt.Sprintf("load interpretation revision %q", id), err)
 		}
 		if revision == nil {
 			return explorercompilation.ResolvedInputs{}, fmt.Errorf("load interpretation revision %q: repository returned nil", id)

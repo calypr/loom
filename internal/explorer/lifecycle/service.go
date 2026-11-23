@@ -19,6 +19,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/explorer/selection"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 type Service struct {
@@ -293,4 +295,135 @@ func (s *Service) SelectionService() *selection.Service {
 		return nil
 	}
 	return s.selectionService
+}
+
+func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request AuthoringNetworkRequest) (AuthoringNetworkResponse, error) {
+	empty := AuthoringNetworkResponse{}
+	for name, value := range map[string]string{"project": request.Project, "explorerId": request.ExplorerID, "outputId": request.OutputID, "snapshotToken": request.SnapshotToken, "expectedDraftDigest": request.ExpectedDraftDigest} {
+		if err := support.RequireExactIdentity(value, name); err != nil {
+			return empty, support.Malformed("authoring-network", err.Error(), err)
+		}
+	}
+	if request.ExpectedDraftVersion < 1 {
+		return empty, support.Malformed("authoring-network", "expectedDraftVersion must be positive", nil)
+	}
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.AuthoringNetwork == nil {
+		return empty, support.Unavailable("authoring-network", "CAPABILITY_UNAVAILABLE", "authoring network hydration is unavailable", nil)
+	}
+	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation == "" {
+		return empty, support.Conflict("authoring-network", "STALE_CATALOG_SNAPSHOT", "reload the source catalog", nil, err)
+	}
+	if err := support.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return empty, support.Conflict("authoring-network", "STALE_AUTHORIZATION_SCOPE", "source authorization changed", nil, err)
+	}
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	if err != nil {
+		return empty, err
+	}
+	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
+		return empty, support.Conflict("authoring-network", "DRAFT_CONFLICT", "saved draft changed; reload its network", nil, explorer.ErrDraftConflict)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	if err != nil {
+		return empty, support.Conflict("authoring-network", "AUTHORING_STATE_MISSING", "saved source cannot be read", nil, err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil || digest != owner.DraftDigest {
+		return empty, support.Conflict("authoring-network", "DRAFT_CONFLICT", "saved source digest does not match", nil, err)
+	}
+	document := proposalDocument(workspace, request.OutputID)
+	if document == nil {
+		return empty, support.Unprocessable("authoring-network", "OUTPUT_NOT_FOUND", "saved output is unavailable", nil)
+	}
+	network, err := s.config.AuthoringNetwork(ctx, request.Project, authorized, *document)
+	if err != nil {
+		var typed *ports.Error
+		if errors.As(err, &typed) {
+			return empty, typed
+		}
+		return empty, support.Unprocessable("authoring-network", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+	}
+	if network.ProjectedFields == nil {
+		network.ProjectedFields = authoringv2.ProjectedFieldsForDocument(*document, network)
+	}
+	rowIdentity := rowIdentityForNetwork(*document, network)
+	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
+}
+
+func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request explicitgroup.ExplicitGroupCreateRequest) (explicitgroup.ExplicitGroupCreateResult, error) {
+	return s.explicitGroupService.CreateExplicitGroupRevision(ctx, request)
+}
+
+const ()
+
+const ()
+
+const ()
+
+func NewSchemaRowChoiceResolver(index *fhirschema.Index) (*rowdef.SchemaRowChoiceResolver, error) {
+	return rowdef.NewSchemaRowChoiceResolver(index)
+}
+
+func fhirIdentifierPath(path string) bool { return rowdef.FHIRIdentifierPath(path) }
+func applicableRowChoiceKinds(facts capability.RowChoiceFacts) []capability.RowChoiceKind {
+	return rowdef.ApplicableRowChoiceKinds(facts)
+}
+func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot authoringv2.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
+	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, expectedNodeID)
+}
+func capabilityRowChoiceKind(kind rowdef.RowChoiceKind) (capability.RowChoiceKind, error) {
+	return rowdef.CapabilityRowChoiceKind(kind)
+}
+func lifecycleRowChoiceKind(kind capability.RowChoiceKind) rowdef.RowChoiceKind {
+	return rowdef.LifecycleRowChoiceKind(kind)
+}
+func rowChoicePolicies(kind capability.RowChoiceKind) []rowdef.RowDefinitionChoicePolicy {
+	return rowdef.RowChoicePolicies(kind)
+}
+func rowChoiceOccurrenceSummary(choice capability.RowChoice) string {
+	return rowdef.OccurrenceSummary(choice)
+}
+func rowChoiceRouteSummary(choice capability.RowChoice) string {
+	return rowdef.RouteSummary(choice)
+}
+
+func (s *Service) AssessRowChange(ctx context.Context, request rowdef.AssessRowChangeRequest) (rowdef.AssessRowChangeResult, error) {
+	return s.syncRowDefService().AssessRowChange(ctx, request)
+}
+
+func (s *Service) ListRowDefinitionChoices(ctx context.Context, request rowdef.RowDefinitionChoicesRequest) (rowdef.RowDefinitionChoicesResponse, error) {
+	return s.syncRowDefService().ListRowDefinitionChoices(ctx, request)
+}
+
+func (s *Service) RowLineage(ctx context.Context, request rowdef.RowLineageRequest) (rowdef.RowLineageResult, error) {
+	return s.syncRowDefService().RowLineage(ctx, request)
+}
+
+func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDefinitionProposalRequest) (rowdef.RowDefinitionProposal, error) {
+	return s.syncRowDefService().ProposeRowDefinition(ctx, request)
+}
+
+func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace authoringv2.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
+	return s.syncRowDefService().ValidateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, compilationAuth, command)
+}
+
+func validateResolvedRowChoice(route authoringv2.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
+	return rowdef.ValidateResolvedRowChoice(route, resolved, expected)
+}
+
+func proposalDocument(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+	return proposal.ProposalDocument(workspace, outputID)
+}
+
+func documentDigest(document authoringv2.Document) (string, error) {
+	return proposal.DocumentDigest(document)
+}
+
+func rowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
+	return rowdef.RowChangeReceiptWorkspace(workspace, outputID)
+}
+
+func checkRowDefinitionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+	return rowdef.CheckRowDefinitionProposalResult(workspace, receipt)
 }

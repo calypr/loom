@@ -10,14 +10,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func (s *Service) SearchPopulationRoutes(ctx context.Context, request PopulationRoutesRequest) (PopulationRoutesResponse, error) {
-	return s.populationService.SearchPopulationRoutes(ctx, request)
-}
-
-func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-	return s.populationService.PreparePopulationRouteChoices(ctx, project, authorized, identities, workspace, commands)
-}
-
 func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType, terminalResourceType string, route []capability.ConstructionRouteStep) bool {
 	compilerRoute := make([]facade.Traversal, 0, len(route))
 	for _, step := range route {
@@ -39,4 +31,12 @@ func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapabi
 		ResourceType: terminalResourceType, FieldRef: terminalResourceType + ".id", Selector: "id", Route: compilerRoute,
 	})
 	return err == nil
+}
+
+func (s *Service) SearchPopulationRoutes(ctx context.Context, request PopulationRoutesRequest) (PopulationRoutesResponse, error) {
+	return s.populationService.SearchPopulationRoutes(ctx, request)
+}
+
+func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+	return s.populationService.PreparePopulationRouteChoices(ctx, project, authorized, identities, workspace, commands)
 }

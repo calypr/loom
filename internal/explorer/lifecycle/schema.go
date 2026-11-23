@@ -9,14 +9,52 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
+
+func schemaFieldCandidateID(snapshotToken, nodeID, path string) string {
+	identity, _ := json.Marshal([3]string{snapshotToken, nodeID, path})
+	return "schema_field." + base64.RawURLEncoding.EncodeToString(identity)
+}
+
+func resolveSchemaFieldCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
+	const prefix = "schema_field."
+	if !strings.HasPrefix(candidateID, prefix) || len(candidateID) > 4096 {
+		return capability.Candidate{}, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(candidateID, prefix))
+	if err != nil {
+		return capability.Candidate{}, false
+	}
+	var identity [3]string
+	if json.Unmarshal(payload, &identity) != nil || identity[0] != snapshot.Token ||
+		candidateID != schemaFieldCandidateID(identity[0], identity[1], identity[2]) {
+		return capability.Candidate{}, false
+	}
+	node, ok := snapshot.Node(identity[1])
+	if !ok || !node.Populated || !validSHA256Digest(snapshot.Identity.SchemaDigest) {
+		return capability.Candidate{}, false
+	}
+	for _, field := range facade.SchemaFieldDescriptors(node.ResourceType) {
+		if field.Path != identity[2] {
+			continue
+		}
+		return capability.Candidate{
+			ID: candidateID, NodeID: node.ID, ResourceType: node.ResourceType,
+			FieldPath: field.Path, Label: node.ResourceType + "." + field.Path,
+			LogicalType: field.PrimitiveType, Cardinality: field.Cardinality,
+		}, true
+	}
+	return capability.Candidate{}, false
+}
 
 const (
 	schemaFieldDefaultLimit = 20
@@ -73,158 +111,6 @@ type schemaFieldCursor struct {
 	LastPath                 string `json:"lastPath"`
 }
 
-func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
-	return s.fieldBrowse().SearchSchemaFields(ctx, request)
-}
-
-func (b *fieldBrowse) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
-	result := SchemaFieldSearchResponse{
-		SnapshotToken: request.SnapshotToken,
-		NodeID:        request.NodeID,
-		Fields:        []SchemaFieldOption{},
-	}
-	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
-		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.NodeID) == "" ||
-		strings.TrimSpace(request.Query) != request.Query || len(request.Query) > schemaFieldMaxQuery ||
-		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > schemaFieldMaxCursor ||
-		request.Limit < 0 || request.Limit > schemaFieldMaxLimit {
-		return result, malformed("schema-fields", "project, explorer, snapshotToken, nodeId, and a page limit of at most 50 are required", nil)
-	}
-	if b.capability.ForCompilation == nil {
-		return result, unavailable("schema-fields", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
-	}
-	limit := request.Limit
-	if limit == 0 {
-		limit = schemaFieldDefaultLimit
-	}
-	project := projectid.Canonical(request.Project)
-	query := strings.ToLower(strings.TrimSpace(request.Query))
-	authorized, err := b.capability.ForCompilation(ctx, project, request.SnapshotToken)
-	if errors.Is(err, capability.ErrStaleSnapshot) || errors.Is(err, capability.ErrSnapshotUnavailable) {
-		return result, conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, err)
-	}
-	if err != nil {
-		return result, capabilityResolutionFailure("schema-fields", "reload the catalog before browsing generated fields", err)
-	}
-	snapshot := authorized.Snapshot
-	if snapshot.ValidateToken(request.SnapshotToken) != nil ||
-		projectid.Canonical(snapshot.Identity.Project) != project || snapshot.Identity.Generation == "" ||
-		!validSHA256Digest(snapshot.Identity.SchemaDigest) {
-		return result, conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, nil)
-	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return result, conflict("schema-fields", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
-	}
-	node, ok := snapshot.Node(request.NodeID)
-	if !ok {
-		return result, unprocessable("schema-fields", "UNKNOWN_CAPABILITY_NODE", "nodeId is not available in this authorized capability snapshot", nil)
-	}
-	if !node.Populated {
-		return result, unprocessable("schema-fields", "NODE_NOT_POPULATED", "generated fields are available only for populated capability nodes", nil)
-	}
-	resourceType, ok := fhirschema.ConcreteResourceType(node.ResourceType)
-	if !ok || resourceType != node.ResourceType {
-		return result, unprocessable("schema-fields", "UNSUPPORTED_RESOURCE_TYPE", "node resource type is not a concrete generated FHIR resource", nil)
-	}
-	result.SchemaDigest = snapshot.Identity.SchemaDigest
-	result.ResourceType = resourceType
-	result.Query = query
-
-	observedPaths := make(map[string]struct{})
-	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID == node.ID && candidate.ResourceType == resourceType && candidate.Observed &&
-			len(candidate.ProjectionModes) > 0 && strings.TrimSpace(candidate.FieldPath) != "" {
-			observedPaths[candidate.FieldPath] = struct{}{}
-		}
-	}
-	descriptors := facade.SchemaFieldDescriptors(resourceType)
-	matched := make([]facade.SchemaFieldDescriptor, 0, len(descriptors))
-	for _, descriptor := range descriptors {
-		if _, observed := observedPaths[descriptor.Path]; observed {
-			continue
-		}
-		if query != "" && !strings.Contains(strings.ToLower(descriptor.Path), query) {
-			continue
-		}
-		matched = append(matched, descriptor)
-	}
-	sort.Slice(matched, func(i, j int) bool {
-		left, right := strings.Count(matched[i].Path, "."), strings.Count(matched[j].Path, ".")
-		if left != right {
-			return left < right
-		}
-		return matched[i].Path < matched[j].Path
-	})
-
-	start := 0
-	if request.Cursor != "" {
-		cursor, decodeErr := decodeSchemaFieldCursor(request.Cursor)
-		if decodeErr != nil || cursor.Project != project || cursor.ExplorerID != request.ExplorerID ||
-			cursor.SnapshotToken != request.SnapshotToken || cursor.Generation != snapshot.Identity.Generation ||
-			cursor.AuthorizationScopeDigest != snapshot.Identity.AuthorizationScopeDigest ||
-			cursor.SchemaDigest != snapshot.Identity.SchemaDigest || cursor.NodeID != node.ID ||
-			cursor.ResourceType != resourceType || cursor.Query != query || cursor.Limit != limit {
-			return result, conflict("schema-fields", "STALE_SCHEMA_FIELD_CURSOR", "restart generated field search with an empty cursor", nil, decodeErr)
-		}
-		found := false
-		for index := range matched {
-			if matched[index].Path == cursor.LastPath {
-				start, found = index+1, true
-				break
-			}
-		}
-		if !found {
-			return result, conflict("schema-fields", "STALE_SCHEMA_FIELD_CURSOR", "restart generated field search with an empty cursor", nil, nil)
-		}
-	}
-	end := start + limit
-	if end > len(matched) {
-		end = len(matched)
-	}
-	for _, descriptor := range matched[start:end] {
-		candidate := capability.Candidate{
-			ID:     schemaFieldCandidateID(snapshot.Token, node.ID, descriptor.Path),
-			NodeID: node.ID, ResourceType: resourceType, FieldPath: descriptor.Path,
-			Label: resourceType + "." + descriptor.Path, LogicalType: descriptor.PrimitiveType,
-			Cardinality: descriptor.Cardinality,
-		}
-		proof, proofErr := facade.ProbeProjection(ctx, facade.CandidateRequest{
-			Scope: constructionCompilerScope(authorized), RootResourceType: resourceType,
-			ResourceType: resourceType, Selector: descriptor.Path,
-			FieldRef: resourceType + "." + descriptor.Path,
-		})
-		if proofErr != nil || proof.Candidate == nil {
-			return result, unprocessable("schema-fields", "SCHEMA_FIELD_COMPILE_FAILED", "generated field could not be compiled: "+descriptor.Path, proofErr)
-		}
-		candidate.ProjectionModes = []capability.ProjectionMode{capability.ProjectionMode(strings.ToUpper(string(proof.Candidate.ProjectionModes[0])))}
-		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, nil, candidate)
-		if choiceErr != nil {
-			return result, internal("schema-fields", "SCHEMA_FIELD_CHOICE_FAILED", "generated field choice could not be created", choiceErr)
-		}
-		result.Fields = append(result.Fields, SchemaFieldOption{
-			Origin: "GENERATED_SCHEMA", NodeID: node.ID, ResourceType: resourceType,
-			Path: descriptor.Path, PrimitiveType: descriptor.PrimitiveType,
-			Cardinality: descriptor.Cardinality, RepeatedPaths: append([]string(nil), descriptor.RepeatedPaths...),
-			ConstructionChoice: &choice,
-		})
-	}
-	result.Complete = end == len(matched)
-	result.Truncated = !result.Complete
-	if result.Truncated {
-		cursor, encodeErr := encodeSchemaFieldCursor(schemaFieldCursor{
-			Version: 1, Project: project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
-			Generation: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-			SchemaDigest: snapshot.Identity.SchemaDigest, NodeID: node.ID, ResourceType: resourceType,
-			Query: query, Limit: limit, LastPath: matched[end-1].Path,
-		})
-		if encodeErr != nil {
-			return SchemaFieldSearchResponse{}, internal("schema-fields", "SCHEMA_FIELD_CURSOR_FAILED", "generated field page cursor could not be created", encodeErr)
-		}
-		result.NextCursor = cursor
-	}
-	return result, nil
-}
-
 func validSHA256Digest(value string) bool {
 	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
 		return false
@@ -267,4 +153,156 @@ func decodeSchemaFieldCursor(value string) (schemaFieldCursor, error) {
 		return schemaFieldCursor{}, fmt.Errorf("schema field cursor is invalid")
 	}
 	return cursor, nil
+}
+
+func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
+	return s.fieldBrowse().SearchSchemaFields(ctx, request)
+}
+
+func (b *fieldBrowse) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
+	result := SchemaFieldSearchResponse{
+		SnapshotToken: request.SnapshotToken,
+		NodeID:        request.NodeID,
+		Fields:        []SchemaFieldOption{},
+	}
+	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
+		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.NodeID) == "" ||
+		strings.TrimSpace(request.Query) != request.Query || len(request.Query) > schemaFieldMaxQuery ||
+		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > schemaFieldMaxCursor ||
+		request.Limit < 0 || request.Limit > schemaFieldMaxLimit {
+		return result, support.Malformed("schema-fields", "project, explorer, snapshotToken, nodeId, and a page limit of at most 50 are required", nil)
+	}
+	if b.capability.ForCompilation == nil {
+		return result, support.Unavailable("schema-fields", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+	}
+	limit := request.Limit
+	if limit == 0 {
+		limit = schemaFieldDefaultLimit
+	}
+	project := projectid.Canonical(request.Project)
+	query := strings.ToLower(strings.TrimSpace(request.Query))
+	authorized, err := b.capability.ForCompilation(ctx, project, request.SnapshotToken)
+	if errors.Is(err, capability.ErrStaleSnapshot) || errors.Is(err, capability.ErrSnapshotUnavailable) {
+		return result, support.Conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, err)
+	}
+	if err != nil {
+		return result, capabilityResolutionFailure("schema-fields", "reload the catalog before browsing generated fields", err)
+	}
+	snapshot := authorized.Snapshot
+	if snapshot.ValidateToken(request.SnapshotToken) != nil ||
+		projectid.Canonical(snapshot.Identity.Project) != project || snapshot.Identity.Generation == "" ||
+		!validSHA256Digest(snapshot.Identity.SchemaDigest) {
+		return result, support.Conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, nil)
+	}
+	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return result, support.Conflict("schema-fields", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	node, ok := snapshot.Node(request.NodeID)
+	if !ok {
+		return result, support.Unprocessable("schema-fields", "UNKNOWN_CAPABILITY_NODE", "nodeId is not available in this authorized capability snapshot", nil)
+	}
+	if !node.Populated {
+		return result, support.Unprocessable("schema-fields", "NODE_NOT_POPULATED", "generated fields are available only for populated capability nodes", nil)
+	}
+	resourceType, ok := fhirschema.ConcreteResourceType(node.ResourceType)
+	if !ok || resourceType != node.ResourceType {
+		return result, support.Unprocessable("schema-fields", "UNSUPPORTED_RESOURCE_TYPE", "node resource type is not a concrete generated FHIR resource", nil)
+	}
+	result.SchemaDigest = snapshot.Identity.SchemaDigest
+	result.ResourceType = resourceType
+	result.Query = query
+
+	observedPaths := make(map[string]struct{})
+	for _, candidate := range snapshot.Candidates {
+		if candidate.NodeID == node.ID && candidate.ResourceType == resourceType && candidate.Observed &&
+			len(candidate.ProjectionModes) > 0 && strings.TrimSpace(candidate.FieldPath) != "" {
+			observedPaths[candidate.FieldPath] = struct{}{}
+		}
+	}
+	descriptors := facade.SchemaFieldDescriptors(resourceType)
+	matched := make([]facade.SchemaFieldDescriptor, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		if _, observed := observedPaths[descriptor.Path]; observed {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(descriptor.Path), query) {
+			continue
+		}
+		matched = append(matched, descriptor)
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		left, right := strings.Count(matched[i].Path, "."), strings.Count(matched[j].Path, ".")
+		if left != right {
+			return left < right
+		}
+		return matched[i].Path < matched[j].Path
+	})
+
+	start := 0
+	if request.Cursor != "" {
+		cursor, decodeErr := decodeSchemaFieldCursor(request.Cursor)
+		if decodeErr != nil || cursor.Project != project || cursor.ExplorerID != request.ExplorerID ||
+			cursor.SnapshotToken != request.SnapshotToken || cursor.Generation != snapshot.Identity.Generation ||
+			cursor.AuthorizationScopeDigest != snapshot.Identity.AuthorizationScopeDigest ||
+			cursor.SchemaDigest != snapshot.Identity.SchemaDigest || cursor.NodeID != node.ID ||
+			cursor.ResourceType != resourceType || cursor.Query != query || cursor.Limit != limit {
+			return result, support.Conflict("schema-fields", "STALE_SCHEMA_FIELD_CURSOR", "restart generated field search with an empty cursor", nil, decodeErr)
+		}
+		found := false
+		for index := range matched {
+			if matched[index].Path == cursor.LastPath {
+				start, found = index+1, true
+				break
+			}
+		}
+		if !found {
+			return result, support.Conflict("schema-fields", "STALE_SCHEMA_FIELD_CURSOR", "restart generated field search with an empty cursor", nil, nil)
+		}
+	}
+	end := start + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	for _, descriptor := range matched[start:end] {
+		candidate := capability.Candidate{
+			ID:     schemaFieldCandidateID(snapshot.Token, node.ID, descriptor.Path),
+			NodeID: node.ID, ResourceType: resourceType, FieldPath: descriptor.Path,
+			Label: resourceType + "." + descriptor.Path, LogicalType: descriptor.PrimitiveType,
+			Cardinality: descriptor.Cardinality,
+		}
+		proof, proofErr := facade.ProbeProjection(ctx, facade.CandidateRequest{
+			Scope: constructionCompilerScope(authorized), RootResourceType: resourceType,
+			ResourceType: resourceType, Selector: descriptor.Path,
+			FieldRef: resourceType + "." + descriptor.Path,
+		})
+		if proofErr != nil || proof.Candidate == nil {
+			return result, support.Unprocessable("schema-fields", "SCHEMA_FIELD_COMPILE_FAILED", "generated field could not be compiled: "+descriptor.Path, proofErr)
+		}
+		candidate.ProjectionModes = []capability.ProjectionMode{capability.ProjectionMode(strings.ToUpper(string(proof.Candidate.ProjectionModes[0])))}
+		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, nil, candidate)
+		if choiceErr != nil {
+			return result, support.Internal("schema-fields", "SCHEMA_FIELD_CHOICE_FAILED", "generated field choice could not be created", choiceErr)
+		}
+		result.Fields = append(result.Fields, SchemaFieldOption{
+			Origin: "GENERATED_SCHEMA", NodeID: node.ID, ResourceType: resourceType,
+			Path: descriptor.Path, PrimitiveType: descriptor.PrimitiveType,
+			Cardinality: descriptor.Cardinality, RepeatedPaths: append([]string(nil), descriptor.RepeatedPaths...),
+			ConstructionChoice: &choice,
+		})
+	}
+	result.Complete = end == len(matched)
+	result.Truncated = !result.Complete
+	if result.Truncated {
+		cursor, encodeErr := encodeSchemaFieldCursor(schemaFieldCursor{
+			Version: 1, Project: project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
+			Generation: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+			SchemaDigest: snapshot.Identity.SchemaDigest, NodeID: node.ID, ResourceType: resourceType,
+			Query: query, Limit: limit, LastPath: matched[end-1].Path,
+		})
+		if encodeErr != nil {
+			return SchemaFieldSearchResponse{}, support.Internal("schema-fields", "SCHEMA_FIELD_CURSOR_FAILED", "generated field page cursor could not be created", encodeErr)
+		}
+		result.NextCursor = cursor
+	}
+	return result, nil
 }

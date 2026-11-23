@@ -3,8 +3,11 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
 
@@ -203,12 +206,12 @@ func categoryPresenceRowChoice(t *testing.T, snapshot capability.Snapshot, path 
 
 type categoryPresenceRowChoiceResolver struct{}
 
-func (categoryPresenceRowChoiceResolver) ResolveRowChoiceID(_ context.Context, request RowChoiceResolveRequest) (ResolvedRowChoice, error) {
+func (categoryPresenceRowChoiceResolver) ResolveRowChoiceID(_ context.Context, request rowdef.RowChoiceResolveRequest) (rowdef.ResolvedRowChoice, error) {
 	identity, err := capability.DecodeRowChoiceID(request.RowChoiceID)
 	if err != nil {
-		return ResolvedRowChoice{}, err
+		return rowdef.ResolvedRowChoice{}, err
 	}
-	return ResolvedRowChoice{Kind: request.ExpectedKind, OccurrenceID: identity.Occurrence.OccurrenceID, FieldPath: identity.Path}, nil
+	return rowdef.ResolvedRowChoice{Kind: request.ExpectedKind, OccurrenceID: identity.Occurrence.OccurrenceID, FieldPath: identity.Path}, nil
 }
 
 type categoryDiscoveryEmptyRecipeReader struct{}

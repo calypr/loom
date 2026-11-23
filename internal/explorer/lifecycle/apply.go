@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -28,16 +30,16 @@ func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, p
 			return err
 		}
 		if receipt == nil || receipt.ID != command.InterpretationCandidate().CandidateReceiptID {
-			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt ID does not match the command", nil, nil)
+			return support.Conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt ID does not match the command", nil, nil)
 		}
 		if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
-			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt is not usable for this Explorer", nil, err)
+			return support.Conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt is not usable for this Explorer", nil, err)
 		}
 		if err := receiptmodel.ValidateInterpretationCandidate(receipt, project, explorerID, request.SnapshotToken, snapshot, proposed, command); err != nil {
 			if errors.Is(err, receiptmodel.ErrInvalidCandidateReceipt) {
-				return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt does not match the apply request", nil, err)
+				return support.Conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt does not match the apply request", nil, err)
 			}
-			return conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt does not match the apply request", nil, err)
+			return support.Conflict("commands", "INTERPRETATION_CANDIDATE_MISMATCH", "the candidate receipt does not match the apply request", nil, err)
 		}
 
 	}

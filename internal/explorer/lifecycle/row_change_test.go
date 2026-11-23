@@ -5,10 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
 
@@ -216,7 +219,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		return receipt, nil
 	}
 	service := newTestService(t, store, config)
-	replacement, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	replacement, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 4, DraftDigest: digest,
 		Mode: authoringv2.RowChangeModeReplace, OutputID: "patients", RootNodeID: "research-study",
 	})
@@ -248,7 +251,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		t.Fatal("full workspace compile succeeded although consumer still references removed patient_id")
 	}
 
-	preserved, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	preserved, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		DraftVersion: result.DraftVersion, DraftDigest: result.DraftDigest, Mode: authoringv2.RowChangeModePreserve,
 		OutputID: "patients", RootNodeID: "diagnostic-report",
@@ -644,7 +647,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		}
 	}
 	service := newTestService(t, store, config)
-	result, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	result, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter",
 	})
@@ -680,7 +683,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if store.created.DraftVersion != 7 || store.created.DraftDigest != digest || string(store.created.DraftConfig) != string(draft) {
 		t.Fatalf("assessment wrote draft=%#v", store.created)
 	}
-	blocked, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	blocked, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []authoringv2.RouteRebaseChoice{{OccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "missing-edge"}},
 	})
@@ -690,7 +693,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateReceiptID != "" || blocked.CandidateDocument != nil || blocked.CandidateNetwork != nil || blocked.CandidateRowIdentity != nil || compileCalls != 1 {
 		t.Fatalf("blocked assessment compiled a receipt: result=%#v calls=%d", blocked, compileCalls)
 	}
-	noChange, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	noChange, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "patient",
 	})
@@ -701,7 +704,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("no-change assessment compiled a receipt: result=%#v calls=%d", noChange, compileCalls)
 	}
 
-	_, err = service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	_, err = service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 6, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter",
 	})
@@ -710,7 +713,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("stale draft error=%v", err)
 	}
 
-	replacement, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	replacement, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", Mode: authoringv2.RowChangeModeReplace, SnapshotToken: snapshot.Token,
 		DraftVersion: 7, DraftDigest: digest, OutputID: "patients", RootNodeID: "report",
 	})
@@ -959,7 +962,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		return receipt, nil
 	}
 	service := newTestService(t, store, config)
-	initial, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	initial, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "specimen",
 	})
@@ -990,7 +993,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 	if selectedRoute == "" {
 		t.Fatalf("assessment did not offer the exact route through the saved Patient source occurrence: %#v", initial.Assessment.Unresolved[0].Alternatives)
 	}
-	rootPatient, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	rootPatient, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "patient",
 	})
@@ -1002,7 +1005,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		t.Fatalf("root-at-source candidate route=%#v, want Patient→Condition→Patient", rootPatientRoute)
 	}
 
-	selected, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	selected, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "specimen",
 		RootOccurrenceID: selectedRoute,
@@ -1055,7 +1058,7 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 		return dataframeexecution.PreviewSummary{Complete: true}, nil
 	}
 	service := newTestService(t, store, config)
-	request := AssessRowChangeRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "study"}
+	request := rowdef.AssessRowChangeRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "study"}
 	blocked, err := service.AssessRowChange(context.Background(), request)
 	if err != nil || blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateDocument != nil || blocked.CandidateNetwork != nil || blocked.CandidateRowIdentity != nil {
 		t.Fatalf("imported preserving root exposed a candidate: %#v error=%v", blocked, err)

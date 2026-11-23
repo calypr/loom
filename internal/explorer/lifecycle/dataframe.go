@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -17,19 +19,19 @@ const defaultDataframeTitle = "Default dataframe"
 
 func (s *Service) defaultDataframeWorkspace(ctx context.Context, project string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
 	if s.config.DefaultDataframeWorkspace == nil {
-		return authoringv2.Workspace{}, unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace is not configured", nil)
+		return authoringv2.Workspace{}, support.Unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace is not configured", nil)
 	}
 	workspace, err := s.config.DefaultDataframeWorkspace(ctx, project, snapshot.Clone(), catalog)
 	if err != nil {
-		return authoringv2.Workspace{}, unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace could not be imported", err)
+		return authoringv2.Workspace{}, support.Unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace could not be imported", err)
 	}
 	canonical, err := workspace.CanonicalJSON()
 	if err != nil {
-		return authoringv2.Workspace{}, conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return authoringv2.Workspace{}, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
 	workspace, err = authoringv2.DecodeWorkspace(canonical)
 	if err != nil {
-		return authoringv2.Workspace{}, conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return authoringv2.Workspace{}, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
 	return workspace, nil
 }
@@ -41,11 +43,11 @@ func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project stri
 	}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
-		return nil, conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return nil, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
 	digest, err := workspace.Digest()
 	if err != nil {
-		return nil, conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return nil, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
 	title := strings.TrimSpace(workspace.Explorer.Title)
 	if title == "" {
@@ -61,7 +63,7 @@ func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project stri
 func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*explorer.Explorer, error) {
 	owner, err := s.store.Get(ctx, project, explorerID)
 	if err != nil && !errors.Is(err, explorer.ErrNotFound) {
-		return nil, persistenceFailure("explorer", "the Explorer state could not be loaded", err)
+		return nil, support.PersistenceFailure("explorer", "the Explorer state could not be loaded", err)
 	}
 	if err == nil || strings.TrimSpace(explorerID) != DefaultDataframeID {
 		return owner, err
@@ -74,7 +76,7 @@ func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*ex
 		if snapshotErr == nil {
 			snapshotErr = capability.ErrSnapshotUnavailable
 		}
-		return nil, unavailable("default-dataframe", "CAPABILITY_UNAVAILABLE", "default dataframe capability snapshot is unavailable", snapshotErr)
+		return nil, support.Unavailable("default-dataframe", "CAPABILITY_UNAVAILABLE", "default dataframe capability snapshot is unavailable", snapshotErr)
 	}
 	return s.virtualDefaultDataframeOwner(ctx, project, snapshot, s.config.Capability.Catalog(snapshot, explorerID))
 }
@@ -82,7 +84,7 @@ func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*ex
 func (s *Service) getOwnerWithSnapshot(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.Explorer, error) {
 	owner, err := s.store.Get(ctx, project, explorerID)
 	if err != nil && !errors.Is(err, explorer.ErrNotFound) {
-		return nil, persistenceFailure("explorer", "the Explorer state could not be loaded", err)
+		return nil, support.PersistenceFailure("explorer", "the Explorer state could not be loaded", err)
 	}
 	if err == nil || strings.TrimSpace(explorerID) != DefaultDataframeID {
 		return owner, err

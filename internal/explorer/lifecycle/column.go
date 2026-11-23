@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -35,60 +37,6 @@ type ColumnSourceResponse struct {
 	Facts         []capability.ConstructionChoiceFact `json:"facts"`
 }
 
-func (s *Service) ColumnSource(ctx context.Context, request ColumnSourceRequest) (ColumnSourceResponse, error) {
-	return s.fieldBrowse().ColumnSource(ctx, request)
-}
-
-func (b *fieldBrowse) ColumnSource(ctx context.Context, request ColumnSourceRequest) (ColumnSourceResponse, error) {
-	result := ColumnSourceResponse{
-		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Column: request.Column,
-		Route: []ColumnSourceRouteStep{}, Facts: []capability.ConstructionChoiceFact{},
-	}
-	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
-		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.Column) == "" {
-		return result, malformed("column-source", "project, explorerId, snapshotToken, outputId, and column are required", nil)
-	}
-	if b.capability.ForCompilation == nil {
-		return result, unavailable("column-source", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
-	}
-	authorized, err := b.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
-		return result, conflict("column-source", "STALE_CATALOG_SNAPSHOT", "reload the Builder before inspecting this column", nil, err)
-	}
-	snapshot := authorized.Snapshot
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return result, conflict("column-source", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
-	}
-	workspace, err := b.currentWorkspace(ctx, request.Project, request.ExplorerID)
-	if err != nil {
-		return result, err
-	}
-	document := findSemanticOutput(workspace, request.OutputID)
-	if document == nil {
-		return result, notFound("column-source", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
-	}
-	var column *authoringv2.Column
-	for index := range document.Columns {
-		if document.Columns[index].Column == request.Column {
-			column = &document.Columns[index]
-			break
-		}
-	}
-	if column == nil {
-		return result, notFound("column-source", "COLUMN_NOT_FOUND", "the requested column does not exist in this table", nil)
-	}
-	route, compilerRoute, resourceType, err := columnRoute(document, column.OccurrenceID, snapshot)
-	if err != nil {
-		return result, conflict("column-source", "STALE_COLUMN_ROUTE", "the column's saved route no longer resolves in this authorized snapshot", nil, err)
-	}
-	if !provePopulationRoute(ctx, authorized, document.RootResourceType, resourceType, compilerRoute) {
-		return result, conflict("column-source", "STALE_COLUMN_ROUTE", "the column's saved route no longer compiles in this authorized snapshot", nil, nil)
-	}
-	result.Route = route
-	result.Summary, result.Facts = columnSourcePresentation(*column, resourceType)
-	return result, nil
-}
-
 func columnRoute(document *authoringv2.Document, occurrenceID string, snapshot capability.Snapshot) ([]ColumnSourceRouteStep, []capability.ConstructionRouteStep, string, error) {
 	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return nil, nil, "", fmt.Errorf("table row-root route is invalid")
@@ -114,7 +62,7 @@ func columnRoute(document *authoringv2.Document, occurrenceID string, snapshot c
 	usedEdges := make(map[string]bool, len(path)-1)
 	for index := 1; index < len(path); index++ {
 		parent, child := path[index-1], path[index]
-		edge, err := resolveCapabilityRouteEdge(snapshot, currentNodeID, parent, child)
+		edge, err := support.ResolveCapabilityRouteEdge(snapshot, currentNodeID, parent, child)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("relationship %q from %s to %s does not resolve: %w", child.Relationship, parent.ResourceType, child.ResourceType, err)
 		}
@@ -243,4 +191,58 @@ func firstColumnFact(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func (s *Service) ColumnSource(ctx context.Context, request ColumnSourceRequest) (ColumnSourceResponse, error) {
+	return s.fieldBrowse().ColumnSource(ctx, request)
+}
+
+func (b *fieldBrowse) ColumnSource(ctx context.Context, request ColumnSourceRequest) (ColumnSourceResponse, error) {
+	result := ColumnSourceResponse{
+		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Column: request.Column,
+		Route: []ColumnSourceRouteStep{}, Facts: []capability.ConstructionChoiceFact{},
+	}
+	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
+		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.Column) == "" {
+		return result, support.Malformed("column-source", "project, explorerId, snapshotToken, outputId, and column are required", nil)
+	}
+	if b.capability.ForCompilation == nil {
+		return result, support.Unavailable("column-source", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+	}
+	authorized, err := b.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
+		return result, support.Conflict("column-source", "STALE_CATALOG_SNAPSHOT", "reload the Builder before inspecting this column", nil, err)
+	}
+	snapshot := authorized.Snapshot
+	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return result, support.Conflict("column-source", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	workspace, err := b.currentWorkspace(ctx, request.Project, request.ExplorerID)
+	if err != nil {
+		return result, err
+	}
+	document := findSemanticOutput(workspace, request.OutputID)
+	if document == nil {
+		return result, support.NotFound("column-source", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
+	}
+	var column *authoringv2.Column
+	for index := range document.Columns {
+		if document.Columns[index].Column == request.Column {
+			column = &document.Columns[index]
+			break
+		}
+	}
+	if column == nil {
+		return result, support.NotFound("column-source", "COLUMN_NOT_FOUND", "the requested column does not exist in this table", nil)
+	}
+	route, compilerRoute, resourceType, err := columnRoute(document, column.OccurrenceID, snapshot)
+	if err != nil {
+		return result, support.Conflict("column-source", "STALE_COLUMN_ROUTE", "the column's saved route no longer resolves in this authorized snapshot", nil, err)
+	}
+	if !provePopulationRoute(ctx, authorized, document.RootResourceType, resourceType, compilerRoute) {
+		return result, support.Conflict("column-source", "STALE_COLUMN_ROUTE", "the column's saved route no longer compiles in this authorized snapshot", nil, nil)
+	}
+	result.Route = route
+	result.Summary, result.Facts = columnSourcePresentation(*column, resourceType)
+	return result, nil
 }

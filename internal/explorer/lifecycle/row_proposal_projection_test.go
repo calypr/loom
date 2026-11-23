@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
@@ -50,7 +52,7 @@ func TestRowDefinitionProposalProjectsNamedGroupAfterSavedFilter(t *testing.T) {
 	enableRowDefinitionPreview(service)
 	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude}}
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude}}
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)

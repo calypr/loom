@@ -91,3 +91,16 @@ type ArtifactStore interface {
 	Get(context.Context, string) (*ArtifactRecord, error)
 	Open(context.Context, string) (io.ReadCloser, *ArtifactRecord, error)
 }
+
+func RevisionWorkspaceArtifact(revision Revision) WorkspaceArtifact {
+	return WorkspaceArtifact{Kind: "revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
+		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.AuthoringWorkspaceBytes()), IntentDigest: revision.IntentDigest,
+		Generation: revision.SourceGeneration, ReceiptID: revision.CompilationReceiptID}
+}
+
+func DraftWorkspaceArtifact(revision DraftRevision) WorkspaceArtifact {
+	return WorkspaceArtifact{Kind: "draft-revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
+		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.DraftConfig), IntentDigest: revision.DraftDigest,
+		SnapshotToken: revision.SnapshotToken, Generation: revision.SourceGeneration,
+		ScopeDigest: revision.AuthorizationScopeDigest, DraftVersion: revision.DraftVersion}
+}

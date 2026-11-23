@@ -2,9 +2,10 @@ package lifecycle
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"

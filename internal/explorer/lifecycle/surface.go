@@ -2,51 +2,12 @@ package lifecycle
 
 import (
 	"context"
-	"reflect"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
-
-func constructionChoicesMatchSnapshot(identities []capability.ConstructionChoiceIdentity, snapshotToken string) bool {
-	return construction.ConstructionChoicesMatchSnapshot(identities, snapshotToken)
-}
-
-func checkConstructionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
-	return construction.CheckConstructionProposalResult(workspace, receipt)
-}
-
-func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
-	return construction.ConstructionCapabilitiesWorkspace(workspace, targetOutputID)
-}
-
-func constructionChoiceIdentityMatches(choice capability.ConstructionChoice, submittedID string, identity capability.ConstructionChoiceIdentity) bool {
-	return construction.ConstructionChoiceIdentityMatches(choice, submittedID, identity)
-}
-
-func constructionChoiceSupports(choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) bool {
-	return construction.ConstructionChoiceSupports(choice, form)
-}
-
-func constructionCompilerScope(authorized ports.AuthorizedCapability) facade.Scope {
-	return construction.ConstructionCompilerScope(authorized)
-}
-
-func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {
-	return construction.ConstructionDocumentIndex(workspace, outputID)
-}
-
-func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot authoringv2.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
-	return construction.ConstructionRouteForOccurrence(snapshot, rootResourceType, targetNodeID, authoredRoot, occurrenceID)
-}
-
-func proveConstructionCandidate(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType string, candidate capability.Candidate, route []capability.ConstructionRouteStep) (capability.Candidate, error) {
-	return construction.ProveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
-}
 
 func (s *Service) prepareConstructionChoice(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	return s.syncConstructionService().PrepareConstructionChoice(ctx, project, explorerID, authorized, identities, workspace, catalogSnapshot, commands)
@@ -95,36 +56,4 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 
 func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
 	return s.syncConstructionService().SearchConstructionChoices(ctx, request)
-}
-
-func semanticChoiceKey(conceptID, bindingID string) string {
-	return bindingID + "\x00" + conceptID
-}
-
-func semanticChoiceFieldOptionsMatch(semanticChoice, fieldChoice capability.ConstructionChoice) bool {
-	fieldOptions := make([]capability.ConstructionChoiceOption, 0, len(semanticChoice.Options))
-	for _, option := range semanticChoice.Options {
-		if option.Form != capability.ConstructionChoiceOwnerRecords {
-			fieldOptions = append(fieldOptions, option)
-		}
-	}
-	return reflect.DeepEqual(fieldOptions, fieldChoice.Options)
-}
-
-func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ID != candidateID {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		match, found = candidate, true
-	}
-	if found {
-		return match, true
-	}
-	return resolveSchemaFieldCandidate(snapshot, candidateID)
 }

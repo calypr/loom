@@ -465,3 +465,36 @@ func RepositoryRevisionID(project, sourceCommit, definitionDigest, sourceGenerat
 	sum := sha256.Sum256([]byte(project + "\x00default\x00" + sourceCommit + "\x00" + definitionDigest + "\x00" + sourceGeneration + "\x00" + artifact))
 	return "repository_" + hex.EncodeToString(sum[:])
 }
+
+func (s *Service) RevisionWorkspace(ctx context.Context, revision Revision) (authoringv2.Workspace, error) {
+	workspace, _, err := s.artifactWorkspace(ctx, RevisionWorkspaceArtifact(revision), revision.AuthoringWorkspaceBytes())
+	return workspace, err
+}
+
+func (s *Service) DraftRevisionWorkspace(ctx context.Context, revision DraftRevision) (authoringv2.Workspace, string, error) {
+	return s.artifactWorkspace(ctx, DraftWorkspaceArtifact(revision), revision.DraftConfig)
+}
+
+func (s *Service) artifactWorkspace(ctx context.Context, source WorkspaceArtifact, raw []byte) (authoringv2.Workspace, string, error) {
+	workspace, err := authoringv2.DecodeCurrentWorkspace(raw)
+	if err == nil && workspace.SemanticsVersion == authoringv2.CurrentSemanticsVersion {
+		digest, digestErr := workspace.Digest()
+		if digestErr == nil && (source.IntentDigest == "" || source.IntentDigest == digest) {
+			return workspace, digest, nil
+		}
+	}
+	if converted, changed, err := authoringv2.ConvertStoredSourcePlan(raw, source.IntentDigest); err == nil && changed {
+		digest, err := converted.Digest()
+		return converted, digest, err
+	}
+	reader, ok := s.store.(WorkspaceProjectionReader)
+	if !ok {
+		return authoringv2.Workspace{}, "", fmt.Errorf("immutable workspace requires its stored migration projection")
+	}
+	projection, err := reader.WorkspaceProjection(ctx, source)
+	if err != nil {
+		return authoringv2.Workspace{}, "", err
+	}
+	workspace, err = projection.Validate(source)
+	return workspace, projection.Digest, err
+}

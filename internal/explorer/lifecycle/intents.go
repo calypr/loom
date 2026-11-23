@@ -3,6 +3,8 @@ package lifecycle
 import (
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -42,17 +44,17 @@ func parseAuthoringCommandIntents(request authoringv2.ApplyCommandsRequest) (aut
 	intents.projectedFieldRemovalCommand = request.Commands[0].Type == authoringv2.CommandRemoveProjectedField
 	for _, command := range request.Commands {
 		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
-			return authoringCommandIntents{}, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
+			return authoringCommandIntents{}, support.Malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
 		}
 	}
 	intents.constructionIdentities = make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	if intents.frameSourceCommand {
 		identity, decodeErr := capability.DecodeConstructionChoiceID(request.Commands[0].FrameChoiceID())
 		if decodeErr != nil || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
-			return authoringCommandIntents{}, malformed("commands", "frameChoiceId is invalid", decodeErr)
+			return authoringCommandIntents{}, support.Malformed("commands", "frameChoiceId is invalid", decodeErr)
 		}
 		if identity.SnapshotToken != request.SnapshotToken {
-			return authoringCommandIntents{}, conflict("commands", "STALE_FRAME_SOURCE", "the frame source belongs to a different catalog snapshot", nil, nil)
+			return authoringCommandIntents{}, support.Conflict("commands", "STALE_FRAME_SOURCE", "the frame source belongs to a different catalog snapshot", nil, nil)
 		}
 		intents.frameSourceIdentity = identity
 	}
@@ -67,29 +69,29 @@ func parseAuthoringCommandIntents(request authoringv2.ApplyCommandsRequest) (aut
 	if intents.populationRouteCommand {
 		for index, command := range request.Commands {
 			if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID() == "" || len(command.EdgeIDs()) != 0 {
-				return authoringCommandIntents{}, malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
+				return authoringCommandIntents{}, support.Malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
 			}
 			identity, decodeErr := capability.DecodePopulationRouteChoiceID(command.RouteChoiceID())
 			if decodeErr != nil {
-				return authoringCommandIntents{}, malformed("commands", fmt.Sprintf("commands[%d].routeChoiceId is invalid", index), decodeErr)
+				return authoringCommandIntents{}, support.Malformed("commands", fmt.Sprintf("commands[%d].routeChoiceId is invalid", index), decodeErr)
 			}
 			if identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID() {
-				return authoringCommandIntents{}, conflict("commands", "STALE_POPULATION_ROUTE", "a population route belongs to another table, selection, or snapshot", nil, nil)
+				return authoringCommandIntents{}, support.Conflict("commands", "STALE_POPULATION_ROUTE", "a population route belongs to another table, selection, or snapshot", nil, nil)
 			}
 			intents.populationRouteIdentities[index] = identity
 		}
 		if populationRouteCount != len(request.Commands) {
-			return authoringCommandIntents{}, malformed("commands", "population route choices must form the entire atomic request", nil)
+			return authoringCommandIntents{}, support.Malformed("commands", "population route choices must form the entire atomic request", nil)
 		}
 	}
 	if intents.constructionChoiceCommand {
 		for index, command := range request.Commands {
 			identity, decodeErr := capability.DecodeConstructionChoiceID(command.ConstructionChoice().ChoiceID)
 			if decodeErr != nil {
-				return authoringCommandIntents{}, malformed("commands", fmt.Sprintf("commands[%d].constructionChoice.choiceId is invalid", index), decodeErr)
+				return authoringCommandIntents{}, support.Malformed("commands", fmt.Sprintf("commands[%d].constructionChoice.choiceId is invalid", index), decodeErr)
 			}
 			if identity.SnapshotToken != request.SnapshotToken {
-				return authoringCommandIntents{}, conflict("commands", "STALE_CONSTRUCTION_CHOICE", "a construction choice belongs to a different catalog snapshot", nil, nil)
+				return authoringCommandIntents{}, support.Conflict("commands", "STALE_CONSTRUCTION_CHOICE", "a construction choice belongs to a different catalog snapshot", nil, nil)
 			}
 			intents.constructionIdentities[index] = identity
 		}

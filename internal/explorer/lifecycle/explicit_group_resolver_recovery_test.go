@@ -2,9 +2,12 @@ package lifecycle
 
 import (
 	"context"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
@@ -73,11 +76,11 @@ func TestCohortSelectionRecoveryLooksUpPinnedRevisionOutsideRecentList(t *testin
 			if scenario.mutate != nil {
 				scenario.mutate(store)
 			}
-			resolver, err := NewRepositoryExplicitGroupRevisionResolver(store)
+			resolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(store)
 			if err != nil {
 				t.Fatal(err)
 			}
-			choices, err := resolver.ListExplicitGroupRevisions(context.Background(), ExplicitGroupRevisionListRequest{
+			choices, err := resolver.ListExplicitGroupRevisions(context.Background(), explicitgroup.ExplicitGroupRevisionListRequest{
 				Project: selection.Project, Snapshot: snapshot, RootResourceType: selection.ResourceType, PinnedRevisionID: string(pinned.ID),
 			})
 			if scenario.fail {

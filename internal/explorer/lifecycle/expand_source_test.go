@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -127,7 +129,7 @@ func expandTestSignedPayload(path, fhirType, logicalType string) *authoringv2.Co
 	return &authoringv2.ConstructionExpandedFieldSource{Path: path, Cardinality: authoringv2.ConstructionExpandedFieldCardinalityMany, FHIRType: fhirType, LogicalType: logicalType}
 }
 
-func expandTestService(planner RowChoicePlanner) *Service {
+func expandTestService(planner rowdef.RowChoicePlanner) *Service {
 	return &Service{config: Config{RowChoicePlanner: planner}}
 }
 

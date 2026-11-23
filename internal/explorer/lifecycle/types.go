@@ -4,6 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -52,9 +55,9 @@ type Config struct {
 
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator
-	RowChoiceResolver           RowChoiceResolver
-	RowChoicePlanner            RowChoicePlanner
-	ExplicitGroupResolver       ExplicitGroupRevisionResolver
+	RowChoiceResolver           rowdef.RowChoiceResolver
+	RowChoicePlanner            rowdef.RowChoicePlanner
+	ExplicitGroupResolver       explicitgroup.ExplicitGroupRevisionResolver
 	ExplicitGroupRepository     explorer.ExplicitGroupRepository
 
 	CompileReceipt               ports.ReceiptCompiler

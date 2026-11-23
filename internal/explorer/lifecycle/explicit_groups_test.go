@@ -3,10 +3,13 @@ package lifecycle
 import (
 	"context"
 	"errors"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
@@ -263,11 +266,11 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 	return service, selectionStore, repository
 }
 
-func explicitGroupCreateFixtureRequest(selectionID string) ExplicitGroupCreateRequest {
-	return ExplicitGroupCreateRequest{
+func explicitGroupCreateFixtureRequest(selectionID string) explicitgroup.ExplicitGroupCreateRequest {
+	return explicitgroup.ExplicitGroupCreateRequest{
 		Project: "project", ExplorerID: "explorer", SnapshotToken: "snapshot-token", SelectionID: selectionID,
 		IdempotencyKey: "group-shape-1",
-		Groups: []ExplicitGroupInput{
+		Groups: []explicitgroup.ExplicitGroupInput{
 			{ID: "group-a", Label: "Alpha", Ordinal: 0, MemberIDs: []string{"member-a", "member-b"}},
 			{ID: "group-b", Label: "Beta", Ordinal: 1, MemberIDs: []string{"member-b", "member-c"}},
 			{ID: "group-empty", Label: "Empty", Ordinal: 2, MemberIDs: []string{}},

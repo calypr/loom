@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -15,7 +17,7 @@ func (s *Service) List(ctx context.Context, project string) (ListResult, error) 
 	project = projectid.Canonical(project)
 	values, err := s.store.List(ctx, project)
 	if err != nil {
-		return ListResult{}, persistenceFailure("list", "Explorer list could not be loaded", err)
+		return ListResult{}, support.PersistenceFailure("list", "Explorer list could not be loaded", err)
 	}
 	result := ListResult{Project: project, Summaries: make([]explorer.ExplorerSummaryV1, 0, len(values))}
 	for _, value := range values {
@@ -27,13 +29,13 @@ func (s *Service) List(ctx context.Context, project string) (ListResult, error) 
 func (s *Service) Get(ctx context.Context, project, id string) (explorer.ExplorerStateV1, error) {
 	state, err := s.store.LoadExplorerState(ctx, projectid.Canonical(project), strings.TrimSpace(id))
 	if errors.Is(err, explorer.ErrNotFound) {
-		return explorer.ExplorerStateV1{}, notFound("get", "EXPLORER_NOT_FOUND", "Explorer not found", err)
+		return explorer.ExplorerStateV1{}, support.NotFound("get", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
 	if errors.Is(err, explorer.ErrViewerProjectionIntegrity) {
-		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_INTEGRITY_FAILURE", "active Explorer revision contains an invalid immutable projection", err)
+		return explorer.ExplorerStateV1{}, support.Internal("get", "EXPLORER_INTEGRITY_FAILURE", "active Explorer revision contains an invalid immutable projection", err)
 	}
 	if err != nil {
-		return explorer.ExplorerStateV1{}, persistenceFailure("get", "Explorer state could not be loaded", err)
+		return explorer.ExplorerStateV1{}, support.PersistenceFailure("get", "Explorer state could not be loaded", err)
 	}
 	return state, nil
 }
@@ -42,11 +44,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (explorer.E
 	project := projectid.Canonical(request.Project)
 	name := strings.TrimSpace(request.Name)
 	if name == "" {
-		return explorer.ExplorerSummaryV1{}, malformed("create", "name is required", nil)
+		return explorer.ExplorerSummaryV1{}, support.Malformed("create", "name is required", nil)
 	}
 	id := explorer.StableExplorerID(name)
 	if id == "default" || id == DefaultDataframeID {
-		return explorer.ExplorerSummaryV1{}, conflict("create", "EXPLORER_EXISTS", "the repository default already exists", nil, nil)
+		return explorer.ExplorerSummaryV1{}, support.Conflict("create", "EXPLORER_EXISTS", "the repository default already exists", nil, nil)
 	}
 	title := strings.TrimSpace(request.Title)
 	if title == "" {
@@ -61,7 +63,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (explorer.E
 		}
 		workspace, decodeErr := authoringv2.DecodeWorkspace(source.DraftConfig)
 		if decodeErr != nil {
-			return explorer.ExplorerSummaryV1{}, conflict("create", "DRAFT_STATE_INVALID", "the source dataframe draft is invalid", nil, decodeErr)
+			return explorer.ExplorerSummaryV1{}, support.Conflict("create", "DRAFT_STATE_INVALID", "the source dataframe draft is invalid", nil, decodeErr)
 		}
 		workspace.Explorer.Title = title
 		value, err = s.store.CreateSeededDataframe(ctx, project, id, title, workspace, request.Actor, authoringv2.DraftSourceContext{SnapshotToken: source.DraftSnapshotToken, SourceGeneration: source.DraftSourceGeneration, AuthorizationScopeDigest: source.DraftAuthorizationScopeDigest})
@@ -69,38 +71,38 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (explorer.E
 		value, err = s.store.CreateInteractiveFrom(ctx, project, id, title, strings.TrimSpace(request.SourceExplorerID), request.Actor)
 	}
 	if errors.Is(err, explorer.ErrDraftConflict) {
-		return explorer.ExplorerSummaryV1{}, conflict("create", "EXPLORER_EXISTS", "an Explorer with this name already exists", nil, err)
+		return explorer.ExplorerSummaryV1{}, support.Conflict("create", "EXPLORER_EXISTS", "an Explorer with this name already exists", nil, err)
 	}
 	if err != nil {
-		return explorer.ExplorerSummaryV1{}, persistenceFailure("create", "the Explorer could not be created", err)
+		return explorer.ExplorerSummaryV1{}, support.PersistenceFailure("create", "the Explorer could not be created", err)
 	}
 	return explorer.ExplorerSummaryV1{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, UpdatedAt: value.UpdatedAt}, nil
 }
 
 func (s *Service) Capability(ctx context.Context, project, explorerID, generation string) (capability.Snapshot, authoringv2.CatalogSnapshot, error) {
 	if s.config.Capability.Current == nil || s.config.Capability.Catalog == nil {
-		return capability.Snapshot{}, authoringv2.CatalogSnapshot{}, unavailable("capability", "CAPABILITY_UNAVAILABLE", "Explorer capability compiler is not configured", nil)
+		return capability.Snapshot{}, authoringv2.CatalogSnapshot{}, support.Unavailable("capability", "CAPABILITY_UNAVAILABLE", "Explorer capability compiler is not configured", nil)
 	}
 	snapshot, err := s.config.Capability.Current(ctx, project, explorerID, generation)
 	if err != nil || !snapshot.Usable() {
 		if err == nil {
 			err = capability.ErrSnapshotUnavailable
 		}
-		return capability.Snapshot{}, authoringv2.CatalogSnapshot{}, unavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error(), err)
+		return capability.Snapshot{}, authoringv2.CatalogSnapshot{}, support.Unavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error(), err)
 	}
 	return snapshot, s.config.Capability.Catalog(snapshot, explorerID), nil
 }
 
 func (s *Service) Suggestions(ctx context.Context, request SuggestionsRequest) (SuggestionsResult, error) {
 	if strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.NodeID) == "" {
-		return SuggestionsResult{}, malformed("suggestions", "snapshotToken and nodeId are required", nil)
+		return SuggestionsResult{}, support.Malformed("suggestions", "snapshotToken and nodeId are required", nil)
 	}
 	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil {
-		return SuggestionsResult{}, unavailable("suggestions", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
+		return SuggestionsResult{}, support.Unavailable("suggestions", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
 	snapshot, err := s.config.Capability.Token(ctx, request.Project, request.SnapshotToken)
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
-		return SuggestionsResult{}, conflict("suggestions", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale", nil, err)
+		return SuggestionsResult{}, support.Conflict("suggestions", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale", nil, err)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, request.ExplorerID)
 	query := strings.ToLower(strings.TrimSpace(request.Query))
@@ -121,7 +123,7 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 	owner, err := s.getOwnerWithSnapshot(ctx, request.Project, request.ExplorerID, snapshot, catalog)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) {
-			return authoringv2.BuilderState{}, notFound("builder", "EXPLORER_NOT_FOUND", "Explorer not found", err)
+			return authoringv2.BuilderState{}, support.NotFound("builder", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 		}
 		return authoringv2.BuilderState{}, err
 	}
@@ -129,16 +131,16 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 	if request.ExplorerID != DefaultDataframeID && owner.ActiveRevisionID != "" && len(owner.DraftConfig) != 0 {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
 		if activeErr != nil {
-			return authoringv2.BuilderState{}, persistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
+			return authoringv2.BuilderState{}, support.PersistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
 		}
 		if _, decodeErr := s.store.RevisionWorkspace(ctx, *active); decodeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", nil, decodeErr)
+			return authoringv2.BuilderState{}, support.Conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", nil, decodeErr)
 		}
 	}
 	if len(owner.DraftConfig) != 0 {
 		workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
 		if decodeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "DRAFT_STATE_INVALID", "the saved Explorer draft is not a valid V2 workspace", map[string]any{"draftVersion": owner.DraftVersion}, decodeErr)
+			return authoringv2.BuilderState{}, support.Conflict("builder", "DRAFT_STATE_INVALID", "the saved Explorer draft is not a valid V2 workspace", map[string]any{"draftVersion": owner.DraftVersion}, decodeErr)
 		}
 
 		state.DraftVersion = owner.DraftVersion
@@ -148,16 +150,16 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 	} else if owner.ActiveRevisionID != "" {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
 		if activeErr != nil {
-			return authoringv2.BuilderState{}, persistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
+			return authoringv2.BuilderState{}, support.PersistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
 		}
 		workspace, decodeErr := s.store.RevisionWorkspace(ctx, *active)
 		if decodeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", map[string]any{"revisionId": active.ID}, decodeErr)
+			return authoringv2.BuilderState{}, support.Conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", map[string]any{"revisionId": active.ID}, decodeErr)
 		}
 		state.Workspace, state.LifecycleState = &workspace, authoringv2.LifecycleReady
 	}
 	if err := state.Validate(); err != nil {
-		return authoringv2.BuilderState{}, unavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error(), err)
+		return authoringv2.BuilderState{}, support.Unavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error(), err)
 	}
 	return state, nil
 }

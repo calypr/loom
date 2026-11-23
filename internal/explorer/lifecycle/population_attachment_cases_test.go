@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"

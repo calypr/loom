@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -36,30 +39,30 @@ func (rowProposalChoicePlanner) ListRowChoices(_ context.Context, _ capability.S
 	}, nil
 }
 
-func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request RowChoiceResolveRequest) (ResolvedRowChoice, error) {
+func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request rowdef.RowChoiceResolveRequest) (rowdef.ResolvedRowChoice, error) {
 	if request.Route.OccurrenceID != authoringv2.RootOccurrenceID {
-		return ResolvedRowChoice{}, context.Canceled
+		return rowdef.ResolvedRowChoice{}, context.Canceled
 	}
 	switch request.ExpectedKind {
 	case RowChoiceFieldGroup:
-		return ResolvedRowChoice{Kind: RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
+		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
 	case RowChoiceExpanded:
-		return ResolvedRowChoice{Kind: RowChoiceExpanded, OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]"}, nil
+		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceExpanded, OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]"}, nil
 	default:
-		return ResolvedRowChoice{}, context.Canceled
+		return rowdef.ResolvedRowChoice{}, context.Canceled
 	}
 }
 
 type rowProposalExplicitGroupResolver struct {
-	proof       ExplicitGroupRevisionProof
-	listReqs    []ExplicitGroupRevisionListRequest
-	resolveReqs []ExplicitGroupRevisionResolveRequest
+	proof       explicitgroup.ExplicitGroupRevisionProof
+	listReqs    []explicitgroup.ExplicitGroupRevisionListRequest
+	resolveReqs []explicitgroup.ExplicitGroupRevisionResolveRequest
 	receipts    []*explorer.CompilationReceipt
 }
 
-func (r *rowProposalExplicitGroupResolver) ListExplicitGroupRevisions(_ context.Context, request ExplicitGroupRevisionListRequest) ([]ExplicitGroupRevisionChoice, error) {
+func (r *rowProposalExplicitGroupResolver) ListExplicitGroupRevisions(_ context.Context, request explicitgroup.ExplicitGroupRevisionListRequest) ([]explicitgroup.ExplicitGroupRevisionChoice, error) {
 	r.listReqs = append(r.listReqs, request)
-	return []ExplicitGroupRevisionChoice{{
+	return []explicitgroup.ExplicitGroupRevisionChoice{{
 		RevisionID: "group-revision-1", SourceSelectionRevisionID: "selection-1",
 		GroupCount: 2, MemberCount: 4, UnassignedMemberPolicies: []authoringv2.UnassignedMemberPolicy{
 			authoringv2.UnassignedMemberError, authoringv2.UnassignedMemberExclude, authoringv2.UnassignedMemberGroupAsUnassigned,
@@ -67,11 +70,11 @@ func (r *rowProposalExplicitGroupResolver) ListExplicitGroupRevisions(_ context.
 	}}, nil
 }
 
-func (r *rowProposalExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Context, request ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error) {
+func (r *rowProposalExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Context, request explicitgroup.ExplicitGroupRevisionResolveRequest) (explicitgroup.ExplicitGroupRevisionProof, error) {
 	r.resolveReqs = append(r.resolveReqs, request)
 	proof := r.proof
 	if proof.RevisionID == "" {
-		proof = ExplicitGroupRevisionProof{
+		proof = explicitgroup.ExplicitGroupRevisionProof{
 			RevisionID: request.RevisionID, Project: request.Project,
 			SourceGeneration:         request.Snapshot.Identity.Generation,
 			AuthorizationScopeDigest: request.Snapshot.Identity.AuthorizationScopeDigest,
@@ -83,7 +86,7 @@ func (r *rowProposalExplicitGroupResolver) ResolveExplicitGroupRevision(_ contex
 	return proof, nil
 }
 
-func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof explicitgroup.ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
 	r.receipts = append(r.receipts, receipt)
 	if proof.RevisionID == "" || receipt == nil {
 		return fmt.Errorf("explicit group receipt binding is missing")
@@ -129,7 +132,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
 	}}
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
@@ -143,7 +146,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 	if resolved.Project != request.Project || resolved.ExplorerID != request.ExplorerID || resolved.OutputID != request.OutputID || resolved.Snapshot.Token != snapshot.Token || resolved.RevisionID != "group-revision-1" || resolved.RootResourceType != "Patient" {
 		t.Fatalf("explicit group resolver received unbound request: %#v", resolved)
 	}
-	if proposal.ProposalID == "" || proposal.Mode != RowDefinitionSelectionExplicitGroup || proposal.Comparison.Status != RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || len(proposal.Comparison.Examples) != 2 || previews != 2 {
+	if proposal.ProposalID == "" || proposal.Mode != rowdef.RowDefinitionSelectionExplicitGroup || proposal.Comparison.Status != rowdef.RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || len(proposal.Comparison.Examples) != 2 || previews != 2 {
 		t.Fatalf("explicit group proposal did not compile its pinned revision: %#v", proposal)
 	}
 	if !containsRowDefinitionExample(proposal.Comparison.Examples, "patient:1", true, false) || !containsRowDefinitionExample(proposal.Comparison.Examples, "group-revision-1:group-a", false, true) {
@@ -154,7 +157,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 	}
 }
 
-func containsRowDefinitionExample(examples []RowDefinitionComparisonExample, rowIdentity string, base, candidate bool) bool {
+func containsRowDefinitionExample(examples []rowdef.RowDefinitionComparisonExample, rowIdentity string, base, candidate bool) bool {
 	for _, example := range examples {
 		if example.RowIdentity == rowIdentity && example.BasePresent == base && example.CandidatePresent == candidate {
 			return true
@@ -169,14 +172,14 @@ func TestListRowDefinitionChoicesReturnsServerExplicitGroupRevisions(t *testing.
 	service.config.RowChoicePlanner = rowProposalChoicePlanner{}
 	service.config.ExplicitGroupResolver = resolver
 
-	response, err := service.ListRowDefinitionChoices(context.Background(), RowDefinitionChoicesRequest{
+	response, err := service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
 		SnapshotToken: snapshot.Token, OutputID: "patients",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Choices) != 1 || response.Choices[0].Kind != RowChoiceExpanded || response.Choices[0].FieldPath != "component[].code.coding[]" || len(response.ExplicitGroups) != 1 || len(resolver.listReqs) != 1 {
+	if len(response.Choices) != 1 || response.Choices[0].Kind != rowdef.RowChoiceExpanded || response.Choices[0].FieldPath != "component[].code.coding[]" || len(response.ExplicitGroups) != 1 || len(resolver.listReqs) != 1 {
 		t.Fatalf("row-definition choices omitted server-authorized options: %#v", response)
 	}
 	listRequest := resolver.listReqs[0]
@@ -197,7 +200,7 @@ func TestListRowDefinitionChoicesReturnsExplicitGroupsForAuthoredConstruction(t 
 	service.config.RowChoicePlanner = rowProposalChoicePlanner{}
 	service.config.ExplicitGroupResolver = resolver
 
-	response, err := service.ListRowDefinitionChoices(context.Background(), RowDefinitionChoicesRequest{
+	response, err := service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
 		SnapshotToken: snapshot.Token, OutputID: "patients",
 	})
@@ -207,7 +210,7 @@ func TestListRowDefinitionChoicesReturnsExplicitGroupsForAuthoredConstruction(t 
 	if len(response.ExplicitGroups) != 1 || len(resolver.listReqs) != 1 {
 		t.Fatalf("authored construction did not advertise authorized explicit groups: choices=%#v resolver calls=%d", response.ExplicitGroups, len(resolver.listReqs))
 	}
-	if len(response.Choices) != 1 || response.Choices[0].Kind != RowChoiceExpanded {
+	if len(response.Choices) != 1 || response.Choices[0].Kind != rowdef.RowChoiceExpanded {
 		t.Fatalf("authored construction lost executable source expansion choices: %#v", response.Choices)
 	}
 }
@@ -238,14 +241,14 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 	}
 
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
 	}}
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.Comparison.Status != RowDefinitionComparisonAvailable || previews != 2 || len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 1 {
+	if proposal.Comparison.Status != rowdef.RowDefinitionComparisonAvailable || previews != 2 || len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 1 {
 		t.Fatalf("cohort proposal did not compile and preview both workspaces: proposal=%#v previews=%d resolves=%d receipts=%d", proposal, previews, len(resolver.resolveReqs), len(resolver.receipts))
 	}
 	candidate, err := authoringv2.DecodeWorkspace(resolver.receipts[0].NormalizedBundle)
@@ -279,7 +282,7 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 		RowValues:   []authoringv2.ExplicitGroupRowValue{{ColumnID: document.Columns[0].ColumnID, Policy: authoringv2.ConstructionRowValueAll}},
 	}}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude,
 	}}
 	rows, _, err := service.syncRowDefService().ResolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
@@ -337,7 +340,7 @@ func addRowProposalSourceFilter(t *testing.T, store *fakeStore, workspace author
 func TestProposeFieldGroupRejectsUnsupportedSelection(t *testing.T) {
 	service, store, snapshot, _ := rowProposalService(t)
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionFieldGroup, FieldGroup: &FieldGroupSelection{
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionFieldGroup, FieldGroup: &rowdef.FieldGroupSelection{
 		RowChoiceID: "opaque-choice-1", MissingKeyPolicy: authoringv2.MissingKeyError,
 	}}
 	_, err := service.ProposeRowDefinition(context.Background(), request)
@@ -351,14 +354,14 @@ func TestProposeFieldGroupRejectsUnsupportedSelection(t *testing.T) {
 
 func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
 	service, store, snapshot, _ := rowProposalService(t)
-	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{proof: ExplicitGroupRevisionProof{
+	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{proof: explicitgroup.ExplicitGroupRevisionProof{
 		RevisionID: "group-revision-1", Project: "project-a", SourceGeneration: "generation-stale",
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RootResourceType: "Patient",
 		SelectionRevisionID: "selection-1", SelectionMembershipDigest: "sha256:selection-members",
 		DefinitionDigest: "sha256:definition", MembershipDigest: "sha256:membership", Complete: true,
 	}}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
 	}}
 	if _, err := service.ProposeRowDefinition(context.Background(), request); err == nil {
@@ -384,10 +387,10 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.ProposalID == "" || proposal.CandidateWorkspaceDigest == "" || proposal.Mode != RowDefinitionSelectionExpanded {
+	if proposal.ProposalID == "" || proposal.CandidateWorkspaceDigest == "" || proposal.Mode != rowdef.RowDefinitionSelectionExpanded {
 		t.Fatalf("proposal identity = %#v", proposal)
 	}
-	if proposal.Comparison.Status != RowDefinitionComparisonAvailable {
+	if proposal.Comparison.Status != rowdef.RowDefinitionComparisonAvailable {
 		t.Fatalf("comparison status = %#v", proposal.Comparison)
 	}
 	if len(compileBindings) != 2 || compileBindings[0] != nil || compileBindings[1] == nil {
@@ -660,7 +663,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 		return summary, nil
 	}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
 	}}
 	before := append([]byte(nil), store.created.DraftConfig...)
@@ -938,11 +941,11 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 	return newTestService(t, store, config), store, snapshot, workspace
 }
 
-func rowProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot) RowDefinitionProposalRequest {
-	return RowDefinitionProposalRequest{
+func rowProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot) rowdef.RowDefinitionProposalRequest {
+	return rowdef.RowDefinitionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest, OutputID: "patients",
-		Selection: RowDefinitionSelection{Kind: RowDefinitionSelectionExpanded, Expanded: &ExpandedSelection{
+		Selection: rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{
 			RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
 		}},
 	}

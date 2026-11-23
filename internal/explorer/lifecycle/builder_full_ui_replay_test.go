@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -465,7 +467,7 @@ func TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	choices, err := harness.Service.ListRowDefinitionChoices(context.Background(), RowDefinitionChoicesRequest{
+	choices, err := harness.Service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: prepared.Project, ExplorerID: prepared.ExplorerID, SnapshotToken: prepared.SnapshotToken, OutputID: prepared.OutputID,
 	})
 	if err != nil {
@@ -473,7 +475,7 @@ func TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService(t *testing.T)
 	}
 	var expandedID string
 	for _, choice := range choices.Choices {
-		if choice.Kind == RowChoiceExpanded {
+		if choice.Kind == rowdef.RowChoiceExpanded {
 			expandedID = choice.ChoiceID
 			break
 		}
@@ -484,7 +486,7 @@ func TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService(t *testing.T)
 	body, err := json.Marshal(map[string]any{
 		"snapshotToken": prepared.SnapshotToken, "expectedDraftVersion": prepared.AcceptedVersion,
 		"expectedDraftDigest": prepared.AcceptedDigest, "outputId": prepared.OutputID,
-		"selection": RowDefinitionSelection{Kind: RowDefinitionSelectionExpanded, Expanded: &ExpandedSelection{RowChoiceID: expandedID, EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent}},
+		"selection": rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: expandedID, EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -495,7 +497,7 @@ func TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService(t *testing.T)
 		t.Fatalf("dispatch exact row-definition request through Service.ProposeRowDefinition: %v", err)
 	}
 	actual, ok := actualValue.(builderFullUIActual)
-	if !ok || actual.RowDefinitionProposal == nil || actual.RowDefinitionProposal.ProposalID == "" || actual.RowDefinitionProposal.Mode != RowDefinitionSelectionExpanded {
+	if !ok || actual.RowDefinitionProposal == nil || actual.RowDefinitionProposal.ProposalID == "" || actual.RowDefinitionProposal.Mode != rowdef.RowDefinitionSelectionExpanded {
 		t.Fatalf("actual row-definition proposal response disposition=%q error=%#v proposal=%#v", actual.Disposition, actual.ServiceError, actual.RowDefinitionProposal)
 	}
 	if !reflect.DeepEqual(layers, []string{"lifecycle_analyzer_compiler", "preview_orchestration"}) || harness.Store.saveDraftCalls != 0 {
@@ -2519,19 +2521,19 @@ type builderFullUIActualCol struct {
 }
 
 type builderFullUIActual struct {
-	Kind                  string                             `json:"kind"`
-	Disposition           string                             `json:"disposition"`
-	Proposal              *ConstructionProposalResponse      `json:"proposal,omitempty"`
-	RowDefinitionProposal *RowDefinitionProposal             `json:"rowDefinitionProposal,omitempty"`
-	Capabilities          *ConstructionCapabilitiesResponse  `json:"capabilities,omitempty"`
-	Suggestions           *builderFullUIActualSuggestions    `json:"suggestions,omitempty"`
-	RowDefinitionChoices  *RowDefinitionChoicesResponse      `json:"rowDefinitionChoices,omitempty"`
-	CompiledReceipt       *builderFullUIActualReceipt        `json:"compiledReceipt,omitempty"`
-	Preview               *builderFullUIPreviewObservation   `json:"preview,omitempty"`
-	Applied               *authoringv2.ApplyCommandsResponse `json:"applied,omitempty"`
-	AcceptedWorkspace     json.RawMessage                    `json:"acceptedWorkspace,omitempty"`
-	ServiceError          *builderFullUIActualServiceError   `json:"serviceError,omitempty"`
-	FakeStore             *builderFullUIFakeStoreObservation `json:"fakeStorePersistence,omitempty"`
+	Kind                  string                               `json:"kind"`
+	Disposition           string                               `json:"disposition"`
+	Proposal              *ConstructionProposalResponse        `json:"proposal,omitempty"`
+	RowDefinitionProposal *rowdef.RowDefinitionProposal        `json:"rowDefinitionProposal,omitempty"`
+	Capabilities          *ConstructionCapabilitiesResponse    `json:"capabilities,omitempty"`
+	Suggestions           *builderFullUIActualSuggestions      `json:"suggestions,omitempty"`
+	RowDefinitionChoices  *rowdef.RowDefinitionChoicesResponse `json:"rowDefinitionChoices,omitempty"`
+	CompiledReceipt       *builderFullUIActualReceipt          `json:"compiledReceipt,omitempty"`
+	Preview               *builderFullUIPreviewObservation     `json:"preview,omitempty"`
+	Applied               *authoringv2.ApplyCommandsResponse   `json:"applied,omitempty"`
+	AcceptedWorkspace     json.RawMessage                      `json:"acceptedWorkspace,omitempty"`
+	ServiceError          *builderFullUIActualServiceError     `json:"serviceError,omitempty"`
+	FakeStore             *builderFullUIFakeStoreObservation   `json:"fakeStorePersistence,omitempty"`
 }
 
 type builderFullUIActualSuggestions struct {
@@ -2619,7 +2621,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: parse row-definition-choices endpoint: %w", parseErr)
 		}
 		query := parsed.Query()
-		value, err := harness.Service.ListRowDefinitionChoices(ctx, RowDefinitionChoicesRequest{
+		value, err := harness.Service.ListRowDefinitionChoices(ctx, rowdef.RowDefinitionChoicesRequest{
 			Project: identity.Project, ExplorerID: identity.ExplorerID,
 			SnapshotToken: query.Get("snapshotToken"), OutputID: query.Get("outputId"),
 		})
@@ -2701,18 +2703,18 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		return actual, layers, nil
 	case "rowdefinitionproposal":
 		var body struct {
-			SnapshotToken        string                 `json:"snapshotToken"`
-			ExpectedDraftVersion int64                  `json:"expectedDraftVersion"`
-			ExpectedDraftDigest  string                 `json:"expectedDraftDigest"`
-			OutputID             string                 `json:"outputId"`
-			Selection            RowDefinitionSelection `json:"selection"`
-			Limit                int                    `json:"limit"`
+			SnapshotToken        string                        `json:"snapshotToken"`
+			ExpectedDraftVersion int64                         `json:"expectedDraftVersion"`
+			ExpectedDraftDigest  string                        `json:"expectedDraftDigest"`
+			OutputID             string                        `json:"outputId"`
+			Selection            rowdef.RowDefinitionSelection `json:"selection"`
+			Limit                int                           `json:"limit"`
 		}
 		if err := json.Unmarshal(request.Body, &body); err != nil {
-			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode RowDefinitionProposal request: %w", err)
+			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode rowdef.RowDefinitionProposal request: %w", err)
 		}
 		layers = append(layers, "lifecycle_analyzer_compiler")
-		proposal, err := harness.Service.ProposeRowDefinition(ctx, RowDefinitionProposalRequest{
+		proposal, err := harness.Service.ProposeRowDefinition(ctx, rowdef.RowDefinitionProposalRequest{
 			Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken,
 			ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
 			OutputID: body.OutputID, Selection: body.Selection, Limit: body.Limit,

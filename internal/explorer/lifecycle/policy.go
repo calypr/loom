@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -114,25 +116,25 @@ func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receip
 		receipt, err = s.store.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 	}
 	if err != nil {
-		return nil, wrapReceiptLookup("receipt", err)
+		return nil, support.WrapReceiptLookup("receipt", err)
 	}
 	return receipt, nil
 }
 
 func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
 	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
-		return notFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
+		return support.NotFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
 	}
 	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {
-		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
+		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
 	}
 	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.PopulationMapping != nil || s.config.MaterializeReceipt != nil
 	if native && !explorer.ReceiptContractSupportedForExecution(*receipt) {
-		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported compiler contract", nil, nil)
+		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported compiler contract", nil, nil)
 	}
 	if native {
 		if err := receipt.Validate(); err != nil {
-			return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt failed integrity validation and must be recompiled", nil, err)
+			return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt failed integrity validation and must be recompiled", nil, err)
 		}
 	}
 	return nil
@@ -140,15 +142,15 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 
 func (s *Service) validateArchivedReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
 	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
-		return notFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
+		return support.NotFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
 	}
 	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {
-		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
+		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
 	}
 	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.PopulationMapping != nil || s.config.MaterializeReceipt != nil
 	if native {
 		if err := receipt.ValidateArchive(); err != nil {
-			return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt failed integrity validation and must be recompiled", nil, err)
+			return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt failed integrity validation and must be recompiled", nil, err)
 		}
 	}
 	return nil
@@ -159,10 +161,10 @@ func (s *Service) validateExecutableReceiptRoute(receipt *explorer.CompilationRe
 		return err
 	}
 	if receipt.Bundle.HasArchivedReshape() || receipt.TableShapeProposal != nil {
-		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains retired recipe operations and must be recompiled", nil, nil)
+		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains retired recipe operations and must be recompiled", nil, nil)
 	}
 	if _, err := receipt.CurrentWorkspace(); err != nil {
-		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains historical or inconsistent authoring intent and must be recompiled", nil, err)
+		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains historical or inconsistent authoring intent and must be recompiled", nil, err)
 	}
 	return nil
 }
@@ -206,7 +208,7 @@ func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, au
 	if snapshot.Identity.AuthorizationScopeDigest != receipt.AuthorizationScopeDigest {
 		return fmt.Errorf("capability scope digest changed")
 	}
-	return validateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest)
+	return support.ValidateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest)
 }
 
 func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputID string) error {

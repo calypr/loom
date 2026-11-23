@@ -3,11 +3,12 @@ package lifecycle_test
 import (
 	"context"
 	"errors"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"

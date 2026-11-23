@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -89,18 +91,6 @@ type frameSourceBrowse struct {
 	currentWorkspace  func(context.Context, string, string) (authoringv2.Workspace, error)
 }
 
-func (s *Service) frameSourceBrowse() *frameSourceBrowse {
-	return &frameSourceBrowse{
-		capability:        s.config.Capability,
-		semanticInventory: s.config.SemanticInventory,
-		currentWorkspace:  s.currentWorkspace,
-	}
-}
-
-func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
-	return s.frameSourceBrowse().BrowseFrameSourceOptions(ctx, request)
-}
-
 func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
 	result := BrowseFrameSourceOptionsResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Sources: []FrameSourceOption{},
@@ -108,27 +98,27 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
 		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" ||
 		len(request.Query) > 256 || len(request.Cursor) > 4096 || request.Limit < 0 || request.Limit > capability.ConstructionRouteMaxLimit {
-		return result, malformed("frame-source-options", "project, explorerId, snapshotToken, outputId, and a page limit of at most 50 are required", nil)
+		return result, support.Malformed("frame-source-options", "project, explorerId, snapshotToken, outputId, and a page limit of at most 50 are required", nil)
 	}
 	if browse.semanticInventory == nil || browse.capability.ForCompilation == nil {
-		return result, unavailable("frame-source-options", "CATALOG_UNAVAILABLE", "authorized semantic inventory is not configured", nil)
+		return result, support.Unavailable("frame-source-options", "CATALOG_UNAVAILABLE", "authorized semantic inventory is not configured", nil)
 	}
 	if request.Limit == 0 {
 		request.Limit = frameSourceDefaultLimit
 	}
 	authorized, err := browse.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if errors.Is(err, capability.ErrStaleSnapshot) || errors.Is(err, capability.ErrSnapshotUnavailable) {
-		return result, conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, err)
+		return result, support.Conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, err)
 	}
 	if err != nil {
 		return result, capabilityResolutionFailure("frame-source-options", "reload the catalog before choosing a frame source", err)
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) || snapshot.Identity.Generation == "" {
-		return result, conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, nil)
+		return result, support.Conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, nil)
 	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return result, conflict("frame-source-options", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return result, support.Conflict("frame-source-options", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
 	workspace, err := browse.currentWorkspace(ctx, request.Project, request.ExplorerID)
 	if err != nil {
@@ -136,7 +126,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 	}
 	document := findSemanticOutput(workspace, request.OutputID)
 	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
-		return result, malformed("frame-source-options", "outputId does not identify a valid row-rooted table", nil)
+		return result, support.Malformed("frame-source-options", "outputId does not identify a valid row-rooted table", nil)
 	}
 	rootAllowed, resourceAllowed := false, request.ResourceType == ""
 	for _, node := range snapshot.Nodes {
@@ -144,7 +134,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 		resourceAllowed = resourceAllowed || node.ResourceType == request.ResourceType
 	}
 	if !rootAllowed || !resourceAllowed {
-		return result, malformed("frame-source-options", "the row root or resource filter is not available in this snapshot", nil)
+		return result, support.Malformed("frame-source-options", "the row root or resource filter is not available in this snapshot", nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
 	contextKey, err := frameSourceContext(snapshot, request.ExplorerID, request.OutputID, document.RootResourceType, request.ResourceType, request.Query)
@@ -155,7 +145,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 	if request.Cursor != "" {
 		raw, decodeErr := base64.RawURLEncoding.DecodeString(request.Cursor)
 		if decodeErr != nil || json.Unmarshal(raw, &state) != nil || state.Version != 2 || state.Context != contextKey || state.FamilyIndex < 0 || state.Phase < 0 || state.Phase > 1 || state.Phase == 0 && state.Route != "" {
-			return result, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, decodeErr)
+			return result, support.Conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, decodeErr)
 		}
 	}
 	result.Sources = make([]FrameSourceOption, 0, request.Limit)
@@ -167,21 +157,21 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 			ResourceType: request.ResourceType, Query: request.Query, Cursor: state.Page, Limit: semantic.PageLimit,
 		})
 		if errors.Is(pageErr, semantic.ErrSemanticInventoryCursorMismatch) {
-			return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, pageErr)
+			return BrowseFrameSourceOptionsResponse{}, support.Conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, pageErr)
 		}
 		if pageErr != nil {
-			return BrowseFrameSourceOptionsResponse{}, persistenceFailure("frame-source-options", "frame source options could not be read", pageErr)
+			return BrowseFrameSourceOptionsResponse{}, support.PersistenceFailure("frame-source-options", "frame source options could not be read", pageErr)
 		}
 		contextToken, tokenErr := semanticInventoryContextToken(snapshot, request.ExplorerID, document.RootResourceType, page.Build.BuildID)
 		if tokenErr != nil {
 			return BrowseFrameSourceOptionsResponse{}, tokenErr
 		}
 		if page.Build.BuildID != semantic.BuildID(projectid.Legacy(snapshot.Identity.Project), snapshot.Identity.Generation) || page.State != semantic.Complete {
-			return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
+			return BrowseFrameSourceOptionsResponse{}, support.Conflict("frame-source-options", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
 		}
 		families := frameSourceFamilies(snapshot, page.Entries)
 		if state.FamilyIndex > len(families) || state.Phase == 1 && state.FamilyIndex == len(families) && state.Route != "" {
-			return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, nil)
+			return BrowseFrameSourceOptionsResponse{}, support.Conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, nil)
 		}
 		if state.Phase == 0 {
 			if state.FamilyIndex >= len(families) {
@@ -194,7 +184,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 				SourceKey: frameSourceRouteKey(request.OutputID, family.Family, family.Candidate.ID), Limit: 1,
 			})
 			if routeErr != nil {
-				return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, routeErr)
+				return BrowseFrameSourceOptionsResponse{}, support.Conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, routeErr)
 			}
 			truncated = truncated || routes.Truncated && routes.NextCursor == ""
 			if len(routes.Routes) == 1 {
@@ -221,7 +211,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 				SourceKey: frameSourceRouteKey(request.OutputID, family.Family, family.Candidate.ID), Limit: 1,
 			})
 			if routeErr != nil {
-				return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, routeErr)
+				return BrowseFrameSourceOptionsResponse{}, support.Conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, routeErr)
 			}
 			if firstRoute.NextCursor == "" {
 				state.FamilyIndex++
@@ -235,7 +225,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 			Limit: request.Limit - len(result.Sources),
 		})
 		if routeErr != nil {
-			return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, routeErr)
+			return BrowseFrameSourceOptionsResponse{}, support.Conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, routeErr)
 		}
 		truncated = truncated || pageRoutes.Truncated && pageRoutes.NextCursor == ""
 		for _, route := range pageRoutes.Routes {
@@ -268,7 +258,7 @@ func (browse *frameSourceBrowse) frameSourceOptionForRoute(
 	family frameSourceFamilyCandidate,
 	route []capability.ConstructionRouteStep,
 ) (FrameSourceOption, bool) {
-	resolvedRoute, err := reauthorizeConstructionRoute(snapshot, rootResourceType, family.Candidate.NodeID, route)
+	resolvedRoute, err := support.ReauthorizeConstructionRoute(snapshot, rootResourceType, family.Candidate.NodeID, route)
 	if err != nil {
 		return FrameSourceOption{}, false
 	}
@@ -314,192 +304,8 @@ func (browse *frameSourceBrowse) frameSourceOptionForRoute(
 	}, true
 }
 
-func (s *Service) prepareFrameSourceCommand(
-	ctx context.Context,
-	project, explorerID string,
-	authorized ports.AuthorizedCapability,
-	workspace authoringv2.Workspace,
-	catalogSnapshot authoringv2.CatalogSnapshot,
-	command authoringv2.Command,
-	identity capability.ConstructionChoiceIdentity,
-) ([]authoringv2.Command, error) {
-	if command.Type != authoringv2.CommandSetFrameSource && command.Type != authoringv2.CommandReplaceFrameSource {
-		return nil, malformed("commands", "unsupported frame source command", nil)
-	}
-	document := findSemanticOutput(workspace, command.OutputID)
-	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
-		return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
-	}
-	if identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
-		return nil, conflict("commands", "STALE_FRAME_SOURCE", "the frame source belongs to a different authorized snapshot", nil, nil)
-	}
-	sourceIdentity, ok := identity.Source.(capability.SemanticFrameChoiceSource)
-	if !ok {
-		return nil, invalidFrameSource("the frame source does not identify a correlated code/value family")
-	}
-	if len(identity.Route) > 0 && identity.Route[0].FromResourceType != document.RootResourceType || len(identity.Route) == 0 && sourceIdentity.Family.ResourceType != document.RootResourceType {
-		return nil, invalidFrameSource("the frame source route does not start at this table's row root")
-	}
-	entry, err := s.resolveFrameSourceAnchor(ctx, project, explorerID, document.RootResourceType, authorized, identity, sourceIdentity)
-	if err != nil {
-		return nil, err
-	}
-	familyCandidates := frameSourceFamilies(authorized.Snapshot, []semantic.Entry{entry})
-	if len(familyCandidates) != 1 {
-		return nil, invalidFrameSource("the frame source is no longer a complete coded value family")
-	}
-	family := familyCandidates[0]
-	if !reflect.DeepEqual(family.Family, sourceIdentity.Family) || family.Candidate.ID != sourceIdentity.CandidateID ||
-		family.Candidate.NodeID != sourceIdentity.NodeID || family.Candidate.FieldPath != sourceIdentity.FieldPath {
-		return nil, invalidFrameSource("the frame source metadata or compiler candidate changed")
-	}
-	resolvedRoute, err := reauthorizeConstructionRoute(authorized.Snapshot, document.RootResourceType, family.Candidate.NodeID, identity.Route)
-	if err != nil {
-		return nil, invalidFrameSource("the frame source route is no longer authorized")
-	}
-	provenCandidate, err := proveConstructionCandidate(ctx, authorized, document.RootResourceType, family.Candidate, resolvedRoute)
-	if err != nil {
-		return nil, invalidFrameSource("the frame source route and value no longer compile")
-	}
-	provenCandidate, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
-	if !ok {
-		return nil, invalidFrameSource("the frame source fallback selectors no longer match compiler-proved candidates")
-	}
-	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, identity.BuildID)
-	if err != nil {
-		return nil, err
-	}
-	expectedChoice, err := capability.NewSemanticFrameConstructionChoice(
-		authorized.Snapshot.Token, contextToken, identity.BuildID,
-		capability.SemanticFrameChoiceSource{
-			Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: sourceIdentity.AnchorConceptID,
-			Family: family.Family, CandidateID: provenCandidate.ID, NodeID: provenCandidate.NodeID, FieldPath: provenCandidate.FieldPath,
-		}, resolvedRoute, provenCandidate,
-	)
-	if err != nil || !constructionChoiceIdentityMatches(expectedChoice, command.FrameChoiceID(), identity) ||
-		!reflect.DeepEqual(expectedChoice.Source, sourceIdentity) || !reflect.DeepEqual(expectedChoice.Route, identity.Route) {
-		return nil, invalidFrameSource("the frame source token does not match current semantic and route evidence")
-	}
-	if !constructionChoiceSupports(expectedChoice, command.FrameForm()) {
-		return nil, invalidFrameSource("the selected form is not supported for this exact frame source")
-	}
-	if command.FrameForm() != capability.ConstructionChoiceValue && command.FrameForm() != capability.ConstructionChoiceFirst &&
-		command.FrameForm() != capability.ConstructionChoiceAll && command.FrameForm() != capability.ConstructionChoiceDistinct {
-		return nil, invalidFrameSource("frame sources support only VALUE, FIRST, ALL, or DISTINCT forms")
-	}
-	frame, err := authoringv2.NewFrameDefinition(
-		frameSourceTitle(family.Family), frameSourceDescription(family.Family, resolvedRoute),
-		family.Family, resolvedRoute, command.FrameForm(),
-	)
-	if err != nil {
-		return nil, invalidFrameSource("the selected frame definition is invalid")
-	}
-	commands := []authoringv2.Command{command}
-	if err := commands[0].ResolveFrameSource(frame); err != nil {
-		return nil, invalidFrameSource("the resolved frame definition is invalid")
-	}
-	return commands, nil
-}
-
-func (s *Service) resolveFrameSourceAnchor(
-	ctx context.Context,
-	project, explorerID, rowRoot string,
-	authorized ports.AuthorizedCapability,
-	identity capability.ConstructionChoiceIdentity,
-	source capability.SemanticFrameChoiceSource,
-) (semantic.Entry, error) {
-	if s.config.ResolveSemanticInventorySelections == nil {
-		return semantic.Entry{}, unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
-	}
-	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
-		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
-		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
-		References: []semantic.Reference{{ConceptID: source.AnchorConceptID, BindingID: source.Family.BindingID}},
-	})
-	if err != nil {
-		return semantic.Entry{}, unavailable("catalog", "CATALOG_UNAVAILABLE", "the frame source evidence could not be resolved", err)
-	}
-	expectedBuildID := semantic.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
-	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete ||
-		resolved.Build.BuildID != expectedBuildID || identity.BuildID != expectedBuildID {
-		return semantic.Entry{}, conflict("commands", "STALE_SEMANTIC_CONTEXT", "the frame source belongs to a different semantic inventory build", nil, nil)
-	}
-	if len(resolved.Entries) != 1 || resolved.Entries[0].ConceptID != source.AnchorConceptID || resolved.Entries[0].BindingID != source.Family.BindingID {
-		return semantic.Entry{}, invalidFrameSource("the frame source anchor is unavailable in the current authorized inventory")
-	}
-	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, rowRoot, expectedBuildID)
-	if err != nil {
-		return semantic.Entry{}, err
-	}
-	if identity.SemanticContextToken != contextToken {
-		return semantic.Entry{}, conflict("commands", "STALE_SEMANTIC_CONTEXT", "reload the frame source for the current table root and inventory build", nil, nil)
-	}
-	return resolved.Entries[0], nil
-}
-
-func (s *Service) reauthorizeFrameSourceChoice(
-	ctx context.Context,
-	project, explorerID, rowRoot, outputID, choiceID string,
-	authorized ports.AuthorizedCapability,
-	identity capability.ConstructionChoiceIdentity,
-) (frameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
-	if identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
-		return frameSourceFamilyCandidate{}, nil, conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "the coded source belongs to a different authorized snapshot", nil, nil)
-	}
-	source, ok := identity.Source.(capability.SemanticFrameChoiceSource)
-	if !ok || strings.TrimSpace(outputID) == "" {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source does not identify a correlated code/value family")
-	}
-	if len(identity.Route) != 0 || source.Family.ResourceType != rowRoot {
-		return frameSourceFamilyCandidate{}, nil, unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
-	}
-	entry, err := s.resolveFrameSourceAnchor(ctx, project, explorerID, rowRoot, authorized, identity, source)
-	if err != nil {
-		return frameSourceFamilyCandidate{}, nil, err
-	}
-	families := frameSourceFamilies(authorized.Snapshot, []semantic.Entry{entry})
-	if len(families) != 1 {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source is no longer a complete coded value family")
-	}
-	family := families[0]
-	if !reflect.DeepEqual(family.Family, source.Family) || family.Candidate.ID != source.CandidateID ||
-		family.Candidate.NodeID != source.NodeID || family.Candidate.FieldPath != source.FieldPath {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source metadata or compiler candidate changed")
-	}
-	route, err := reauthorizeConstructionRoute(authorized.Snapshot, rowRoot, family.Candidate.NodeID, identity.Route)
-	if err != nil || len(route) != 0 {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source route is no longer an authorized direct-root route")
-	}
-	proven, err := proveConstructionCandidate(ctx, authorized, rowRoot, family.Candidate, route)
-	if err != nil {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source candidate no longer compiles")
-	}
-	proven, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, proven)
-	if !ok {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source fallback selectors no longer have exact compiler-proved candidates")
-	}
-	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, rowRoot, identity.BuildID)
-	if err != nil {
-		return frameSourceFamilyCandidate{}, nil, err
-	}
-	expected, err := capability.NewSemanticFrameConstructionChoice(
-		authorized.Snapshot.Token, contextToken, identity.BuildID,
-		capability.SemanticFrameChoiceSource{
-			Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: source.AnchorConceptID,
-			Family: family.Family, CandidateID: proven.ID, NodeID: proven.NodeID, FieldPath: proven.FieldPath,
-		}, route, proven,
-	)
-	if err != nil || !constructionChoiceIdentityMatches(expected, choiceID, identity) ||
-		!reflect.DeepEqual(expected.Source, source) || !reflect.DeepEqual(expected.Route, identity.Route) {
-		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source token does not match current semantic and compiler evidence")
-	}
-	family.Candidate = proven
-	return family, route, nil
-}
-
 func invalidFrameSource(message string) error {
-	return unprocessable("frame-source", "INVALID_FRAME_SOURCE", message, nil)
+	return support.Unprocessable("frame-source", "INVALID_FRAME_SOURCE", message, nil)
 }
 
 func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []frameSourceFamilyCandidate {
@@ -646,4 +452,200 @@ func frameSourceDescription(family capability.SemanticFrameFamily, route []capab
 		}
 	}
 	return "Codes and their paired values on " + where + "."
+}
+
+func (s *Service) frameSourceBrowse() *frameSourceBrowse {
+	return &frameSourceBrowse{
+		capability:        s.config.Capability,
+		semanticInventory: s.config.SemanticInventory,
+		currentWorkspace:  s.currentWorkspace,
+	}
+}
+
+func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
+	return s.frameSourceBrowse().BrowseFrameSourceOptions(ctx, request)
+}
+
+func (s *Service) prepareFrameSourceCommand(
+	ctx context.Context,
+	project, explorerID string,
+	authorized ports.AuthorizedCapability,
+	workspace authoringv2.Workspace,
+	catalogSnapshot authoringv2.CatalogSnapshot,
+	command authoringv2.Command,
+	identity capability.ConstructionChoiceIdentity,
+) ([]authoringv2.Command, error) {
+	if command.Type != authoringv2.CommandSetFrameSource && command.Type != authoringv2.CommandReplaceFrameSource {
+		return nil, support.Malformed("commands", "unsupported frame source command", nil)
+	}
+	document := findSemanticOutput(workspace, command.OutputID)
+	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+		return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
+	}
+	if identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
+		return nil, support.Conflict("commands", "STALE_FRAME_SOURCE", "the frame source belongs to a different authorized snapshot", nil, nil)
+	}
+	sourceIdentity, ok := identity.Source.(capability.SemanticFrameChoiceSource)
+	if !ok {
+		return nil, invalidFrameSource("the frame source does not identify a correlated code/value family")
+	}
+	if len(identity.Route) > 0 && identity.Route[0].FromResourceType != document.RootResourceType || len(identity.Route) == 0 && sourceIdentity.Family.ResourceType != document.RootResourceType {
+		return nil, invalidFrameSource("the frame source route does not start at this table's row root")
+	}
+	entry, err := s.resolveFrameSourceAnchor(ctx, project, explorerID, document.RootResourceType, authorized, identity, sourceIdentity)
+	if err != nil {
+		return nil, err
+	}
+	familyCandidates := frameSourceFamilies(authorized.Snapshot, []semantic.Entry{entry})
+	if len(familyCandidates) != 1 {
+		return nil, invalidFrameSource("the frame source is no longer a complete coded value family")
+	}
+	family := familyCandidates[0]
+	if !reflect.DeepEqual(family.Family, sourceIdentity.Family) || family.Candidate.ID != sourceIdentity.CandidateID ||
+		family.Candidate.NodeID != sourceIdentity.NodeID || family.Candidate.FieldPath != sourceIdentity.FieldPath {
+		return nil, invalidFrameSource("the frame source metadata or compiler candidate changed")
+	}
+	resolvedRoute, err := support.ReauthorizeConstructionRoute(authorized.Snapshot, document.RootResourceType, family.Candidate.NodeID, identity.Route)
+	if err != nil {
+		return nil, invalidFrameSource("the frame source route is no longer authorized")
+	}
+	provenCandidate, err := proveConstructionCandidate(ctx, authorized, document.RootResourceType, family.Candidate, resolvedRoute)
+	if err != nil {
+		return nil, invalidFrameSource("the frame source route and value no longer compile")
+	}
+	provenCandidate, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
+	if !ok {
+		return nil, invalidFrameSource("the frame source fallback selectors no longer match compiler-proved candidates")
+	}
+	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, identity.BuildID)
+	if err != nil {
+		return nil, err
+	}
+	expectedChoice, err := capability.NewSemanticFrameConstructionChoice(
+		authorized.Snapshot.Token, contextToken, identity.BuildID,
+		capability.SemanticFrameChoiceSource{
+			Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: sourceIdentity.AnchorConceptID,
+			Family: family.Family, CandidateID: provenCandidate.ID, NodeID: provenCandidate.NodeID, FieldPath: provenCandidate.FieldPath,
+		}, resolvedRoute, provenCandidate,
+	)
+	if err != nil || !constructionChoiceIdentityMatches(expectedChoice, command.FrameChoiceID(), identity) ||
+		!reflect.DeepEqual(expectedChoice.Source, sourceIdentity) || !reflect.DeepEqual(expectedChoice.Route, identity.Route) {
+		return nil, invalidFrameSource("the frame source token does not match current semantic and route evidence")
+	}
+	if !constructionChoiceSupports(expectedChoice, command.FrameForm()) {
+		return nil, invalidFrameSource("the selected form is not supported for this exact frame source")
+	}
+	if command.FrameForm() != capability.ConstructionChoiceValue && command.FrameForm() != capability.ConstructionChoiceFirst &&
+		command.FrameForm() != capability.ConstructionChoiceAll && command.FrameForm() != capability.ConstructionChoiceDistinct {
+		return nil, invalidFrameSource("frame sources support only VALUE, FIRST, ALL, or DISTINCT forms")
+	}
+	frame, err := authoringv2.NewFrameDefinition(
+		frameSourceTitle(family.Family), frameSourceDescription(family.Family, resolvedRoute),
+		family.Family, resolvedRoute, command.FrameForm(),
+	)
+	if err != nil {
+		return nil, invalidFrameSource("the selected frame definition is invalid")
+	}
+	commands := []authoringv2.Command{command}
+	if err := commands[0].ResolveFrameSource(frame); err != nil {
+		return nil, invalidFrameSource("the resolved frame definition is invalid")
+	}
+	return commands, nil
+}
+
+func (s *Service) resolveFrameSourceAnchor(
+	ctx context.Context,
+	project, explorerID, rowRoot string,
+	authorized ports.AuthorizedCapability,
+	identity capability.ConstructionChoiceIdentity,
+	source capability.SemanticFrameChoiceSource,
+) (semantic.Entry, error) {
+	if s.config.ResolveSemanticInventorySelections == nil {
+		return semantic.Entry{}, support.Unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
+	}
+	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
+		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
+		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
+		References: []semantic.Reference{{ConceptID: source.AnchorConceptID, BindingID: source.Family.BindingID}},
+	})
+	if err != nil {
+		return semantic.Entry{}, support.Unavailable("catalog", "CATALOG_UNAVAILABLE", "the frame source evidence could not be resolved", err)
+	}
+	expectedBuildID := semantic.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete ||
+		resolved.Build.BuildID != expectedBuildID || identity.BuildID != expectedBuildID {
+		return semantic.Entry{}, support.Conflict("commands", "STALE_SEMANTIC_CONTEXT", "the frame source belongs to a different semantic inventory build", nil, nil)
+	}
+	if len(resolved.Entries) != 1 || resolved.Entries[0].ConceptID != source.AnchorConceptID || resolved.Entries[0].BindingID != source.Family.BindingID {
+		return semantic.Entry{}, invalidFrameSource("the frame source anchor is unavailable in the current authorized inventory")
+	}
+	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, rowRoot, expectedBuildID)
+	if err != nil {
+		return semantic.Entry{}, err
+	}
+	if identity.SemanticContextToken != contextToken {
+		return semantic.Entry{}, support.Conflict("commands", "STALE_SEMANTIC_CONTEXT", "reload the frame source for the current table root and inventory build", nil, nil)
+	}
+	return resolved.Entries[0], nil
+}
+
+func (s *Service) reauthorizeFrameSourceChoice(
+	ctx context.Context,
+	project, explorerID, rowRoot, outputID, choiceID string,
+	authorized ports.AuthorizedCapability,
+	identity capability.ConstructionChoiceIdentity,
+) (frameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+	if identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
+		return frameSourceFamilyCandidate{}, nil, support.Conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "the coded source belongs to a different authorized snapshot", nil, nil)
+	}
+	source, ok := identity.Source.(capability.SemanticFrameChoiceSource)
+	if !ok || strings.TrimSpace(outputID) == "" {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source does not identify a correlated code/value family")
+	}
+	if len(identity.Route) != 0 || source.Family.ResourceType != rowRoot {
+		return frameSourceFamilyCandidate{}, nil, support.Unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
+	}
+	entry, err := s.resolveFrameSourceAnchor(ctx, project, explorerID, rowRoot, authorized, identity, source)
+	if err != nil {
+		return frameSourceFamilyCandidate{}, nil, err
+	}
+	families := frameSourceFamilies(authorized.Snapshot, []semantic.Entry{entry})
+	if len(families) != 1 {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source is no longer a complete coded value family")
+	}
+	family := families[0]
+	if !reflect.DeepEqual(family.Family, source.Family) || family.Candidate.ID != source.CandidateID ||
+		family.Candidate.NodeID != source.NodeID || family.Candidate.FieldPath != source.FieldPath {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source metadata or compiler candidate changed")
+	}
+	route, err := support.ReauthorizeConstructionRoute(authorized.Snapshot, rowRoot, family.Candidate.NodeID, identity.Route)
+	if err != nil || len(route) != 0 {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source route is no longer an authorized direct-root route")
+	}
+	proven, err := proveConstructionCandidate(ctx, authorized, rowRoot, family.Candidate, route)
+	if err != nil {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source candidate no longer compiles")
+	}
+	proven, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, proven)
+	if !ok {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source fallback selectors no longer have exact compiler-proved candidates")
+	}
+	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, rowRoot, identity.BuildID)
+	if err != nil {
+		return frameSourceFamilyCandidate{}, nil, err
+	}
+	expected, err := capability.NewSemanticFrameConstructionChoice(
+		authorized.Snapshot.Token, contextToken, identity.BuildID,
+		capability.SemanticFrameChoiceSource{
+			Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: source.AnchorConceptID,
+			Family: family.Family, CandidateID: proven.ID, NodeID: proven.NodeID, FieldPath: proven.FieldPath,
+		}, route, proven,
+	)
+	if err != nil || !constructionChoiceIdentityMatches(expected, choiceID, identity) ||
+		!reflect.DeepEqual(expected.Source, source) || !reflect.DeepEqual(expected.Route, identity.Route) {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source token does not match current semantic and compiler evidence")
+	}
+	family.Candidate = proven
+	return family, route, nil
 }

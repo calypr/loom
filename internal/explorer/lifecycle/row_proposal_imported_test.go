@@ -5,16 +5,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t *testing.T) {
-	for _, selection := range []RowDefinitionSelection{
-		{Kind: RowDefinitionSelectionRecords},
-		{Kind: RowDefinitionSelectionExpanded, Expanded: &ExpandedSelection{RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent}},
-		{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{RevisionID: "group-v1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude}},
+	for _, selection := range []rowdef.RowDefinitionSelection{
+		{Kind: rowdef.RowDefinitionSelectionRecords},
+		{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent}},
+		{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-v1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude}},
 	} {
 		t.Run(string(selection.Kind), func(t *testing.T) {
 			service, store, snapshot, workspace := rowProposalService(t)

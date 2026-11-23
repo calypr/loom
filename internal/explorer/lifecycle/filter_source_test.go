@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -78,7 +80,7 @@ func filterSourceProjectionColumn() authoringv2.StageColumn {
 	}
 }
 
-func filterSourceResolver(t *testing.T) *SchemaRowChoiceResolver {
+func filterSourceResolver(t *testing.T) *rowdef.SchemaRowChoiceResolver {
 	t.Helper()
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
@@ -301,7 +303,7 @@ func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T)
 }
 
 type labeledRowSourceChoicePlanner struct {
-	inner *SchemaRowChoiceResolver
+	inner *rowdef.SchemaRowChoiceResolver
 	label string
 }
 
@@ -1229,7 +1231,7 @@ func (h *filterSourceHarness) unobserveBirthCount() {
 }
 
 type staleRowSourceChoicePlanner struct {
-	inner  *SchemaRowChoiceResolver
+	inner  *rowdef.SchemaRowChoiceResolver
 	issued capability.Snapshot
 }
 
@@ -1243,7 +1245,7 @@ func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Sn
 	return nil, nil
 }
 
-func rowSourceServiceWithPlanner(planner RowChoicePlanner) *Service {
+func rowSourceServiceWithPlanner(planner rowdef.RowChoicePlanner) *Service {
 	return &Service{config: Config{RowChoicePlanner: planner}}
 }
 
