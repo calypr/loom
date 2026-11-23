@@ -2,8 +2,9 @@ package runtime
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/recipeauth"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/recipeauth"
 
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
