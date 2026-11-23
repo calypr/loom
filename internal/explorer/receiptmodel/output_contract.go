@@ -1,4 +1,4 @@
-package explorer
+package receiptmodel
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 type PublicOutputContracts struct {
@@ -52,7 +53,7 @@ type PublicOutputColumn struct {
 	LossReasons           []string                        `json:"lossReasons,omitempty"`
 	Filterable            bool                            `json:"filterable"`
 	Chartable             bool                            `json:"chartable"`
-	UnitNormalization     *PublicUnitNormalization        `json:"unitNormalization,omitempty"`
+	UnitNormalization     *viewer.PublicUnitNormalization `json:"unitNormalization,omitempty"`
 
 	EmissionID     string `json:"-"`
 	PublicColumn   string `json:"-"`
@@ -139,15 +140,15 @@ func (c PublicOutputContracts) Output(outputID string) (PublicOutputContract, bo
 	return PublicOutputContract{}, false
 }
 
-func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
+func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []viewer.EmittedColumn) error {
 	return c.ValidateAgainstMetadata(recipeIdentityMetadata(bundle), emitted)
 }
 
-func (c PublicOutputContracts) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []EmittedColumn) error {
+func (c PublicOutputContracts) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []viewer.EmittedColumn) error {
 	if len(c.Outputs) != len(bundle.Outputs) {
 		return invalidOutputContract("output count %d does not match recipe output count %d", len(c.Outputs), len(bundle.Outputs))
 	}
-	emittedByOutput := make(map[string][]EmittedColumn, len(c.Outputs))
+	emittedByOutput := make(map[string][]viewer.EmittedColumn, len(c.Outputs))
 	for i, column := range emitted {
 		if strings.TrimSpace(column.OutputID) == "" {
 			return invalidOutputContract("emittedColumns[%d].outputId is required", i)
@@ -169,11 +170,11 @@ func (c PublicOutputContracts) ValidateAgainstMetadata(bundle recipe.ArchivedMet
 	return nil
 }
 
-func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
+func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []viewer.EmittedColumn) error {
 	return c.ValidateAgainstMetadata(recipeIdentityMetadata(bundle), emitted)
 }
 
-func (c PublicOutputContract) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []EmittedColumn) error {
+func (c PublicOutputContract) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []viewer.EmittedColumn) error {
 	if strings.TrimSpace(c.OutputID) == "" {
 		return invalidOutputContract("outputId is required")
 	}
@@ -240,6 +241,49 @@ func (c PublicOutputContract) ValidateAgainstMetadata(bundle recipe.ArchivedMeta
 	return nil
 }
 
+var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
+
 func invalidOutputContract(format string, args ...any) error {
 	return fmt.Errorf("%w: public output contract %s", ErrReceiptRecompileRequired, fmt.Sprintf(format, args...))
+}
+
+func recipeIdentityMetadata(bundle recipe.Bundle) recipe.ArchivedMetadata {
+	metadata := recipe.ArchivedMetadata{RecipeSchemaVersion: bundle.RecipeSchemaVersion, Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Outputs: make([]recipe.ArchivedOutputDescriptor, len(bundle.Outputs))}
+	for i, o := range bundle.Outputs {
+		metadata.Outputs[i] = recipe.ArchivedOutputDescriptor{Name: o.Name, RootResourceType: o.RootResourceType, RootOccurrenceID: o.RootOccurrenceID, RowGrain: o.RowGrain}
+	}
+	return metadata
+}
+
+func rejectDuplicateJSONKeys(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '{' {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := token.(string)
+		if !ok {
+			return errors.New("object key is not a string")
+		}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate key %q", key)
+		}
+		seen[key] = struct{}{}
+		var discard any
+		if err := decoder.Decode(&discard); err != nil {
+			return err
+		}
+	}
+	_, err = decoder.Token()
+	return err
 }

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
@@ -37,8 +36,6 @@ const (
 	CurrentCompilerContractVersion    = CompilationReceiptCompilerContractVersion
 	CurrentCompilationContractVersion = CompilationReceiptCompilerContractVersion
 )
-
-var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
 
 func ReceiptContractSupportedForExecution(r CompilationReceipt) bool {
 	return r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion && !r.Bundle.HasArchivedReshape() && r.TableShapeProposal == nil
