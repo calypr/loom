@@ -183,22 +183,6 @@ const (
 )
 
 const (
-	PhysicalTableShapeExclusionResourceTypeField         = "__loom_table_shape_exclusion_resource_type"
-	PhysicalTableShapeExclusionResourceIDField           = "__loom_table_shape_exclusion_resource_id"
-	PhysicalTableShapeExclusionIdentityStatusField       = "__loom_table_shape_exclusion_identity_status"
-	PhysicalTableShapeExclusionCategoryValueField        = "__loom_table_shape_exclusion_category_value"
-	PhysicalTableShapeExclusionCategoryPresentField      = "__loom_table_shape_exclusion_category_present"
-	PhysicalTableShapeExclusionCategoryTypeField         = "__loom_table_shape_exclusion_category_type"
-	PhysicalTableShapeExclusionOutputRowIDField          = "__loom_table_shape_exclusion_output_row_id"
-	PhysicalTableShapeExclusionReasonField               = "__loom_table_shape_exclusion_reason"
-	PhysicalTableShapeExclusionOmissionField             = "__loom_table_shape_exclusion_omission"
-	PhysicalTableShapeExclusionReasonUnlistedCategory    = "UNLISTED_CATEGORY"
-	PhysicalTableShapeExclusionIdentityExact             = "EXACT"
-	PhysicalTableShapeExclusionIdentityUnavailable       = "UNAVAILABLE"
-	PhysicalTableShapeExclusionSourceIdentityUnavailable = "TABLE_SHAPE_SOURCE_IDENTITY_UNAVAILABLE"
-)
-
-const (
 	PhysicalPopulationMappingMemberField           = "__loom_population_member"
 	PhysicalPopulationMappingIdentityPartsField    = "__loom_population_identity_parts"
 	PhysicalPopulationMappingExplicitIdentityField = "__loom_population_explicit_identity"

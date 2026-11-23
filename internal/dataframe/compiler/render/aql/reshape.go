@@ -548,10 +548,7 @@ func (r tableShapeRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([]st
 }
 
 func (r tableShapeRenderer) traceReshapeApplies(outputVariable string) bool {
-	if r.cellTrace != nil && r.cellTrace.Reshape != nil && r.cellTrace.Reshape.OutputVariable == outputVariable {
-		return true
-	}
-	return r.tableShapeExclusion != nil && r.tableShapeExclusion.Pivot.OutputRowVariable == outputVariable
+	return r.cellTrace != nil && r.cellTrace.Reshape != nil && r.cellTrace.Reshape.OutputVariable == outputVariable
 }
 
 func (r tableShapeRenderer) renderTraceSourceInput(input string, projections []ir.PhysicalProjection, outputVariable string) (string, error) {
@@ -709,4 +706,18 @@ func groupedPivotCellValue(pivot ir.PhysicalGroupedPivot, valuesVariable, typedV
 	default:
 		return "", fmt.Errorf("unsupported grouped pivot duplicate policy %q", pivot.DuplicatePolicy)
 	}
+}
+func (r tableShapeRenderer) renderGroupedPivotIdentity(pivot ir.PhysicalGroupedPivot, keyValues []string) (string, error) {
+	if len(keyValues) != len(pivot.GroupKeys) {
+		return "", fmt.Errorf("grouped pivot identity has %d key values, want %d", len(keyValues), len(pivot.GroupKeys))
+	}
+	if _, ok := r.bindVars[pivot.ConstructionIDBindKey]; !ok {
+		return "", fmt.Errorf("grouped pivot construction ID bind %q is missing", pivot.ConstructionIDBindKey)
+	}
+	parts := make([]string, 0, 2+len(pivot.GroupKeys))
+	parts = append(parts, `"GROUPED_PIVOT"`, "@"+pivot.ConstructionIDBindKey)
+	for index, key := range pivot.GroupKeys {
+		parts = append(parts, `["`+key.Kind+`", `+keyValues[index]+`]`)
+	}
+	return "TO_STRING([" + strings.Join(parts, ", ") + "])", nil
 }

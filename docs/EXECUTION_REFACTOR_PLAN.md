@@ -1,12 +1,12 @@
 # `dataframe/execution` cleanup plan
 
-Status: Phases 1, 3, 4 and 5 done on `execution-cleanup`, based on `bb50db30b`. Phase 2 skipped.
+Status: Phases 1, 3, 4 and 5 done on `execution-cleanup`, based on `bb50db30b`. Phase 2 completed on `aql-cleanup` as AQL Phase 0.
 Original findings measured at `889f8aa30` on `internal-cleanup`.
 
 | Phase | Status | Verification |
 | --- | --- | --- |
 | 1 | Done | Declaration-removal compile probe, `go build ./...`, execution tests, `make test-go`, and `make lint-go-comments` passed. |
-| 2 | Skipped | The integration runner requires the exclusion-only `TestCurrentPivotNullMissingExclusionPartitionAgainstArango` to run and pass. Updating `scripts/run-arango-integration.mjs` is outside scope. |
+| 2 | Done | Focused audits, full audit, Go build, Go test suite, comment lint, and disposable integration passed. The required `TestCurrentPivotNullMissingPartitionAgainstArango` retains the forward assertions. The render snapshot removed exactly seven exclusion records. The remaining 8,310 records matched. |
 | 3 | Done | `go build ./...`, execution tests (including unchanged cache and scanner tests), `make test-go`, and `make lint-go-comments` passed. |
 | 4 | Done | `go build ./...`, `make test-go`, and `make lint-go-comments` passed. `git diff -M --stat` recognized the move. All 57 Go declarations matched the previous source. |
 | 5 | Done | `go build ./...`, execution tests, `make test-go`, `make lint-go-comments`, and `make test-integration` passed. Interrogate found no reproducible regressions. |

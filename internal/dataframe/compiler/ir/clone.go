@@ -304,11 +304,6 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 				canonicalizePhysicalExpression(operation.GroupedPivot.InputProjections[projection].Expression)
 			}
 		}
-		if operation.TableShapeExclusionReturn != nil {
-			for projection := range operation.TableShapeExclusionReturn.Pivot.InputProjections {
-				canonicalizePhysicalExpression(operation.TableShapeExclusionReturn.Pivot.InputProjections[projection].Expression)
-			}
-		}
 		if operation.Unpivot != nil {
 			for projection := range operation.Unpivot.InputProjections {
 				canonicalizePhysicalExpression(operation.Unpivot.InputProjections[projection].Expression)
@@ -624,12 +619,6 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 			traceCopy.ExplicitIdentity = &explicit
 		}
 		copy.CellTraceReturn = &traceCopy
-	}
-	if operation.TableShapeExclusionReturn != nil {
-		exclusionCopy := *operation.TableShapeExclusionReturn
-		pivotCopy := clonePhysicalOperation(PhysicalOperation{GroupedPivot: &operation.TableShapeExclusionReturn.Pivot})
-		exclusionCopy.Pivot = *pivotCopy.GroupedPivot
-		copy.TableShapeExclusionReturn = &exclusionCopy
 	}
 	if operation.GroupRows != nil {
 		groupRowsCopy := *operation.GroupRows

@@ -21,7 +21,7 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires ROOT_SCAN as the first operation")
 	}
 	last := len(plan.Operations) - 1
-	if plan.Operations[last].Kind != ir.PhysicalReturnOp && plan.Operations[last].Kind != ir.PhysicalPopulationMappingReturnOp && plan.Operations[last].Kind != ir.PhysicalCellTraceReturnOp && plan.Operations[last].Kind != ir.PhysicalTableShapeExclusionReturnOp {
+	if plan.Operations[last].Kind != ir.PhysicalReturnOp && plan.Operations[last].Kind != ir.PhysicalPopulationMappingReturnOp && plan.Operations[last].Kind != ir.PhysicalCellTraceReturnOp {
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires a supported terminal operation")
 	}
 
@@ -38,9 +38,6 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	} else if plan.Operations[last].Kind == ir.PhysicalCellTraceReturnOp {
 		traceReturn := *plan.Operations[last].CellTraceReturn
 		layout.traceReturn = &traceReturn
-	} else {
-		exclusionReturn := *plan.Operations[last].TableShapeExclusionReturn
-		layout.exclusionReturn = &exclusionReturn
 	}
 	rootScopeVariable, err := validateGenericNavigationScopeBlock(layout.rootScope, layout.root.Variable, "", layout.root.Variable)
 	if err != nil {

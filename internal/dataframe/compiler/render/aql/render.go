@@ -397,7 +397,6 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		reservedVars:                    physicalPlanVariableNames(plan),
 		rootVariable:                    layout.root.Variable,
 		cellTrace:                       layout.traceReturn,
-		tableShapeExclusion:             layout.exclusionReturn,
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 		storedPresenceOutputName:        options.storedPresenceOutputName,
@@ -486,7 +485,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		return RenderedPhysicalPlan{}, fmt.Errorf("terminal RETURN cannot be omitted and assigned to a variable")
 	}
 	if (options.omitTerminalReturn || options.terminalReturnVariable != "") &&
-		(layout.returnOp == nil || layout.mappingReturn != nil || layout.traceReturn != nil || layout.exclusionReturn != nil) {
+		(layout.returnOp == nil || layout.mappingReturn != nil || layout.traceReturn != nil) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("terminal RETURN handling requires a generic physical RETURN")
 	}
 	if layout.mappingReturn != nil {
@@ -501,12 +500,6 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 			return RenderedPhysicalPlan{}, fmt.Errorf("render cell trace RETURN: %w", traceErr)
 		}
 		lines = append(lines, traceLines...)
-	} else if layout.exclusionReturn != nil {
-		exclusionLines, exclusionErr := renderer.tableShape().renderTableShapeExclusionReturn(*layout.exclusionReturn)
-		if exclusionErr != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render table-shape exclusion RETURN: %w", exclusionErr)
-		}
-		lines = append(lines, exclusionLines...)
 	} else if options.omitTerminalReturn {
 	} else {
 		returnExpression, returnErr := renderer.renderReturn(*layout.returnOp)
@@ -719,7 +712,6 @@ type renderContext struct {
 	preparedItem                         string
 	rootVariable                         string
 	cellTrace                            *ir.PhysicalCellTraceReturn
-	tableShapeExclusion                  *ir.PhysicalTableShapeExclusionReturn
 	dynamicPivotPreview                  bool
 	streamingMissingCategoryPivotPreview bool
 	storedPresenceOutputName             string
@@ -770,16 +762,15 @@ func (r *physicalPlanRenderer) renderScopeOperation(operation ir.PhysicalOperati
 }
 
 type physicalNavigationRenderLayout struct {
-	root            ir.PhysicalRootScan
-	rootScope       []ir.PhysicalOperation
-	rootPredicates  []ir.PhysicalOperation
-	rootWindow      []ir.PhysicalOperation
-	unnests         []ir.PhysicalUnnest
-	postWindow      []physicalNavigationRenderItem
-	returnOp        *ir.PhysicalReturn
-	mappingReturn   *ir.PhysicalPopulationMappingReturn
-	traceReturn     *ir.PhysicalCellTraceReturn
-	exclusionReturn *ir.PhysicalTableShapeExclusionReturn
+	root           ir.PhysicalRootScan
+	rootScope      []ir.PhysicalOperation
+	rootPredicates []ir.PhysicalOperation
+	rootWindow     []ir.PhysicalOperation
+	unnests        []ir.PhysicalUnnest
+	postWindow     []physicalNavigationRenderItem
+	returnOp       *ir.PhysicalReturn
+	mappingReturn  *ir.PhysicalPopulationMappingReturn
+	traceReturn    *ir.PhysicalCellTraceReturn
 }
 
 type physicalNavigationRenderItem struct {

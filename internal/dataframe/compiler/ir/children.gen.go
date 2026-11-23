@@ -448,13 +448,6 @@ func appendPhysicalSortChildren(dst *[]Node, value *PhysicalSort) {
 	}
 }
 
-func appendPhysicalTableShapeExclusionReturnChildren(dst *[]Node, value *PhysicalTableShapeExclusionReturn) {
-	if value == nil {
-		return
-	}
-	appendPhysicalGroupedPivotChildren(dst, &value.Pivot)
-}
-
 func appendPhysicalOperationChildren(dst *[]Node, value *PhysicalOperation) {
 	if value == nil {
 		return
@@ -539,11 +532,6 @@ func appendPhysicalOperationChildren(dst *[]Node, value *PhysicalOperation) {
 	case PhysicalSortOp:
 		if value.Sort != nil {
 			appendPhysicalSortChildren(dst, value.Sort)
-		}
-
-	case PhysicalTableShapeExclusionReturnOp:
-		if value.TableShapeExclusionReturn != nil {
-			appendPhysicalTableShapeExclusionReturnChildren(dst, value.TableShapeExclusionReturn)
 		}
 
 	case PhysicalTraversalOp:

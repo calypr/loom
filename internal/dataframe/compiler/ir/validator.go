@@ -88,8 +88,6 @@ func (validation *physicalOperationValidation) validate(i int, operation Physica
 		return validation.validatePopulationMappingReturn(i, operation)
 	case PhysicalCellTraceReturnOp:
 		return validation.validateCellTraceReturn(i, operation)
-	case PhysicalTableShapeExclusionReturnOp:
-		return validation.validateTableShapeExclusionReturn(i, operation)
 	case PhysicalGroupRowsOp:
 		return validation.validateGroupRows(i, operation)
 	case PhysicalGroupedPivotOp:
@@ -263,7 +261,7 @@ func (p PhysicalPlan) validateOperations() error {
 		return fmt.Errorf("group rows cannot be combined with a table reshape")
 	}
 	if validation.returns+validation.graphReturns != 1 {
-		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, CELL_TRACE_RETURN, or TABLE_SHAPE_EXCLUSION_RETURN")
+		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, or CELL_TRACE_RETURN")
 	}
 	return nil
 }
@@ -353,15 +351,6 @@ func (validation *physicalOperationValidation) validateCellTraceReturn(i int, op
 	p := validation.plan
 	if err := validatePhysicalCellTraceReturn(*operation.CellTraceReturn, validation.defined, p.BindVars); err != nil {
 		return fmt.Errorf("operation %d cell trace return: %w", i, err)
-	}
-	validation.returns++
-	return nil
-}
-
-func (validation *physicalOperationValidation) validateTableShapeExclusionReturn(i int, operation PhysicalOperation) error {
-	p := validation.plan
-	if err := validatePhysicalTableShapeExclusionReturn(*operation.TableShapeExclusionReturn, validation.defined, p.BindVars); err != nil {
-		return fmt.Errorf("operation %d table-shape exclusion return: %w", i, err)
 	}
 	validation.returns++
 	return nil
@@ -865,9 +854,6 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.CellTraceReturn != nil {
 		payloads++
 	}
-	if operation.TableShapeExclusionReturn != nil {
-		payloads++
-	}
 	if operation.GroupRows != nil {
 		payloads++
 	}
@@ -898,7 +884,6 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalDocumentLookupOp && operation.DocumentLookup != nil) ||
 		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil) ||
 		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil) ||
-		(operation.Kind == PhysicalTableShapeExclusionReturnOp && operation.TableShapeExclusionReturn != nil) ||
 		(operation.Kind == PhysicalGroupRowsOp && operation.GroupRows != nil) ||
 		(operation.Kind == PhysicalGroupedPivotOp && operation.GroupedPivot != nil) ||
 		(operation.Kind == PhysicalUnpivotOp && operation.Unpivot != nil)
