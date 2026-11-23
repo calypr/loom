@@ -1,7 +1,6 @@
 package ir
 
-import (
-)
+import ()
 
 import "fmt"
 
