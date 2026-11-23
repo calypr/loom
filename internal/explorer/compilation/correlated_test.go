@@ -2,12 +2,13 @@ package compilation
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"

@@ -105,6 +105,242 @@ var expandSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Expand array source fields is unavailable for the current dataset snapshot",
 }
 
+func repairSignedExpandFields(base authoringv2.Construction, candidate authoringv2.Construction, minted []authoringv2.ConstructionSourceProjection) authoringv2.Construction {
+	baseProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(base.SourceProjections))
+	for _, projection := range base.SourceProjections {
+		if projection.OwnerStepID != "" {
+			baseProjections[projection.ColumnID] = projection
+		}
+	}
+	mintedProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(minted))
+	for _, projection := range minted {
+		mintedProjections[projection.ColumnID] = projection
+	}
+	candidateProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(candidate.SourceProjections))
+	for _, projection := range candidate.SourceProjections {
+		candidateProjections[projection.ColumnID] = projection
+	}
+	expandOwnerIDs := make(map[string]bool, len(candidate.Steps))
+	for _, step := range candidate.Steps {
+		if step.Operation.Kind == authoringv2.ConstructionOperationExpand && step.Operation.Expand != nil {
+			expandOwnerIDs[step.ID] = true
+		}
+	}
+	trustedByColumn := make(map[string]authoringv2.ConstructionSourceProjection, len(candidate.Steps))
+	for index := range candidate.Steps {
+		step := &candidate.Steps[index]
+		if step.Operation.Kind != authoringv2.ConstructionOperationExpand || step.Operation.Expand == nil {
+			continue
+		}
+		inputID := step.Operation.Expand.InputColumnID
+
+		projection, owned := candidateProjections[inputID]
+		minted, hasMinted := mintedProjections[inputID]
+		if !owned || projection.OwnerStepID != step.ID || !hasMinted || !reflect.DeepEqual(projection, minted) {
+			if durable, baseOwned := baseProjections[inputID]; baseOwned && durable.OwnerStepID == step.ID {
+				projection = durable
+			} else {
+				owned = false
+			}
+		}
+		if !owned {
+			if step.Operation.Expand.ExpandedField != nil {
+				expanded := *step.Operation.Expand
+				expanded.ExpandedField = nil
+				step.Operation.Expand = &expanded
+			}
+			continue
+		}
+		trustedByColumn[inputID] = projection
+		if expandSourceStepPayloadIsConsistent(*step, projection.FieldPath) {
+			continue
+		}
+		expanded := *step.Operation.Expand
+		expanded.ExpandedField = expandSourceSignedField(projection)
+		step.Operation.Expand = &expanded
+	}
+
+	if len(candidate.SourceProjections) > 0 {
+		filtered := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
+		for _, projection := range candidate.SourceProjections {
+			if !expandOwnerIDs[projection.OwnerStepID] {
+				filtered = append(filtered, projection)
+				continue
+			}
+			if trusted, ok := trustedByColumn[projection.ColumnID]; ok && trusted.OwnerStepID == projection.OwnerStepID && reflect.DeepEqual(trusted, projection) {
+				filtered = append(filtered, projection)
+			}
+		}
+		candidate.SourceProjections = filtered
+	}
+	return candidate
+}
+
+func validateExpandSourceColumns(steps []authoringv2.ConstructionStep, expandID string, sources []ConstructionExpandSourceSelection, resolved []authoringv2.ConstructionSourceProjection) error {
+	index := constructionStepIndex(steps, expandID)
+	if index < 0 || steps[index].Operation.Expand == nil {
+		return fmt.Errorf("the selected Expand step is unavailable")
+	}
+	inputIDs := expandInputColumnIDs(steps[index].Operation.Expand)
+	for _, source := range sources {
+		if !containsConstructionColumnIDLocal(inputIDs, source.ColumnID) {
+			return fmt.Errorf("expandSources columnId %q is not the input column of the Expand step", source.ColumnID)
+		}
+	}
+	byColumnID := make(map[string]authoringv2.ConstructionSourceProjection, len(resolved))
+	for _, projection := range resolved {
+		byColumnID[projection.ColumnID] = projection
+	}
+	signed := steps[index].Operation.Expand.ExpandedField
+	if signed == nil {
+		return fmt.Errorf("the Expand step is missing its server-signed array source payload")
+	}
+	if err := authoringv2.ValidateConstructionExpandedFieldSource(signed); err != nil {
+		return fmt.Errorf("the Expand step's server-signed array source payload is invalid: %w", err)
+	}
+	for _, source := range sources {
+		projection, found := byColumnID[source.ColumnID]
+		if !found {
+			return fmt.Errorf("expandSources columnId %q has no resolved source projection", source.ColumnID)
+		}
+		if canonicalRowPath(signed.Path) != canonicalRowPath(projection.FieldPath) {
+			return fmt.Errorf("the Expand step's signed array source path %q does not match the resolved root field %q", signed.Path, projection.FieldPath)
+		}
+		if signed.Cardinality != expandSourceCardinality {
+			return fmt.Errorf("the Expand step's signed array source cardinality %q must be %q", signed.Cardinality, expandSourceCardinality)
+		}
+		if signed.FHIRType != projection.FHIRType || signed.LogicalType != projection.LogicalType {
+			return fmt.Errorf("the Expand step's signed array source element type does not match the resolved root field %q", projection.FieldPath)
+		}
+	}
+	return nil
+}
+
+func clearConstructionExpandOwnedSources(base, candidate authoringv2.Construction, expandID string) (authoringv2.Construction, error) {
+	expandIndex := constructionStepIndex(candidate.Steps, expandID)
+	if expandIndex < 0 {
+		return authoringv2.Construction{}, fmt.Errorf("the edited Expand step is missing")
+	}
+	owned := make(map[string]bool)
+	for _, projection := range base.SourceProjections {
+		if projection.OwnerStepID == expandID {
+			owned[projection.ColumnID] = true
+		}
+	}
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID == expandID {
+			owned[projection.ColumnID] = true
+		}
+	}
+	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
+	for index, step := range candidate.Steps {
+		if index <= expandIndex {
+			outputs := make([]authoringv2.StageColumn, 0, len(step.Outputs))
+			for _, output := range step.Outputs {
+				if owned[output.ID] {
+					continue
+				}
+				outputs = append(outputs, output)
+			}
+			step.Outputs = outputs
+		}
+		steps = append(steps, step)
+	}
+	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID != expandID {
+			projections = append(projections, projection)
+		}
+	}
+	candidate.Steps, candidate.SourceProjections = steps, projections
+	return candidate, nil
+}
+
+func constructionOwnedExpandSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
+	for _, projection := range construction.SourceProjections {
+		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
+			continue
+		}
+		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
+		if index < 0 {
+			continue
+		}
+		step := construction.Steps[index]
+		if step.Operation.Kind != authoringv2.ConstructionOperationExpand || step.Operation.Expand == nil ||
+			!containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID) ||
+			constructionStepInputStageID(step) != stageID {
+			continue
+		}
+
+		if !expandSourceStepPayloadIsConsistent(step, projection.FieldPath) {
+			continue
+		}
+		return projection.ColumnID
+	}
+	return ""
+}
+
+func ConstructionExpandSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
+	path := canonicalRowPath(fieldPath)
+	if strings.TrimSpace(rootResourceType) == "" || path == "" {
+		return authoringv2.ConstructionSourceProjection{}, false
+	}
+	for _, node := range snapshot.Nodes {
+		if !node.RowRootEligible || node.ResourceType != rootResourceType {
+			continue
+		}
+		candidate, ok := expandSourceBackingCandidate(snapshot, node.ID, rootResourceType, path)
+		if !ok {
+			continue
+		}
+		schemaIndex, err := fhirschema.GeneratedIndex()
+		if err != nil {
+			continue
+		}
+		facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
+		if err != nil || facts.CanonicalPath != path || facts.Shape != fhirschema.RowPathArray ||
+			facts.Cardinality != fhirschema.RowCardinalityMany || facts.Reference {
+			continue
+		}
+		elementType := candidate.LogicalType
+		if strings.TrimSpace(elementType) == "" {
+			elementType = facts.FHIRType
+		}
+		if !expandSourceElementFHIRTypeIsAdmissible(facts.FHIRType) || !expandSourceElementLogicalTypeIsAdmissible(elementType) {
+			continue
+		}
+		return authoringv2.ConstructionSourceProjection{
+			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
+			FHIRType: facts.FHIRType, LogicalType: elementType,
+			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
+		}, true
+	}
+	return authoringv2.ConstructionSourceProjection{}, false
+}
+
+func ConstructionHasExpandSourceInput(construction authoringv2.Construction) bool {
+	for _, projection := range construction.SourceProjections {
+		if projection.OwnerStepID == "" {
+			continue
+		}
+		if !isExpandOwnedSourceProjection(construction, projection) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isExpandOwnedSourceProjection(construction authoringv2.Construction, projection authoringv2.ConstructionSourceProjection) bool {
+	index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
+	if index < 0 {
+		return false
+	}
+	step := construction.Steps[index]
+	return step.Operation.Kind == authoringv2.ConstructionOperationExpand && step.Operation.Expand != nil &&
+		containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID)
+}
+
 func (s *Service) ConstructionExpandSourceCapability(
 	ctx context.Context,
 	base Base,
@@ -376,242 +612,6 @@ func (s *Service) ConstructionCandidateWithExpandSources(
 		return authoringv2.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, nil
-}
-
-func repairSignedExpandFields(base authoringv2.Construction, candidate authoringv2.Construction, minted []authoringv2.ConstructionSourceProjection) authoringv2.Construction {
-	baseProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(base.SourceProjections))
-	for _, projection := range base.SourceProjections {
-		if projection.OwnerStepID != "" {
-			baseProjections[projection.ColumnID] = projection
-		}
-	}
-	mintedProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(minted))
-	for _, projection := range minted {
-		mintedProjections[projection.ColumnID] = projection
-	}
-	candidateProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(candidate.SourceProjections))
-	for _, projection := range candidate.SourceProjections {
-		candidateProjections[projection.ColumnID] = projection
-	}
-	expandOwnerIDs := make(map[string]bool, len(candidate.Steps))
-	for _, step := range candidate.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationExpand && step.Operation.Expand != nil {
-			expandOwnerIDs[step.ID] = true
-		}
-	}
-	trustedByColumn := make(map[string]authoringv2.ConstructionSourceProjection, len(candidate.Steps))
-	for index := range candidate.Steps {
-		step := &candidate.Steps[index]
-		if step.Operation.Kind != authoringv2.ConstructionOperationExpand || step.Operation.Expand == nil {
-			continue
-		}
-		inputID := step.Operation.Expand.InputColumnID
-
-		projection, owned := candidateProjections[inputID]
-		minted, hasMinted := mintedProjections[inputID]
-		if !owned || projection.OwnerStepID != step.ID || !hasMinted || !reflect.DeepEqual(projection, minted) {
-			if durable, baseOwned := baseProjections[inputID]; baseOwned && durable.OwnerStepID == step.ID {
-				projection = durable
-			} else {
-				owned = false
-			}
-		}
-		if !owned {
-			if step.Operation.Expand.ExpandedField != nil {
-				expanded := *step.Operation.Expand
-				expanded.ExpandedField = nil
-				step.Operation.Expand = &expanded
-			}
-			continue
-		}
-		trustedByColumn[inputID] = projection
-		if expandSourceStepPayloadIsConsistent(*step, projection.FieldPath) {
-			continue
-		}
-		expanded := *step.Operation.Expand
-		expanded.ExpandedField = expandSourceSignedField(projection)
-		step.Operation.Expand = &expanded
-	}
-
-	if len(candidate.SourceProjections) > 0 {
-		filtered := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
-		for _, projection := range candidate.SourceProjections {
-			if !expandOwnerIDs[projection.OwnerStepID] {
-				filtered = append(filtered, projection)
-				continue
-			}
-			if trusted, ok := trustedByColumn[projection.ColumnID]; ok && trusted.OwnerStepID == projection.OwnerStepID && reflect.DeepEqual(trusted, projection) {
-				filtered = append(filtered, projection)
-			}
-		}
-		candidate.SourceProjections = filtered
-	}
-	return candidate
-}
-
-func validateExpandSourceColumns(steps []authoringv2.ConstructionStep, expandID string, sources []ConstructionExpandSourceSelection, resolved []authoringv2.ConstructionSourceProjection) error {
-	index := constructionStepIndex(steps, expandID)
-	if index < 0 || steps[index].Operation.Expand == nil {
-		return fmt.Errorf("the selected Expand step is unavailable")
-	}
-	inputIDs := expandInputColumnIDs(steps[index].Operation.Expand)
-	for _, source := range sources {
-		if !containsConstructionColumnIDLocal(inputIDs, source.ColumnID) {
-			return fmt.Errorf("expandSources columnId %q is not the input column of the Expand step", source.ColumnID)
-		}
-	}
-	byColumnID := make(map[string]authoringv2.ConstructionSourceProjection, len(resolved))
-	for _, projection := range resolved {
-		byColumnID[projection.ColumnID] = projection
-	}
-	signed := steps[index].Operation.Expand.ExpandedField
-	if signed == nil {
-		return fmt.Errorf("the Expand step is missing its server-signed array source payload")
-	}
-	if err := authoringv2.ValidateConstructionExpandedFieldSource(signed); err != nil {
-		return fmt.Errorf("the Expand step's server-signed array source payload is invalid: %w", err)
-	}
-	for _, source := range sources {
-		projection, found := byColumnID[source.ColumnID]
-		if !found {
-			return fmt.Errorf("expandSources columnId %q has no resolved source projection", source.ColumnID)
-		}
-		if canonicalRowPath(signed.Path) != canonicalRowPath(projection.FieldPath) {
-			return fmt.Errorf("the Expand step's signed array source path %q does not match the resolved root field %q", signed.Path, projection.FieldPath)
-		}
-		if signed.Cardinality != expandSourceCardinality {
-			return fmt.Errorf("the Expand step's signed array source cardinality %q must be %q", signed.Cardinality, expandSourceCardinality)
-		}
-		if signed.FHIRType != projection.FHIRType || signed.LogicalType != projection.LogicalType {
-			return fmt.Errorf("the Expand step's signed array source element type does not match the resolved root field %q", projection.FieldPath)
-		}
-	}
-	return nil
-}
-
-func clearConstructionExpandOwnedSources(base, candidate authoringv2.Construction, expandID string) (authoringv2.Construction, error) {
-	expandIndex := constructionStepIndex(candidate.Steps, expandID)
-	if expandIndex < 0 {
-		return authoringv2.Construction{}, fmt.Errorf("the edited Expand step is missing")
-	}
-	owned := make(map[string]bool)
-	for _, projection := range base.SourceProjections {
-		if projection.OwnerStepID == expandID {
-			owned[projection.ColumnID] = true
-		}
-	}
-	for _, projection := range candidate.SourceProjections {
-		if projection.OwnerStepID == expandID {
-			owned[projection.ColumnID] = true
-		}
-	}
-	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
-	for index, step := range candidate.Steps {
-		if index <= expandIndex {
-			outputs := make([]authoringv2.StageColumn, 0, len(step.Outputs))
-			for _, output := range step.Outputs {
-				if owned[output.ID] {
-					continue
-				}
-				outputs = append(outputs, output)
-			}
-			step.Outputs = outputs
-		}
-		steps = append(steps, step)
-	}
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
-	for _, projection := range candidate.SourceProjections {
-		if projection.OwnerStepID != expandID {
-			projections = append(projections, projection)
-		}
-	}
-	candidate.Steps, candidate.SourceProjections = steps, projections
-	return candidate, nil
-}
-
-func constructionOwnedExpandSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-		if index < 0 {
-			continue
-		}
-		step := construction.Steps[index]
-		if step.Operation.Kind != authoringv2.ConstructionOperationExpand || step.Operation.Expand == nil ||
-			!containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID) ||
-			constructionStepInputStageID(step) != stageID {
-			continue
-		}
-
-		if !expandSourceStepPayloadIsConsistent(step, projection.FieldPath) {
-			continue
-		}
-		return projection.ColumnID
-	}
-	return ""
-}
-
-func ConstructionExpandSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
-	path := canonicalRowPath(fieldPath)
-	if strings.TrimSpace(rootResourceType) == "" || path == "" {
-		return authoringv2.ConstructionSourceProjection{}, false
-	}
-	for _, node := range snapshot.Nodes {
-		if !node.RowRootEligible || node.ResourceType != rootResourceType {
-			continue
-		}
-		candidate, ok := expandSourceBackingCandidate(snapshot, node.ID, rootResourceType, path)
-		if !ok {
-			continue
-		}
-		schemaIndex, err := fhirschema.GeneratedIndex()
-		if err != nil {
-			continue
-		}
-		facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
-		if err != nil || facts.CanonicalPath != path || facts.Shape != fhirschema.RowPathArray ||
-			facts.Cardinality != fhirschema.RowCardinalityMany || facts.Reference {
-			continue
-		}
-		elementType := candidate.LogicalType
-		if strings.TrimSpace(elementType) == "" {
-			elementType = facts.FHIRType
-		}
-		if !expandSourceElementFHIRTypeIsAdmissible(facts.FHIRType) || !expandSourceElementLogicalTypeIsAdmissible(elementType) {
-			continue
-		}
-		return authoringv2.ConstructionSourceProjection{
-			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
-			FHIRType: facts.FHIRType, LogicalType: elementType,
-			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
-		}, true
-	}
-	return authoringv2.ConstructionSourceProjection{}, false
-}
-
-func ConstructionHasExpandSourceInput(construction authoringv2.Construction) bool {
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" {
-			continue
-		}
-		if !isExpandOwnedSourceProjection(construction, projection) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func isExpandOwnedSourceProjection(construction authoringv2.Construction, projection authoringv2.ConstructionSourceProjection) bool {
-	index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-	if index < 0 {
-		return false
-	}
-	step := construction.Steps[index]
-	return step.Operation.Kind == authoringv2.ConstructionOperationExpand && step.Operation.Expand != nil &&
-		containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID)
 }
 
 func (s *Service) ReauthorizeConstructionExpandSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {

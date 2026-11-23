@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/connection"

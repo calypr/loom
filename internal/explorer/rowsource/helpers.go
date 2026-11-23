@@ -3,8 +3,9 @@ package rowsource
 import (
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"unicode"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"

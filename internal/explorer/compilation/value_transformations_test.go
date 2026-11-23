@@ -3,11 +3,12 @@ package compilation
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 

@@ -3,12 +3,13 @@ package compilation
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"slices"
-	"strings"
 )
 
 type semanticColumnCompiler struct {

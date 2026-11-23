@@ -3,10 +3,11 @@ package compilation
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"

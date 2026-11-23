@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestCompileMapsAuthoredConstructionDerivesIntoRecipeContract(t *testing.T) {

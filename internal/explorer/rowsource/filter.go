@@ -24,6 +24,134 @@ var filterSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Filter scalar source fields is unavailable for the current dataset snapshot",
 }
 
+func validateFilterSourceColumns(steps []authoringv2.ConstructionStep, filterID string, sources []ConstructionFilterSourceSelection) error {
+	index := constructionStepIndex(steps, filterID)
+	if index < 0 || steps[index].Operation.Filter == nil {
+		return fmt.Errorf("the selected Filter step is unavailable")
+	}
+	for _, source := range sources {
+		if steps[index].Operation.Filter.ColumnID != source.ColumnID {
+			return fmt.Errorf("filterSources columnId %q is not the column filtered by the Filter step", source.ColumnID)
+		}
+	}
+	return nil
+}
+
+func clearConstructionFilterOwnedSources(base, candidate authoringv2.Construction, filterID string) (authoringv2.Construction, error) {
+	filterIndex := constructionStepIndex(candidate.Steps, filterID)
+	if filterIndex < 0 {
+		return authoringv2.Construction{}, fmt.Errorf("the edited Filter step is missing")
+	}
+	owned := make(map[string]bool)
+	for _, projection := range base.SourceProjections {
+		if projection.OwnerStepID == filterID {
+			owned[projection.ColumnID] = true
+		}
+	}
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID == filterID {
+			owned[projection.ColumnID] = true
+		}
+	}
+	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
+	for index, step := range candidate.Steps {
+		if index <= filterIndex {
+			outputs := make([]authoringv2.StageColumn, 0, len(step.Outputs))
+			for _, output := range step.Outputs {
+				if owned[output.ID] {
+					continue
+				}
+				outputs = append(outputs, output)
+			}
+			step.Outputs = outputs
+		}
+		steps = append(steps, step)
+	}
+	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID != filterID {
+			projections = append(projections, projection)
+		}
+	}
+	candidate.Steps, candidate.SourceProjections = steps, projections
+	return candidate, nil
+}
+
+func constructionOwnedFilterSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
+	for _, projection := range construction.SourceProjections {
+		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
+			continue
+		}
+		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
+		if index < 0 {
+			continue
+		}
+		step := construction.Steps[index]
+		if step.Operation.Kind != authoringv2.ConstructionOperationFilter || step.Operation.Filter == nil ||
+			step.Operation.Filter.ColumnID != projection.ColumnID || constructionStepInputStageID(step) != stageID {
+			continue
+		}
+		return projection.ColumnID
+	}
+	return ""
+}
+
+func ConstructionFilterSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
+	path := canonicalRowPath(fieldPath)
+	if strings.TrimSpace(rootResourceType) == "" || path == "" {
+		return authoringv2.ConstructionSourceProjection{}, false
+	}
+	for _, node := range snapshot.Nodes {
+		if !node.RowRootEligible || node.ResourceType != rootResourceType {
+			continue
+		}
+		candidate, ok := uniqueRowSourceCandidate(snapshot, node.ID, rootResourceType, path)
+		if !ok || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
+			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
+			continue
+		}
+		schemaIndex, err := fhirschema.GeneratedIndex()
+		if err != nil {
+			continue
+		}
+		facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
+		if err != nil || facts.CanonicalPath != path || facts.Shape != fhirschema.RowPathScalar ||
+			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
+			continue
+		}
+		return authoringv2.ConstructionSourceProjection{
+			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
+			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
+			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
+		}, true
+	}
+	return authoringv2.ConstructionSourceProjection{}, false
+}
+
+func ConstructionHasFilterSourceInput(construction authoringv2.Construction) bool {
+	for _, projection := range construction.SourceProjections {
+		if projection.OwnerStepID == "" {
+			continue
+		}
+		if !isFilterOwnedSourceProjection(construction, projection) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isFilterOwnedSourceProjection(construction authoringv2.Construction, projection authoringv2.ConstructionSourceProjection) bool {
+	index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
+	if index < 0 {
+		return false
+	}
+	step := construction.Steps[index]
+	return step.Operation.Kind == authoringv2.ConstructionOperationFilter && step.Operation.Filter != nil &&
+		step.Operation.Filter.ColumnID == projection.ColumnID
+}
+
 func (s *Service) ConstructionFilterSourceCapability(
 	ctx context.Context,
 	base Base,
@@ -254,134 +382,6 @@ func (s *Service) ConstructionCandidateWithFilterSources(
 		return authoringv2.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, nil
-}
-
-func validateFilterSourceColumns(steps []authoringv2.ConstructionStep, filterID string, sources []ConstructionFilterSourceSelection) error {
-	index := constructionStepIndex(steps, filterID)
-	if index < 0 || steps[index].Operation.Filter == nil {
-		return fmt.Errorf("the selected Filter step is unavailable")
-	}
-	for _, source := range sources {
-		if steps[index].Operation.Filter.ColumnID != source.ColumnID {
-			return fmt.Errorf("filterSources columnId %q is not the column filtered by the Filter step", source.ColumnID)
-		}
-	}
-	return nil
-}
-
-func clearConstructionFilterOwnedSources(base, candidate authoringv2.Construction, filterID string) (authoringv2.Construction, error) {
-	filterIndex := constructionStepIndex(candidate.Steps, filterID)
-	if filterIndex < 0 {
-		return authoringv2.Construction{}, fmt.Errorf("the edited Filter step is missing")
-	}
-	owned := make(map[string]bool)
-	for _, projection := range base.SourceProjections {
-		if projection.OwnerStepID == filterID {
-			owned[projection.ColumnID] = true
-		}
-	}
-	for _, projection := range candidate.SourceProjections {
-		if projection.OwnerStepID == filterID {
-			owned[projection.ColumnID] = true
-		}
-	}
-	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
-	for index, step := range candidate.Steps {
-		if index <= filterIndex {
-			outputs := make([]authoringv2.StageColumn, 0, len(step.Outputs))
-			for _, output := range step.Outputs {
-				if owned[output.ID] {
-					continue
-				}
-				outputs = append(outputs, output)
-			}
-			step.Outputs = outputs
-		}
-		steps = append(steps, step)
-	}
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
-	for _, projection := range candidate.SourceProjections {
-		if projection.OwnerStepID != filterID {
-			projections = append(projections, projection)
-		}
-	}
-	candidate.Steps, candidate.SourceProjections = steps, projections
-	return candidate, nil
-}
-
-func constructionOwnedFilterSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-		if index < 0 {
-			continue
-		}
-		step := construction.Steps[index]
-		if step.Operation.Kind != authoringv2.ConstructionOperationFilter || step.Operation.Filter == nil ||
-			step.Operation.Filter.ColumnID != projection.ColumnID || constructionStepInputStageID(step) != stageID {
-			continue
-		}
-		return projection.ColumnID
-	}
-	return ""
-}
-
-func ConstructionFilterSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
-	path := canonicalRowPath(fieldPath)
-	if strings.TrimSpace(rootResourceType) == "" || path == "" {
-		return authoringv2.ConstructionSourceProjection{}, false
-	}
-	for _, node := range snapshot.Nodes {
-		if !node.RowRootEligible || node.ResourceType != rootResourceType {
-			continue
-		}
-		candidate, ok := uniqueRowSourceCandidate(snapshot, node.ID, rootResourceType, path)
-		if !ok || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
-			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
-			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-			continue
-		}
-		schemaIndex, err := fhirschema.GeneratedIndex()
-		if err != nil {
-			continue
-		}
-		facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
-		if err != nil || facts.CanonicalPath != path || facts.Shape != fhirschema.RowPathScalar ||
-			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
-			continue
-		}
-		return authoringv2.ConstructionSourceProjection{
-			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
-			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
-			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
-		}, true
-	}
-	return authoringv2.ConstructionSourceProjection{}, false
-}
-
-func ConstructionHasFilterSourceInput(construction authoringv2.Construction) bool {
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" {
-			continue
-		}
-		if !isFilterOwnedSourceProjection(construction, projection) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func isFilterOwnedSourceProjection(construction authoringv2.Construction, projection authoringv2.ConstructionSourceProjection) bool {
-	index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-	if index < 0 {
-		return false
-	}
-	step := construction.Steps[index]
-	return step.Operation.Kind == authoringv2.ConstructionOperationFilter && step.Operation.Filter != nil &&
-		step.Operation.Filter.ColumnID == projection.ColumnID
 }
 
 func (s *Service) ReauthorizeConstructionFilterSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {

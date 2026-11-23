@@ -3,11 +3,12 @@ package compilation
 import (
 	"context"
 	"errors"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"

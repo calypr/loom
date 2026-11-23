@@ -1,11 +1,12 @@
 package compilation
 
 import (
+	"reflect"
+	"testing"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	"reflect"
-	"testing"
 )
 
 func constructionRecipePlanForScalarTest(t *testing.T, operation authoringv2.ConstructionOperation, sources, outputs []recipe.StageColumn) *recipeplan.RecipePlan {
