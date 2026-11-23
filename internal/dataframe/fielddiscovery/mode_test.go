@@ -2,8 +2,9 @@ package fielddiscovery
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
