@@ -1,9 +1,10 @@
 package recipeplan
 
 import (
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
