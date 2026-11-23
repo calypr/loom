@@ -7,13 +7,14 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
 )
 
 func (s *Service) verifyProposalReceipt(_ context.Context, stage string, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
 	if receipt == nil || strings.TrimSpace(receipt.ID) == "" {
 		return authoringv2.Workspace{}, conflict(stage, "INVALID_COMPILATION_RECEIPT", "the compiled receipt is missing", nil, nil)
 	}
-	if err := validateCandidateReceiptIdentity(receipt, project, explorerID, snapshotToken, snapshot); err != nil {
+	if err := receiptmodel.ValidateCandidateReceiptIdentity(receipt, project, explorerID, snapshotToken, snapshot); err != nil {
 		return authoringv2.Workspace{}, conflict(stage, "INVALID_COMPILATION_RECEIPT", "the compiled receipt capability identity does not match the request", nil, err)
 	}
 	if err := receipt.Validate(); err != nil {
