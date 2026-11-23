@@ -558,6 +558,18 @@ func (a *audit) block(b *ast.BlockStmt, env map[string]string) bool {
 	return false
 }
 
+func isRouteHandler(fn *ast.FuncDecl) bool {
+	if fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return false
+	}
+	pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	receiver, ok := pointer.X.(*ast.Ident)
+	return ok && (receiver.Name == "HTTPRoutes" || strings.HasSuffix(receiver.Name, "Handlers"))
+}
+
 func main() {
 	root := flag.String("root", "internal/server", "")
 	ops := flag.String("operations", "", "")
@@ -570,13 +582,8 @@ func main() {
 		filepath.Join(*root, "../api/dataframe/dataframe"),
 		filepath.Join(*root, "../api/explorer"),
 	}
-	var files []string
-	for _, handlerRoot := range handlerRoots {
-		matches, _ := filepath.Glob(filepath.Join(handlerRoot, "openapi_*.go"))
-		files = append(files, matches...)
-	}
 	generated, _ := filepath.Glob(filepath.Join(*root, "../../api/loomapi/*.go"))
-	parse := func(paths []string, dst map[string]*ast.FuncDecl) {
+	parse := func(paths []string, helpers, routes map[string]*ast.FuncDecl) {
 		for _, p := range paths {
 			if strings.HasSuffix(p, "_test.go") {
 				continue
@@ -587,14 +594,34 @@ func main() {
 				continue
 			}
 			for _, d := range f.Decls {
-				if fn, ok := d.(*ast.FuncDecl); ok && fn.Body != nil {
-					dst[fn.Name.Name] = fn
+				fn, ok := d.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				name := fn.Name.Name
+				if fn.Recv == nil {
+					helpers[name] = fn
+				} else if routes != nil && isRouteHandler(fn) {
+					if routes[name] != nil {
+						a.problems = append(a.problems, "duplicate route declaration for "+name)
+					}
+					routes[name] = fn
 				}
 			}
 		}
 	}
-	parse(files, a.funcs)
-	parse(generated, a.factories)
+	type handlers struct {
+		helpers map[string]*ast.FuncDecl
+		routes  map[string]*ast.FuncDecl
+	}
+	var packages []handlers
+	for _, handlerRoot := range handlerRoots {
+		files, _ := filepath.Glob(filepath.Join(handlerRoot, "*.go"))
+		current := handlers{helpers: make(map[string]*ast.FuncDecl), routes: make(map[string]*ast.FuncDecl)}
+		parse(files, current.helpers, current.routes)
+		packages = append(packages, current)
+	}
+	parse(generated, a.factories, nil)
 	for _, op := range strings.Split(*ops, ",") {
 		if op == "" {
 			continue
@@ -603,9 +630,15 @@ func main() {
 		a.invalidated = map[string]bool{}
 		a.operation = strings.ToUpper(op[:1]) + op[1:]
 		start := len(a.rows)
-		fn := a.funcs[a.operation]
-		if fn != nil {
-			a.block(fn.Body, map[string]string{})
+		for _, current := range packages {
+			fn := current.routes[a.operation]
+			if fn == nil {
+				fn = current.helpers[a.operation]
+			}
+			if fn != nil {
+				a.funcs = current.helpers
+				a.block(fn.Body, map[string]string{})
+			}
 		}
 		if len(a.rows) == start {
 			a.problems = append(a.problems, op+" missing reachable mapped 500 response")

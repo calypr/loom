@@ -220,7 +220,7 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 	}
 	packageFiles := make([][]string, 0, len(packageDirs))
 	for _, directory := range packageDirs {
-		files, err := filepath.Glob(filepath.Join(directory, "openapi*.go"))
+		files, err := filepath.Glob(filepath.Join(directory, "*.go"))
 		if err != nil {
 			return nil, fmt.Errorf("find OpenAPI route adapters in %s: %w", directory, err)
 		}
