@@ -3,16 +3,20 @@ package queryapi
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 const (
@@ -412,4 +416,411 @@ func TestQueryDiagnosticsFieldShape(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("QueryDiagnostics fields = %#v, want %#v", got, want)
 	}
+}
+
+type builderActiveManifestResolver struct {
+	manifest publication.Manifest
+	projects []string
+}
+
+type noActiveManifestResolver struct{}
+
+func (noActiveManifestResolver) ResolveActiveManifest(context.Context, string) (publication.Manifest, error) {
+	return publication.Manifest{}, publication.ErrNoActiveGeneration
+}
+
+func (r *builderActiveManifestResolver) ResolveActiveManifest(_ context.Context, project string) (publication.Manifest, error) {
+	r.projects = append(r.projects, project)
+	return r.manifest, nil
+}
+
+func builderReadyManifest(t *testing.T, project, generationID string) publication.Manifest {
+	t.Helper()
+	schema, err := publication.NewSchemaSnapshot(
+		"urn:loom:dataframebuilder-active-test",
+		"",
+		strings.Repeat("b", 64),
+		[]string{"Patient", "Specimen"},
+	)
+	if err != nil {
+		t.Fatalf("NewSchemaIdentitySnapshot() error = %v", err)
+	}
+	ref, err := publication.NewRef(project, generationID)
+	if err != nil {
+		t.Fatalf("NewDatasetRef() error = %v", err)
+	}
+	manifest, err := publication.NewManifest(ref, schema)
+	if err != nil {
+		t.Fatalf("NewManifest() error = %v", err)
+	}
+	manifest, err = manifest.Transition(publication.StateReady)
+	if err != nil {
+		t.Fatalf("Transition(READY) error = %v", err)
+	}
+	return manifest
+}
+
+func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T) {
+	const project = "project-a"
+	const generation = "generation-a"
+	active := &builderActiveManifestResolver{manifest: builderReadyManifest(t, project, generation)}
+	var fieldCalls []fieldcatalog.PopulatedFieldOptions
+	var referenceCalls []catalog.PopulatedReferenceOptions
+
+	discoverFields := func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+		fieldCalls = append(fieldCalls, options)
+		if options.PivotOnly {
+			return []fieldcatalog.PopulatedField{}, nil
+		}
+		switch options.ResourceType {
+		case "", "Patient":
+			return []fieldcatalog.PopulatedField{{
+				Project: project, ResourceType: "Patient", Path: "gender", Kind: "scalar", DocCount: 2,
+				DistinctValues: []string{"female", "male"},
+			}}, nil
+		case "Specimen":
+			return []fieldcatalog.PopulatedField{{Project: project, ResourceType: "Specimen", Path: "id", Kind: "scalar", DocCount: 1}}, nil
+		default:
+			return []fieldcatalog.PopulatedField{}, nil
+		}
+	}
+	discoverReferences := func(_ context.Context, options catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+		referenceCalls = append(referenceCalls, options)
+		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
+	}
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
+		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
+			if got := bindVars["dataset_generation"]; got != generation {
+				t.Fatalf("dataframe execution generation = %#v, want %q", got, generation)
+			}
+			return nil
+		},
+	})
+	service := NewService(Config{
+		ActiveManifestResolver: active,
+		DiscoverFields:         discoverFields,
+		DiscoverReferences:     discoverReferences,
+		Dataframes:             dataframes,
+	})
+
+	if _, err := service.Run(context.Background(), dataframemodel.FhirDataframeInput{
+		Project: project, RootResourceType: "Patient",
+	}, nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if _, _, _, err := service.prepareRunInput(context.Background(), dataframemodel.FhirDataframeInput{
+		Project: project, RootResourceType: "Patient",
+	}); err != nil {
+		t.Fatalf("PrepareRunInput() error = %v", err)
+	}
+	if _, err := service.Introspect(context.Background(), IntrospectionRequest{
+		Project: project, RootResourceType: "Patient",
+	}); err != nil {
+		t.Fatalf("Introspect() error = %v", err)
+	}
+	if len(active.projects) < 3 {
+		t.Fatalf("active resolver calls = %#v, want one selection for each live dataframe entrypoint", active.projects)
+	}
+	if len(fieldCalls) == 0 || len(referenceCalls) == 0 {
+		t.Fatalf("catalog calls fields=%d references=%d, want both", len(fieldCalls), len(referenceCalls))
+	}
+	for index, options := range fieldCalls {
+		if options.Project != project || options.DatasetGeneration != generation {
+			t.Fatalf("field catalog call %d = %+v, want %s/%s", index, options, project, generation)
+		}
+	}
+	for index, options := range referenceCalls {
+		if options.Project != project || options.DatasetGeneration != generation {
+			t.Fatalf("reference catalog call %d = %+v, want %s/%s", index, options, project, generation)
+		}
+	}
+}
+
+func TestResolveActiveGenerationFallsBackToUnversionedCatalog(t *testing.T) {
+	service := NewService(Config{ActiveManifestResolver: noActiveManifestResolver{}})
+
+	generation, err := service.resolveActiveGeneration(context.Background(), "project-a")
+	if err != nil {
+		t.Fatalf("resolveActiveGeneration() error = %v", err)
+	}
+	if generation != "" {
+		t.Fatalf("generation = %q, want empty unversioned namespace", generation)
+	}
+}
+
+type dataframeBuilderRestrictedEmptyResourceAccess struct{}
+
+func (dataframeBuilderRestrictedEmptyResourceAccess) GetAllowedResources(context.Context, string, string, string) ([]string, error) {
+	return []string{"/programs/example/projects/allowed"}, nil
+}
+
+func dataframeBuilderRestrictedEmptyScopeResolver() *authscope.ScopeResolver {
+	return authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ResourceAccess: dataframeBuilderRestrictedEmptyResourceAccess{},
+		ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
+			return []string{"example-different"}, nil
+		},
+	})
+}
+
+func dataframeBuilderRestrictedEmptyContext() context.Context {
+	return authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
+		AuthorizationHeader: "Bearer header.payload.signature",
+	})
+}
+
+func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
+	resolver := dataframeBuilderRestrictedEmptyScopeResolver()
+	preparedCatalogCalls := 0
+
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
+
+		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
+			if got, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
+				t.Fatalf("dataframe AQL unrestricted bind = %#v, want false", bindVars["auth_resource_paths_unrestricted"])
+			}
+			return nil
+		},
+	})
+	service := NewService(Config{
+		ScopeResolver:          resolver,
+		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
+		DiscoverFields: func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+			preparedCatalogCalls++
+			assertRestrictedEmptyFieldScope(t, options)
+			return []fieldcatalog.PopulatedField{}, nil
+		},
+		Dataframes: dataframes,
+	})
+
+	result, err := service.Run(dataframeBuilderRestrictedEmptyContext(), dataframemodel.FhirDataframeInput{
+		Project:          "P1",
+		RootResourceType: "Patient",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.RowCount != 0 {
+		t.Fatalf("result row count = %d, want no fake rows", result.RowCount)
+	}
+	if preparedCatalogCalls == 0 {
+		t.Fatalf("prepared catalog calls = %d, want scoped preparation", preparedCatalogCalls)
+	}
+}
+
+func TestIntrospectKeepsRestrictedEmptyCatalogMode(t *testing.T) {
+	resolver := dataframeBuilderRestrictedEmptyScopeResolver()
+	fieldCalls := 0
+	referenceCalls := 0
+	service := NewService(Config{
+		ScopeResolver:          resolver,
+		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
+		DiscoverFields: func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+			fieldCalls++
+			assertRestrictedEmptyFieldScope(t, options)
+			return []fieldcatalog.PopulatedField{}, nil
+		},
+		DiscoverReferences: func(_ context.Context, options catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+			referenceCalls++
+			assertRestrictedEmptyReferenceScope(t, options)
+			return []catalog.PopulatedReference{}, nil
+		},
+	})
+	ctx := dataframeBuilderRestrictedEmptyContext()
+
+	if _, err := service.Introspect(ctx, IntrospectionRequest{Project: "P1", RootResourceType: "Patient"}); err != nil {
+		t.Fatalf("Introspect() error = %v", err)
+	}
+	if fieldCalls == 0 || referenceCalls == 0 {
+		t.Fatalf("catalog calls = fields %d references %d, want both", fieldCalls, referenceCalls)
+	}
+}
+
+func assertRestrictedEmptyFieldScope(t *testing.T, options fieldcatalog.PopulatedFieldOptions) {
+	t.Helper()
+	if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted {
+		t.Fatalf("field catalog scope = %#v, want explicit false", options.AuthResourcePathsUnrestricted)
+	}
+	if len(options.AuthResourcePaths) != 0 {
+		t.Fatalf("field catalog paths = %#v, want empty", options.AuthResourcePaths)
+	}
+}
+
+func assertRestrictedEmptyReferenceScope(t *testing.T, options catalog.PopulatedReferenceOptions) {
+	t.Helper()
+	if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted {
+		t.Fatalf("reference catalog scope = %#v, want explicit false", options.AuthResourcePathsUnrestricted)
+	}
+	if len(options.AuthResourcePaths) != 0 {
+		t.Fatalf("reference catalog paths = %#v, want empty", options.AuthResourcePaths)
+	}
+}
+
+func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
+	const (
+		canonical  = "HTAN_INT/BForePC"
+		legacy     = "HTAN_INT-BForePC"
+		generation = "generation-1"
+		scopePath  = "HTAN_INT-BForePC"
+	)
+
+	active := &builderActiveManifestResolver{manifest: builderReadyManifest(t, canonical, generation)}
+	var fieldCalls []fieldcatalog.PopulatedFieldOptions
+	var referenceCalls []catalog.PopulatedReferenceOptions
+	var scopeCatalogCalls []authscope.AuthResourcePathOptions
+	scopeResolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ListExistingAuthResourcePaths: func(_ context.Context, options authscope.AuthResourcePathOptions) ([]string, error) {
+			scopeCatalogCalls = append(scopeCatalogCalls, options)
+			return []string{scopePath}, nil
+		},
+	})
+
+	checkScope := func(unrestricted *bool, paths []string) {
+		t.Helper()
+		if unrestricted == nil || *unrestricted {
+			t.Fatalf("catalog scope bypass = %#v, want explicit restricted mode", unrestricted)
+		}
+		if !reflect.DeepEqual(paths, []string{scopePath}) {
+			t.Fatalf("catalog auth paths = %#v, want %#v", paths, []string{scopePath})
+		}
+	}
+	service := NewService(Config{
+		ScopeResolver:          scopeResolver,
+		ActiveManifestResolver: active,
+		DiscoverFields: func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+			fieldCalls = append(fieldCalls, options)
+			if options.Project != canonical || options.DatasetGeneration != generation {
+				t.Fatalf("field catalog identity = %+v, want %s/%s", options, canonical, generation)
+			}
+			checkScope(options.AuthResourcePathsUnrestricted, options.AuthResourcePaths)
+			return []fieldcatalog.PopulatedField{{Project: canonical, DatasetGeneration: generation, ResourceType: options.ResourceType, Path: "gender", Kind: "scalar"}}, nil
+		},
+		DiscoverReferences: func(_ context.Context, options catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+			referenceCalls = append(referenceCalls, options)
+			if options.Project != canonical || options.DatasetGeneration != generation {
+				t.Fatalf("reference catalog identity = %+v, want %s/%s", options, canonical, generation)
+			}
+			checkScope(options.AuthResourcePathsUnrestricted, options.AuthResourcePaths)
+			return []catalog.PopulatedReference{}, nil
+		},
+		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
+			QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
+				if unrestricted, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || unrestricted {
+					t.Fatalf("dataframe scope bypass = %#v, want false", bindVars["auth_resource_paths_unrestricted"])
+				}
+				if !reflect.DeepEqual(bindVars["auth_resource_paths"], []string{scopePath}) {
+					t.Fatalf("dataframe auth paths = %#v, want %#v", bindVars["auth_resource_paths"], []string{scopePath})
+				}
+				return nil
+			},
+		}),
+	})
+	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
+		Subject:           "user",
+		AuthResourcePaths: []string{scopePath},
+	})
+
+	for _, project := range []string{canonical, legacy} {
+		t.Run(project, func(t *testing.T) {
+			if _, err := service.Run(ctx, dataframemodel.FhirDataframeInput{Project: project, RootResourceType: "Patient"}, nil); err != nil {
+				t.Fatalf("Run(%q) error = %v", project, err)
+			}
+			response, err := service.Introspect(ctx, IntrospectionRequest{Project: project, RootResourceType: "Patient"})
+			if err != nil {
+				t.Fatalf("Introspect(%q) error = %v", project, err)
+			}
+			if response.Project != canonical || !reflect.DeepEqual(response.AuthResourcePaths, []string{scopePath}) {
+				t.Fatalf("Introspect(%q) response = %+v, want canonical project and restricted path", project, response)
+			}
+		})
+	}
+
+	if len(scopeCatalogCalls) != 1 || scopeCatalogCalls[0].Project != legacy || scopeCatalogCalls[0].DatasetGeneration != generation {
+		t.Fatalf("scope catalog calls = %#v, want one legacy storage lookup", scopeCatalogCalls)
+	}
+	if len(active.projects) != 4 {
+		t.Fatalf("active resolver projects = %#v, want one canonical lookup per Run/Introspect", active.projects)
+	}
+	for _, project := range active.projects {
+		if project != canonical {
+			t.Fatalf("active resolver project = %q, want %q", project, canonical)
+		}
+	}
+	if len(fieldCalls) == 0 || len(referenceCalls) != 2 {
+		t.Fatalf("catalog call counts = fields:%d references:%d, want fields and one reference call per introspection", len(fieldCalls), len(referenceCalls))
+	}
+}
+
+func errorcode(t *testing.T, err error) string {
+	t.Helper()
+	if err == nil {
+		return ""
+	}
+	var userErr dataframeerrors.UserError
+	if errors.As(err, &userErr) {
+		return userErr.Code()
+	}
+	return "untyped:" + err.Error()
+}
+
+func TestClientSuppliedControlCharPathRefused(t *testing.T) {
+	svc := NewService(Config{})
+	scope, err := svc.resolveReadScopeForGeneration(context.Background(), nil, "proj-a", "gen-1", []string{"x\x00y"})
+	if scope.Mode == authscope.ReadScopeRestricted && reflect.DeepEqual(scope.AuthResourcePaths, []string{"x\x00y"}) && err == nil {
+		t.Fatalf("VERDICT=CONFIRMED (pre-fix archived shape): client-supplied path with NUL was copied raw into a restricted scope (AuthResourcePaths=%q); the \x00-join digest fold of distinct restricted grants remains constructible from request bytes", scope.AuthResourcePaths)
+	}
+	if err == nil || errorcode(t, err) != string(dataframeerrors.CodeInvalidRequest) {
+		t.Fatalf("VERDICT=UNEXPECTED scope=%+v err=%v code=%q", scope, err, errorcode(t, err))
+	}
+	if scope.Mode != "" || len(scope.AuthResourcePaths) != 0 {
+		t.Fatalf("VERDICT=UNEXPECTED refused request still produced scope %+v", scope)
+	}
+	t.Logf("VERDICT=REPAIRED all-control-char request refused with CodeInvalidRequest")
+}
+
+func TestClientSuppliedMixedPathsNormalized(t *testing.T) {
+	svc := NewService(Config{})
+	scope, err := svc.resolveReadScopeForGeneration(context.Background(), nil, "proj-a", "gen-1", []string{"/c-d/", "a-b", "junk\x01x", "a-b"})
+	if err != nil {
+		t.Fatalf("VERDICT=UNEXPECTED err=%v", err)
+	}
+	if reflect.DeepEqual(scope.AuthResourcePaths, []string{"/c-d/", "a-b", "junk\x01x", "a-b"}) {
+		t.Fatalf("VERDICT=CONFIRMED (pre-fix archived shape): requested paths were copied raw into the restricted scope (AuthResourcePaths=%q): duplicates, stray slashes, and the control-byte entry all reach the \x00-join digest", scope.AuthResourcePaths)
+	}
+	if scope.Mode != authscope.ReadScopeRestricted || !reflect.DeepEqual(scope.AuthResourcePaths, []string{"a-b", "c-d"}) {
+		t.Fatalf("VERDICT=UNEXPECTED scope=%+v", scope)
+	}
+	t.Logf("VERDICT=REPAIRED mixed request normalized to %q (control-char entry dropped)", scope.AuthResourcePaths)
+}
+
+func TestPrincipalGarbageOnlyPathsFailClosed(t *testing.T) {
+	svc := NewService(Config{})
+	principal := &authscope.Principal{AuthResourcePaths: []string{"a\x00b"}}
+	scope, err := svc.resolveReadScopeForGeneration(context.Background(), principal, "proj-a", "gen-1", nil)
+	if scope.Mode == authscope.ReadScopeRestricted && reflect.DeepEqual(scope.AuthResourcePaths, []string{"a\x00b"}) && err == nil {
+		t.Fatalf("VERDICT=CONFIRMED (pre-fix archived shape): IdP-supplied path with NUL survived into the restricted scope (AuthResourcePaths=%q)", scope.AuthResourcePaths)
+	}
+	if scope.Mode == authscope.ReadScopeUnrestricted {
+		t.Fatalf("VERDICT=REGRESSION: principal whose only declared path is garbage was widened to unrestricted scope")
+	}
+	if err == nil || errorcode(t, err) != string(dataframeerrors.CodeForbidden) {
+		t.Fatalf("VERDICT=UNEXPECTED scope=%+v err=%v code=%q", scope, err, errorcode(t, err))
+	}
+	t.Logf("VERDICT=REPAIRED garbage-only principal paths fail closed with CodeForbidden")
+}
+
+func TestMembershipComparedInNormalizedSpace(t *testing.T) {
+	svc := NewService(Config{})
+	principal := &authscope.Principal{AuthResourcePaths: []string{"a-b"}}
+	scope, err := svc.resolveReadScopeForGeneration(context.Background(), principal, "proj-a", "gen-1", []string{"/a-b/"})
+	if err != nil && strings.HasPrefix(errorcode(t, err), string(dataframeerrors.CodeForbidden)) {
+		t.Fatalf("VERDICT=CONFIRMED (pre-fix archived side finding): membership used raw string equality, so the authorized caller requesting %q was refused although it is entitled to %q", []string{"/a-b/"}, "a-b")
+	}
+	if err != nil {
+		t.Fatalf("VERDICT=UNEXPECTED err=%v code=%q", err, errorcode(t, err))
+	}
+	if scope.Mode != authscope.ReadScopeRestricted || !reflect.DeepEqual(scope.AuthResourcePaths, []string{"a-b"}) {
+		t.Fatalf("VERDICT=UNEXPECTED scope=%+v", scope)
+	}
+	t.Logf("VERDICT=REPAIRED slash-variant request matched the authorized path")
 }

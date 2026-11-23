@@ -2,8 +2,9 @@ package queryapi
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/dataframe/recipe"
