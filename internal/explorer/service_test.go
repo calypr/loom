@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
 	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
-
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
@@ -23,6 +23,7 @@ func (r *projectionTestReader) WorkspaceProjection(_ context.Context, source wor
 	r.calls = append(r.calls, source)
 	return r.projection, r.err
 }
+
 func projectionTestPacket(t *testing.T) (json.RawMessage, string) {
 	t.Helper()
 	w := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Projected"}, Documents: []ws.Document{}, Tabs: []ws.Tab{}}
@@ -39,12 +40,14 @@ func projectionTestPacket(t *testing.T) (json.RawMessage, string) {
 	}
 	return raw, digest
 }
+
 func projectionTestSidecar(t *testing.T, source workspacepkg.Artifact) workspacepkg.Projection {
 	raw, digest := projectionTestPacket(t)
 	p := workspacepkg.Projection{Source: source, Workspace: raw, Digest: digest}
 	p.ID = p.ContentID()
 	return p
 }
+
 func TestWorkspaceProjectionCurrentPacketsBypassReader(t *testing.T) {
 	raw, digest := projectionTestPacket(t)
 	reader := &projectionTestReader{err: errors.New("must not read sidecar")}
@@ -61,6 +64,7 @@ func TestWorkspaceProjectionCurrentPacketsBypassReader(t *testing.T) {
 		t.Fatalf("current packets queried sidecars: %+v", reader.calls)
 	}
 }
+
 func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
 
 	raw := json.RawMessage(`{"legacyPacket":"immutable-original"}`)
@@ -99,6 +103,7 @@ func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
 		t.Fatalf("wrong history lookup: %+v", reader.calls)
 	}
 }
+
 func TestWorkspaceProjectionRejectsSourceAndContentTampering(t *testing.T) {
 	source := workspacepkg.Artifact{Kind: "draft-revision", Project: "tenant", ExplorerID: "explorer", ID: "history", RawDigest: "raw", IntentDigest: "intent", SnapshotToken: "snapshot", Generation: "generation", ScopeDigest: "scope", ReceiptID: "receipt", DraftVersion: 3}
 	fields := []string{"Kind", "Project", "ExplorerID", "ID", "RawDigest", "IntentDigest", "SnapshotToken", "Generation", "ScopeDigest", "ReceiptID", "DraftVersion"}
@@ -136,6 +141,7 @@ func TestWorkspaceProjectionRejectsSourceAndContentTampering(t *testing.T) {
 		})
 	}
 }
+
 func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 	revision := Revision{ID: "revision", Project: "tenant", AuthoringBundle: json.RawMessage(`{"legacyPacket":true}`)}
 	for _, tc := range []struct {
@@ -156,5 +162,50 @@ func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 	s := &Service{store: struct{ ExplorerStore }{}}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err == nil {
 		t.Fatal("accepted legacy packet without projection reader")
+	}
+}
+
+type defaultViewBuilderStore struct {
+	ExplorerStore
+	ViewBuilderRepository
+}
+
+func (defaultViewBuilderStore) Get(_ context.Context, project, id string) (*Explorer, error) {
+	if project == "HTAN_INT-BForePC" && id == "recipe-view" {
+		return &Explorer{Project: project, ExplorerID: id}, nil
+	}
+	return nil, ErrNotFound
+}
+
+func (defaultViewBuilderStore) GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error) {
+	return viewer.ViewBuilderSettings{DefaultConfigID: "recipe-view"}, nil
+}
+
+func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {
+	service, err := NewService(defaultViewBuilderStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := service.LoadExplorerState(context.Background(), "HTAN_INT/BForePC", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ExplorerID != "recipe-view" {
+		t.Fatalf("expected selected project view, got %q", state.ExplorerID)
+	}
+	if _, err := service.LoadExplorerState(context.Background(), "HTAN_INT/BForePC", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("explicit missing Explorer returned %v", err)
+	}
+}
+
+func TestRepositoryRevisionIDIncludesImmutableReceiptIdentity(t *testing.T) {
+	first := RepositoryRevisionID("program/project", "commit", "intent", "generation", "receipt-a")
+	replayed := RepositoryRevisionID("program/project", "commit", "intent", "generation", "receipt-a")
+	upgraded := RepositoryRevisionID("program/project", "commit", "intent", "generation", "receipt-b")
+	if first != replayed {
+		t.Fatalf("repository replay identity changed: %q != %q", first, replayed)
+	}
+	if first == upgraded {
+		t.Fatalf("compiler receipt upgrade reused revision identity %q", first)
 	}
 }
