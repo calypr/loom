@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/google/uuid"
 )
 
 func TestDynamicChecksRetainsEveryFamilySharingACompatibilityColumn(t *testing.T) {
@@ -287,5 +288,64 @@ func TestMaterializePostQueryStripsDynamicMetadata(t *testing.T) {
 	}
 	if _, ok := row["__loom_dynamic_runtime_keys"]; ok {
 		t.Fatal("dynamic metadata leaked into logical row")
+	}
+}
+
+func TestGroupedDynamicInventoriesValidateEveryContributor(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{"identifier": {"known": {ColumnName: "identifier_known", ValueType: "string"}}}
+	inventory := func(keys any) map[string]any { return map[string]any{"identifier": keys} }
+	for _, tc := range []struct {
+		name                 string
+		metadata             any
+		wantError, wantDrift bool
+	}{
+		{name: "known members", metadata: []any{inventory([]any{"known"}), inventory([]any{})}},
+		{name: "nested groups", metadata: []any{[]any{inventory([]any{"known"})}, []any{inventory([]any{})}}},
+		{name: "empty group", metadata: []any{}},
+		{name: "earlier unknown survives later known", metadata: []any{inventory([]any{"unexpected"}), inventory([]any{"known"})}, wantError: true, wantDrift: true},
+		{name: "nested earlier unknown", metadata: []any{[]any{inventory([]any{"unexpected"})}, []any{inventory([]any{"known"})}}, wantError: true, wantDrift: true},
+		{name: "missing earlier inventory", metadata: []any{nil, inventory([]any{"known"})}, wantError: true},
+		{name: "malformed earlier inventory", metadata: []any{inventory("known"), inventory([]any{"known"})}, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row, err := materializePostQueryRowWithChecks(map[string]any{"row_count": 2, "__loom_dynamic_runtime_keys": tc.metadata}, checks)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("error=%v wantError=%t", err, tc.wantError)
+			}
+			if tc.wantDrift {
+				var drift *DynamicDriftError
+				if !errors.As(err, &drift) || drift.Key != "unexpected" {
+					t.Fatalf("wrong drift error: %v", err)
+				}
+			}
+			if err == nil {
+				if _, leaked := row["__loom_dynamic_runtime_keys"]; leaked {
+					t.Fatal("hidden inventory exposed")
+				}
+			}
+		})
+	}
+}
+
+func TestComputeNamedUUID(t *testing.T) {
+	name := "example"
+	for _, operation := range []string{"uuid3", "uuid5"} {
+		got, err := computeNamedUUID(operation, []any{uuid.NameSpaceDNS.String(), name})
+		if err != nil || got == nil {
+			t.Fatalf("%s: got %v, err %v", operation, got, err)
+		}
+	}
+	got, err := computeNamedUUID("uuid5", []any{"textual", name})
+	if err != nil || got == nil {
+		t.Fatalf("text namespace: got %v, err %v", got, err)
+	}
+	if got, err := computeNamedUUID("uuid5", []any{uuid.NameSpaceDNS.String(), nil}); err != nil || got != nil {
+		t.Fatalf("nil propagation: got %v, err %v", got, err)
+	}
+	if _, err := computeNamedUUID("uuid5", []any{"only"}); err == nil {
+		t.Fatal("expected insufficient arguments error")
+	}
+	if _, err := computeNamedUUID("uuid4", []any{"ns", name}); err == nil {
+		t.Fatal("expected unsupported operation error")
 	}
 }

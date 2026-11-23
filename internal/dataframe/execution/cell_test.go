@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	celltrace "github.com/calypr/loom/internal/dataframe/compiler/celltrace"
-
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -19,6 +21,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/google/uuid"
 )
 
 func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
@@ -568,4 +572,205 @@ func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
 			t.Fatalf("missing row error = %v", err)
 		}
 	})
+}
+
+func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_construction_trace_" + uuid.NewString()
+	generation := "generation-construction-trace"
+	wants := []struct {
+		id     string
+		amount int64
+		total  float64
+	}{{id: "trace-a", amount: 3, total: 5}, {id: "trace-b", amount: 5, total: 7}}
+	documents := make([]json.RawMessage, 0, len(wants))
+	for _, want := range wants {
+		key := project + "_" + want.id
+		document, marshalErr := json.Marshal(map[string]any{
+			"_key": key, "id": want.id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": "Observation",
+			"payload": map[string]any{"id": want.id, "resourceType": "Observation", "status": "active", "valueInteger": want.amount},
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
+		t.Fatalf("insert construction trace fixture: %v", err)
+	}
+
+	output := executionConstructionTraceOutput()
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "construction-trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiledOutput := compiled.Outputs[0]
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(compiledOutput, "total", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{batchSize: 100, queryRows: func(queryCtx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		return client.QueryRows(queryCtx, query, batchSize, bindVars, visit)
+	}}
+	for _, want := range wants {
+
+		identity := map[string]any{"project": project, "_key": project + "_" + want.id}
+		if err := ensureStableRowIdentity(identity, compiledOutput.RowIdentity, nil); err != nil {
+			t.Fatalf("build expected row identity for %q: %v", want.id, err)
+		}
+		rowID, _ := identity["__loom_row_id"].(string)
+		result, traceErr := engine.CellTraceCompiled(ctx, trace, CellTraceRequest{
+			Output: compiledOutput.Name, RowID: rowID, Column: "total", Limit: 25,
+		})
+		if traceErr != nil {
+			t.Fatalf("trace %q: %v", want.id, traceErr)
+		}
+		if !result.Complete || result.Status != CellTraceValue || !executionTraceNumberEqual(result.Value, want.total) {
+			t.Fatalf("trace %q = %#v, want complete value %v", want.id, result, want.total)
+		}
+		if len(result.Contributions) != 1 {
+			t.Fatalf("trace %q contributors = %#v, want one source-column contribution", want.id, result.Contributions)
+		}
+		contribution := result.Contributions[0]
+		if contribution.InputStageID != "source_projection" || contribution.InputColumnID != "amount_id" || contribution.InputColumn != "amount" || contribution.OutputStageID != "derive_total" || contribution.OutputColumnID != "total_id" || contribution.OutputColumn != "total" || contribution.FinalStageID != "keep_positive" || contribution.ConstructionID != "calc_total" || contribution.Operation != "DERIVE" || !executionTraceNumberEqual(contribution.Value, float64(want.amount)) {
+			t.Fatalf("trace %q provenance = %#v", want.id, contribution)
+		}
+		if contribution.ResourceID != "" || contribution.ResourceType != "" {
+			t.Fatalf("trace %q falsely claims resource provenance: %#v", want.id, contribution)
+		}
+	}
+}
+
+func executionConstructionTraceOutput() recipe.Output {
+	two := int64(2)
+	zero := int64(0)
+	return recipe.Output{
+		Name: "construction_trace", RootResourceType: "Observation", RowGrain: "observation",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
+			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"},
+			},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
+						ConstructionID: "calc_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
+						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
+						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &two}},
+						MissingInputPolicy: recipe.MissingInputPropagateNull,
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
+					},
+				},
+				{
+					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
+						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
+					},
+				},
+			},
+		},
+	}
+}
+
+func executionTraceNumberEqual(value any, want float64) bool {
+	switch got := value.(type) {
+	case float64:
+		return math.Abs(got-want) < 1e-9
+	case int64:
+		return float64(got) == want
+	case int:
+		return float64(got) == want
+	default:
+		return false
+	}
+}
+
+func assertCellTraceMissingRowUserFault(t *testing.T, err error, wantRowID, wantOutput string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("missing published row must surface typed as a non-retryable user fault")
+	}
+	if !errors.Is(err, ErrCellTraceRowNotFound) {
+		t.Fatalf("missing row must carry the classified sentinel: %v", err)
+	}
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		t.Fatalf("missing row escaped as untyped (authoring REST presents raw leaves as INTERNAL_ERROR 500): %v", err)
+	}
+	if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) {
+		t.Fatalf("code=%s want %s", userErr.Code(), dataframeerrors.CodeInvalidRequest)
+	}
+	if userErr.Retryable() {
+		t.Fatal("missing published row must be non-retryable")
+	}
+	if got := userErr.Details()["rowId"]; got != wantRowID {
+		t.Fatalf("details=%v want echoing requested rowId", userErr.Details())
+	}
+	if got := userErr.Details()["output"]; got != wantOutput {
+		t.Fatalf("details=%v want echoing requested output", userErr.Details())
+	}
+}
+
+func TestEngineCellTraceCompiledMissingRowIsUserFault(t *testing.T) {
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
+	_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-does-not-exist", Column: "gender"})
+	assertCellTraceMissingRowUserFault(t, err, "row-does-not-exist", "patients")
+}
+
+func TestEngineCellTraceMissingPublishedRowIsUserFault(t *testing.T) {
+	output := compileComposedCohortIdentityOutput(t)
+	engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
+	resolved := Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}}}
+	rowID := `{"group_id":"cohort-absent","group_revision_id":"grouprev_absent"}`
+	_, err := engine.CellTrace(context.Background(), resolved, CellTraceRequest{Output: output.Name, RowID: rowID, Column: "group_label", Limit: 10})
+	assertCellTraceMissingRowUserFault(t, err, rowID, output.Name)
+}
+
+func TestEngineCellTraceKnownRowNeverTakesTheNotFoundArm(t *testing.T) {
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		return visit(map[string]any{"identity": "row-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
+	}}
+	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-7", Column: "condition"})
+	if err != nil || result.Status != CellTraceNoMatch {
+		t.Fatalf("matched row must not take the missing-row arm: result=%#v err=%v", result, err)
+	}
 }

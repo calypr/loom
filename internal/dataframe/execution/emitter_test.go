@@ -2,20 +2,27 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
+	"github.com/google/uuid"
 )
 
 func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T) {
@@ -770,3 +777,201 @@ func workspaceArtifactTestOutput(name string, inputs []ir.PhysicalCombineInputRe
 }
 
 func boolPointer(value bool) *bool { return &value }
+
+func TestPublicationRowStreamRejectsPayloadMetadataSmuggling(t *testing.T) {
+	arangoURL := os.Getenv("LOOM_TEST_ARANGO_URL")
+	if arangoURL == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL is not set")
+	}
+	database := os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if database == "" {
+		t.Fatal("LOOM_TEST_ARANGO_DATABASE is required when LOOM_TEST_ARANGO_URL is set")
+	}
+	parsedURL, err := url.Parse(arangoURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Hostname() == "" || parsedURL.User != nil || parsedURL.Path != "" && parsedURL.Path != "/" || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
+		t.Fatalf("LOOM_TEST_ARANGO_URL must be a bare unauthenticated HTTP(S) origin, got %q", arangoURL)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	t.Cleanup(cancel)
+	project := "loom_row_smuggling_" + uuid.NewString()
+	generation := "generation-" + uuid.NewString()
+	key := project + "_patient"
+	client, err := store.Open(ctx, arangoURL, database)
+	if err != nil {
+		t.Fatalf("open test Arango database: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := client.ExecuteAQL(cleanupCtx, "FOR d IN Patient FILTER d._key == @key REMOVE d IN Patient", map[string]any{"key": key}); err != nil {
+			t.Errorf("remove owned Patient fixture: %v", err)
+		}
+		if err := client.Close(cleanupCtx); err != nil {
+			t.Errorf("close test Arango client: %v", err)
+		}
+	})
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+		t.Fatalf("bootstrap Patient collection: %v", err)
+	}
+
+	trustedPath := "/trusted"
+	document, err := json.Marshal(map[string]any{
+		"_key": key, "id": "patient-1", "project": project, "project_id": project,
+		"dataset_generation": generation, "resourceType": "Patient",
+		"auth_resource_path": trustedPath,
+		"payload": map[string]any{
+			"id": "patient-1", "__loom_row_id": "forged-row-id", "auth_resource_path": "/forged",
+		},
+	})
+	if err != nil {
+		t.Fatalf("encode Patient fixture: %v", err)
+	}
+	if err := client.InsertBatchRaw(ctx, "Patient", []json.RawMessage{document}, false, "document"); err != nil {
+		t.Fatalf("insert Patient fixture: %v", err)
+	}
+
+	engine, err := New(Config{
+		Registry: invalidRecipeRegistry{},
+		QueryRows: func(queryCtx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+			return client.QueryRows(queryCtx, query, batchSize, bindVars, visit)
+		},
+	})
+	if err != nil {
+		t.Fatalf("create recipe engine: %v", err)
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "row metadata smuggling",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		}},
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation,
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{trustedPath},
+		IncludeAuthResourcePath: true,
+	}
+	resolved, err := engine.CompileResolvedBundle(ctx, bundle, bindings)
+	if err != nil {
+		t.Fatalf("compile resolved bundle: %v", err)
+	}
+	streams, err := engine.Streams(ctx, resolved)
+	if err != nil {
+		t.Fatalf("create output streams: %v", err)
+	}
+	if len(streams) != 1 {
+		t.Fatalf("compiled streams = %d, want 1", len(streams))
+	}
+	var rows []map[string]any
+	result, err := streams[0].Stream(ctx, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream compiled Patient output: %v", err)
+	}
+	if result.RowCount != 1 || len(rows) != 1 {
+		t.Fatalf("stream returned %d rows (result count %d), want exactly one: %#v", len(rows), result.RowCount, rows)
+	}
+	row := rows[0]
+	if row["id"] != "patient-1" {
+		t.Fatalf("streamed patient id = %#v, want patient-1", row["id"])
+	}
+	if row["auth_resource_path"] != trustedPath {
+		t.Fatalf("streamed auth_resource_path = %#v, want stored trusted path %q", row["auth_resource_path"], trustedPath)
+	}
+	if got := fmt.Sprint(row["__loom_row_id"]); got == "" || got == "forged-row-id" {
+		t.Fatalf("streamed __loom_row_id = %#v, want compiler-derived identity rather than payload value", row["__loom_row_id"])
+	}
+	wantIdentity := map[string]any{"project": project, "_key": key}
+	if err := ensureStableRowIdentity(wantIdentity, streams[0].RowIdentity, streams[0].bindVars); err != nil {
+		t.Fatalf("derive expected compiler row identity: %v", err)
+	}
+	if row["__loom_row_id"] != wantIdentity["__loom_row_id"] {
+		t.Fatalf("streamed __loom_row_id = %#v, want identity derived from project/key %#v", row["__loom_row_id"], wantIdentity["__loom_row_id"])
+	}
+	if len(row) != 3 {
+		t.Fatalf("public streamed row contains payload metadata or other unselected columns: %#v", row)
+	}
+}
+
+type runOutputRegistry struct{ loads int }
+
+func (r *runOutputRegistry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
+	r.loads++
+	return recipe.Entry{}, errors.New("registry must not be consulted")
+}
+
+func (r *runOutputRegistry) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
+	r.loads++
+	return recipe.Entry{}, errors.New("registry must not be consulted")
+}
+
+func newRunTestFixture(t *testing.T) (*Engine, *runOutputRegistry) {
+	t.Helper()
+	registry := &runOutputRegistry{}
+	engine, err := New(Config{
+		Registry: registry,
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return errors.New("query executor must not be consulted")
+		},
+	})
+	if err != nil {
+		t.Fatalf("create engine: %v", err)
+	}
+	return engine, registry
+}
+
+func runOutputResolved(names ...string) Resolved {
+	compiled := lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", RootResourceType: "Patient"}}}
+	return Resolved{
+		Bundle: recipe.Bundle{Name: "patients"},
+		Semantic: recipeplan.ResolvedRecipePlan{
+			SemanticPlan: recipeplan.RecipePlan{Bindings: recipe.RuntimeBindings{Project: "HTAN_INT/project-a", OutputNames: names}},
+		},
+		Compiled: compiled,
+	}
+}
+
+func TestEngineRunUnknownOutputIsUserFault(t *testing.T) {
+	e, _ := newRunTestFixture(t)
+	_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved("does-not-exist"), 0)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		t.Fatalf("unknown run output escaped as untyped (Engine.Run -> recipeControlBackend publishes retryable BACKEND_UNAVAILABLE for the raw leaf; the receipt-validation Streams channel reaches the leaf, and Control.Run's own output-selection rejection is a separate pre-wrapper 500 channel): %v", err)
+	}
+	if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) {
+		t.Fatalf("code=%s want %s", userErr.Code(), dataframeerrors.CodeInvalidRequest)
+	}
+	if userErr.Retryable() {
+		t.Fatal("unknown output must be non-retryable")
+	}
+	if got := userErr.Details()["output"]; got != "does-not-exist" {
+		t.Fatalf("details=%v want echoing requested output", userErr.Details())
+	}
+}
+
+func TestEngineRunBlankOutputIsUserFault(t *testing.T) {
+	e, _ := newRunTestFixture(t)
+	for _, name := range []string{"", "   "} {
+		_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved(name), 0)
+		userErr, ok := dataframeerrors.AsUserError(err)
+		if !ok {
+			t.Fatalf("blank run output %q escaped as untyped: %v", name, err)
+		}
+		if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) || userErr.Retryable() {
+			t.Fatalf("blank output %q classified %s retryable=%v", name, userErr.Code(), userErr.Retryable())
+		}
+	}
+}
+
+func TestEngineRunKnownOutputStillResolves(t *testing.T) {
+	e, _ := newRunTestFixture(t)
+	_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved("patients"), 0)
+	if err != nil && strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("valid output must not take the unknown-output arm: %v", err)
+	}
+}
