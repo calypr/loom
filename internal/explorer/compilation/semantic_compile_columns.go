@@ -212,6 +212,46 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 		nodes[column.OccurrenceID].dynamics = append(nodes[column.OccurrenceID].dynamics, dynamic)
 	}
 
+	return columns.emitColumn(index, column, document, semanticColumnState{
+		occurrence: occurrence, candidateID: candidateID, projectionMode: projectionMode,
+		sourcePath: sourcePath, logicalType: logicalType, choiceArm: choiceArm,
+		sourceRepeated: sourceRepeated, filterable: filterable, chartable: chartable,
+		structuralSuitability: structuralSuitability, lossReasons: lossReasons,
+		lossless: lossless, mlReady: mlReady,
+	})
+
+}
+
+type semanticColumnState struct {
+	occurrence            semanticOccurrence
+	candidateID           string
+	projectionMode        string
+	sourcePath            string
+	logicalType           string
+	choiceArm             string
+	sourceRepeated        bool
+	filterable            bool
+	chartable             bool
+	structuralSuitability string
+	lossReasons           []string
+	lossless              bool
+	mlReady               bool
+}
+
+func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.Column, document authoringv2.Document, state semanticColumnState) error {
+	occurrence := state.occurrence
+	projectionMode := state.projectionMode
+	sourcePath := state.sourcePath
+	logicalType := state.logicalType
+	choiceArm := state.choiceArm
+	sourceRepeated := state.sourceRepeated
+	filterable := state.filterable
+	chartable := state.chartable
+	structuralSuitability := state.structuralSuitability
+	lossReasons := state.lossReasons
+	lossless := state.lossless
+	mlReady := state.mlReady
+	candidateID := state.candidateID
 	visible := true
 	orderValue := columns.presentationOrder
 	pinned := false
