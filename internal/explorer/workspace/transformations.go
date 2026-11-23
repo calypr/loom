@@ -1,9 +1,10 @@
 package workspace
 
 import (
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"sort"
 	"strings"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer/capability"

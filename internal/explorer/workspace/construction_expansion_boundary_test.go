@@ -1,9 +1,10 @@
 package workspace
 
 import (
-	"github.com/calypr/loom/internal/explorer/capability"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestIndependentRelatedExpansionsRejectTwoByThreeProduct(t *testing.T) {

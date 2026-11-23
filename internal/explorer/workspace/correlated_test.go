@@ -2,9 +2,10 @@ package workspace
 
 import (
 	"encoding/json"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 func correlatedAuthoringDocument(lookup *LookupSource) Document {

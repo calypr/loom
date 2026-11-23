@@ -3,6 +3,7 @@ package workspace
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -1048,4 +1049,421 @@ const (
 
 func requiredID(value string) bool {
 	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)
+}
+
+func (o ConstructionOperation) inputColumnIDs() []string {
+	ids := make([]string, 0)
+	add := func(id string) {
+		if !requiredID(id) {
+			return
+		}
+		for _, present := range ids {
+			if present == id {
+				return
+			}
+		}
+		ids = append(ids, id)
+	}
+	switch o.Kind {
+	case ConstructionOperationPivot:
+		if o.Pivot != nil {
+			for _, id := range o.Pivot.GroupKeyIDs {
+				add(id)
+			}
+			add(o.Pivot.CategoryColumnID)
+			add(o.Pivot.ValueColumnID)
+		}
+	case ConstructionOperationDerive:
+		if o.Derive != nil {
+			if o.Derive.Left.Kind == ConstructionColumnOperand {
+				add(o.Derive.Left.ColumnID)
+			}
+			if o.Derive.Right.Kind == ConstructionColumnOperand {
+				add(o.Derive.Right.ColumnID)
+			}
+		}
+	case ConstructionOperationFilter:
+		if o.Filter != nil {
+			add(o.Filter.ColumnID)
+		}
+	case ConstructionOperationUnpivot:
+		if o.Unpivot != nil {
+			for _, input := range o.Unpivot.Inputs {
+				add(input.ColumnID)
+			}
+		}
+	case ConstructionOperationGroup:
+		if o.Group != nil {
+			for _, key := range o.Group.Keys {
+				add(key.InputColumnID)
+			}
+			for _, aggregate := range o.Group.Aggregates {
+				add(aggregate.InputColumnID)
+			}
+		}
+	case ConstructionOperationExpand:
+		if o.Expand != nil {
+			add(o.Expand.InputColumnID)
+		}
+	case ConstructionOperationRelatedSource:
+		if o.RelatedSource != nil {
+			if o.RelatedSource.AnchorColumnID != "_key" && o.RelatedSource.AnchorColumnID != "__loom_row_id" {
+				add(o.RelatedSource.AnchorColumnID)
+			}
+		}
+	}
+	return ids
+}
+
+func (s ConstructionStep) inputColumnIDs() []string {
+	ids := s.Operation.inputColumnIDs()
+	for _, value := range s.RowValues {
+		if value.InputColumnID != "" && !containsConstructionColumnID(ids, value.InputColumnID) {
+			ids = append(ids, value.InputColumnID)
+		}
+	}
+	return ids
+}
+
+func (c *Construction) Validate(sourceColumns []Column) error {
+	if c == nil {
+		return nil
+	}
+	if err := validateIndependentRelatedExpansions(c.Steps); err != nil {
+		return err
+	}
+	if c.Version != ConstructionVersion {
+		return fmt.Errorf("unsupported construction version %d", c.Version)
+	}
+	if hasCombineOperation(c.Steps) {
+		if len(c.SourceProjections) != 0 {
+			return fmt.Errorf("COMBINE cannot declare source projections")
+		}
+		if len(c.Steps) != 1 {
+			return fmt.Errorf("COMBINE must be the only construction step")
+		}
+		if len(sourceColumns) != 0 {
+			return fmt.Errorf("COMBINE cannot declare source projection columns")
+		}
+		return validateConstructionCombineStep(c.Steps[0])
+	}
+	if err := validateConstructionSourceProjections(c, sourceColumns); err != nil {
+		return err
+	}
+	source, err := sourceStageColumns(sourceColumns)
+	if err != nil {
+		return err
+	}
+	if len(c.Steps) == 0 {
+		return nil
+	}
+	source, err = constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, c.Steps[0].inputColumnIDs(), c.Steps[0].Outputs)
+	if err != nil {
+		return fmt.Errorf("source projection: %w", err)
+	}
+	stepIDs := make(map[string]bool, len(c.Steps))
+	for i, step := range c.Steps {
+		if !requiredID(step.ID) {
+			return fmt.Errorf("steps[%d].id is required", i)
+		}
+		if stepIDs[step.ID] {
+			return fmt.Errorf("duplicate step id %q", step.ID)
+		}
+		stepIDs[step.ID] = true
+		inputColumns, err := constructionStepInputSchema(c.Steps, source, i)
+		if err != nil {
+			return fmt.Errorf("steps[%d]: %w", i, err)
+		}
+		if err := validateConstructionStep(step, inputColumns); err != nil {
+			return fmt.Errorf("steps[%d]: %w", i, err)
+		}
+	}
+	return validateConstructionStepOwnership(c)
+}
+
+func (c *Construction) ValidateWithExplicitGroups(sourceColumns []Column, groups *GroupedRows) error {
+	if groups == nil {
+		return c.Validate(sourceColumns)
+	}
+	if c == nil {
+		if groups.AfterStepID != "" {
+			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groups.AfterStepID)
+		}
+		return nil
+	}
+	if err := validateIndependentRelatedExpansions(c.Steps); err != nil {
+		return err
+	}
+	if c.Version != ConstructionVersion {
+		return fmt.Errorf("unsupported construction version %d", c.Version)
+	}
+	if len(c.Steps) > 128 {
+		return fmt.Errorf("construction steps must contain at most 128 entries")
+	}
+	if hasCombineOperation(c.Steps) {
+		return fmt.Errorf("explicit groups cannot be composed with COMBINE")
+	}
+	if err := validateConstructionSourceProjections(c, sourceColumns); err != nil {
+		return err
+	}
+	source, err := sourceStageColumns(sourceColumns)
+	if err != nil {
+		return err
+	}
+	anchorIndex := -1
+	if groups.AfterStepID != "" {
+		anchorIndex = findConstructionStep(c.Steps, groups.AfterStepID)
+		if anchorIndex < 0 {
+			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groups.AfterStepID)
+		}
+	}
+	cohortColumns, err := explicitGroupStageColumns(sourceColumns, groups)
+	if err != nil {
+		return fmt.Errorf("group rows stage: %w", err)
+	}
+	if len(c.Steps) == 0 {
+		if groups.AfterStepID != "" {
+			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groups.AfterStepID)
+		}
+		return nil
+	}
+	if anchorIndex >= 0 {
+		first := c.Steps[0]
+		source, err = constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, first.inputColumnIDs(), first.Outputs)
+		if err != nil {
+			return fmt.Errorf("source projection: %w", err)
+		}
+	}
+	priorStepID := ""
+	priorColumns := source
+	if anchorIndex < 0 {
+		priorStepID = "group_rows"
+		priorColumns = cohortColumns
+	}
+	stepIDs := make(map[string]bool, len(c.Steps))
+	for index, step := range c.Steps {
+		if index == anchorIndex+1 && anchorIndex >= 0 {
+			priorStepID = "group_rows"
+			priorColumns = cohortColumns
+		}
+		if !requiredID(step.ID) {
+			return fmt.Errorf("steps[%d].id is required", index)
+		}
+		if step.ID == "source_projection" || step.ID == "group_rows" || stepIDs[step.ID] {
+			return fmt.Errorf("steps[%d].id is reserved or duplicated", index)
+		}
+		stepIDs[step.ID] = true
+		if len(step.Inputs) != 1 {
+			return fmt.Errorf("steps[%d].inputs must contain exactly one stage reference", index)
+		}
+		input := step.Inputs[0]
+		if err := input.Validate(); err != nil {
+			return fmt.Errorf("steps[%d].inputs[0]: %w", index, err)
+		}
+		switch input.Kind {
+		case ConstructionInputSourceProjection:
+			if index != 0 || priorStepID != "" {
+				return fmt.Errorf("steps[%d].inputs[0] must reference the source projection only before the cohort boundary", index)
+			}
+		case ConstructionInputStepOutput:
+			if input.StepID != priorStepID || priorStepID == "" {
+				return fmt.Errorf("steps[%d].inputs[0] must reference the immediately preceding effective stage", index)
+			}
+		case ConstructionInputTableRevision:
+			return fmt.Errorf("steps[%d].inputs[0] table revision inputs are not supported by this compiler", index)
+		default:
+			return fmt.Errorf("steps[%d].inputs[0] has unsupported kind %q", index, input.Kind)
+		}
+		if (step.Operation.Kind == ConstructionOperationCodedGroup || step.Operation.Kind == ConstructionOperationCodedPivot) &&
+			(index != 0 || input.Kind != ConstructionInputSourceProjection || priorStepID != "") {
+			return fmt.Errorf("steps[%d] %s currently requires the direct source projection stage; prior construction stages are not supported", index, step.Operation.Kind)
+		}
+		if err := validateConstructionStep(step, priorColumns); err != nil {
+			return fmt.Errorf("steps[%d]: %w", index, err)
+		}
+		priorStepID = step.ID
+		priorColumns = step.Outputs
+	}
+	return validateConstructionStepOwnership(c)
+}
+
+func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColumn) error {
+	if inputCount < 2 {
+		return fmt.Errorf("combine requires at least two table inputs")
+	}
+	if len(outputs) == 0 {
+		return fmt.Errorf("combine output schema is required")
+	}
+	outputIDs := make(map[string]bool, len(outputs))
+	for _, output := range outputs {
+		if !requiredID(output.ID) || outputIDs[output.ID] {
+			return fmt.Errorf("combine output IDs must be non-empty and unique")
+		}
+		outputIDs[output.ID] = true
+	}
+	if len(combine.Projections) == 0 {
+		return fmt.Errorf("combine projections are required")
+	}
+	for index, projection := range combine.Projections {
+		if !requiredID(projection.OutputColumnID) || !outputIDs[projection.OutputColumnID] {
+			return fmt.Errorf("projection %d references unknown output column %q", index, projection.OutputColumnID)
+		}
+		if projection.InputIndex < 0 || projection.InputIndex >= inputCount {
+			return fmt.Errorf("projection %d inputIndex is out of range", index)
+		}
+		if !requiredID(projection.InputColumnID) {
+			return fmt.Errorf("projection %d inputColumnId is required", index)
+		}
+	}
+	validateKeys := func() error {
+		if len(combine.Keys) == 0 {
+			return fmt.Errorf("combine requires at least one key pair")
+		}
+		leftIDs, rightIDs := map[string]bool{}, map[string]bool{}
+		for index, key := range combine.Keys {
+			if !requiredID(key.LeftColumnID) || !requiredID(key.RightColumnID) {
+				return fmt.Errorf("keys[%d] requires leftColumnId and rightColumnId", index)
+			}
+			if leftIDs[key.LeftColumnID] || rightIDs[key.RightColumnID] {
+				return fmt.Errorf("key column IDs must be unique on each input")
+			}
+			leftIDs[key.LeftColumnID], rightIDs[key.RightColumnID] = true, true
+		}
+		return nil
+	}
+	validateProjections := func(allowAppendMappings bool) error {
+		pairs := make(map[string]bool, len(combine.Projections))
+		projectedOutputs := make(map[string]bool, len(outputs))
+		for _, projection := range combine.Projections {
+			pair := fmt.Sprintf("%d\x00%s", projection.InputIndex, projection.OutputColumnID)
+			if pairs[pair] {
+				return fmt.Errorf("duplicate projection for input %d and output %q", projection.InputIndex, projection.OutputColumnID)
+			}
+			pairs[pair] = true
+			if !allowAppendMappings && projectedOutputs[projection.OutputColumnID] {
+				return fmt.Errorf("output %q has more than one input projection", projection.OutputColumnID)
+			}
+			projectedOutputs[projection.OutputColumnID] = true
+		}
+		for _, output := range outputs {
+			if allowAppendMappings {
+				mappedCount := 0
+				missingInput := -1
+				for inputIndex := 0; inputIndex < inputCount; inputIndex++ {
+					if pairs[fmt.Sprintf("%d\x00%s", inputIndex, output.ID)] {
+						mappedCount++
+					} else if missingInput < 0 {
+						missingInput = inputIndex
+					}
+				}
+				if mappedCount == 0 {
+					return fmt.Errorf("append output %q is not mapped from any input", output.ID)
+				}
+				if missingInput >= 0 {
+					if !output.Nullable {
+						return fmt.Errorf("append output %q must be nullable when input %d is absent", output.ID, missingInput)
+					}
+					if !constructionCombineNullableScalarType(output.Type) {
+						return fmt.Errorf("append output %q must have a concrete scalar type when an input is absent", output.ID)
+					}
+				}
+				continue
+			}
+			if !projectedOutputs[output.ID] {
+				return fmt.Errorf("output %q is not projected", output.ID)
+			}
+		}
+		return nil
+	}
+
+	switch combine.Kind {
+	case ConstructionCombineKeyJoin:
+		if inputCount != 2 {
+			return fmt.Errorf("key join requires exactly two table inputs")
+		}
+		if combine.JoinType != ConstructionCombineInnerJoin && combine.JoinType != ConstructionCombineLeftJoin {
+			return fmt.Errorf("key join type must be INNER or LEFT")
+		}
+		if combine.RightMatchPolicy != ConstructionCombinePreserveAllMatches {
+			return fmt.Errorf("key join rightMatchPolicy must be PRESERVE_ALL")
+		}
+		if combine.MembershipMode != "" {
+			return fmt.Errorf("key join does not accept membershipMode")
+		}
+		if err := validateKeys(); err != nil {
+			return err
+		}
+		return validateProjections(false)
+	case ConstructionCombineAppend:
+		if len(combine.Keys) != 0 || combine.JoinType != "" || combine.RightMatchPolicy != "" || combine.MembershipMode != "" {
+			return fmt.Errorf("append does not accept keys, joinType, rightMatchPolicy, or membershipMode")
+		}
+		return validateProjections(true)
+	case ConstructionCombineMembership:
+		if inputCount != 2 {
+			return fmt.Errorf("membership requires exactly two table inputs")
+		}
+		if combine.MembershipMode != ConstructionCombineIncludeMatches && combine.MembershipMode != ConstructionCombineExcludeMatches {
+			return fmt.Errorf("membership mode must be INCLUDE or EXCLUDE")
+		}
+		if combine.JoinType != "" || combine.RightMatchPolicy != "" {
+			return fmt.Errorf("membership does not accept joinType or rightMatchPolicy")
+		}
+		if err := validateKeys(); err != nil {
+			return err
+		}
+		for _, projection := range combine.Projections {
+			if projection.InputIndex != 0 {
+				return fmt.Errorf("membership projections must preserve the left input")
+			}
+		}
+		return validateProjections(false)
+	default:
+		return fmt.Errorf("unsupported combine kind %q", combine.Kind)
+	}
+}
+
+func (v FilterValue) Validate() error {
+	payloads := 0
+	for _, present := range []bool{v.String != nil, v.Code != nil, v.Boolean != nil, v.Integer != nil, v.Decimal != nil, v.Date != nil, v.DateTime != nil} {
+		if present {
+			payloads++
+		}
+	}
+	if payloads != 1 {
+		return fmt.Errorf("filter value must contain exactly one value payload")
+	}
+	switch v.Kind {
+	case ConstructionFilterString:
+		if v.String == nil {
+			return fmt.Errorf("STRING value requires string")
+		}
+	case ConstructionFilterCode:
+		if v.Code == nil || !requiredID(v.Code.Code) {
+			return fmt.Errorf("CODE value requires a non-empty code")
+		}
+	case ConstructionFilterBoolean:
+		if v.Boolean == nil {
+			return fmt.Errorf("BOOLEAN value requires boolean")
+		}
+	case ConstructionFilterInteger:
+		if v.Integer == nil {
+			return fmt.Errorf("INTEGER value requires integer")
+		}
+	case ConstructionFilterDecimal:
+		if v.Decimal == nil || math.IsNaN(*v.Decimal) || math.IsInf(*v.Decimal, 0) {
+			return fmt.Errorf("DECIMAL value requires a finite decimal")
+		}
+	case ConstructionFilterDate:
+		if v.Date == nil || strings.TrimSpace(*v.Date) == "" {
+			return fmt.Errorf("DATE value requires a date")
+		}
+	case ConstructionFilterDateTime:
+		if v.DateTime == nil || strings.TrimSpace(*v.DateTime) == "" {
+			return fmt.Errorf("DATE_TIME value requires a dateTime")
+		}
+	default:
+		return fmt.Errorf("unsupported filter value kind %q", v.Kind)
+	}
+	return nil
 }

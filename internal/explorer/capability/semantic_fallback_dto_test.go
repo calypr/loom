@@ -1,6 +1,7 @@
 package capability_test
 
 import (
+	"github.com/calypr/loom/internal/explorer/construction"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -161,14 +162,14 @@ func TestSemanticFrameFallbackSurvivesProposalRequestAndResponseDTOs(t *testing.
 	mustUnmarshalJSON(t, mustMarshalJSON(t, decodedRequest.CandidateConstruction), &requestAuthoringConstruction)
 	assertConstructionFallback(t, requestAuthoringConstruction, wantFallbacks)
 
-	authoringResponse := lifecycle.ConstructionProposalResponse{
+	authoringResponse := construction.ConstructionProposalResponse{
 		OutputID: "observations", SnapshotToken: "snapshot-token", CandidateConstruction: construction,
 	}
 	responseJSON := mustMarshalJSON(t, authoringResponse)
 	var generatedResponse loomapi.ConstructionProposalResponse
 	mustUnmarshalJSON(t, responseJSON, &generatedResponse)
 	responseWireJSON := mustMarshalJSON(t, generatedResponse)
-	var decodedAuthoringResponse lifecycle.ConstructionProposalResponse
+	var decodedAuthoringResponse construction.ConstructionProposalResponse
 	mustUnmarshalJSON(t, responseWireJSON, &decodedAuthoringResponse)
 	assertConstructionFallback(t, decodedAuthoringResponse.CandidateConstruction, wantFallbacks)
 }

@@ -394,3 +394,5 @@ func CatalogCandidateByID(catalog CatalogSnapshot, id string) (CatalogCandidate,
 	}
 	return CatalogCandidate{}, false
 }
+
+func (s ColumnSource) ValidateSource(path string) error { return s.validate(path) }
