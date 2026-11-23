@@ -525,7 +525,7 @@ func (c Command) validateAddColumnSource() error {
 	if !commandFieldsPresent(c.OutputID, c.OccurrenceID) || c.Source == nil {
 		return fmt.Errorf("ADD_COLUMN_SOURCE requires outputId, occurrenceId, and source")
 	}
-	if err := c.Source.validate("source"); err != nil {
+	if err := c.Source.ValidateSource("source"); err != nil {
 		return err
 	}
 	if c.Contributor != nil {
@@ -540,7 +540,7 @@ func (c Command) validateUpdateColumnSource() error {
 	if !commandFieldsPresent(c.OutputID, c.Column) || c.Source == nil {
 		return fmt.Errorf("UPDATE_COLUMN_SOURCE requires outputId, column, and source")
 	}
-	if err := c.Source.validate("source"); err != nil {
+	if err := c.Source.ValidateSource("source"); err != nil {
 		return err
 	}
 	return nil

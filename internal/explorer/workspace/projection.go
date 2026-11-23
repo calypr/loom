@@ -7,8 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 type Artifact struct {
@@ -57,20 +55,20 @@ func (projection Projection) ContentID() string {
 	return BytesDigest(raw)
 }
 
-func (projection Projection) Validate(source Artifact) (authoringv2.Workspace, error) {
+func (projection Projection) Validate(source Artifact) (Workspace, error) {
 	if projection.Source != source || projection.ID == "" || projection.ID != projection.ContentID() {
-		return authoringv2.Workspace{}, fmt.Errorf("workspace projection does not match its immutable source")
+		return Workspace{}, fmt.Errorf("workspace projection does not match its immutable source")
 	}
-	workspace, err := authoringv2.DecodeCurrentWorkspace(projection.Workspace)
+	workspace, err := DecodeCurrentWorkspace(projection.Workspace)
 	if err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("decode workspace projection: %w", err)
+		return Workspace{}, fmt.Errorf("decode workspace projection: %w", err)
 	}
-	if workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
-		return authoringv2.Workspace{}, fmt.Errorf("workspace projection is not current")
+	if workspace.SemanticsVersion != CurrentSemanticsVersion {
+		return Workspace{}, fmt.Errorf("workspace projection is not current")
 	}
 	digest, err := workspace.Digest()
 	if err != nil || digest != projection.Digest {
-		return authoringv2.Workspace{}, fmt.Errorf("workspace projection digest mismatch")
+		return Workspace{}, fmt.Errorf("workspace projection digest mismatch")
 	}
 	return workspace, nil
 }

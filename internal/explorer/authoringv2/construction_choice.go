@@ -37,7 +37,7 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	}
 	label := strings.TrimSpace(command.Title)
 	if label == "" {
-		label = strings.TrimSpace(source.fieldPath())
+		label = strings.TrimSpace(source.FieldPath())
 	}
 	if label == "" {
 		label = source.Kind
@@ -186,18 +186,4 @@ func ensureConstructionRoute(document *Document, catalog CatalogSnapshot, comman
 		return "", fmt.Errorf("construction route terminal does not match the selected candidate")
 	}
 	return current.OccurrenceID, nil
-}
-
-func catalogNodeForConstructionRoot(catalog CatalogSnapshot, resourceType string) (CatalogNode, bool) {
-	var result CatalogNode
-	for _, node := range catalog.Nodes {
-		if !node.RowRootEligible || node.ResourceType != resourceType {
-			continue
-		}
-		if result.ID != "" {
-			return CatalogNode{}, false
-		}
-		result = node
-	}
-	return result, result.ID != ""
 }

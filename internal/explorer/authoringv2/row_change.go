@@ -911,19 +911,6 @@ func routeOccurrences(route RouteNode, resourceType string) []RouteNode {
 	return result
 }
 
-func routePath(route RouteNode, occurrenceID string) ([]RouteNode, bool) {
-	if route.OccurrenceID == occurrenceID {
-		return []RouteNode{route}, true
-	}
-	for _, child := range route.Children {
-		path, found := routePath(child, occurrenceID)
-		if found {
-			return append([]RouteNode{route}, path...), true
-		}
-	}
-	return nil, false
-}
-
 func routeChildrenWithout(route RouteNode, occurrenceID string) []RouteNode {
 	children := make([]RouteNode, 0, len(route.Children))
 	for _, child := range route.Children {

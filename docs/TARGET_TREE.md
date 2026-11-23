@@ -28,9 +28,9 @@ Landed on `internal-cleanup`:
 - 3A dead-code deletion.
 - 3C: `foundation/httpctx`, `dataframe/errors/authpolicy`, `server/sourcepublication`, `dataframe/recipeauth`, `dataframe/fielddiscovery`, `authscope` option move, `recipe/exec` merge, `viewbuilder` merge.
 - 3D: `catalog/discoverycache`, `internal/digest`, `explorer/config`, `explorer/selection`, `dataframe/semantic` -> `dataframe/recipeplan`, semantic package consolidation, ingest root split into `row`/`identity`/`source`/`bootstrap`/`event`, compiler facade, `cmd/arango-maintenance` merge.
-- 3C real moves (facade removal): semantic inventory/coverage persistence into `semantic/arango`; selection persistence and codec into `explorer/arango/selectiondb` + `explorer/arango/db`; revisions and explorer CRUD into `explorer/arango/workspacedb`; receipt proposal bindings, compilation receipt, and workspace method into `explorer/receiptmodel`; project config model and canonical JSON into `explorer/config`; view-builder DTOs into `explorer/viewer`; explicit-group model into `explorer/selection`; interpretation model into `explorer/interpretation`; workspace projection DTOs into `explorer/workspace`; compilation-receipt persistence into `explorer/arango/publicationdb`; workspace audit into `explorer/arango/workspacedb`.
+- 3C real moves (facade removal): semantic inventory/coverage persistence into `semantic/arango`; authoring workspace model, codec, and stored migrations into `explorer/workspace`; selection persistence and codec into `explorer/arango/selectiondb` + `explorer/arango/db`; revisions and explorer CRUD into `explorer/arango/workspacedb`; receipt proposal bindings, compilation receipt, and workspace method into `explorer/receiptmodel`; project config model and canonical JSON into `explorer/config`; view-builder DTOs into `explorer/viewer`; explicit-group model into `explorer/selection`; interpretation model into `explorer/interpretation`; workspace projection DTOs into `explorer/workspace`; compilation-receipt persistence into `explorer/arango/publicationdb`; workspace audit into `explorer/arango/workspacedb`.
 
-Still pending: the `explorer/workspace` authoring model, lifecycle splits, 3E shapes, 3F interfaces, 3U UI, full acceptance.
+Still pending: lifecycle splits, 3E shapes, 3F interfaces, 3U UI, full acceptance.
 
 ## Allowed layers
 

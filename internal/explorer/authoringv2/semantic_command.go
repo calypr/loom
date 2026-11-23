@@ -73,7 +73,7 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		}
 		source := plan.Source.Normalized()
 		source.Lookup.ProjectionMode = strings.ToUpper(strings.TrimSpace(selection.ProjectionMode))
-		if err := source.validate("semantic selection source"); err != nil {
+		if err := source.ValidateSource("semantic selection source"); err != nil {
 			return CommandResult{}, err
 		}
 		if err := validateEditableSourcePolicy(*document, catalogSnapshot, occurrenceID, source, true); err != nil {
@@ -397,18 +397,6 @@ func relativeSemanticPath(ownerPath, fullPath string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(fullPath, prefix), true
-}
-
-func qualifySemanticPath(ownerPath, relativePath string) string {
-	ownerPath = strings.Trim(strings.TrimSpace(ownerPath), ".")
-	relativePath = strings.Trim(strings.TrimSpace(relativePath), ".")
-	if ownerPath == "" {
-		return relativePath
-	}
-	if relativePath == "" {
-		return ownerPath
-	}
-	return ownerPath + "." + relativePath
 }
 
 func semanticReadyPlan(source ColumnSource, logicalType, observationStatus string) SemanticSelectionPlan {

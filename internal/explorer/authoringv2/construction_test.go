@@ -147,7 +147,7 @@ func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
 		t.Fatalf("grouped document public columns/source projections = %d/%#v", len(grouped.Columns), grouped.Construction.SourceProjections)
 	}
 	source, err := constructionSourceColumnsWithChildrenAndProjections(grouped.Columns, grouped.Construction.SourceProjections,
-		grouped.Construction.Steps[0].Operation.inputColumnIDs(), grouped.Construction.Steps[0].Outputs)
+		grouped.Construction.Steps[0].Operation.InputColumnIDs(), grouped.Construction.Steps[0].Outputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,7 @@ func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
 	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "stored-data migration") {
 		t.Fatalf("mixed construction modes error = %v", err)
 	}
-	if err := document.validate(true); err == nil || !strings.Contains(err.Error(), "cannot both define") {
+	if err := document.ValidateAllowArchive(); err == nil || !strings.Contains(err.Error(), "cannot both define") {
 		t.Fatalf("offline mixed modes error = %v", err)
 	}
 
@@ -461,7 +461,7 @@ func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
 
 func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T) {
 	legacy := legacyPivotDocument()
-	if err := legacy.validate(true); err != nil {
+	if err := legacy.ValidateAllowArchive(); err != nil {
 		t.Fatalf("legacy document is invalid: %v", err)
 	}
 	original := legacy
@@ -563,7 +563,7 @@ func TestUpgradeRejectsExcludeWithEvidenceTableShapeBeforeCompilation(t *testing
 	before := legacy
 	before.Columns = append([]Column(nil), legacy.Columns...)
 	before.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
-	if err := legacy.validate(true); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
+	if err := legacy.ValidateAllowArchive(); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
 		t.Fatalf("document validation accepted an unupgradable tableShape pivot policy: %v", err)
 	}
 	if _, err := migrateStoredDocumentFixture(legacy); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {

@@ -139,8 +139,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/arango/workspacedb': 'Expose the Explorer workspace/revision Arango boundary.',
  'internal/explorer/artifactfs': 'Persist and serve immutable Explorer training artifacts from a dedicated filesystem '
                                  'root.',
- 'internal/explorer/authoringv2': 'Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring '
-                                  'workspace.',
+ 'internal/explorer/authoringv2': 'Apply commands and proposals to the V2 Explorer Builder authoring workspace.',
  'internal/explorer/capability': 'Build the immutable compiler-backed capability contract exposed to Explorer Builder.',
  'internal/explorer/capability/resolver': 'Resolve scoped Explorer capability snapshots and compiler-proven catalog '
                                           'evidence.',
@@ -171,7 +170,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/selection': 'Own selection intents, revisions, membership digests, and validation.',
  'internal/explorer/semanticbrowse': 'Own semantic inventory browse and field-presentation DTOs.',
  'internal/explorer/viewer': 'Own Explorer viewer state, runtime DTOs, and shared presentation types.',
- 'internal/explorer/workspace': 'Expose the versioned authoring workspace model and codecs.',
+ 'internal/explorer/workspace': 'Define, validate, canonicalize, and migrate the versioned authoring workspace model.',
  'internal/fhir/binding': 'Validate correlated, identifier, quantity, and pivot FHIR bindings.',
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
                          'metadata.',
