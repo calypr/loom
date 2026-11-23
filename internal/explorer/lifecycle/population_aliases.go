@@ -5,7 +5,7 @@ import "github.com/calypr/loom/internal/explorer/population"
 var ErrPopulationMappingCursorUnavailable = population.ErrPopulationMappingCursorUnavailable
 
 type PopulationMappingCursor = population.PopulationMappingCursor
-type PopulationMappingCursorCodec = population.PopulationMappingCursorCodec
+type PopulationMappingCursorCodec = population.HMACPopulationMappingCursorCodec
 type HMACPopulationMappingCursorCodec = population.HMACPopulationMappingCursorCodec
 
 func NewHMACPopulationMappingCursorCodec(secret string) (*HMACPopulationMappingCursorCodec, error) {

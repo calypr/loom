@@ -67,7 +67,7 @@ type Config struct {
 	ScanCategories               CategoryScanner
 	ScanColumnPopulation         ColumnPopulationScanner
 	PopulationMapping            PopulationMappingExecutor
-	PopulationMappingCursorCodec PopulationMappingCursorCodec
+	PopulationMappingCursorCodec *PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
 	RowLineage                   RowLineageExecutor
 	MaterializeReceipt           ports.ReceiptMaterializer

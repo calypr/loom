@@ -26,11 +26,6 @@ type PopulationMappingCursor struct {
 	MemberKey           string `json:"memberKey"`
 }
 
-type PopulationMappingCursorCodec interface {
-	Encode(PopulationMappingCursor) (string, error)
-	Decode(string) (PopulationMappingCursor, error)
-}
-
 type HMACPopulationMappingCursorCodec struct {
 	key []byte
 }
