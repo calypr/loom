@@ -1,8 +1,9 @@
 package arango
 
 import (
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
 )

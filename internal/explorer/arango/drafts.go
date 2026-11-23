@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
-	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"

@@ -3,10 +3,11 @@ package arango
 import (
 	"context"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"testing"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"

@@ -2,10 +2,11 @@ package arango
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
 	storepkg "github.com/calypr/loom/internal/store/arango"

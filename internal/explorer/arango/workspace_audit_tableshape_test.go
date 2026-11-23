@@ -3,11 +3,13 @@ package arango
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 )
 
 func TestWorkspaceAuditCountsTableShapeDraftsAndRevisions(t *testing.T) {
 	workspace := json.RawMessage("{\"apiVersion\":\"loom.calypr.org/explorer-authoring/v2\",\"kind\":\"ExplorerBuilderWorkspace\",\"semanticsVersion\":9,\"explorer\":{\"title\":\"Legacy\"},\"documents\":[{\"kind\":\"ExplorerBuilderDocument\",\"tableShape\":{\"kind\":\"PIVOT\"}},{\"kind\":\"ExplorerBuilderDocument\",\"tableShape\":null}]}")
-	report := WorkspaceAuditReport{}
+	report := workspacedb.WorkspaceAuditReport{}
 	for _, collection := range []string{ExplorersCollection, DraftRevisionsCollection, RevisionsCollection} {
 		field := "draftConfig"
 		if collection == RevisionsCollection {
@@ -31,7 +33,7 @@ func TestWorkspaceAuditCountsTableShapeDraftsAndRevisions(t *testing.T) {
 func TestWorkspaceAuditSeparatesDiscoveredTableShapeCopies(t *testing.T) {
 	workspace := json.RawMessage("{\"apiVersion\":\"loom.calypr.org/explorer-authoring/v2\",\"kind\":\"ExplorerBuilderWorkspace\",\"semanticsVersion\":9,\"explorer\":{\"title\":\"Copy\"},\"documents\":[{\"kind\":\"ExplorerBuilderDocument\",\"tableShape\":{\"kind\":\"PIVOT\"}}]}")
 	document, _ := json.Marshal(map[string]any{"_key": "other", "payload": map[string]any{"workspace": workspace}})
-	report := WorkspaceAuditReport{}
+	report := workspacedb.WorkspaceAuditReport{}
 	if err := report.ObserveWorkspaceAuditDocument("unknown_collection", document); err != nil {
 		t.Fatal(err)
 	}

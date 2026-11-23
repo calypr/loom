@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
-	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,6 +11,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	store "github.com/calypr/loom/internal/store/arango"

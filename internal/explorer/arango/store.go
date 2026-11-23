@@ -3,12 +3,15 @@ package arango
 import (
 	"context"
 	"fmt"
+
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
 	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
-	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -62,3 +65,8 @@ func explorerKey(project, id string) string { return "explorer_" + db.Key(projec
 
 var _ explorer.ExplorerStore = (*Store)(nil)
 var _ explorer.DraftRevisionReader = (*Store)(nil)
+
+func (s *Store) ValidateSelectionReferences(ctx context.Context, project, generation string, scope authscope.ReadScope, refs []explorerselection.ResourceRef) error {
+	selectionStore := selectiondb.NewSelectionStore(s.client)
+	return selectionStore.ValidateSelectionReferences(ctx, project, generation, scope, refs)
+}

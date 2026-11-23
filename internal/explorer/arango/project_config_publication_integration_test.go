@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	publicationdata "github.com/calypr/loom/internal/dataframe/publication"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"

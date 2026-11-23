@@ -2,8 +2,9 @@ package arango
 
 import (
 	"errors"
-	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/projectconfig"

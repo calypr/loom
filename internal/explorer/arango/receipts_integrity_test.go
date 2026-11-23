@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/explorer/arango/db"
-	storepkg "github.com/calypr/loom/internal/store/arango"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	storepkg "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/calypr/loom/internal/explorer"
 )

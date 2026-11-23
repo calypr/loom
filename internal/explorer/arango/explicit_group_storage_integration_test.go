@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"

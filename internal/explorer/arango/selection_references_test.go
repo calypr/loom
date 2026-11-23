@@ -3,9 +3,10 @@ package arango
 import (
 	"context"
 	"errors"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"testing"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
 	store "github.com/calypr/loom/internal/store/arango"

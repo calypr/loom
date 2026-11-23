@@ -3,19 +3,23 @@ package arango
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
 const workspaceProjectionCollection = db.WorkspaceProjectionsCollection
+
 const workspaceMigrationVersion = "wp18_workspace_v1"
+
 const workspaceMigrationLedger = "loom_schema_migrations"
 
 func workspaceProjectionCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{Name: workspaceProjectionCollection}
 }
+
+var _ explorer.WorkspaceProjectionReader = (*Store)(nil)
 
 func (s *Store) WorkspaceProjection(ctx context.Context, source explorer.WorkspaceArtifact) (explorer.WorkspaceProjection, error) {
 	var projection *explorer.WorkspaceProjection
@@ -64,5 +68,3 @@ FOR projection IN @@projections
 	}
 	return *projection, nil
 }
-
-var _ explorer.WorkspaceProjectionReader = (*Store)(nil)

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -90,7 +92,7 @@ func TestInsertCompilationReceiptReturnsWinnerFromConcurrentIdenticalWriters(t *
 		if result.err != nil {
 			t.Fatalf("InsertCompilationReceipt() error = %v", result.err)
 		}
-		if result.receipt == nil || !sameReceipt(*result.receipt, receipt) {
+		if result.receipt == nil || !publicationdb.SameReceipt(*result.receipt, receipt) {
 			t.Fatalf("InsertCompilationReceipt() = %#v, want receipt %q", result.receipt, receipt.ID)
 		}
 	}
@@ -112,7 +114,7 @@ func TestInsertCompilationReceiptRetriesOnlyArangoConflict(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InsertCompilationReceipt() error = %v", err)
 		}
-		if stored == nil || !sameReceipt(*stored, receipt) {
+		if stored == nil || !publicationdb.SameReceipt(*stored, receipt) {
 			t.Fatalf("InsertCompilationReceipt() = %#v, want receipt %q", stored, receipt.ID)
 		}
 		if calls := client.insertCallCount(); calls != 3 {
@@ -134,8 +136,8 @@ func TestInsertCompilationReceiptRetriesOnlyArangoConflict(t *testing.T) {
 		if !shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
 			t.Fatalf("InsertCompilationReceipt() error = %v, want Arango conflict", err)
 		}
-		if calls := client.insertCallCount(); calls != compilationReceiptInsertMaxAttempts {
-			t.Fatalf("insert calls = %d, want bounded maximum %d", calls, compilationReceiptInsertMaxAttempts)
+		if calls := client.insertCallCount(); calls != publicationdb.CompilationReceiptInsertMaxAttempts {
+			t.Fatalf("insert calls = %d, want bounded maximum %d", calls, publicationdb.CompilationReceiptInsertMaxAttempts)
 		}
 	})
 }

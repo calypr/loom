@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
