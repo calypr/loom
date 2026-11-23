@@ -2,9 +2,11 @@ package authoringv2
 
 import (
 	"fmt"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func applyAddRoute(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyAddRoute(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -41,11 +43,11 @@ func applyAddRoute(workspace *Workspace, catalog CatalogSnapshot, commandID stri
 	if findRoute(&workspace.Documents[document].Route, occurrenceID) != nil {
 		return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
 	}
-	parent.Children = append(parent.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label})
+	parent.Children = append(parent.Children, ws.RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label})
 	return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
 }
 
-func applyUpdateRouteEdge(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateRouteEdge(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -85,14 +87,14 @@ func applyUpdateRouteEdge(workspace *Workspace, catalog CatalogSnapshot, command
 	return result, nil
 }
 
-func applySetRouteMatchMode(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetRouteMatchMode(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID())
-	if occurrence == nil || occurrence.OccurrenceID == RootOccurrenceID {
+	if occurrence == nil || occurrence.OccurrenceID == ws.RootOccurrenceID {
 		return result, fmt.Errorf("non-root route occurrence %q was not found", command.OccurrenceID())
 	}
 	occurrence.MatchMode = command.MatchMode().Normalized()
@@ -100,7 +102,7 @@ func applySetRouteMatchMode(workspace *Workspace, catalog CatalogSnapshot, comma
 	return result, nil
 }
 
-func applyRemoveRoute(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRemoveRoute(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {

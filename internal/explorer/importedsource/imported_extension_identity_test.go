@@ -4,7 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
@@ -58,7 +59,7 @@ func TestSavedExtensionIdentitiesSurviveCorrelatedCompiler(t *testing.T) {
 			schemas[output.Name] = append(schemas[output.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "DocumentReference"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "DocumentReference"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -19,10 +21,10 @@ func workspaceProjectionCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{Name: workspaceProjectionCollection}
 }
 
-var _ explorer.WorkspaceProjectionReader = (*Store)(nil)
+var _ workspacepkg.ProjectionReader = (*Store)(nil)
 
-func (s *Store) WorkspaceProjection(ctx context.Context, source explorer.WorkspaceArtifact) (explorer.WorkspaceProjection, error) {
-	var projection *explorer.WorkspaceProjection
+func (s *Store) WorkspaceProjection(ctx context.Context, source workspacepkg.Artifact) (workspacepkg.Projection, error) {
+	var projection *workspacepkg.Projection
 	err := s.client.QueryRows(ctx, `LET migrations = (
  FOR migration IN @@ledger FILTER migration._key IN [@encodingVersion,@constructionVersion] RETURN migration
 )
@@ -37,7 +39,7 @@ FOR projection IN @@projections
 		map[string]any{"@ledger": workspaceMigrationLedger, "encodingVersion": workspaceMigrationVersion,
 			"constructionVersion": tableShapeWorkspaceMigrationVersion, "@projections": workspaceProjectionCollection,
 			"encodingKey": source.Key(), "constructionKey": tableShapeConstructionTarget.projectionKey(source)}, func(row map[string]any) error {
-			value, err := db.DecodeMigrationJSON[explorer.WorkspaceProjection](row["projection"])
+			value, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["projection"])
 			if err != nil {
 				return err
 			}
@@ -61,10 +63,10 @@ FOR projection IN @@projections
 			return nil
 		})
 	if err != nil {
-		return explorer.WorkspaceProjection{}, fmt.Errorf("load immutable workspace projection: %w", err)
+		return workspacepkg.Projection{}, fmt.Errorf("load immutable workspace projection: %w", err)
 	}
 	if projection == nil {
-		return explorer.WorkspaceProjection{}, explorer.ErrNotFound
+		return workspacepkg.Projection{}, explorer.ErrNotFound
 	}
 	return *projection, nil
 }

@@ -6,7 +6,8 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/rowdef"
@@ -37,19 +38,19 @@ const RowChoiceFieldGroup = rowdef.RowChoiceFieldGroup
 
 const RowChoiceExpanded = rowdef.RowChoiceExpanded
 
-func (s *Service) ConstructionHasFilterSourceInput(construction authoringv2.Construction) bool {
+func (s *Service) ConstructionHasFilterSourceInput(construction ws.Construction) bool {
 	return ConstructionHasFilterSourceInput(construction)
 }
 
-func (s *Service) ConstructionHasDeriveSourceInput(construction authoringv2.Construction) bool {
+func (s *Service) ConstructionHasDeriveSourceInput(construction ws.Construction) bool {
 	return ConstructionHasDeriveSourceInput(construction)
 }
 
-func (s *Service) ConstructionHasExpandSourceInput(construction authoringv2.Construction) bool {
+func (s *Service) ConstructionHasExpandSourceInput(construction ws.Construction) bool {
 	return ConstructionHasExpandSourceInput(construction)
 }
 
-func (s *Service) ConstructionHasUnpivotSourceInput(construction authoringv2.Construction) bool {
+func (s *Service) ConstructionHasUnpivotSourceInput(construction ws.Construction) bool {
 	return ConstructionHasUnpivotSourceInput(construction)
 }
 
@@ -100,7 +101,7 @@ func (s *Service) ConstructionDeriveSourceCapability(
 				enumeration.skip(rowSourceSkipVersion)
 				continue
 			}
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
+			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
 				enumeration.skip(rowSourceSkipRoute)
 				continue
@@ -142,16 +143,16 @@ func (s *Service) ResolveConstructionDeriveSource(
 	request ProposalRequest,
 	acceptedStageID string,
 	selection ConstructionDeriveSourceSelection,
-) (authoringv2.ConstructionSourceProjection, error) {
+) (ws.ConstructionSourceProjection, error) {
 	identity, err := capability.DecodeRowChoiceID(selection.ChoiceID)
 	if err != nil {
-		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "the selected derive source field choice is invalid", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "the selected derive source field choice is invalid", nil, err)
 	}
 	if s.config.RowChoiceResolver == nil {
-		return authoringv2.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized derive source choice resolution is not configured", nil)
+		return ws.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized derive source choice resolution is not configured", nil)
 	}
 	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
-		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, nil)
 	}
 	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
@@ -159,36 +160,36 @@ func (s *Service) ResolveConstructionDeriveSource(
 		RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
 	})
 	if resolveErr != nil || identity.Kind != capability.RowChoiceFieldGroupKey ||
-		identity.Occurrence.OccurrenceID != authoringv2.RootOccurrenceID ||
+		identity.Occurrence.OccurrenceID != ws.RootOccurrenceID ||
 		identity.Path != resolved.FieldPath || identity.Reference ||
 		identity.Cardinality != capability.RowChoiceOne || identity.Shape != capability.RowChoiceScalar ||
-		resolved.OccurrenceID != authoringv2.RootOccurrenceID {
-		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, resolveErr)
+		resolved.OccurrenceID != ws.RootOccurrenceID {
+		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, resolveErr)
 	}
 	rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
 	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
-		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_DERIVE_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
 	}
 	candidate, found := uniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
 	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
 		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-		return authoringv2.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_DERIVE_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_DERIVE_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
 	}
 	if !deriveSourceLogicalTypeIsNumeric(candidate.LogicalType) {
-		return authoringv2.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_DERIVE_SOURCE_FIELD", "the selected root field is not an integer or decimal scalar source field", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_DERIVE_SOURCE_FIELD", "the selected root field is not an integer or decimal scalar source field", nil)
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		return authoringv2.ConstructionSourceProjection{}, unavailable("construction-proposal", "FHIR_SCHEMA_UNAVAILABLE", "FHIR field metadata is unavailable", err)
+		return ws.ConstructionSourceProjection{}, unavailable("construction-proposal", "FHIR_SCHEMA_UNAVAILABLE", "FHIR field metadata is unavailable", err)
 	}
 	facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootNode.ResourceType), resolved.FieldPath)
 	if err != nil || facts.CanonicalPath != resolved.FieldPath || facts.Shape != fhirschema.RowPathScalar ||
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
-		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_DERIVE_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_DERIVE_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 	}
 	label := constructionFieldDisplayLabel(base.Document.RootResourceType, facts.CanonicalPath, candidate.Label)
-	return authoringv2.ConstructionSourceProjection{
+	return ws.ConstructionSourceProjection{
 		ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 		FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
 	}, nil
@@ -198,50 +199,50 @@ func (s *Service) ConstructionCandidateWithDeriveSources(
 	ctx context.Context,
 	base Base,
 	request ProposalRequest,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, error) {
+	candidate ws.Construction,
+) (ws.Construction, error) {
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
 	applyDeriveSources := request.DeriveSources != nil && changedIndex >= 0 &&
-		candidate.Steps[changedIndex].Operation.Kind == authoringv2.ConstructionOperationDerive
+		candidate.Steps[changedIndex].Operation.Kind == ws.ConstructionOperationDerive
 	candidate = preserveConstructionOwnedInputs(base.Construction, candidate, "")
 	if !applyDeriveSources {
 		return candidate, nil
 	}
 	derive := candidate.Steps[changedIndex].Operation.Derive
 	if derive == nil {
-		return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_REQUIRES_DERIVE", "deriveSources can only be applied to a Derive step", nil)
+		return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_REQUIRES_DERIVE", "deriveSources can only be applied to a Derive step", nil)
 	}
 	if len(request.DeriveSources) == 0 {
 		cleared, err := clearConstructionDeriveOwnedSources(base.Construction, candidate, request.ChangedStepID)
 		if err != nil {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+			return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
 		return cleared, nil
 	}
 	acceptedStageID := constructionStepInputStageID(candidate.Steps[changedIndex])
 	if acceptedStageID == "" {
-		return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_STAGE_UNAVAILABLE", "the Derive input stage cannot be resolved", nil)
+		return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_STAGE_UNAVAILABLE", "the Derive input stage cannot be resolved", nil)
 	}
 	if _, found := constructionReceiptStage(base.Stages, acceptedStageID); !found {
-		return authoringv2.Construction{}, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the derive source choices are not bound to an accepted stage", nil, nil)
+		return ws.Construction{}, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the derive source choices are not bound to an accepted stage", nil, nil)
 	}
 	operandIDs := deriveOperandColumnIDs(derive)
 	if len(request.DeriveSources) > len(operandIDs) {
-		return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_COLUMN_MISMATCH",
+		return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_COLUMN_MISMATCH",
 			fmt.Sprintf("deriveSources carries %d selections but the edited Derive step consumes %d column operands", len(request.DeriveSources), len(operandIDs)), nil)
 	}
 	for _, selection := range request.DeriveSources {
 		if !containsConstructionColumnIDLocal(operandIDs, selection.ColumnID) {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_COLUMN_MISMATCH",
+			return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_COLUMN_MISMATCH",
 				fmt.Sprintf("deriveSources columnId %q is not a column operand of the edited Derive step", selection.ColumnID), nil)
 		}
 	}
 
-	resolved := make([]authoringv2.ConstructionSourceProjection, 0, len(request.DeriveSources))
+	resolved := make([]ws.ConstructionSourceProjection, 0, len(request.DeriveSources))
 	for _, selection := range request.DeriveSources {
 		projection, err := s.ResolveConstructionDeriveSource(ctx, base, request, acceptedStageID, selection)
 		if err != nil {
-			return authoringv2.Construction{}, err
+			return ws.Construction{}, err
 		}
 		resolved = append(resolved, projection)
 	}
@@ -263,7 +264,7 @@ func (s *Service) ConstructionCandidateWithDeriveSources(
 		reowned[projection.ColumnID] = true
 	}
 
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(base.Construction.SourceProjections)+len(resolved))
+	projections := make([]ws.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(base.Construction.SourceProjections)+len(resolved))
 	for _, projection := range candidate.SourceProjections {
 		if projection.OwnerStepID != request.ChangedStepID {
 			projections = append(projections, projection)
@@ -279,19 +280,19 @@ func (s *Service) ConstructionCandidateWithDeriveSources(
 
 	for _, projection := range resolved {
 		if constructionRootFieldAlreadyProjected(base.Document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_FIELD_ALREADY_PROJECTED",
+			return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_FIELD_ALREADY_PROJECTED",
 				fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this operand", projection.FieldPath), nil)
 		}
 	}
 
-	steps := make([]authoringv2.ConstructionStep, len(candidate.Steps))
+	steps := make([]ws.ConstructionStep, len(candidate.Steps))
 	copy(steps, candidate.Steps)
 	for index := 0; index <= changedIndex; index++ {
 		step := &steps[index]
-		if !authoringv2.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
+		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
+			return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
 		}
-		outputs := make([]authoringv2.StageColumn, 0, len(step.Outputs)+len(resolved))
+		outputs := make([]ws.StageColumn, 0, len(step.Outputs)+len(resolved))
 		for _, output := range step.Outputs {
 			if droppedOwned[output.ID] && !reowned[output.ID] {
 				continue
@@ -299,8 +300,8 @@ func (s *Service) ConstructionCandidateWithDeriveSources(
 			outputs = append(outputs, output)
 		}
 		for _, projection := range resolved {
-			outputs = appendStageColumnIfAbsent(outputs, authoringv2.StageColumn{
-				ID: projection.ColumnID, Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID),
+			outputs = appendStageColumnIfAbsent(outputs, ws.StageColumn{
+				ID: projection.ColumnID, Name: ws.ConstructionSourceProjectionName(projection.ColumnID),
 				Label: projection.Label, Type: projection.LogicalType,
 			})
 		}
@@ -309,12 +310,12 @@ func (s *Service) ConstructionCandidateWithDeriveSources(
 
 	candidate.Steps, candidate.SourceProjections = steps, projections
 	if err := validateDeriveSourceColumns(candidate.Steps, request.ChangedStepID, request.DeriveSources); err != nil {
-		return authoringv2.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_COLUMN_MISMATCH", err.Error(), err)
+		return ws.Construction{}, unprocessable("construction-proposal", "DERIVE_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, nil
 }
 
-func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {
+func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized derive source choice planning is not configured", nil)
 	}
@@ -329,7 +330,7 @@ func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base
 			return fmt.Errorf("derive source projection %q names a missing owner step", projection.ColumnID)
 		}
 		step := construction.Steps[index]
-		if step.Operation.Kind != authoringv2.ConstructionOperationDerive {
+		if step.Operation.Kind != ws.ConstructionOperationDerive {
 			continue
 		}
 		if step.Operation.Derive == nil || !containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID) {
@@ -344,7 +345,7 @@ func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base
 		}
 		matched := false
 		for _, choice := range choices {
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
+			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) != canonicalRowPath(projection.FieldPath) {
 				continue
 			}
@@ -355,7 +356,7 @@ func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base
 			if !ok {
 				continue
 			}
-			expected := authoringv2.ConstructionSourceProjection{
+			expected := ws.ConstructionSourceProjection{
 				ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 				OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
 				FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,

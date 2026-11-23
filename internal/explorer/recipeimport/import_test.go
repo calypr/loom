@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T) {
@@ -44,7 +45,7 @@ func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T)
 	if encodeErr != nil {
 		t.Fatal(encodeErr)
 	}
-	restored, decodeErr := authoringv2.DecodeWorkspace(canonical)
+	restored, decodeErr := ws.DecodeWorkspace(canonical)
 	if decodeErr != nil {
 		t.Fatalf("decode imported workspace: %v", decodeErr)
 	}
@@ -59,7 +60,7 @@ func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T)
 	if len(workspace.Documents) != len(bundle.Outputs) {
 		t.Fatalf("documents = %d, want %d", len(workspace.Documents), len(bundle.Outputs))
 	}
-	var document authoringv2.Document
+	var document ws.Document
 	for _, candidate := range workspace.Documents {
 		if candidate.ImportedRecipe.Output == "GroupMember" {
 			document = candidate
@@ -80,7 +81,7 @@ func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T)
 		t.Fatalf("columns = %d, want %d", len(document.Columns), len(stage))
 	}
 	for i, column := range document.Columns {
-		if column.ColumnID != stage[i].ID || column.Source.Kind != authoringv2.SourceImported || column.Source.Imported == nil || column.Source.Imported.OutputColumn != stage[i].Name {
+		if column.ColumnID != stage[i].ID || column.Source.Kind != ws.SourceImported || column.Source.Imported == nil || column.Source.Imported.OutputColumn != stage[i].Name {
 			t.Errorf("column %d does not preserve stable resolved source identity: %#v", i, column)
 		}
 	}
@@ -115,7 +116,7 @@ func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T)
 		for _, child := range imported.Route.Children {
 			if child.ResourceType == "ResearchStudy" && child.Relationship == "subject_ResearchStudy" {
 				found = true
-				if child.CatalogEdgeID != "" || child.MatchMode != authoringv2.RouteMatchOptional {
+				if child.CatalogEdgeID != "" || child.MatchMode != ws.RouteMatchOptional {
 					t.Fatalf("unobserved optional traversal has fake catalog authority or wrong mode: %#v", child)
 				}
 			}
@@ -126,7 +127,7 @@ func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T)
 	}
 }
 
-func catalogForBundle(bundle recipe.Bundle) authoringv2.CatalogSnapshot {
+func catalogForBundle(bundle recipe.Bundle) ws.CatalogSnapshot {
 	resourceIDs := map[string]string{}
 	for _, output := range bundle.Outputs {
 		resourceIDs[output.RootResourceType] = "node_" + output.RootResourceType
@@ -141,9 +142,9 @@ func catalogForBundle(bundle recipe.Bundle) authoringv2.CatalogSnapshot {
 	for _, output := range bundle.Outputs {
 		addResourceTypes(output.Traversals)
 	}
-	var catalog authoringv2.CatalogSnapshot
+	var catalog ws.CatalogSnapshot
 	for resource, id := range resourceIDs {
-		catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: id, ResourceType: resource})
+		catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: id, ResourceType: resource})
 	}
 	seen := map[string]bool{}
 	var add func(from string, traversals []recipe.Traversal)
@@ -156,7 +157,7 @@ func catalogForBundle(bundle recipe.Bundle) authoringv2.CatalogSnapshot {
 			key := from + "\x00" + label + "\x00" + traversal.ToResourceType
 			if !seen[key] {
 				seen[key] = true
-				catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{ID: "edge_" + label + "_" + traversal.ToResourceType, FromNodeID: resourceIDs[from], ToNodeID: resourceIDs[traversal.ToResourceType], Label: label})
+				catalog.Edges = append(catalog.Edges, ws.CatalogEdge{ID: "edge_" + label + "_" + traversal.ToResourceType, FromNodeID: resourceIDs[from], ToNodeID: resourceIDs[traversal.ToResourceType], Label: label})
 			}
 			add(traversal.ToResourceType, traversal.Traversals)
 		}
@@ -169,12 +170,12 @@ func catalogForBundle(bundle recipe.Bundle) authoringv2.CatalogSnapshot {
 
 func TestImportRejectsAmbiguousTraversalEdgeAndAllowsSchemaOnlyEdge(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "seed", TranslationVersion: "v1", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Patient", RowGrain: "RECORD", Traversals: []recipe.Traversal{{Name: "subject", ToResourceType: "Observation"}}}}}
-	base := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient"}, {ID: "observation", ResourceType: "Observation"}}, Edges: []authoringv2.CatalogEdge{{ID: "e1", FromNodeID: "patient", ToNodeID: "observation", Label: "subject"}}}
+	base := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "patient", ResourceType: "Patient"}, {ID: "observation", ResourceType: "Observation"}}, Edges: []ws.CatalogEdge{{ID: "e1", FromNodeID: "patient", ToNodeID: "observation", Label: "subject"}}}
 	_, err := ImportWorkspace(bundle, base, map[string][]recipe.StageColumn{"out": {}})
 	if err != nil {
 		t.Fatalf("schema-only edge was rejected: %v", err)
 	}
-	base.Edges = append(base.Edges, authoringv2.CatalogEdge{ID: "e2", FromNodeID: "patient", ToNodeID: "observation", Label: "subject"})
+	base.Edges = append(base.Edges, ws.CatalogEdge{ID: "e2", FromNodeID: "patient", ToNodeID: "observation", Label: "subject"})
 	if _, err := ImportWorkspace(bundle, base, map[string][]recipe.StageColumn{"out": {}}); err == nil {
 		t.Fatal("ambiguous traversal edges accepted")
 	}
@@ -182,7 +183,7 @@ func TestImportRejectsAmbiguousTraversalEdgeAndAllowsSchemaOnlyEdge(t *testing.T
 
 func TestImportRetainsOptionalConfiguredTraversalWithoutObservedEdge(t *testing.T) {
 	output := recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "RECORD", Traversals: []recipe.Traversal{{Name: "subject_ResearchStudy", ToResourceType: "ResearchStudy"}}}
-	catalog := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "document-reference", ResourceType: "DocumentReference"}, {ID: "research-study", ResourceType: "ResearchStudy"}}}
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "document-reference", ResourceType: "DocumentReference"}, {ID: "research-study", ResourceType: "ResearchStudy"}}}
 	route, err := ImportRoute(output, catalog)
 	if err != nil {
 		t.Fatalf("ImportRoute with absent optional catalog edge: %v", err)
@@ -191,7 +192,7 @@ func TestImportRetainsOptionalConfiguredTraversalWithoutObservedEdge(t *testing.
 		t.Fatalf("route dropped the configured traversal: %#v", route)
 	}
 	child := route.Children[0]
-	if child.CatalogEdgeID != "" || child.Relationship != "subject_ResearchStudy" || child.ResourceType != "ResearchStudy" || child.MatchMode != authoringv2.RouteMatchOptional {
+	if child.CatalogEdgeID != "" || child.Relationship != "subject_ResearchStudy" || child.ResourceType != "ResearchStudy" || child.MatchMode != ws.RouteMatchOptional {
 		t.Fatalf("missing edge was replaced with catalog authority or source semantics were lost: %#v", child)
 	}
 	output.Traversals[0].MatchMode = recipe.MatchRequired
@@ -202,10 +203,10 @@ func TestImportRetainsOptionalConfiguredTraversalWithoutObservedEdge(t *testing.
 
 func TestImportRejectsMissingSchemaAndUnstableColumnIdentity(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "seed", TranslationVersion: "v1", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Patient", RowGrain: "RECORD"}}}
-	if _, err := ImportWorkspace(bundle, authoringv2.CatalogSnapshot{}, nil); err == nil {
+	if _, err := ImportWorkspace(bundle, ws.CatalogSnapshot{}, nil); err == nil {
 		t.Fatal("missing schema accepted")
 	}
-	if _, err := ImportWorkspace(bundle, authoringv2.CatalogSnapshot{}, map[string][]recipe.StageColumn{"out": {{Name: "id"}}}); err == nil {
+	if _, err := ImportWorkspace(bundle, ws.CatalogSnapshot{}, map[string][]recipe.StageColumn{"out": {{Name: "id"}}}); err == nil {
 		t.Fatal("schema without stable id accepted")
 	}
 }

@@ -3,36 +3,38 @@ package ports
 import (
 	"context"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
 
 type CompileReceiptRequest struct {
 	Project                         string
 	ExplorerID                      string
-	Workspace                       authoringv2.Workspace
+	Workspace                       ws.Workspace
 	SnapshotToken                   string
 	RequestID                       string
 	Authorized                      AuthorizedCapability
 	ResolvedInputs                  explorercompilation.ResolvedInputs
 	SelectionMembersCollection      string
-	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
-	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
-	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
-	ConstructionProposal            *explorer.ConstructionProposalBinding
-	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
+	ColumnPolicyProposal            *receiptmodel.ColumnPolicyProposalBinding
+	SourceRelationshipProposal      *receiptmodel.SourceRelationshipProposalBinding
+	RowDefinitionProposal           *receiptmodel.RowDefinitionProposalBinding
+	ConstructionProposal            *receiptmodel.ConstructionProposalBinding
+	PopulationMemberRemovalProposal *receiptmodel.PopulationMemberRemovalProposalBinding
 }
 
-type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
+type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error)
 
-type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error)
+type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error)
 
 type ConstructionSourceStageRequest struct {
 	Project                    string
 	ExplorerID                 string
 	OutputID                   string
-	Document                   authoringv2.Document
+	Document                   ws.Document
 	Authorized                 AuthorizedCapability
 	SelectionMembersCollection string
 }

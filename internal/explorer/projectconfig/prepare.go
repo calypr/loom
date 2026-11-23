@@ -9,6 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
@@ -25,27 +28,27 @@ import (
 type projectConfigSnapshot struct {
 	bundle               recipe.Bundle
 	resolvedSchemaDigest string
-	emitted              []explorer.EmittedColumn
+	emitted              []viewer.EmittedColumn
 	contractJSON         json.RawMessage
-	publicByOutput       map[string]map[string]explorer.EmittedColumn
+	publicByOutput       map[string]map[string]viewer.EmittedColumn
 	physicalByOutput     map[string][]publication.PhysicalColumn
-	availableByOutput    map[string]map[string]explorer.EmittedColumn
+	availableByOutput    map[string]map[string]viewer.EmittedColumn
 }
 
-func PrepareProjectConfigs(configs []explorer.ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]explorer.ProjectConfigPublication, error) {
+func PrepareProjectConfigs(configs []explorerconfig.ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]explorer.ProjectConfigPublication, error) {
 	return prepareProjectConfigs(configs, resolved, executionValue, sourceCommit, false)
 }
 
-func PrepareProjectConfigsForPublication(configs []explorer.ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]explorer.ProjectConfigPublication, error) {
+func PrepareProjectConfigsForPublication(configs []explorerconfig.ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]explorer.ProjectConfigPublication, error) {
 	return prepareProjectConfigs(configs, resolved, executionValue, sourceCommit, true)
 }
 
-func prepareProjectConfigs(configs []explorer.ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string, tolerateUnavailableBindings bool) ([]explorer.ProjectConfigPublication, error) {
+func prepareProjectConfigs(configs []explorerconfig.ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string, tolerateUnavailableBindings bool) ([]explorer.ProjectConfigPublication, error) {
 	snapshot, err := prepareProjectConfigSnapshot(resolved, executionValue, sourceCommit)
 	if err != nil {
 		return nil, err
 	}
-	matching := make([]explorer.ProjectConfig, 0, len(configs))
+	matching := make([]explorerconfig.ProjectConfig, 0, len(configs))
 	for _, config := range configs {
 		if config.RecipeRef.Name == snapshot.bundle.Name {
 			matching = append(matching, config)
@@ -59,7 +62,7 @@ func prepareProjectConfigs(configs []explorer.ProjectConfig, resolved execution.
 	}
 	publications := make([]explorer.ProjectConfigPublication, 0, len(matching))
 	for index, original := range matching {
-		definition, err := explorer.CloneProjectConfigDefinition(original)
+		definition, err := explorerconfig.CloneProjectConfigDefinition(original)
 		if err != nil {
 			return nil, fmt.Errorf("configs[%d] %q: clone definition: %w", index, original.ID, err)
 		}
@@ -67,7 +70,7 @@ func prepareProjectConfigs(configs []explorer.ProjectConfig, resolved execution.
 		if err != nil {
 			return nil, fmt.Errorf("configs[%d] %q: %w", index, definition.ID, err)
 		}
-		diagnostics := []explorer.Diagnostic{}
+		diagnostics := []viewer.Diagnostic{}
 		if tolerateUnavailableBindings {
 			diagnostics = projectConfigBindingDiagnostics(definition, snapshot.availableByOutput)
 		} else if err := validateProjectConfigBindings(definition, snapshot.availableByOutput); err != nil {
@@ -121,7 +124,7 @@ func prepareProjectConfigSnapshot(resolved execution.Resolved, executionValue pu
 	}, nil
 }
 
-func (snapshot projectConfigSnapshot) configRevision(definition explorer.ProjectConfig, digest string, configJSON json.RawMessage, revisionID string, executionValue publication.BundleExecution, diagnostics []explorer.Diagnostic) explorer.Revision {
+func (snapshot projectConfigSnapshot) configRevision(definition explorerconfig.ProjectConfig, digest string, configJSON json.RawMessage, revisionID string, executionValue publication.BundleExecution, diagnostics []viewer.Diagnostic) explorer.Revision {
 	readyAt := executionValue.PublishedAt.UTC()
 	return explorer.Revision{
 		ID: revisionID, Project: executionValue.Project, ExplorerID: definition.ID,
@@ -131,16 +134,16 @@ func (snapshot projectConfigSnapshot) configRevision(definition explorer.Project
 		ResolvedSchemaDigest: snapshot.resolvedSchemaDigest, SourceGeneration: executionValue.DatasetGeneration,
 		Materializations: projectConfigMaterializations(snapshot.bundle, executionValue, snapshot.physicalByOutput),
 		EmittedColumns:   cloneProjectConfigEmissions(snapshot.emitted),
-		Dataset: explorer.DatasetMetadata{
+		Dataset: viewer.DatasetMetadata{
 			Generation: executionValue.DatasetGeneration, SchemaDigest: executionValue.SchemaDigest,
 			Outputs: projectConfigDatasetOutputs(snapshot.bundle, executionValue, snapshot.physicalByOutput),
 		},
 		QualityReports: publication.CloneQualityReports(executionValue.QualityReports),
-		Publication: explorer.PublicationMetadata{
+		Publication: viewer.PublicationMetadata{
 			State: string(explorer.RevisionReady), Generation: executionValue.DatasetGeneration,
 			ExecutionID: executionValue.ID, RevisionID: revisionID, UpdatedAt: readyAt,
 		},
-		Diagnostics: append([]explorer.Diagnostic{}, diagnostics...), Status: explorer.RevisionReady,
+		Diagnostics: append([]viewer.Diagnostic{}, diagnostics...), Status: explorer.RevisionReady,
 		CreatedAt: executionValue.CreatedAt.UTC(), ReadyAt: &readyAt,
 	}
 }
@@ -226,10 +229,10 @@ func projectConfigOutputMetadata(
 	compiledOutputs []facade.CompiledRecipeOutput,
 	executionValue publication.BundleExecution,
 	retained map[string]map[string]struct{},
-) ([]explorer.EmittedColumn, explorer.PublicOutputContracts, map[string]map[string]explorer.EmittedColumn, map[string][]publication.PhysicalColumn, error) {
-	emitted := make([]explorer.EmittedColumn, 0)
-	contracts := explorer.PublicOutputContracts{Outputs: make([]explorer.PublicOutputContract, 0, len(bundle.Outputs))}
-	publicByOutput := make(map[string]map[string]explorer.EmittedColumn, len(bundle.Outputs))
+) ([]viewer.EmittedColumn, receiptmodel.PublicOutputContracts, map[string]map[string]viewer.EmittedColumn, map[string][]publication.PhysicalColumn, error) {
+	emitted := make([]viewer.EmittedColumn, 0)
+	contracts := receiptmodel.PublicOutputContracts{Outputs: make([]receiptmodel.PublicOutputContract, 0, len(bundle.Outputs))}
+	publicByOutput := make(map[string]map[string]viewer.EmittedColumn, len(bundle.Outputs))
 	physicalByOutput := make(map[string][]publication.PhysicalColumn, len(bundle.Outputs))
 	physicalOutputs := make(map[string]publication.BundleOutputRecord, len(executionValue.Outputs))
 	for _, output := range executionValue.Outputs {
@@ -238,12 +241,12 @@ func projectConfigOutputMetadata(
 	for index, recipeOutput := range bundle.Outputs {
 		compiled := compiledOutputs[index]
 		physicalOutput := physicalOutputs[recipeOutput.Name]
-		contract := explorer.PublicOutputContract{
+		contract := receiptmodel.PublicOutputContract{
 			OutputID: recipeOutput.Name, RootResourceType: recipeOutput.RootResourceType,
 			RowGrain: recipeOutput.RowGrain, Lossless: true, MLReady: true,
-			Columns: make([]explorer.PublicOutputColumn, 0, len(compiled.OutputSchema)),
+			Columns: make([]receiptmodel.PublicOutputColumn, 0, len(compiled.OutputSchema)),
 		}
-		columnsByName := make(map[string]explorer.EmittedColumn, len(compiled.OutputSchema))
+		columnsByName := make(map[string]viewer.EmittedColumn, len(compiled.OutputSchema))
 		seenEmissionIDs := make(map[string]struct{}, len(compiled.OutputSchema))
 		for columnIndex, schemaColumn := range compiled.OutputSchema {
 			if schemaColumn.Internal || schemaColumn.Identity {
@@ -251,28 +254,28 @@ func projectConfigOutputMetadata(
 			}
 			name, err := projectConfigPublicColumnName(recipeOutput, schemaColumn)
 			if err != nil {
-				return nil, explorer.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q schema[%d]: %w", recipeOutput.Name, columnIndex, err)
+				return nil, receiptmodel.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q schema[%d]: %w", recipeOutput.Name, columnIndex, err)
 			}
 			emissionID := strings.TrimSpace(schemaColumn.ID)
 			if emissionID == "" {
 				emissionID = strings.TrimSpace(schemaColumn.SemanticPath)
 			}
 			if emissionID == "" {
-				return nil, explorer.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q column %q has no stable compiler emission identity", recipeOutput.Name, name)
+				return nil, receiptmodel.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q column %q has no stable compiler emission identity", recipeOutput.Name, name)
 			}
 			if _, duplicate := seenEmissionIDs[emissionID]; duplicate {
-				return nil, explorer.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q duplicates emission identity %q", recipeOutput.Name, emissionID)
+				return nil, receiptmodel.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q duplicates emission identity %q", recipeOutput.Name, emissionID)
 			}
 			seenEmissionIDs[emissionID] = struct{}{}
 			if strings.TrimSpace(schemaColumn.Label) == "" || !validProjectConfigLogicalType(schemaColumn.Kind) || !validProjectConfigCardinality(schemaColumn.Cardinality) {
-				return nil, explorer.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q column %q is missing supported label/type/cardinality metadata", recipeOutput.Name, name)
+				return nil, receiptmodel.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q column %q is missing supported label/type/cardinality metadata", recipeOutput.Name, name)
 			}
 			if _, duplicate := columnsByName[name]; duplicate {
-				return nil, explorer.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q duplicates public column %q", recipeOutput.Name, name)
+				return nil, receiptmodel.PublicOutputContracts{}, nil, nil, fmt.Errorf("compiled output %q duplicates public column %q", recipeOutput.Name, name)
 			}
 			filterable, chartable := projectConfigScalarCapabilities(schemaColumn)
 			shape := projectConfigColumnShape(schemaColumn)
-			emission := explorer.EmittedColumn{
+			emission := viewer.EmittedColumn{
 				EmissionID: emissionID, OutputID: recipeOutput.Name, PublicColumn: name,
 				Label: schemaColumn.Label, LogicalType: schemaColumn.Kind,
 				Cardinality: schemaColumn.Cardinality, Nullable: schemaColumn.Nullable,
@@ -290,7 +293,7 @@ func projectConfigOutputMetadata(
 		}
 		physicalColumns, err := projectConfigPhysicalColumns(recipeOutput.Name, columnsByName, retained[recipeOutput.Name], physicalOutput.Columns)
 		if err != nil {
-			return nil, explorer.PublicOutputContracts{}, nil, nil, err
+			return nil, receiptmodel.PublicOutputContracts{}, nil, nil, err
 		}
 		publicByOutput[recipeOutput.Name] = columnsByName
 		physicalByOutput[recipeOutput.Name] = physicalColumns
@@ -380,7 +383,7 @@ func validateProjectConfigPhysicalColumn(output string, logical publication.Logi
 	return nil
 }
 
-func projectConfigPhysicalColumns(output string, public map[string]explorer.EmittedColumn, retained map[string]struct{}, columns []publication.PhysicalColumn) ([]publication.PhysicalColumn, error) {
+func projectConfigPhysicalColumns(output string, public map[string]viewer.EmittedColumn, retained map[string]struct{}, columns []publication.PhysicalColumn) ([]publication.PhysicalColumn, error) {
 	physical := make(map[string]publication.PhysicalColumn, len(columns))
 	for _, column := range columns {
 		if _, duplicate := physical[column.Name]; duplicate {
@@ -412,10 +415,10 @@ func projectConfigPhysicalColumns(output string, public map[string]explorer.Emit
 	return ordered, nil
 }
 
-func projectConfigAvailableColumns(public map[string]map[string]explorer.EmittedColumn, retained map[string]map[string]struct{}) map[string]map[string]explorer.EmittedColumn {
-	available := make(map[string]map[string]explorer.EmittedColumn, len(public))
+func projectConfigAvailableColumns(public map[string]map[string]viewer.EmittedColumn, retained map[string]map[string]struct{}) map[string]map[string]viewer.EmittedColumn {
+	available := make(map[string]map[string]viewer.EmittedColumn, len(public))
 	for output, columns := range public {
-		available[output] = make(map[string]explorer.EmittedColumn, len(columns))
+		available[output] = make(map[string]viewer.EmittedColumn, len(columns))
 		for name, column := range columns {
 			if _, ok := retained[output][name]; ok {
 				available[output][name] = column
@@ -425,8 +428,8 @@ func projectConfigAvailableColumns(public map[string]map[string]explorer.Emitted
 	return available
 }
 
-func publicOutputColumnFromProjectConfigEmission(emitted explorer.EmittedColumn) explorer.PublicOutputColumn {
-	return explorer.PublicOutputColumn{
+func publicOutputColumnFromProjectConfigEmission(emitted viewer.EmittedColumn) receiptmodel.PublicOutputColumn {
+	return receiptmodel.PublicOutputColumn{
 		Column: emitted.PublicColumn, Label: emitted.Label, LogicalType: emitted.LogicalType,
 		Cardinality: emitted.Cardinality, Nullable: emitted.Nullable,
 		ResultUnit: cloneProjectConfigUnit(emitted.ResultUnit), Shape: emitted.Shape,
@@ -435,7 +438,7 @@ func publicOutputColumnFromProjectConfigEmission(emitted explorer.EmittedColumn)
 	}
 }
 
-func validateProjectConfigBindings(config explorer.ProjectConfig, public map[string]map[string]explorer.EmittedColumn) error {
+func validateProjectConfigBindings(config explorerconfig.ProjectConfig, public map[string]map[string]viewer.EmittedColumn) error {
 	for _, view := range config.Views {
 		columns, ok := public[view.Output]
 		if !ok {
@@ -496,7 +499,7 @@ func validateProjectConfigBindings(config explorer.ProjectConfig, public map[str
 	return nil
 }
 
-func projectConfigPresentationJSON(config explorer.ProjectConfig, project string, emitted []explorer.EmittedColumn) (json.RawMessage, error) {
+func projectConfigPresentationJSON(config explorerconfig.ProjectConfig, project string, emitted []viewer.EmittedColumn) (json.RawMessage, error) {
 	views := append([]explorerconfig.ConfigView(nil), config.Views...)
 	for index := range views {
 		if len(views[index].Table.Columns) == 0 {
@@ -536,8 +539,8 @@ func projectConfigPresentationJSON(config explorer.ProjectConfig, project string
 	return raw, nil
 }
 
-func cloneProjectConfigEmissions(values []explorer.EmittedColumn) []explorer.EmittedColumn {
-	cloned := append([]explorer.EmittedColumn(nil), values...)
+func cloneProjectConfigEmissions(values []viewer.EmittedColumn) []viewer.EmittedColumn {
+	cloned := append([]viewer.EmittedColumn(nil), values...)
 	for index := range cloned {
 		cloned[index].ResultUnit = cloneProjectConfigUnit(cloned[index].ResultUnit)
 	}
@@ -569,11 +572,11 @@ func projectConfigRevisionID(project, configID, configDigest string, executionVa
 	return "project_config_" + hex.EncodeToString(sum[:]), nil
 }
 
-func projectConfigMaterializations(bundle recipe.Bundle, executionValue publication.BundleExecution, physical map[string][]publication.PhysicalColumn) []explorer.Materialization {
-	materializations := make([]explorer.Materialization, 0, len(bundle.Outputs))
+func projectConfigMaterializations(bundle recipe.Bundle, executionValue publication.BundleExecution, physical map[string][]publication.PhysicalColumn) []viewer.Materialization {
+	materializations := make([]viewer.Materialization, 0, len(bundle.Outputs))
 	for _, output := range bundle.Outputs {
 		selector := executionValue.Selector(output.Name)
-		materializations = append(materializations, explorer.Materialization{
+		materializations = append(materializations, viewer.Materialization{
 			OutputID: output.Name, Output: output.Name, MaterializationID: executionValue.ID,
 			Selector: &selector, Columns: append([]publication.PhysicalColumn(nil), physical[output.Name]...),
 		})
@@ -581,16 +584,16 @@ func projectConfigMaterializations(bundle recipe.Bundle, executionValue publicat
 	return materializations
 }
 
-func projectConfigDatasetOutputs(bundle recipe.Bundle, executionValue publication.BundleExecution, physical map[string][]publication.PhysicalColumn) []explorer.DatasetOutput {
+func projectConfigDatasetOutputs(bundle recipe.Bundle, executionValue publication.BundleExecution, physical map[string][]publication.PhysicalColumn) []viewer.DatasetOutput {
 	outputsByName := make(map[string]publication.BundleOutputRecord, len(executionValue.Outputs))
 	for _, output := range executionValue.Outputs {
 		outputsByName[output.Name] = output
 	}
-	outputs := make([]explorer.DatasetOutput, 0, len(bundle.Outputs))
+	outputs := make([]viewer.DatasetOutput, 0, len(bundle.Outputs))
 	for _, output := range bundle.Outputs {
 		executionOutput := outputsByName[output.Name]
 		selector := executionOutput.Selector
-		outputs = append(outputs, explorer.DatasetOutput{
+		outputs = append(outputs, viewer.DatasetOutput{
 			Name: output.Name, State: string(executionOutput.State.Canonical()), Queryable: true,
 			Selector: &selector, Columns: append([]publication.PhysicalColumn(nil), physical[output.Name]...),
 		})

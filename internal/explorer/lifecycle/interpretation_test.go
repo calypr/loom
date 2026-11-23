@@ -6,21 +6,24 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 type countingInterpretationRepository struct {
-	revision explorer.InterpretationRevision
+	revision interpretation.InterpretationRevision
 	reads    int
 }
 
-func (r *countingInterpretationRepository) ListInterpretationLibraries(context.Context, string) ([]explorer.InterpretationLibrary, error) {
+func (r *countingInterpretationRepository) ListInterpretationLibraries(context.Context, string) ([]interpretation.InterpretationLibrary, error) {
 	return nil, nil
 }
 
-func (r *countingInterpretationRepository) GetInterpretationRevision(_ context.Context, _ string, id explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
+func (r *countingInterpretationRepository) GetInterpretationRevision(_ context.Context, _ string, id interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
 	r.reads++
 	if id != r.revision.ID {
 		return nil, explorer.ErrNotFound
@@ -29,7 +32,7 @@ func (r *countingInterpretationRepository) GetInterpretationRevision(_ context.C
 	return &value, nil
 }
 
-func (r *countingInterpretationRepository) CreateInterpretationRevision(context.Context, explorer.InterpretationRevision, *explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
+func (r *countingInterpretationRepository) CreateInterpretationRevision(context.Context, interpretation.InterpretationRevision, *interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
 	return nil, errors.New("not used")
 }
 
@@ -76,26 +79,26 @@ func lifecycleInterpretationSnapshot() capability.Snapshot {
 		[]capability.Candidate{{ID: "candidate-id", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}, nil)
 }
 
-func lifecycleInterpretationWorkspace(revisionID string, inline bool) authoringv2.Workspace {
-	column := authoringv2.Column{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}
+func lifecycleInterpretationWorkspace(revisionID string, inline bool) ws.Workspace {
+	column := ws.Column{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}
 	if !inline {
-		column.Interpretation = &authoringv2.FeatureInterpretation{Kind: authoringv2.FeatureInterpretationPinned, Pinned: &authoringv2.PinnedInterpretation{RevisionID: revisionID}}
+		column.Interpretation = &ws.FeatureInterpretation{Kind: ws.FeatureInterpretationPinned, Pinned: &ws.PinnedInterpretation{RevisionID: revisionID}}
 	}
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Interpretations"},
-		Documents: []authoringv2.Document{
-			{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients_a", Title: "Patients A"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{column}, Rows: authoringv2.RecordsRowDefinition()},
-			{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients_b", Title: "Patients B"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{column}, Rows: authoringv2.RecordsRowDefinition()},
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Interpretations"},
+		Documents: []ws.Document{
+			{Kind: ws.Kind, Output: ws.Output{ID: "patients_a", Title: "Patients A"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{column}, Rows: ws.RecordsRowDefinition()},
+			{Kind: ws.Kind, Output: ws.Output{ID: "patients_b", Title: "Patients B"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{column}, Rows: ws.RecordsRowDefinition()},
 		},
-		Tabs: []authoringv2.Tab{{ID: "patients_a", Title: "Patients A", OutputID: "patients_a", Order: 0, Visible: true}, {ID: "patients_b", Title: "Patients B", OutputID: "patients_b", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients_a", Title: "Patients A", OutputID: "patients_a", Order: 0, Visible: true}, {ID: "patients_b", Title: "Patients B", OutputID: "patients_b", Order: 1, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 }
 
-func lifecyclePrepareInterpretation(t *testing.T) explorer.InterpretationRevision {
+func lifecyclePrepareInterpretation(t *testing.T) interpretation.InterpretationRevision {
 	t.Helper()
-	revision, err := explorer.PrepareInterpretationRevision(explorer.InterpretationRevision{
+	revision, err := interpretation.PrepareInterpretationRevision(interpretation.InterpretationRevision{
 		Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "lifecycle",
-		CreatedAt: time.Unix(1, 0).UTC(), Rules: []explorer.InterpretationRule{{ID: "rule", Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: explorer.InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
+		CreatedAt: time.Unix(1, 0).UTC(), Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
 	})
 	if err != nil {
 		t.Fatal(err)

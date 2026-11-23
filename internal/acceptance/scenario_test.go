@@ -13,9 +13,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/api/loomapi"
 	dfpublication "github.com/calypr/loom/internal/dataframe/publication"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/testkit"
 )
 
@@ -24,7 +25,7 @@ func TestAcceptanceWorkspaceDefinesPatientCohortContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
+	workspace, err := ws.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestAcceptanceWorkspaceMigratesLegacyContributorPredicatesAgainstPinnedCata
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
+	legacy, err := ws.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,8 +70,8 @@ func TestAcceptanceWorkspaceMigratesLegacyContributorPredicatesAgainstPinnedCata
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migrated.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
-		t.Fatalf("migrated semanticsVersion = %d, want %d", migrated.SemanticsVersion, authoringv2.CurrentSemanticsVersion)
+	if migrated.SemanticsVersion != ws.CurrentSemanticsVersion {
+		t.Fatalf("migrated semanticsVersion = %d, want %d", migrated.SemanticsVersion, ws.CurrentSemanticsVersion)
 	}
 	if got := countWorkspaceColumns(migrated); got != 17 {
 		t.Fatalf("migrated column count = %d, want 17", got)
@@ -112,7 +113,7 @@ func TestAcceptanceWorkspaceMigratesLegacyContributorPredicatesAgainstPinnedCata
 			continue
 		}
 		predicate := column.Contributor
-		if predicate == nil || predicate.CandidateID != expected.candidateID || predicate.Operator != authoringv2.ContributorEquals || predicate.Quantifier != authoringv2.ContributorAny || predicate.Value == nil || predicate.Value.Kind != authoringv2.ContributorValueCode || predicate.Value.Code == nil || predicate.Value.Code.Code != expected.value {
+		if predicate == nil || predicate.CandidateID != expected.candidateID || predicate.Operator != ws.ContributorEquals || predicate.Quantifier != ws.ContributorAny || predicate.Value == nil || predicate.Value.Kind != ws.ContributorValueCode || predicate.Value.Code == nil || predicate.Value.Code.Code != expected.value {
 			t.Errorf("column %q Contributor = %#v, want candidate %q, ANY code equality %q", column.Column, predicate, expected.candidateID, expected.value)
 			continue
 		}
@@ -140,7 +141,7 @@ func TestAcceptanceWorkspaceMigratesLegacyContributorPredicatesAgainstPinnedCata
 	if countContributorPredicates(publishRequest) != 7 {
 		t.Fatalf("strict publish request Contributor predicate count = %d, want 7", countContributorPredicates(publishRequest))
 	}
-	reloaded, err := authoringv2.DecodeWorkspace(canonical)
+	reloaded, err := ws.DecodeWorkspace(canonical)
 	if err != nil {
 		t.Fatalf("current request workspace did not decode: %v", err)
 	}
@@ -163,8 +164,8 @@ func TestDecodeAcceptanceCatalogBindsGenerationAndRequestScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := map[string]any{
-		"apiVersion": authoringv2.APIVersion,
-		"kind":       authoringv2.StateKind,
+		"apiVersion": ws.APIVersion,
+		"kind":       ws.StateKind,
 		"catalog":    publicCatalog,
 	}
 
@@ -230,7 +231,7 @@ func TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBod
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/"+project+"/explorers/default/authoring/v2/capability":
 			writeAcceptanceTestJSON(w, map[string]any{
-				"apiVersion": authoringv2.APIVersion,
+				"apiVersion": ws.APIVersion,
 				"kind":       "ExplorerAuthoringCapabilities",
 				"operations": []string{"builder", "publish", "commands"},
 			})
@@ -277,7 +278,7 @@ func TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBod
 	if details["column_count"] != 17 || details["predicate_count"] != 7 || details["source_generation"] != generation || details["catalog_complete"] != true {
 		t.Fatalf("migration report = %#v", details)
 	}
-	decoded, err := authoringv2.DecodeWorkspace(migratedBody)
+	decoded, err := ws.DecodeWorkspace(migratedBody)
 	if err != nil {
 		t.Fatalf("decode migrated body: %v", err)
 	}
@@ -330,7 +331,7 @@ func TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog(t *test
 				switch {
 				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/authoring/v2/capability"):
 					writeAcceptanceTestJSON(w, map[string]any{
-						"apiVersion": authoringv2.APIVersion,
+						"apiVersion": ws.APIVersion,
 						"kind":       "ExplorerAuthoringCapabilities",
 						"operations": []string{"builder"},
 					})
@@ -370,8 +371,8 @@ func acceptanceMigrationPublicBuilderState(generation string, complete, truncate
 		observationNodeID = "missing-observation-node"
 	}
 	return map[string]any{
-		"apiVersion": authoringv2.APIVersion,
-		"kind":       authoringv2.StateKind,
+		"apiVersion": ws.APIVersion,
+		"kind":       ws.StateKind,
 		"catalog": map[string]any{
 			"authorizationScopeDigest": "scope-from-builder",
 			"snapshotToken":            "snapshot-from-builder",
@@ -421,33 +422,33 @@ func acceptanceTestHTTPClient(handler http.Handler) *http.Client {
 	return &http.Client{Transport: acceptanceTestRoundTripper{handler: handler}}
 }
 
-func acceptanceMigrationTestCatalog(t *testing.T) authoringv2.CatalogSnapshot {
+func acceptanceMigrationTestCatalog(t *testing.T) ws.CatalogSnapshot {
 	t.Helper()
-	return authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
+	return ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind,
 		Project: "NCPI_ACCEPTANCE", ExplorerID: "acceptance-catalog-test",
 		SourceGeneration: "tcga-brca-locked", AuthorizationScopeDigest: "acceptance-test-scope",
 		SnapshotToken: "acceptance-test-snapshot", Complete: true,
-		Nodes: []authoringv2.CatalogNode{
+		Nodes: []ws.CatalogNode{
 			{ID: "observation-node", ResourceType: "Observation"},
 			{ID: "specimen-node", ResourceType: "Specimen"},
 		},
-		Candidates: []authoringv2.CatalogCandidate{
+		Candidates: []ws.CatalogCandidate{
 			{
 				ID: "observation-code", NodeID: "observation-node", FieldPath: "code.coding[].code",
 				LogicalType: "code", Repeated: true,
-				RepeatedBoundaries: []authoringv2.RepeatedBoundary{{Path: "code.coding[]", MaxItems: 4}},
+				RepeatedBoundaries: []ws.RepeatedBoundary{{Path: "code.coding[]", MaxItems: 4}},
 			},
 			{
 				ID: "specimen-code", NodeID: "specimen-node", FieldPath: "type.coding[].code",
 				LogicalType: "code", Repeated: true,
-				RepeatedBoundaries: []authoringv2.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 4}},
+				RepeatedBoundaries: []ws.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 4}},
 			},
 		},
 	}
 }
 
-func catalogCandidateByID(t *testing.T, catalog authoringv2.CatalogSnapshot, id string) authoringv2.CatalogCandidate {
+func catalogCandidateByID(t *testing.T, catalog ws.CatalogSnapshot, id string) ws.CatalogCandidate {
 	t.Helper()
 	for _, candidate := range catalog.Candidates {
 		if candidate.ID == id {
@@ -455,10 +456,10 @@ func catalogCandidateByID(t *testing.T, catalog authoringv2.CatalogSnapshot, id 
 		}
 	}
 	t.Fatalf("catalog candidate %q not found", id)
-	return authoringv2.CatalogCandidate{}
+	return ws.CatalogCandidate{}
 }
 
-func catalogNodeByID(t *testing.T, catalog authoringv2.CatalogSnapshot, id string) authoringv2.CatalogNode {
+func catalogNodeByID(t *testing.T, catalog ws.CatalogSnapshot, id string) ws.CatalogNode {
 	t.Helper()
 	for _, node := range catalog.Nodes {
 		if node.ID == id {
@@ -466,7 +467,7 @@ func catalogNodeByID(t *testing.T, catalog authoringv2.CatalogSnapshot, id strin
 		}
 	}
 	t.Fatalf("catalog node %q not found", id)
-	return authoringv2.CatalogNode{}
+	return ws.CatalogNode{}
 }
 
 func TestPublicationOutputRequiresNamedQueryableOutput(t *testing.T) {

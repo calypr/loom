@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	storepkg "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -100,10 +103,10 @@ func mergeMap(old, patch map[string]any) map[string]any {
 	return merged
 }
 
-func interpretationTestRevision(project string) explorer.InterpretationRevision {
-	return explorer.InterpretationRevision{
+func interpretationTestRevision(project string) interpretation.InterpretationRevision {
+	return interpretation.InterpretationRevision{
 		Project: project, LibraryID: "library-a", Author: "author", Explanation: "reason",
-		Rules: []explorer.InterpretationRule{{ID: "rule-a", Match: explorer.InterpretationStructuralMatch{ResourceType: "Observation"}, Definition: explorer.InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}},
+		Rules: []interpretation.InterpretationRule{{ID: "rule-a", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Observation"}, Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}},
 	}
 }
 
@@ -127,16 +130,16 @@ func TestInterpretationArangoCreateRetryCollisionParentConflictAndIsolation(t *t
 	}
 	stale := interpretationTestRevision("project-a")
 	stale.Explanation = "a different proposal"
-	if _, err := adapter.CreateInterpretationRevision(ctx, stale, nil); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
+	if _, err := adapter.CreateInterpretationRevision(ctx, stale, nil); !errors.Is(err, interpretation.ErrInterpretationParentConflict) {
 		t.Fatalf("stale root error=%v", err)
 	}
 
-	prepared, err := explorer.PrepareInterpretationRevision(interpretationTestRevision("project-a"))
+	prepared, err := interpretation.PrepareInterpretationRevision(interpretationTestRevision("project-a"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	client.revisions[string(prepared.ID)] = map[string]any{"_key": string(prepared.ID), "id": string(prepared.ID), "project": prepared.Project, "identity": map[string]any{"different": true}}
-	if _, err := adapter.CreateInterpretationRevision(ctx, interpretationTestRevision("project-a"), nil); !errors.Is(err, explorer.ErrImmutableInterpretation) {
+	if _, err := adapter.CreateInterpretationRevision(ctx, interpretationTestRevision("project-a"), nil); !errors.Is(err, interpretation.ErrImmutableInterpretation) {
 		t.Fatalf("immutable collision error=%v", err)
 	}
 	if _, err := adapter.GetInterpretationRevision(ctx, "project-b", first.ID); !errors.Is(err, explorer.ErrNotFound) {
@@ -185,12 +188,12 @@ func TestInterpretationArangoAdvancesOnlyFromExactParent(t *testing.T) {
 		t.Fatalf("headRevisionId=%v, want %s", got, child.ID)
 	}
 
-	wrongDigest := explorer.InterpretationContentDigest("sha256:" + strings.Repeat("0", 64))
+	wrongDigest := interpretation.InterpretationContentDigest("sha256:" + strings.Repeat("0", 64))
 	grandchild := interpretationTestRevision("project-a")
 	grandchild.ParentRevisionID = &child.ID
 	grandchild.ParentDigest = &wrongDigest
 	grandchild.Explanation = "must not be accepted"
-	if _, err := adapter.CreateInterpretationRevision(ctx, grandchild, &child.ID); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
+	if _, err := adapter.CreateInterpretationRevision(ctx, grandchild, &child.ID); !errors.Is(err, interpretation.ErrInterpretationParentConflict) {
 		t.Fatalf("wrong parent digest error=%v", err)
 	}
 	if got := library["headRevisionId"]; got != string(child.ID) {

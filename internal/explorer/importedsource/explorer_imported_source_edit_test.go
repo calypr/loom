@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
@@ -58,7 +60,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +135,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 		}
 	})
 	t.Run("typed field rename and selector preserve original identity and presentation", func(t *testing.T) {
-		var params *authoringv2.ImportedSourceParameters
+		var params *ws.ImportedSourceParameters
 		for _, step := range document.ImportedSource.Steps {
 			if step.ID == "fields" {
 				raw, _ := json.Marshal(step.Parameters)
@@ -146,7 +148,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 			t.Fatal("missing field parameters")
 		}
 		edited := document
-		edited.Columns = append([]authoringv2.Column(nil), document.Columns...)
+		edited.Columns = append([]ws.Column(nil), document.Columns...)
 		originalID := ""
 		for i := range edited.Columns {
 			if edited.Columns[i].Column == "id" {
@@ -185,7 +187,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 			t.Fatalf("reload failed: %v", err)
 		}
 		raw, _ := json.Marshal(updated)
-		var forged authoringv2.Document
+		var forged ws.Document
 		if err := json.Unmarshal(raw, &forged); err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +238,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := authoringv2.DecodeWorkspace(raw)
+	restored, err := ws.DecodeWorkspace(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,19 +249,19 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	}
 	dependent := document
 	var patientColumn string
-	var stageColumns []authoringv2.StageColumn
+	var stageColumns []ws.StageColumn
 	for _, column := range document.Columns {
 		if strings.Contains(column.Column, "patient") {
 			patientColumn = column.ColumnID
 		}
-		stageColumns = append(stageColumns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		stageColumns = append(stageColumns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	if patientColumn == "" {
 		t.Fatal("fixture has no patient column")
 	}
-	dependent.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "has_patient", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: patientColumn, Operator: authoringv2.ConstructionFilterExists}}, Outputs: stageColumns,
+	dependent.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "has_patient", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: patientColumn, Operator: ws.ConstructionFilterExists}}, Outputs: stageColumns,
 	}}}
 	workspace.Documents[0] = dependent
 	resolved, err = resolver.Resolve(ctx, "project-a", workspace, authorized)
@@ -313,7 +315,7 @@ func TestPinnedFieldBindingsCoverOriginalSlotsWithoutBorrowingCollisionWinner(t 
 	if err != nil || !reflect.DeepEqual(got, again) {
 		t.Fatal("shadowed identity is not deterministic")
 	}
-	if err := recipeimport.VerifyPinnedFieldBindings([]authoringv2.ImportedSourceFieldBinding{{FieldID: "fields[0]", ColumnID: "dynamic_winner"}}, got); err == nil {
+	if err := recipeimport.VerifyPinnedFieldBindings([]ws.ImportedSourceFieldBinding{{FieldID: "fields[0]", ColumnID: "dynamic_winner"}}, got); err == nil {
 		t.Fatal("shadowed operation borrowed collision winner identity")
 	}
 	columns = append(columns, columns[1])
@@ -322,7 +324,7 @@ func TestPinnedFieldBindingsCoverOriginalSlotsWithoutBorrowingCollisionWinner(t 
 	}
 }
 
-func copySourceParametersForTest(t *testing.T, d authoringv2.Document, id string) *authoringv2.ImportedSourceParameters {
+func copySourceParametersForTest(t *testing.T, d ws.Document, id string) *ws.ImportedSourceParameters {
 	t.Helper()
 	for _, step := range d.ImportedSource.Steps {
 		if step.ID == id {
@@ -330,7 +332,7 @@ func copySourceParametersForTest(t *testing.T, d authoringv2.Document, id string
 			if err != nil {
 				t.Fatal(err)
 			}
-			var p *authoringv2.ImportedSourceParameters
+			var p *ws.ImportedSourceParameters
 			if err := json.Unmarshal(raw, &p); err != nil {
 				t.Fatal(err)
 			}
@@ -368,7 +370,7 @@ func TestImportedSourceAtomicExpansionAliasPreservesUUIDAndFieldDependencies(t *
 			schemas[o.Name] = append(schemas[o.Name], c.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +442,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 			schemas[o.Name] = append(schemas[o.Name], c.Column)
 		}
 	}
-	w, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
+	w, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +509,7 @@ type sourceIdentityFixture struct {
 	resolver   Sources
 	authorized ports.AuthorizedCapability
 	snapshot   capability.Snapshot
-	workspace  authoringv2.Workspace
+	workspace  ws.Workspace
 }
 
 func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []fieldcatalog.PopulatedField) sourceIdentityFixture {
@@ -549,7 +551,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []field
 			schemas[o.Name] = append(schemas[o.Name], c.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,15 +563,15 @@ func TestImportedSourceGeneratedNamingPreservesNativeKeys(t *testing.T) {
 		output recipe.Output
 		fields []fieldcatalog.PopulatedField
 		step   string
-		edit   func(*authoringv2.ImportedSourceParameters)
+		edit   func(*ws.ImportedSourceParameters)
 	}{
-		{"dynamic family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system-key"}}}, "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) { p.Dynamic.Name = "project_identifiers" }},
-		{"typed extension family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", ExtensionColumns: []recipe.ExtensionColumn{{Name: "typed_extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/tag", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *authoringv2.ImportedSourceParameters) { p.Extension.Name = "project_extensions" }},
-		{"catalog naming", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "populated_fields", IncludePaths: []string{"*"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"dynamic family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system-key"}}}, "dynamicColumns[0]", func(p *ws.ImportedSourceParameters) { p.Dynamic.Name = "project_identifiers" }},
+		{"typed extension family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", ExtensionColumns: []recipe.ExtensionColumn{{Name: "typed_extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/tag", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *ws.ImportedSourceParameters) { p.Extension.Name = "project_extensions" }},
+		{"catalog naming", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "populated_fields", IncludePaths: []string{"*"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *ws.ImportedSourceParameters) {
 			p.Catalog.Name = "selected_fields"
 			p.Catalog.Naming = recipe.ColumnNamingPathSuffix
 		}},
-		{"pivot family and alias", recipe.Output{Name: "Observation", RootResourceType: "Observation", RowGrain: "resource", Pivots: []recipe.Pivot{{Name: "measurements", ColumnExpr: recipe.Expression{Select: "root.code.text"}, ValueExpr: recipe.Expression{Select: "root.valueString"}, Columns: []string{"code-a"}}}}, nil, "pivots[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"pivot family and alias", recipe.Output{Name: "Observation", RootResourceType: "Observation", RowGrain: "resource", Pivots: []recipe.Pivot{{Name: "measurements", ColumnExpr: recipe.Expression{Select: "root.code.text"}, ValueExpr: recipe.Expression{Select: "root.valueString"}, Columns: []string{"code-a"}}}}, nil, "pivots[0]", func(p *ws.ImportedSourceParameters) {
 			p.Pivot.Name = "revised_measurements"
 			p.Pivot.ColumnAliases = map[string]string{"code-a": "explicit_alias"}
 		}},
@@ -612,7 +614,7 @@ func TestImportedSourceHiddenFieldEditPreservesBoundDownstreamWinner(t *testing.
 		t.Fatal("fixture did not produce an actual shadowed field")
 	}
 	winner := document.Columns[0]
-	document.Construction = &authoringv2.Construction{Version: 1, Steps: []authoringv2.ConstructionStep{{ID: "keep-winner", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: winner.ColumnID, Operator: authoringv2.ConstructionFilterExists}}, Outputs: []authoringv2.StageColumn{{ID: winner.ColumnID, Name: winner.Column, Label: winner.Label, Type: winner.LogicalType}}}}}
+	document.Construction = &ws.Construction{Version: 1, Steps: []ws.ConstructionStep{{ID: "keep-winner", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: winner.ColumnID, Operator: ws.ConstructionFilterExists}}, Outputs: []ws.StageColumn{{ID: winner.ColumnID, Name: winner.Column, Label: winner.Label, Type: winner.LogicalType}}}}}
 	params := copySourceParametersForTest(t, document, "fields")
 	params.FieldGroup.Fields[0].Label = "Updated hidden declaration"
 	updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
@@ -666,17 +668,17 @@ func TestImportedSourceNewPivotKeyRenameKeepsAuthoredIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	newID := ""
-	stages := []authoringv2.StageColumn{}
+	stages := []ws.StageColumn{}
 	for _, c := range first.Columns {
 		if c.Column == "measurements__audited_score" {
 			newID = c.ColumnID
 		}
-		stages = append(stages, authoringv2.StageColumn{ID: c.ColumnID, Name: c.Column, Label: c.Label, Type: c.LogicalType})
+		stages = append(stages, ws.StageColumn{ID: c.ColumnID, Name: c.Column, Label: c.Label, Type: c.LogicalType})
 	}
 	if newID == "" {
 		t.Fatal("real first edit did not expose new native key")
 	}
-	first.Construction = &authoringv2.Construction{Version: 1, Steps: []authoringv2.ConstructionStep{{ID: "keep-audited-score", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: newID, Operator: authoringv2.ConstructionFilterExists}}, Outputs: stages}}}
+	first.Construction = &ws.Construction{Version: 1, Steps: []ws.ConstructionStep{{ID: "keep-audited-score", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: newID, Operator: ws.ConstructionFilterExists}}, Outputs: stages}}}
 	f.workspace.Documents[0] = first
 	resolved, err := f.resolver.Resolve(context.Background(), "project-a", f.workspace, f.authorized)
 	if err != nil {
@@ -735,7 +737,7 @@ func TestImportedSourceNewPivotKeyRenameKeepsAuthoredIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := authoringv2.DecodeWorkspace(raw)
+	reloaded, err := ws.DecodeWorkspace(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,20 +757,20 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 		output         recipe.Output
 		fields         []fieldcatalog.PopulatedField
 		step           string
-		create, rename func(*authoringv2.ImportedSourceParameters)
+		create, rename func(*ws.ImportedSourceParameters)
 	}{
-		{"dynamic", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "values", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"pinned-key"}}, {ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"new-key"}}}, "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"dynamic", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "values", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"pinned-key"}}, {ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"new-key"}}}, "dynamicColumns[0]", func(p *ws.ImportedSourceParameters) {
 			p.Dynamic.Source = recipe.Expression{Select: "root.extension[]"}
 			p.Dynamic.Key = &recipe.Expression{Select: "item.url"}
 			p.Dynamic.Value = &recipe.Expression{Select: "item.valueString"}
-		}, func(p *authoringv2.ImportedSourceParameters) { p.Dynamic.Name = "renamed_values" }},
-		{"catalog", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"id"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "id", Kind: "scalar"}, {ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) { p.Catalog.IncludePaths = []string{"type.text"} }, func(p *authoringv2.ImportedSourceParameters) {
+		}, func(p *ws.ImportedSourceParameters) { p.Dynamic.Name = "renamed_values" }},
+		{"catalog", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"id"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "Specimen", Path: "id", Kind: "scalar"}, {ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *ws.ImportedSourceParameters) { p.Catalog.IncludePaths = []string{"type.text"} }, func(p *ws.ImportedSourceParameters) {
 			p.Catalog.Name = "renamed_fields"
 			p.Catalog.Naming = recipe.ColumnNamingPathSuffix
 		}},
-		{"typed extension", recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "DocumentReference", Path: "extension[].url", Kind: "scalar", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/pinned", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}, {ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", Kind: "scalar", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/new-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}, {URL: "http://example.org/second-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"typed extension", recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []fieldcatalog.PopulatedField{{ResourceType: "DocumentReference", Path: "extension[].url", Kind: "scalar", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/pinned", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}, {ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", Kind: "scalar", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/new-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}, {URL: "http://example.org/second-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *ws.ImportedSourceParameters) {
 			p.Extension.Source = recipe.Expression{Select: "root.content[].attachment.extension[]"}
-		}, func(p *authoringv2.ImportedSourceParameters) {
+		}, func(p *ws.ImportedSourceParameters) {
 			p.Extension.Name = "renamed_extensions"
 			prefix := "published"
 			p.Extension.ColumnPrefix = &prefix
@@ -793,8 +795,8 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 				}
 			}
 			column := first.Columns[0]
-			first.Construction = &authoringv2.Construction{Version: 1, Steps: []authoringv2.ConstructionStep{{ID: "bound-new-key", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: column.ColumnID, Operator: authoringv2.ConstructionFilterExists}}, Outputs: stageColumnsForSourceIdentity(first.Columns)}}}
-			compile := func(d authoringv2.Document) {
+			first.Construction = &ws.Construction{Version: 1, Steps: []ws.ConstructionStep{{ID: "bound-new-key", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: column.ColumnID, Operator: ws.ConstructionFilterExists}}, Outputs: stageColumnsForSourceIdentity(first.Columns)}}}
+			compile := func(d ws.Document) {
 				t.Helper()
 				f.workspace.Documents[0] = d
 				resolved, err := f.resolver.Resolve(context.Background(), "project-a", f.workspace, f.authorized)
@@ -830,7 +832,7 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			reloaded, err := authoringv2.DecodeWorkspace(raw)
+			reloaded, err := ws.DecodeWorkspace(raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -882,10 +884,10 @@ func TestNewNativeKeyIDsExcludeMutablePresentationAndRejectLeafAmbiguity(t *test
 	}
 }
 
-func stageColumnsForSourceIdentity(columns []authoringv2.Column) []authoringv2.StageColumn {
-	result := make([]authoringv2.StageColumn, 0, len(columns))
+func stageColumnsForSourceIdentity(columns []ws.Column) []ws.StageColumn {
+	result := make([]ws.StageColumn, 0, len(columns))
 	for _, c := range columns {
-		result = append(result, authoringv2.StageColumn{ID: c.ColumnID, Name: c.Column, Label: c.Label, Type: c.LogicalType})
+		result = append(result, ws.StageColumn{ID: c.ColumnID, Name: c.Column, Label: c.Label, Type: c.LogicalType})
 	}
 	return result
 }

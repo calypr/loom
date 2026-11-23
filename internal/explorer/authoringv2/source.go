@@ -4,23 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 type ImportedSourceStepChange struct {
-	Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
-	StepID     string                    `json:"stepId"`
-	Remove     bool                      `json:"remove,omitempty"`
-	MaxColumns *int                      `json:"maxColumns,omitempty"`
-	ValueMode  string                    `json:"valueMode,omitempty"`
+	Parameters *ws.ImportedSourceParameters `json:"parameters,omitempty"`
+	StepID     string                       `json:"stepId"`
+	Remove     bool                         `json:"remove,omitempty"`
+	MaxColumns *int                         `json:"maxColumns,omitempty"`
+	ValueMode  string                       `json:"valueMode,omitempty"`
 }
 
 func (c *ImportedSourceStepChange) UnmarshalJSON(raw []byte) error {
 	var wire struct {
-		Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
-		StepID     string                    `json:"stepId"`
-		Remove     *bool                     `json:"remove,omitempty"`
-		MaxColumns *int                      `json:"maxColumns,omitempty"`
-		ValueMode  string                    `json:"valueMode,omitempty"`
+		Parameters *ws.ImportedSourceParameters `json:"parameters,omitempty"`
+		StepID     string                       `json:"stepId"`
+		Remove     *bool                        `json:"remove,omitempty"`
+		MaxColumns *int                         `json:"maxColumns,omitempty"`
+		ValueMode  string                       `json:"valueMode,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
@@ -53,11 +55,11 @@ func IsImportedSourceCommand(kind string) bool {
 }
 
 type ImportedRelationshipChange struct {
-	Action             string         `json:"action"`
-	OccurrenceID       string         `json:"occurrenceId,omitempty"`
-	ParentOccurrenceID string         `json:"parentOccurrenceId,omitempty"`
-	EdgeID             string         `json:"edgeId,omitempty"`
-	MatchMode          RouteMatchMode `json:"matchMode,omitempty"`
+	Action             string            `json:"action"`
+	OccurrenceID       string            `json:"occurrenceId,omitempty"`
+	ParentOccurrenceID string            `json:"parentOccurrenceId,omitempty"`
+	EdgeID             string            `json:"edgeId,omitempty"`
+	MatchMode          ws.RouteMatchMode `json:"matchMode,omitempty"`
 }
 
 func (c ImportedRelationshipChange) Validate() error {
@@ -83,7 +85,7 @@ func (c ImportedRelationshipChange) Validate() error {
 	default:
 		return fmt.Errorf("relationship action must be ADD, MATCH, or REMOVE")
 	}
-	if c.MatchMode != RouteMatchOptional && c.MatchMode != RouteMatchRequired {
+	if c.MatchMode != ws.RouteMatchOptional && c.MatchMode != ws.RouteMatchRequired {
 		return fmt.Errorf("matchMode must be OPTIONAL or REQUIRED")
 	}
 	for _, value := range []string{c.OccurrenceID, c.ParentOccurrenceID, c.EdgeID} {
@@ -121,7 +123,7 @@ func ValidateImportedSourceStepBatch(changes []ImportedSourceStepChange) error {
 	return nil
 }
 
-func (c *Command) ResolveImportedDocument(document Document) error {
+func (c *Command) ResolveImportedDocument(document ws.Document) error {
 	if c == nil || !IsImportedSourceCommand(c.Type) || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
 		return fmt.Errorf("source change requires a matching imported document")
 	}
@@ -132,7 +134,7 @@ func (c *Command) ResolveImportedDocument(document Document) error {
 	if err != nil {
 		return err
 	}
-	var cloned Document
+	var cloned ws.Document
 	if err := json.Unmarshal(raw, &cloned); err != nil {
 		return err
 	}
@@ -140,7 +142,7 @@ func (c *Command) ResolveImportedDocument(document Document) error {
 	return nil
 }
 
-func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error {
+func (c *Command) ResolveProjectedFieldRemovalDocument(document ws.Document) error {
 	if c == nil || c.Type != CommandRemoveProjectedField || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
 		return fmt.Errorf("projected field removal requires a matching imported document")
 	}
@@ -151,7 +153,7 @@ func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error 
 	if err != nil {
 		return err
 	}
-	var cloned Document
+	var cloned ws.Document
 	if err := json.Unmarshal(raw, &cloned); err != nil {
 		return err
 	}

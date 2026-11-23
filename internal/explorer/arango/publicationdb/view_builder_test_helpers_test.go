@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	publicationdata "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -23,9 +25,9 @@ func projectConfigTestBundle(name, translation string) recipe.Bundle {
 	}
 }
 
-func projectConfigTestDefinition(id, recipeName, title string) explorer.ProjectConfig {
-	return explorer.ProjectConfig{
-		ID: id, Title: title, RecipeRef: explorer.ProjectConfigRecipeRef{Name: recipeName},
+func projectConfigTestDefinition(id, recipeName, title string) explorerconfig.ProjectConfig {
+	return explorerconfig.ProjectConfig{
+		ID: id, Title: title, RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: recipeName},
 		Views: []explorerconfig.ConfigView{{
 			ID: "view", Title: title, Output: "output",
 			Table:   explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "extension_code", Visible: true}}},
@@ -89,18 +91,18 @@ func projectConfigPublication(t *testing.T, project, id, recipeName, title, revi
 			ID: revisionID, Project: projectid.Legacy(project), ExplorerID: id,
 			Recipe: resolvedBundle, RecipeDigest: digest, ResolvedSchemaDigest: strings.Repeat("d", 64),
 			Config: configJSON, PublicOutputContract: contractJSON,
-			EmittedColumns: []explorer.EmittedColumn{{
+			EmittedColumns: []viewer.EmittedColumn{{
 				EmissionID: "dynamic:extension_code", OutputID: "output", PublicColumn: "extension_code",
 				Label: "Extension code", LogicalType: "string", Cardinality: "optional_one",
 				Nullable: true, Shape: "scalar", Lossless: true, Filterable: true, Chartable: true,
 			}},
-			SourceGeneration: generation, Dataset: explorer.DatasetMetadata{
+			SourceGeneration: generation, Dataset: viewer.DatasetMetadata{
 				Generation: generation, SchemaDigest: strings.Repeat("c", 64),
-				Outputs: []explorer.DatasetOutput{{Name: "output", State: "PUBLISHED", Queryable: true, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
+				Outputs: []viewer.DatasetOutput{{Name: "output", State: "PUBLISHED", Queryable: true, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
 			},
-			Materializations: []explorer.Materialization{{OutputID: "output", Output: "output", MaterializationID: executionID, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
+			Materializations: []viewer.Materialization{{OutputID: "output", Output: "output", MaterializationID: executionID, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
 			QualityReports:   []publicationdata.QualityReport{projectConfigTestQuality(project, generation, executionID)},
-			Publication:      explorer.PublicationMetadata{State: "READY", Generation: generation, ExecutionID: executionID, UpdatedAt: now},
+			Publication:      viewer.PublicationMetadata{State: "READY", Generation: generation, ExecutionID: executionID, UpdatedAt: now},
 			Status:           explorer.RevisionReady, CreatedBy: "test", CreatedAt: now, ReadyAt: &readyAt,
 		},
 	}

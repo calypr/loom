@@ -6,12 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
 
@@ -50,14 +52,14 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		Bundle:                 bundle,
 		RecipeDigest:           compiled.StoredRecipeDigest,
 		ResolvedRecipeDigest:   resolvedDigest,
 		ResolvedSchemaDigest:   compiled.ResolvedSchemaDigest,
 		OutputFingerprints:     fingerprints,
 		OutputColumnProvenance: provenance,
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 
 			{OutputID: "patients", PublicColumn: "patient_gender"},
 			{OutputID: "patients", PublicColumn: "patient_id"},
@@ -97,12 +99,12 @@ func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := explorer.CompilationReceipt{Bundle: bundle, RecipeDigest: compiled.StoredRecipeDigest, ResolvedRecipeDigest: digest, ResolvedSchemaDigest: compiled.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
+	receipt := receiptmodel.CompilationReceipt{Bundle: bundle, RecipeDigest: compiled.StoredRecipeDigest, ResolvedRecipeDigest: digest, ResolvedSchemaDigest: compiled.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
 	raw, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored explorer.CompilationReceipt
+	var stored receiptmodel.CompilationReceipt
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}
@@ -181,17 +183,17 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := explorer.CompilationReceipt{
+	receipt := receiptmodel.CompilationReceipt{
 		Bundle: compiled.Bundle, RecipeDigest: compiled.StoredRecipeDigest, ResolvedRecipeDigest: digest,
 		ResolvedSchemaDigest: compiled.ResolvedSchemaDigest, OutputFingerprints: fingerprints,
 		OutputColumnProvenance: provenance, ConstructionStages: stages,
-		EmittedColumns: []explorer.EmittedColumn{{OutputID: "specimens", PublicColumn: "group_label"}},
+		EmittedColumns: []viewer.EmittedColumn{{OutputID: "specimens", PublicColumn: "group_label"}},
 	}
 	raw, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored explorer.CompilationReceipt
+	var stored receiptmodel.CompilationReceipt
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}
@@ -219,11 +221,11 @@ func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := &explorer.CompilationReceipt{Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
+	receipt := &receiptmodel.CompilationReceipt{Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
 	bad := *receipt
 	bad.OutputFingerprints = map[string]string{"patients": "runtime-drift"}
 	stores := 0
-	persist := func(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+	persist := func(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 		stores++
 		return receipt, nil
 	}

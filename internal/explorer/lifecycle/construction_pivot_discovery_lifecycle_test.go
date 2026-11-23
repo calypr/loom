@@ -4,24 +4,26 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testing.T) {
 	service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
 	scans := 0
-	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		scans++
 		if receipt == nil || scan.Output != "patients" || scan.StageID != recipe.ConstructionSourceProjectionID ||
 			scan.ColumnID != categoryColumnID || scan.ValueColumnID != valueColumnID || !scan.RequireValue {
 			t.Fatalf("discovery scan request = %#v", scan)
 		}
-		var category explorer.ReceiptConstructionStageColumn
+		var category receiptmodel.ReceiptConstructionStageColumn
 		for _, stage := range receipt.ConstructionStages["patients"] {
 			if stage.ID != scan.StageID {
 				continue
@@ -45,8 +47,8 @@ func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testin
 		}, nil
 	}
 	request := constructionProposalPivotRequest(store.created, snapshot, nil)
-	request.CandidateConstruction.Steps[0].Operation.Pivot.Discovery = &authoringv2.ConstructionPivotDiscovery{MaxCategories: 4}
-	request.CandidateConstruction.Steps[0].Outputs = []authoringv2.StageColumn{
+	request.CandidateConstruction.Steps[0].Operation.Pivot.Discovery = &ws.ConstructionPivotDiscovery{MaxCategories: 4}
+	request.CandidateConstruction.Steps[0].Outputs = []ws.StageColumn{
 		{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 	}
 
@@ -78,8 +80,8 @@ func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testin
 
 func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
 	service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
-	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		var category explorer.ReceiptConstructionStageColumn
+	service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		var category receiptmodel.ReceiptConstructionStageColumn
 		for _, stage := range receipt.ConstructionStages["patients"] {
 			if stage.ID != scan.StageID {
 				continue
@@ -100,8 +102,8 @@ func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
 		}, nil
 	}
 	request := constructionProposalPivotRequest(store.created, snapshot, nil)
-	request.CandidateConstruction.Steps[0].Operation.Pivot.Discovery = &authoringv2.ConstructionPivotDiscovery{MaxCategories: 4}
-	request.CandidateConstruction.Steps[0].Outputs = []authoringv2.StageColumn{
+	request.CandidateConstruction.Steps[0].Operation.Pivot.Discovery = &ws.ConstructionPivotDiscovery{MaxCategories: 4}
+	request.CandidateConstruction.Steps[0].Outputs = []ws.StageColumn{
 		{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 	}
 
@@ -119,14 +121,14 @@ func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
 
 func TestLoadConstructionBaseRejectsSavedUnresolvedPivotDiscovery(t *testing.T) {
 	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pivot := workspace.Documents[0].Construction.Steps[0].Operation.Pivot
-	pivot.Discovery = &authoringv2.ConstructionPivotDiscovery{MaxCategories: 4}
+	pivot.Discovery = &ws.ConstructionPivotDiscovery{MaxCategories: 4}
 	pivot.Categories = nil
-	workspace.Documents[0].Construction.Steps[0].Outputs = []authoringv2.StageColumn{
+	workspace.Documents[0].Construction.Steps[0].Outputs = []ws.StageColumn{
 		{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 	}
 	if err := workspace.Validate(); err != nil {

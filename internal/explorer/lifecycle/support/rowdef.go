@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -23,7 +26,7 @@ func ReceiptHasOutput(bundle recipe.Bundle, id string) bool {
 	return false
 }
 
-func ValidateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputID string) error {
+func ValidateReceiptOutputContract(receipt *receiptmodel.CompilationReceipt, outputID string) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")
 	}
@@ -31,7 +34,7 @@ func ValidateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputI
 	if outputID == "" {
 		return fmt.Errorf("output is required")
 	}
-	contract, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contract, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		return fmt.Errorf("public output contract is invalid: %v", err)
 	}
@@ -53,7 +56,7 @@ func ApplyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized ports.Aut
 	bindings.IncludeAuthResourcePath = includeAuthResourcePath
 }
 
-func ValidateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
+func ValidateAuthorizedReceiptExecution(receipt *receiptmodel.CompilationReceipt, authorized ports.AuthorizedCapability) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")
 	}
@@ -79,7 +82,7 @@ func ValidateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, au
 	return ValidateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest)
 }
 
-func VerifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) error {
+func VerifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -93,15 +96,15 @@ func VerifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace 
 	return nil
 }
 
-func RowIdentityForNetwork(document authoringv2.Document, network authoringv2.AuthoringNetwork) authoringv2.RowIdentityPlan {
+func RowIdentityForNetwork(document ws.Document, network ws.AuthoringNetwork) ws.RowIdentityPlan {
 	effective := document
 	effective.Rows = network.SourceRows
-	var route func(string) authoringv2.RouteNode
-	route = func(id string) authoringv2.RouteNode {
-		var result authoringv2.RouteNode
+	var route func(string) ws.RouteNode
+	route = func(id string) ws.RouteNode {
+		var result ws.RouteNode
 		for _, occurrence := range network.Occurrences {
 			if occurrence.OccurrenceID == id {
-				result = authoringv2.RouteNode{OccurrenceID: id, ResourceType: occurrence.ResourceType, CatalogEdgeID: occurrence.CatalogEdgeID, Relationship: occurrence.Relationship, MatchMode: occurrence.MatchMode}
+				result = ws.RouteNode{OccurrenceID: id, ResourceType: occurrence.ResourceType, CatalogEdgeID: occurrence.CatalogEdgeID, Relationship: occurrence.Relationship, MatchMode: occurrence.MatchMode}
 				break
 			}
 		}
@@ -112,30 +115,30 @@ func RowIdentityForNetwork(document authoringv2.Document, network authoringv2.Au
 		}
 		return result
 	}
-	effective.Route = route(authoringv2.RootOccurrenceID)
-	return authoringv2.DescribeRowIdentity(effective)
+	effective.Route = route(ws.RootOccurrenceID)
+	return ws.DescribeRowIdentity(effective)
 }
 
 type WorkspaceReader interface {
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
-	RevisionWorkspace(context.Context, explorer.Revision) (authoringv2.Workspace, error)
+	RevisionWorkspace(context.Context, explorer.Revision) (ws.Workspace, error)
 }
 
-func PreviewWorkspace(ctx context.Context, store WorkspaceReader, owner *explorer.Explorer) (authoringv2.Workspace, error) {
+func PreviewWorkspace(ctx context.Context, store WorkspaceReader, owner *explorer.Explorer) (ws.Workspace, error) {
 	if owner == nil {
-		return authoringv2.Workspace{}, fmt.Errorf("Explorer owner is required")
+		return ws.Workspace{}, fmt.Errorf("Explorer owner is required")
 	}
 	if len(owner.DraftConfig) != 0 {
-		return authoringv2.DecodeWorkspace(owner.DraftConfig)
+		return ws.DecodeWorkspace(owner.DraftConfig)
 	}
 	if owner.ActiveRevisionID != "" {
 		revision, err := store.ActiveRevision(ctx, owner.Project, owner.ExplorerID)
 		if err != nil {
-			return authoringv2.Workspace{}, err
+			return ws.Workspace{}, err
 		}
 		return store.RevisionWorkspace(ctx, *revision)
 	}
-	return authoringv2.NewWorkspace(owner.Title), nil
+	return ws.NewWorkspace(owner.Title), nil
 }
 
 func CapabilityFailure(stage, code, message string, err error) error {

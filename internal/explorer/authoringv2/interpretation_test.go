@@ -3,6 +3,8 @@ package authoringv2
 import (
 	"reflect"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestWorkspaceDigestIncludesExactInterpretationReference(t *testing.T) {
@@ -23,7 +25,7 @@ func TestWorkspaceDigestIncludesExactInterpretationReference(t *testing.T) {
 
 func TestInterpretationReferenceHasOneCanonicalInlineState(t *testing.T) {
 	workspace := interpretationWorkspace("revision-a")
-	workspace.Documents[0].Columns[0].Interpretation = &FeatureInterpretation{Kind: "INLINE"}
+	workspace.Documents[0].Columns[0].Interpretation = &ws.FeatureInterpretation{Kind: "INLINE"}
 	if err := workspace.Validate(); err == nil {
 		t.Fatal("explicit INLINE interpretation duplicated the nil inline state")
 	}
@@ -32,8 +34,8 @@ func TestInterpretationReferenceHasOneCanonicalInlineState(t *testing.T) {
 func TestApplyInterpretationCandidatePinsAndClearsContributorWithoutChangingSource(t *testing.T) {
 	workspace := interpretationWorkspace("revision-old")
 	workspace.Documents[0].Columns[0].Interpretation = nil
-	workspace.Documents[0].Columns[0].Source = ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}
-	predicate := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorExists}
+	workspace.Documents[0].Columns[0].Source = ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}}
+	predicate := &ws.ContributorPredicate{CandidateID: "patient-id", Operator: ws.ContributorExists}
 	workspace.Documents[0].Columns[0].Contributor = predicate
 	originalSource := workspace.Documents[0].Columns[0].Source
 
@@ -57,18 +59,18 @@ func TestApplyInterpretationCandidatePinsAndClearsContributorWithoutChangingSour
 	}
 }
 
-func interpretationWorkspace(revisionID string) Workspace {
-	return Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Interpretations"},
-		Documents: []Document{{
-			Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, Rows: RecordsRowDefinition(), RootResourceType: "Patient",
-			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []Column{{
-				Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID,
-				Source:         ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-				Interpretation: &FeatureInterpretation{Kind: FeatureInterpretationPinned, Pinned: &PinnedInterpretation{RevisionID: revisionID}},
+func interpretationWorkspace(revisionID string) ws.Workspace {
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Interpretations"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, Rows: ws.RecordsRowDefinition(), RootResourceType: "Patient",
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{{
+				Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+				Source:         ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				Interpretation: &ws.FeatureInterpretation{Kind: ws.FeatureInterpretationPinned, Pinned: &ws.PinnedInterpretation{RevisionID: revisionID}},
 			}},
 		}},
-		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 }

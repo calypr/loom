@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -33,7 +35,7 @@ func TestSchemaFieldCandidateChoiceRecompilesWithoutObservedCatalogEntry(t *test
 	}
 	field := choice.Source.(capability.FieldChoiceSource)
 	resolved, _, err := resolveFieldConstructionChoice(context.Background(), authorized, snapshot,
-		authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token}, "Patient",
+		ws.CatalogSnapshot{SnapshotToken: snapshot.Token}, "Patient",
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: "VALUE"}, identity, field)
 	if err != nil || resolved.CandidateID != candidate.ID || resolved.LogicalType != "string" {
 		t.Fatalf("resolved generated choice = %#v, error=%v", resolved, err)

@@ -4,6 +4,11 @@ import (
 	"context"
 	"reflect"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -15,11 +20,11 @@ import (
 type CompileRequest struct {
 	Project                    string
 	ExplorerID                 string
-	Workspace                  authoringv2.Workspace
+	Workspace                  ws.Workspace
 	SnapshotToken              string
 	RequestID                  string
-	ColumnPolicyProposal       *explorer.ColumnPolicyProposalBinding
-	SourceRelationshipProposal *explorer.SourceRelationshipProposalBinding
+	ColumnPolicyProposal       *receiptmodel.ColumnPolicyProposalBinding
+	SourceRelationshipProposal *receiptmodel.SourceRelationshipProposalBinding
 }
 
 type PreviewRequest struct {
@@ -34,17 +39,17 @@ type PreviewRequest struct {
 type Config struct {
 	Capability               func() ports.CapabilityResolver
 	GetOwner                 func(context.Context, string, string) (*explorer.Explorer, error)
-	LookupReceipt            func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
-	Compile                  func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
+	LookupReceipt            func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	Compile                  func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
 	CompileConfigured        func() bool
-	VerifyProposalReceipt    func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
+	VerifyProposalReceipt    func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
 	Preview                  func(context.Context, PreviewRequest) (PreviewResult, error)
-	Catalog                  func(capability.Snapshot, string) authoringv2.CatalogSnapshot
-	AuthoringNetwork         func() func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
-	EditImportedRelationship func() func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
-	CreateImportedSourceRule func() func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, authoringv2.SourceRuleCreate) (authoringv2.Document, error)
-	EditImportedSource       func() func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	EditImportedSources      func() func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	Catalog                  func(capability.Snapshot, string) ws.CatalogSnapshot
+	AuthoringNetwork         func() func(context.Context, string, ports.AuthorizedCapability, ws.Document) (ws.AuthoringNetwork, error)
+	EditImportedRelationship func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, authoringv2.ImportedRelationshipChange) (ws.Document, error)
+	CreateImportedSourceRule func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, ws.SourceRuleCreate) (ws.Document, error)
+	EditImportedSource       func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, *authoringv2.ImportedSourceStepChange) (ws.Document, error)
+	EditImportedSources      func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, []authoringv2.ImportedSourceStepChange) (ws.Document, error)
 }
 
 type Service struct {
@@ -55,18 +60,18 @@ func NewService(config Config) (*Service, error) {
 	return &Service{config: config}, nil
 }
 
-func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 	if s.config.Catalog == nil {
-		return authoringv2.CatalogSnapshot{}
+		return ws.CatalogSnapshot{}
 	}
 	return s.config.Catalog(snapshot, explorerID)
 }
 
-func (s *Service) PrepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PrepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	return s.prepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
 
-func (s *Service) PrepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PrepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	return s.prepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
 
@@ -94,7 +99,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return fail, support.Conflict(stage, "DRAFT_CONFLICT", "saved draft changed; preview again", nil, explorer.ErrDraftConflict)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		return fail, support.Conflict(stage, "AUTHORING_STATE_MISSING", "saved source cannot be read", nil, err)
 	}
@@ -122,7 +127,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, support.Unprocessable(stage, "INVALID_COLUMN_POLICY", err.Error(), err)
 	}
-	candidate, err = authoringv2.PrepareWorkspaceForCompilation(candidate, catalog)
+	candidate, err = ws.PrepareWorkspaceForCompilation(candidate, catalog)
 	if err != nil {
 		return fail, support.Unprocessable(stage, "INVALID_COLUMN_POLICY", err.Error(), err)
 	}
@@ -130,7 +135,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	binding := &explorer.ColumnPolicyProposalBinding{RowDefinitionProposalBinding: explorer.RowDefinitionProposalBinding{DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}, ColumnID: request.ColumnID, ProjectionMode: request.ProjectionMode}
+	binding := &receiptmodel.ColumnPolicyProposalBinding{RowDefinitionProposalBinding: receiptmodel.RowDefinitionProposalBinding{DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}, ColumnID: request.ColumnID, ProjectionMode: request.ProjectionMode}
 	receipt, err := s.config.Compile(ctx, CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: stage, ColumnPolicyProposal: binding})
 	if err != nil {
 		return fail, err
@@ -143,11 +148,11 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if candidateDocument == nil {
 		return fail, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "candidate output missing", nil, nil)
 	}
-	network, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	network, err := ws.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
 		return fail, support.Unprocessable(stage, "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
-	preview, err := s.config.Preview(ctx, PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := s.config.Preview(ctx, PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	}})
 	if err != nil {
@@ -156,7 +161,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: RowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
 }
 
-func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	const stage = "commands"
 	if len(commands) != 1 {
 		return nil, support.Malformed(stage, "column policy Apply requires one command", nil)
@@ -196,14 +201,14 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 	if err != nil {
 		return nil, support.Unprocessable(stage, "INVALID_COLUMN_POLICY", err.Error(), err)
 	}
-	applied, err = authoringv2.PrepareWorkspaceForCompilation(applied, s.catalog(authorized.Snapshot, explorerID))
+	applied, err = ws.PrepareWorkspaceForCompilation(applied, s.catalog(authorized.Snapshot, explorerID))
 	if err != nil {
 		return nil, err
 	}
 	if !reflect.DeepEqual(applied, candidate) {
 		return nil, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "candidate changes facts outside the existing column policy", nil, nil)
 	}
-	if _, err := s.config.Preview(ctx, PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	if _, err := s.config.Preview(ctx, PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	}}); err != nil {
 		return nil, err

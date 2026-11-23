@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/explorer"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
@@ -62,7 +64,7 @@ func TestPrepareViewBuilderCatalogSnapshotIsDetachedAndComplete(t *testing.T) {
 			t.Fatalf("catalog frame %d = %#v, want actual output %q", i, catalog.Frames[i], output.Name)
 		}
 	}
-	if got := explorer.ViewBuilderFrameID(catalog.RecipeName, catalog.Frames[0].ID); got != catalog.RecipeName+"/"+catalog.Frames[0].ID {
+	if got := viewer.ViewBuilderFrameID(catalog.RecipeName, catalog.Frames[0].ID); got != catalog.RecipeName+"/"+catalog.Frames[0].ID {
 		t.Fatalf("qualified frame ID = %q", got)
 	}
 }
@@ -77,8 +79,8 @@ func TestPrepareViewBuilderConfigClonesExactSnapshotWithoutRecipeBody(t *testing
 		t.Fatal("fixture has no public emitted columns")
 	}
 	column := snapshot.EmittedColumns[0]
-	config := explorer.ProjectConfig{
-		ID: "file-review", Title: "File review", RecipeRef: explorer.ProjectConfigRecipeRef{Name: snapshot.Recipe.Name},
+	config := explorerconfig.ProjectConfig{
+		ID: "file-review", Title: "File review", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: snapshot.Recipe.Name},
 		Views: []explorerconfig.ConfigView{{
 			ID: "documents", Title: "Documents", Output: column.OutputID,
 			Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: column.PublicColumn, Label: "Friendly label", Visible: true}}},
@@ -127,27 +129,27 @@ func TestPrepareViewBuilderConfigRejectsRecipeAndColumnOutsideCatalog(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := explorer.ProjectConfig{
-		ID: "review", Title: "Review", RecipeRef: explorer.ProjectConfigRecipeRef{Name: snapshot.Recipe.Name},
+	base := explorerconfig.ProjectConfig{
+		ID: "review", Title: "Review", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: snapshot.Recipe.Name},
 		Views: []explorerconfig.ConfigView{{ID: "documents", Output: snapshot.Recipe.Outputs[0].Name}},
 	}
 	wrongRecipe := base
 	wrongRecipe.RecipeRef.Name = "another-recipe"
-	if _, err := PrepareViewBuilderConfig(wrongRecipe, snapshot, "alice"); !errors.Is(err, explorer.ErrInvalidViewBuilder) {
+	if _, err := PrepareViewBuilderConfig(wrongRecipe, snapshot, "alice"); !errors.Is(err, viewer.ErrInvalidViewBuilder) {
 		t.Fatalf("wrong recipe error = %v, want ErrInvalidViewBuilder", err)
 	}
 	unknownColumn := base
 	unknownColumn.Views = append([]explorerconfig.ConfigView(nil), base.Views...)
 	unknownColumn.Views[0].Table.Columns = []explorerconfig.ConfigColumn{{Column: "not-a-published-column", Visible: true}}
-	if _, err := PrepareViewBuilderConfig(unknownColumn, snapshot, "alice"); !errors.Is(err, explorer.ErrInvalidViewBuilder) {
+	if _, err := PrepareViewBuilderConfig(unknownColumn, snapshot, "alice"); !errors.Is(err, viewer.ErrInvalidViewBuilder) {
 		t.Fatalf("unknown column error = %v, want ErrInvalidViewBuilder", err)
 	}
 }
 
 func TestPrepareProjectConfigsForPublicationPreservesStaleChoicesAndHidesView(t *testing.T) {
 	resolved, executionValue, _ := projectConfigPublicationFixture()
-	base, err := PrepareProjectConfigs([]explorer.ProjectConfig{explorer.ProjectConfig{
-		ID: "default", Title: "Metadata", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name},
+	base, err := PrepareProjectConfigs([]explorerconfig.ProjectConfig{explorerconfig.ProjectConfig{
+		ID: "default", Title: "Metadata", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: resolved.Bundle.Name},
 		Views: []explorerconfig.ConfigView{{ID: "documents", Output: "Documents"}},
 	}}, resolved, executionValue, "source-commit")
 	if err != nil {
@@ -163,8 +165,8 @@ func TestPrepareProjectConfigsForPublicationPreservesStaleChoicesAndHidesView(t 
 	if discovered == "" {
 		t.Fatal("fixture has no discovered extension column")
 	}
-	definition := explorer.ProjectConfig{
-		ID: "default", Title: "Metadata", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name},
+	definition := explorerconfig.ProjectConfig{
+		ID: "default", Title: "Metadata", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: resolved.Bundle.Name},
 		Views: []explorerconfig.ConfigView{{
 			ID: "documents", Title: "Documents", Output: "Documents",
 			Table:        explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: discovered, Label: "Extension tag", Visible: true}}},
@@ -183,7 +185,7 @@ func TestPrepareProjectConfigsForPublicationPreservesStaleChoicesAndHidesView(t 
 		DatasetGeneration: executionValue.DatasetGeneration,
 	}, []publication.OutputSchema{{Name: "Documents", Columns: logicalColumns}})
 
-	prepared, err := PrepareProjectConfigsForPublication([]explorer.ProjectConfig{definition}, resolved, executionValue, "source-commit")
+	prepared, err := PrepareProjectConfigsForPublication([]explorerconfig.ProjectConfig{definition}, resolved, executionValue, "source-commit")
 	if err != nil {
 		t.Fatalf("PrepareProjectConfigsForPublication() error = %v", err)
 	}
@@ -237,7 +239,7 @@ func TestSavedViewMetadataDoesNotMutatePublicationCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := explorer.ProjectConfig{ID: "first", Title: "First", RecipeRef: explorer.ProjectConfigRecipeRef{Name: snapshot.Recipe.Name}, Views: []explorerconfig.ConfigView{{ID: "v", Output: snapshot.Recipe.Outputs[0].Name}}}
+	c := explorerconfig.ProjectConfig{ID: "first", Title: "First", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: snapshot.Recipe.Name}, Views: []explorerconfig.ConfigView{{ID: "v", Output: snapshot.Recipe.Outputs[0].Name}}}
 	first, err := PrepareViewBuilderConfig(c, snapshot, "alice")
 	if err != nil {
 		t.Fatal(err)

@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -18,7 +22,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -54,7 +57,7 @@ func fs1New(t *testing.T) *fs1Env {
 			Observed:            true, Populated: true, ObservedDocumentCount: 135,
 		},
 	)
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,17 +106,17 @@ func fs1New(t *testing.T) *fs1Env {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
@@ -125,13 +128,13 @@ func fs1New(t *testing.T) *fs1Env {
 	return &fs1Env{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", service: service, snapshot: snapshot, initialVersion: 1, initialDigest: digest}
 }
 
-func (e *fs1Env) fs1AddColumn(commandID, candidateID, title string) (authoringv2.Document, int64, string) {
+func (e *fs1Env) fs1AddColumn(commandID, candidateID, title string) (ws.Document, int64, string) {
 	e.t.Helper()
 	stored, err := e.service.Get(context.Background(), "project-a", "custom")
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	current, err := authoringv2.DecodeWorkspace(stored.DraftConfig)
+	current, err := ws.DecodeWorkspace(stored.DraftConfig)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -141,7 +144,7 @@ func (e *fs1Env) fs1AddColumn(commandID, candidateID, title string) (authoringv2
 	}
 	httpResponse := requestJSON(e.t, e.app, http.MethodPost, e.basePath+"/commands", fmt.Sprintf(
 		`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"ADD_COLUMN","outputId":"patients","occurrenceId":"base","candidateId":%q,"projectionMode":"VALUE","initialPresentation":"TABLE","title":%q}]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, e.snapshot.Token, stored.DraftVersion, digest, candidateID, title,
+		commandID, ws.CurrentSemanticsVersion, e.snapshot.Token, stored.DraftVersion, digest, candidateID, title,
 	))
 	if httpResponse.StatusCode != http.StatusOK {
 		e.t.Fatalf("ADD_COLUMN %s status=%d body=%s", candidateID, httpResponse.StatusCode, httpResponse.Body)
@@ -150,11 +153,11 @@ func (e *fs1Env) fs1AddColumn(commandID, candidateID, title string) (authoringv2
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	current, err = authoringv2.DecodeWorkspace(stored.DraftConfig)
+	current, err = ws.DecodeWorkspace(stored.DraftConfig)
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	upgraded, err := authoringv2.StartDocumentConstruction(current.Documents[0])
+	upgraded, err := ws.StartDocumentConstruction(current.Documents[0])
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -171,7 +174,7 @@ func (e *fs1Env) fs1SignedChoice(stageID, fieldPath string) string {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	current, err := authoringv2.DecodeWorkspace(stored.DraftConfig)
+	current, err := ws.DecodeWorkspace(stored.DraftConfig)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -215,54 +218,54 @@ func (e *fs1Env) fs1Propose(stepID, candidateJSON, sourcesJSON string, version i
 	return requestJSON(e.t, e.app, http.MethodPost, e.basePath+"/construction-proposals", body)
 }
 
-func fs1StageColumns(document authoringv2.Document) []authoringv2.StageColumn {
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+func fs1StageColumns(document ws.Document) []ws.StageColumn {
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	return columns
 }
 
-func fs1DeriveStep(stepID, outputID, slotOrExisting string, extraSlot *authoringv2.StageColumn, columns []authoringv2.StageColumn, literal int64) authoringv2.ConstructionStep {
+func fs1DeriveStep(stepID, outputID, slotOrExisting string, extraSlot *ws.StageColumn, columns []ws.StageColumn, literal int64) ws.ConstructionStep {
 	value := literal
-	outputs := append(append([]authoringv2.StageColumn(nil), columns...), derivedTotalColumn())
+	outputs := append(append([]ws.StageColumn(nil), columns...), derivedTotalColumn())
 	if extraSlot != nil {
 		outputs = append(outputs, *extraSlot)
 	}
-	return authoringv2.ConstructionStep{
+	return ws.ConstructionStep{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-			ConstructionID: stepID, OutputColumnID: outputID, Operation: authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: slotOrExisting},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &value}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+			ConstructionID: stepID, OutputColumnID: outputID, Operation: ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: slotOrExisting},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &value}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
 		Outputs: outputs,
 	}
 }
 
-func derivedTotalColumn() authoringv2.StageColumn {
-	return authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}
+func derivedTotalColumn() ws.StageColumn {
+	return ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}
 }
 
-func fs1FilterStep(stepID, slotColumnID string, columns []authoringv2.StageColumn) authoringv2.ConstructionStep {
+func fs1FilterStep(stepID, slotColumnID string, columns []ws.StageColumn) ws.ConstructionStep {
 	truth := true
-	outputs := append(append([]authoringv2.StageColumn(nil), columns...), authoringv2.StageColumn{
-		ID: slotColumnID, Name: authoringv2.ConstructionSourceProjectionName(slotColumnID), Label: "Active", Type: "boolean",
+	outputs := append(append([]ws.StageColumn(nil), columns...), ws.StageColumn{
+		ID: slotColumnID, Name: ws.ConstructionSourceProjectionName(slotColumnID), Label: "Active", Type: "boolean",
 	})
-	return authoringv2.ConstructionStep{
+	return ws.ConstructionStep{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: slotColumnID, Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: &truth}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: slotColumnID, Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: &truth}},
 		}},
 		Outputs: outputs,
 	}
 }
 
-func fs1MarshalConstruction(t *testing.T, construction authoringv2.Construction) string {
+func fs1MarshalConstruction(t *testing.T, construction ws.Construction) string {
 	t.Helper()
 	raw, err := json.Marshal(construction)
 	if err != nil {
@@ -276,10 +279,10 @@ func TestFS1DeriveSignedSlotSameFieldRefused(t *testing.T) {
 	document, version, digest := env.fs1AddColumn("fs1-derive-add", "c_patient_birth", "Birth count")
 	choiceID := env.fs1SignedChoice("source_projection", "multipleBirthInteger")
 	const slot = "derive_input_fs1_a"
-	step := fs1DeriveStep("derive_step", "derived_total", slot, &authoringv2.StageColumn{
-		ID: slot, Name: authoringv2.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
+	step := fs1DeriveStep("derive_step", "derived_total", slot, &ws.StageColumn{
+		ID: slot, Name: ws.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
 	}, fs1StageColumns(document), 3)
-	candidateJSON := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}})
+	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
 	response := env.fs1Propose("derive_step", candidateJSON, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
 	t.Logf("F-DS1 derive collision status=%d body=%s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusUnprocessableEntity ||
@@ -294,10 +297,10 @@ func TestFS1DeriveSignedSlotDistinctFieldStaysOK(t *testing.T) {
 	document, version, digest := env.fs1AddColumn("fs1-distinct-add", "c_patient_id", "ID")
 	choiceID := env.fs1SignedChoice("source_projection", "multipleBirthInteger")
 	const slot = "derive_input_fs1_b"
-	step := fs1DeriveStep("derive_step", "derived_total", slot, &authoringv2.StageColumn{
-		ID: slot, Name: authoringv2.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
+	step := fs1DeriveStep("derive_step", "derived_total", slot, &ws.StageColumn{
+		ID: slot, Name: ws.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
 	}, fs1StageColumns(document), 3)
-	candidateJSON := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}})
+	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
 	response := env.fs1Propose("derive_step", candidateJSON, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
 	t.Logf("distinct-field derive proposal status=%d body=%.300s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusOK || !bytes.Contains([]byte(response.Body), []byte(`"previewStatus"`)) {
@@ -318,7 +321,7 @@ func TestFS1DeriveOperandExistingColumnStaysOK(t *testing.T) {
 		t.Fatal("ADD_COLUMN persisted no multipleBirthInteger user column")
 	}
 	step := fs1DeriveStep("derive_step", "derived_total", userColumnID, nil, fs1StageColumns(document), 3)
-	candidateJSON := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}})
+	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
 	response := env.fs1Propose("derive_step", candidateJSON, "", version, digest)
 	t.Logf("case-D dedupe proposal status=%d body=%.300s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusOK || !bytes.Contains([]byte(response.Body), []byte(`"previewStatus"`)) {
@@ -332,7 +335,7 @@ func TestFS1FilterSignedSlotSameFieldRefused(t *testing.T) {
 	choiceID := env.fs1SignedChoice("source_projection", "active")
 	const slot = "filter_input_fs1_a"
 	step := fs1FilterStep("filter_step", slot, fs1StageColumns(document))
-	candidateJSON := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}})
+	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
 	response := env.fs1Propose("filter_step", candidateJSON, fmt.Sprintf(`,"filterSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
 	t.Logf("F-DS1 filter twin status=%d body=%s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusUnprocessableEntity ||
@@ -348,7 +351,7 @@ func TestFS1FilterSignedSlotDistinctFieldStaysOK(t *testing.T) {
 	choiceID := env.fs1SignedChoice("source_projection", "active")
 	const slot = "filter_input_fs1_b"
 	step := fs1FilterStep("filter_step", slot, fs1StageColumns(document))
-	candidateJSON := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}})
+	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
 	response := env.fs1Propose("filter_step", candidateJSON, fmt.Sprintf(`,"filterSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
 	t.Logf("distinct-field filter proposal status=%d body=%.300s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusOK || !bytes.Contains([]byte(response.Body), []byte(`"previewStatus"`)) {
@@ -356,13 +359,13 @@ func TestFS1FilterSignedSlotDistinctFieldStaysOK(t *testing.T) {
 	}
 }
 
-func (e *fs1Env) fs1V2Pin() (int64, string, authoringv2.Document) {
+func (e *fs1Env) fs1V2Pin() (int64, string, ws.Document) {
 	e.t.Helper()
 	stored, err := e.service.Get(context.Background(), "project-a", "custom")
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	current, err := authoringv2.DecodeWorkspace(stored.DraftConfig)
+	current, err := ws.DecodeWorkspace(stored.DraftConfig)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -370,7 +373,7 @@ func (e *fs1Env) fs1V2Pin() (int64, string, authoringv2.Document) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	upgraded, err := authoringv2.StartDocumentConstruction(current.Documents[0])
+	upgraded, err := ws.StartDocumentConstruction(current.Documents[0])
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -381,7 +384,7 @@ func (e *fs1Env) fs1V2Command(commandID, commandsJSON string, version int64, dig
 	e.t.Helper()
 	body := fmt.Sprintf(
 		`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[%s]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, e.snapshot.Token, version, digest, commandsJSON,
+		commandID, ws.CurrentSemanticsVersion, e.snapshot.Token, version, digest, commandsJSON,
 	)
 	return requestJSON(e.t, e.app, http.MethodPost, e.basePath+"/commands", body)
 }
@@ -417,10 +420,10 @@ func TestFS1RootPrefixedUserColumnStaysOK(t *testing.T) {
 	}
 	choiceID := env.fs1SignedChoice("source_projection", "multipleBirthInteger")
 	const slot = "derive_input_fs1_prefix"
-	step := fs1DeriveStep("derive_step", "derived_total", slot, &authoringv2.StageColumn{
-		ID: slot, Name: authoringv2.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
+	step := fs1DeriveStep("derive_step", "derived_total", slot, &ws.StageColumn{
+		ID: slot, Name: ws.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
 	}, fs1StageColumns(persisted), 3)
-	candidateJSON := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}})
+	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
 	response := env.fs1Propose("derive_step", candidateJSON, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
 	t.Logf("PREFIX propose status=%d body=%.300s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusOK || !bytes.Contains([]byte(response.Body), []byte(`"previewStatus"`)) {
@@ -428,19 +431,19 @@ func TestFS1RootPrefixedUserColumnStaysOK(t *testing.T) {
 	}
 }
 
-func fs1AppliedStep(stepID, outputColID, slot string, columnsOut []authoringv2.StageColumn, literal int64) authoringv2.ConstructionStep {
+func fs1AppliedStep(stepID, outputColID, slot string, columnsOut []ws.StageColumn, literal int64) ws.ConstructionStep {
 	value := literal
-	return authoringv2.ConstructionStep{
+	return ws.ConstructionStep{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-			ConstructionID: stepID, OutputColumnID: outputColID, Operation: authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: slot},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &value}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+			ConstructionID: stepID, OutputColumnID: outputColID, Operation: ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: slot},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &value}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
-		Outputs: append(append([]authoringv2.StageColumn(nil), columnsOut...),
-			authoringv2.StageColumn{ID: slot, Name: authoringv2.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer"}),
+		Outputs: append(append([]ws.StageColumn(nil), columnsOut...),
+			ws.StageColumn{ID: slot, Name: ws.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer"}),
 	}
 }
 
@@ -452,8 +455,8 @@ func TestFS1SecondSignedSlotConflictsAppliedSlot(t *testing.T) {
 
 	const slotA = "derive_input_fs1_two_a"
 	stepA := fs1AppliedStep("derive_a", "derived_a", slotA,
-		append(append([]authoringv2.StageColumn(nil), baseCols...), authoringv2.StageColumn{ID: "derived_a", Name: "derived_a", Label: "Derived A", Type: "integer"}), 1)
-	candA := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{stepA}})
+		append(append([]ws.StageColumn(nil), baseCols...), ws.StageColumn{ID: "derived_a", Name: "derived_a", Label: "Derived A", Type: "integer"}), 1)
+	candA := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{stepA}})
 	proposeA := env.fs1Propose("derive_a", candA, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slotA), version, digest)
 	if proposeA.StatusCode != http.StatusOK {
 		t.Fatalf("proposal A failed: %d %s", proposeA.StatusCode, proposeA.Body)
@@ -485,12 +488,12 @@ func TestFS1SecondSignedSlotConflictsAppliedSlot(t *testing.T) {
 
 	const slotB = "derive_input_fs1_two_b"
 	stepB := fs1AppliedStep("derive_b", "derived_b", slotB,
-		append(append([]authoringv2.StageColumn(nil), baseCols...),
-			authoringv2.StageColumn{ID: "derived_a", Name: "derived_a", Label: "Derived A", Type: "integer"},
-			authoringv2.StageColumn{ID: "derived_b", Name: "derived_b", Label: "Derived B", Type: "integer"},
-			authoringv2.StageColumn{ID: slotA, Name: authoringv2.ConstructionSourceProjectionName(slotA), Label: "Birth count", Type: "integer"}), 2)
-	stepsB := append(append([]authoringv2.ConstructionStep(nil), persisted.Construction.Steps...), stepB)
-	candB := fs1MarshalConstruction(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: stepsB})
+		append(append([]ws.StageColumn(nil), baseCols...),
+			ws.StageColumn{ID: "derived_a", Name: "derived_a", Label: "Derived A", Type: "integer"},
+			ws.StageColumn{ID: "derived_b", Name: "derived_b", Label: "Derived B", Type: "integer"},
+			ws.StageColumn{ID: slotA, Name: ws.ConstructionSourceProjectionName(slotA), Label: "Birth count", Type: "integer"}), 2)
+	stepsB := append(append([]ws.ConstructionStep(nil), persisted.Construction.Steps...), stepB)
+	candB := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: stepsB})
 	proposeB := env.fs1Propose("derive_b", candB, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slotB), version, digest)
 	t.Logf("TWO proposal B status=%d body=%.300s", proposeB.StatusCode, proposeB.Body)
 	if proposeB.StatusCode != http.StatusUnprocessableEntity || !bytes.Contains([]byte(proposeB.Body), []byte(`DERIVE_SOURCE_FIELD_ALREADY_PROJECTED`)) {

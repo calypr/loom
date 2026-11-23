@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -80,9 +82,9 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{
+	catalogSnapshot := ws.CatalogSnapshot{
 		SnapshotToken: snapshot.Token,
-		Candidates: []authoringv2.CatalogCandidate{{
+		Candidates: []ws.CatalogCandidate{{
 			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
 			Cardinality: candidate.Cardinality, ConstructionChoice: &fieldChoice,
 		}},

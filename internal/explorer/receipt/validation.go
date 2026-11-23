@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 )
 
-func ValidateFullStream(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
+func ValidateFullStream(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}

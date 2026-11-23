@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -43,7 +44,7 @@ func MigrateStoredSourcePlan(ctx context.Context, client *store.Client, project,
 	if stored.Revision == "" || owner.DraftVersion == 0 {
 		return report, explorer.ErrNotFound
 	}
-	workspace, changed, err := authoringv2.ConvertStoredSourcePlan(owner.DraftConfig, owner.DraftDigest)
+	workspace, changed, err := ws.ConvertStoredSourcePlan(owner.DraftConfig, owner.DraftDigest)
 	if err != nil {
 		return report, err
 	}

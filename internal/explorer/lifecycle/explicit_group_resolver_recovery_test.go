@@ -10,22 +10,21 @@ import (
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 type cohortRecoveryStore struct {
-	explorer.ExplicitGroupRepository
+	explorerselection.ExplicitGroupRepository
 	selection explorerselection.SelectionRevision
-	recent    []explorer.ExplicitGroupRevision
-	pinned    explorer.ExplicitGroupRevision
+	recent    []explorerselection.ExplicitGroupRevision
+	pinned    explorerselection.ExplicitGroupRevision
 	lookups   int
 }
 
-func (s *cohortRecoveryStore) ListExplicitGroupRevisions(_ context.Context, _, _, _, _ string, limit int) ([]explorer.ExplicitGroupRevision, error) {
+func (s *cohortRecoveryStore) ListExplicitGroupRevisions(_ context.Context, _, _, _, _ string, limit int) ([]explorerselection.ExplicitGroupRevision, error) {
 	return s.recent, nil
 }
 
-func (s *cohortRecoveryStore) GetExplicitGroupRevision(_ context.Context, project string, id explorer.ExplicitGroupRevisionID) (*explorer.ExplicitGroupRevision, error) {
+func (s *cohortRecoveryStore) GetExplicitGroupRevision(_ context.Context, project string, id explorerselection.ExplicitGroupRevisionID) (*explorerselection.ExplicitGroupRevision, error) {
 	s.lookups++
 	value := s.pinned
 	return &value, nil
@@ -45,11 +44,11 @@ func TestCohortSelectionRecoveryLooksUpPinnedRevisionOutsideRecentList(t *testin
 		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		Complete: true, CreatedAt: at, CompletedAt: &at,
 	}
-	pinned := explorer.ExplicitGroupRevision{
-		ID: explorer.ExplicitGroupRevisionIDFor(selection.Project, "older-cohort"), IdempotencyKey: "older-cohort",
+	pinned := explorerselection.ExplicitGroupRevision{
+		ID: explorerselection.ExplicitGroupRevisionIDFor(selection.Project, "older-cohort"), IdempotencyKey: "older-cohort",
 		Project: selection.Project, Generation: selection.Generation, ResourceType: selection.ResourceType, ScopeDigest: selection.ScopeDigest,
 		SourceSelectionRevisionID: selection.ID, SourceMembershipDigest: selection.MembershipDigest,
-		State: explorer.ExplicitGroupRevisionComplete, DefinitionDigest: "definitions", MembershipDigest: "cohort-members",
+		State: explorerselection.ExplicitGroupRevisionComplete, DefinitionDigest: "definitions", MembershipDigest: "cohort-members",
 		GroupCount: 1, CreatedAt: at, CompletedAt: &at,
 	}
 	for _, scenario := range []struct {
@@ -63,13 +62,13 @@ func TestCohortSelectionRecoveryLooksUpPinnedRevisionOutsideRecentList(t *testin
 		{name: "wrong authorization", mutate: func(s *cohortRecoveryStore) { s.pinned.ScopeDigest = "foreign" }, fail: true},
 		{name: "wrong resource type", mutate: func(s *cohortRecoveryStore) { s.pinned.ResourceType = "Specimen" }, fail: true},
 		{name: "stale membership", mutate: func(s *cohortRecoveryStore) { s.selection.MembershipDigest = "changed" }, fail: true},
-		{name: "incomplete cohort", mutate: func(s *cohortRecoveryStore) { s.pinned.State = explorer.ExplicitGroupRevisionStaging }, fail: true},
+		{name: "incomplete cohort", mutate: func(s *cohortRecoveryStore) { s.pinned.State = explorerselection.ExplicitGroupRevisionStaging }, fail: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			store := &cohortRecoveryStore{selection: selection, pinned: pinned}
 			for i := 0; i < 100; i++ {
 				recent := pinned
-				recent.ID = explorer.ExplicitGroupRevisionIDFor(selection.Project, at.Add(time.Duration(i)*time.Hour).String())
+				recent.ID = explorerselection.ExplicitGroupRevisionIDFor(selection.Project, at.Add(time.Duration(i)*time.Hour).String())
 				recent.IdempotencyKey = at.Add(time.Duration(i) * time.Hour).String()
 				store.recent = append(store.recent, recent)
 			}

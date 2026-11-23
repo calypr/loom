@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
@@ -11,57 +13,57 @@ import (
 type PlanEdit struct {
 	StepChanges  []authoringv2.ImportedSourceStepChange
 	Relationship *authoringv2.ImportedRelationshipChange
-	RuleCreate   *authoringv2.SourceRuleCreate
+	RuleCreate   *ws.SourceRuleCreate
 }
 
 type PlanEditInput struct {
 	PinnedFieldIDs  map[string]string
-	Occurrences     []authoringv2.NetworkOccurrence
+	Occurrences     []ws.NetworkOccurrence
 	NewOccurrenceID string
 }
 
-func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catalog authoringv2.CatalogSnapshot, edit PlanEdit, input PlanEditInput) (authoringv2.ImportedSourcePlan, error) {
+func EditPlan(original recipe.Output, plan ws.ImportedSourcePlan, catalog ws.CatalogSnapshot, edit PlanEdit, input PlanEditInput) (ws.ImportedSourcePlan, error) {
 	changes, relationship, rule := edit.StepChanges, edit.Relationship, edit.RuleCreate
 	count := 0
 	if changes != nil {
 		count++
 		if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
-			return authoringv2.ImportedSourcePlan{}, err
+			return ws.ImportedSourcePlan{}, err
 		}
 	}
 	if relationship != nil {
 		count++
 		if err := relationship.Validate(); err != nil {
-			return authoringv2.ImportedSourcePlan{}, err
+			return ws.ImportedSourcePlan{}, err
 		}
 	}
 	if rule != nil {
 		count++
 		if err := rule.Validate(); err != nil {
-			return authoringv2.ImportedSourcePlan{}, err
+			return ws.ImportedSourcePlan{}, err
 		}
 	}
 	if count != 1 {
-		return authoringv2.ImportedSourcePlan{}, fmt.Errorf("source plan edit requires exactly one intent")
+		return ws.ImportedSourcePlan{}, fmt.Errorf("source plan edit requires exactly one intent")
 	}
 	plan, err := HydrateSourcePlan(original, &plan)
 	if err != nil {
-		return authoringv2.ImportedSourcePlan{}, err
+		return ws.ImportedSourcePlan{}, err
 	}
 	pinnedSteps, err := retainedPinnedSteps(SourcePlan(original).Steps, plan.RemovedStepIDs)
 	if err != nil {
-		return authoringv2.ImportedSourcePlan{}, err
+		return ws.ImportedSourcePlan{}, err
 	}
 	baseStepCount := len(pinnedSteps)
 	var newPinnedRemovals []string
 	if rule != nil {
-		limit := authoringv2.MaxImportedRuleColumns
+		limit := ws.MaxImportedRuleColumns
 		if rule.MaxColumns != nil {
 			limit = *rule.MaxColumns
 		}
 		ruleIndex := max(plan.NextRuleIndex, len(plan.RuleAdditions))
 		plan.NextRuleIndex = ruleIndex + 1
-		addition := authoringv2.ImportedSourceRuleAddition{
+		addition := ws.ImportedSourceRuleAddition{
 			StepID: fmt.Sprintf("ruleAdditions[%d]", ruleIndex),
 			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Parameters: relativeSourceRuleParameters(rule.OccurrenceID, rule.Parameters), MaxColumns: &limit,
 		}
@@ -76,7 +78,7 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 	}
 	for _, change := range changes {
 		if change.Remove {
-			index := slices.IndexFunc(plan.RuleAdditions, func(addition authoringv2.ImportedSourceRuleAddition) bool {
+			index := slices.IndexFunc(plan.RuleAdditions, func(addition ws.ImportedSourceRuleAddition) bool {
 				return addition.StepID == change.StepID
 			})
 			if index >= 0 {
@@ -90,7 +92,7 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 		}
 		if change.Parameters != nil && change.Parameters.FieldGroup != nil {
 			if err := VerifyPinnedFieldBindings(plan.FieldBindings, input.PinnedFieldIDs); err != nil {
-				return authoringv2.ImportedSourcePlan{}, err
+				return ws.ImportedSourcePlan{}, err
 			}
 			bound := map[string]bool{}
 			for _, binding := range plan.FieldBindings {
@@ -99,10 +101,10 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			for _, field := range change.Parameters.FieldGroup.Fields {
 				id := input.PinnedFieldIDs[field.FieldID]
 				if id == "" {
-					return authoringv2.ImportedSourcePlan{}, fmt.Errorf("source field %q has no unambiguous emitted identity in the pinned projection; resolve its source collision before editing", field.FieldID)
+					return ws.ImportedSourcePlan{}, fmt.Errorf("source field %q has no unambiguous emitted identity in the pinned projection; resolve its source collision before editing", field.FieldID)
 				}
 				if !bound[field.FieldID] {
-					plan.FieldBindings = append(plan.FieldBindings, authoringv2.ImportedSourceFieldBinding{FieldID: field.FieldID, ColumnID: id})
+					plan.FieldBindings = append(plan.FieldBindings, ws.ImportedSourceFieldBinding{FieldID: field.FieldID, ColumnID: id})
 					bound[field.FieldID] = true
 				}
 			}
@@ -114,11 +116,11 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 				continue
 			}
 			if change.ValueMode != "" {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("source rule edits do not support a value policy")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("source rule edits do not support a value policy")
 			}
 			if change.Parameters != nil {
 				if err := change.Parameters.Validate(addition.Kind); err != nil {
-					return authoringv2.ImportedSourcePlan{}, err
+					return ws.ImportedSourcePlan{}, err
 				}
 				addition.Parameters = relativeSourceRuleParameters(addition.OccurrenceID, change.Parameters)
 			}
@@ -138,17 +140,17 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 				continue
 			}
 			if !step.Editable {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("this source step cannot be changed")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("this source step cannot be changed")
 			}
 			if change.MaxColumns != nil && step.MaxColumns == nil {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("this source step has no column limit")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("this source step has no column limit")
 			}
 			if change.ValueMode != "" && step.ValueMode == "" {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("this source step has no value policy")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("this source step has no value policy")
 			}
 			if change.Parameters != nil {
 				if err := change.Parameters.Validate(step.Kind); err != nil {
-					return authoringv2.ImportedSourcePlan{}, err
+					return ws.ImportedSourcePlan{}, err
 				}
 				step.Parameters = change.Parameters
 			}
@@ -162,16 +164,16 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			found = true
 		}
 		if !found {
-			return authoringv2.ImportedSourcePlan{}, fmt.Errorf("source step was not found")
+			return ws.ImportedSourcePlan{}, fmt.Errorf("source step was not found")
 		}
 	}
 
 	if relationship != nil {
 		if plan.Relationships == nil {
-			plan.Relationships = &authoringv2.ImportedRelationshipOverlay{}
+			plan.Relationships = &ws.ImportedRelationshipOverlay{}
 		}
 		overlay := plan.Relationships
-		occurrences := map[string]authoringv2.NetworkOccurrence{}
+		occurrences := map[string]ws.NetworkOccurrence{}
 		for _, o := range input.Occurrences {
 			if o.Enabled {
 				occurrences[o.OccurrenceID] = o
@@ -181,9 +183,9 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 		case "ADD":
 			parent, ok := occurrences[relationship.ParentOccurrenceID]
 			if !ok {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("selected parent occurrence is unavailable")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("selected parent occurrence is unavailable")
 			}
-			var edge *authoringv2.CatalogEdge
+			var edge *ws.CatalogEdge
 			for i := range catalog.Edges {
 				if catalog.Edges[i].ID == relationship.EdgeID {
 					edge = &catalog.Edges[i]
@@ -191,9 +193,9 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 				}
 			}
 			if edge == nil {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("selected catalog edge is unavailable")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("selected catalog edge is unavailable")
 			}
-			var from, to *authoringv2.CatalogNode
+			var from, to *ws.CatalogNode
 			for i := range catalog.Nodes {
 				node := &catalog.Nodes[i]
 				if node.ID == edge.FromNodeID {
@@ -204,44 +206,44 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 				}
 			}
 			if from == nil || to == nil || from.ResourceType != parent.ResourceType {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("selected catalog edge does not extend this occurrence")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("selected catalog edge does not extend this occurrence")
 			}
 
 			for ancestor := parent; ; {
 				if ancestor.ResourceType == to.ResourceType {
-					return authoringv2.ImportedSourcePlan{}, fmt.Errorf("cyclic source relationship is unsupported")
+					return ws.ImportedSourcePlan{}, fmt.Errorf("cyclic source relationship is unsupported")
 				}
 				if ancestor.ParentOccurrenceID == "" {
 					break
 				}
 				next, ok := occurrences[ancestor.ParentOccurrenceID]
 				if !ok {
-					return authoringv2.ImportedSourcePlan{}, fmt.Errorf("source ancestor is unavailable")
+					return ws.ImportedSourcePlan{}, fmt.Errorf("source ancestor is unavailable")
 				}
 				ancestor = next
 			}
 			id := input.NewOccurrenceID
-			addition := authoringv2.ImportedRelationship{OccurrenceID: id, ParentOccurrenceID: parent.OccurrenceID, CatalogEdgeID: edge.ID, Relationship: edge.Label, ResourceType: to.ResourceType, StorageDirection: edge.StorageDirection, MatchMode: relationship.MatchMode}
+			addition := ws.ImportedRelationship{OccurrenceID: id, ParentOccurrenceID: parent.OccurrenceID, CatalogEdgeID: edge.ID, Relationship: edge.Label, ResourceType: to.ResourceType, StorageDirection: edge.StorageDirection, MatchMode: relationship.MatchMode}
 
 			for _, field := range catalog.Candidates {
 				if field.NodeID == to.ID && (field.FieldPath == "id" || field.FieldPath == to.ResourceType+".id") && !field.Repeated {
-					addition.Fields = []authoringv2.ImportedRelationshipField{{CandidateID: field.ID, ColumnID: id + "_id", Column: id + "_id", FieldPath: field.FieldPath, Label: field.Label, ValueMode: "ALL"}}
+					addition.Fields = []ws.ImportedRelationshipField{{CandidateID: field.ID, ColumnID: id + "_id", Column: id + "_id", FieldPath: field.FieldPath, Label: field.Label, ValueMode: "ALL"}}
 					break
 				}
 			}
 			if len(addition.Fields) == 0 {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("related source requires an authorized scalar identifier field")
+				return ws.ImportedSourcePlan{}, fmt.Errorf("related source requires an authorized scalar identifier field")
 			}
 			overlay.Additions = append(overlay.Additions, addition)
 		case "MATCH", "REMOVE":
 			occurrence, ok := occurrences[relationship.OccurrenceID]
-			if !ok || occurrence.OccurrenceID == authoringv2.RootOccurrenceID {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("selected relationship occurrence is unavailable")
+			if !ok || occurrence.OccurrenceID == ws.RootOccurrenceID {
+				return ws.ImportedSourcePlan{}, fmt.Errorf("selected relationship occurrence is unavailable")
 			}
 			if relationship.Action == "REMOVE" {
 				for _, o := range input.Occurrences {
 					if o.Enabled && o.ParentOccurrenceID == occurrence.OccurrenceID {
-						return authoringv2.ImportedSourcePlan{}, fmt.Errorf("remove dependent source relationships explicitly before their parent")
+						return ws.ImportedSourcePlan{}, fmt.Errorf("remove dependent source relationships explicitly before their parent")
 					}
 				}
 				overlay.Removals = append(overlay.Removals, occurrence.OccurrenceID)
@@ -261,33 +263,33 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 					}
 				}
 				if !found {
-					overlay.MatchOverrides = append(overlay.MatchOverrides, authoringv2.ImportedRelationshipMatch{OccurrenceID: occurrence.OccurrenceID, MatchMode: relationship.MatchMode})
+					overlay.MatchOverrides = append(overlay.MatchOverrides, ws.ImportedRelationshipMatch{OccurrenceID: occurrence.OccurrenceID, MatchMode: relationship.MatchMode})
 				}
 			}
 		}
 		if err := ValidateRelationshipOverlay(original, &plan, catalog); err != nil {
-			return authoringv2.ImportedSourcePlan{}, err
+			return ws.ImportedSourcePlan{}, err
 		}
 	}
 	plan.Steps, err = retainedPinnedSteps(plan.Steps[:baseStepCount], newPinnedRemovals)
 	if err != nil {
-		return authoringv2.ImportedSourcePlan{}, err
+		return ws.ImportedSourcePlan{}, err
 	}
 	ruleSteps, err := sourceRuleSteps(plan.Steps, &plan)
 	if err != nil {
-		return authoringv2.ImportedSourcePlan{}, err
+		return ws.ImportedSourcePlan{}, err
 	}
 	plan.Steps = append(plan.Steps, ruleSteps...)
 	effectiveCandidate, err := ApplySourcePlan(original, &plan)
 	if err != nil {
-		return authoringv2.ImportedSourcePlan{}, err
+		return ws.ImportedSourcePlan{}, err
 	}
 	for i := range changes {
 		change := &changes[i]
 		if change.Parameters != nil && change.Parameters.Traversal != nil {
 			route, err := ImportRoute(effectiveCandidate, catalog)
 			if err != nil {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("edited source traversal: %w", err)
+				return ws.ImportedSourcePlan{}, fmt.Errorf("edited source traversal: %w", err)
 			}
 			occurrence := ""
 			for _, step := range plan.Steps {
@@ -295,9 +297,9 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 					occurrence = step.OccurrenceID
 				}
 			}
-			var selected *authoringv2.RouteNode
-			var find func(*authoringv2.RouteNode)
-			find = func(n *authoringv2.RouteNode) {
+			var selected *ws.RouteNode
+			var find func(*ws.RouteNode)
+			find = func(n *ws.RouteNode) {
 				if n.OccurrenceID == occurrence {
 					selected = n
 				}
@@ -307,7 +309,7 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			}
 			find(&route)
 			if selected == nil || selected.CatalogEdgeID == "" {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("edited source traversal %q must resolve to exactly one authorized catalog relationship", change.StepID)
+				return ws.ImportedSourcePlan{}, fmt.Errorf("edited source traversal %q must resolve to exactly one authorized catalog relationship", change.StepID)
 			}
 		}
 	}
@@ -315,7 +317,7 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 	return plan, nil
 }
 
-func VerifyPinnedFieldBindings(bindings []authoringv2.ImportedSourceFieldBinding, expected map[string]string) error {
+func VerifyPinnedFieldBindings(bindings []ws.ImportedSourceFieldBinding, expected map[string]string) error {
 	for _, binding := range bindings {
 		if id := expected[binding.FieldID]; id == "" || id != binding.ColumnID {
 			return fmt.Errorf("source field binding %q does not match its immutable pinned field identity", binding.FieldID)
@@ -324,7 +326,7 @@ func VerifyPinnedFieldBindings(bindings []authoringv2.ImportedSourceFieldBinding
 	return nil
 }
 
-func availableCatalogRuleName(steps []authoringv2.ImportedSourceStep, occurrenceID, preferred string) string {
+func availableCatalogRuleName(steps []ws.ImportedSourceStep, occurrenceID, preferred string) string {
 	parentID := ""
 	if occurrenceID != "" {
 		for _, step := range steps {

@@ -3,9 +3,11 @@ package construction
 import (
 	"context"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -14,11 +16,11 @@ func ConstructionChoicesMatchSnapshot(identities []capability.ConstructionChoice
 	return constructionChoicesMatchSnapshot(identities, snapshotToken)
 }
 
-func CheckConstructionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+func CheckConstructionProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {
 	return checkConstructionProposalResult(workspace, receipt)
 }
 
-func ConstructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
+func ConstructionCapabilitiesWorkspace(workspace ws.Workspace, targetOutputID string) (ws.Workspace, error) {
 	return constructionCapabilitiesWorkspace(workspace, targetOutputID)
 }
 
@@ -30,11 +32,11 @@ func ConstructionChoiceSupports(choice capability.ConstructionChoice, form capab
 	return constructionChoiceSupports(choice, form)
 }
 
-func ConstructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {
+func ConstructionDocumentIndex(workspace ws.Workspace, outputID string) int {
 	return constructionDocumentIndex(workspace, outputID)
 }
 
-func ConstructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot authoringv2.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
+func ConstructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot ws.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
 	return constructionRouteForOccurrence(snapshot, rootResourceType, targetNodeID, authoredRoot, occurrenceID)
 }
 

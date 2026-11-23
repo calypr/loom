@@ -5,10 +5,12 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
@@ -68,29 +70,29 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	priorFamily.RuleVersion = "4"
 	priorFamily.ValueFallbacks = nil
 	priorFamily.FallbackOnBlankString = false
-	priorSource := &authoringv2.ConstructionCodedPivotSource{
+	priorSource := &ws.ConstructionCodedPivotSource{
 		Family: priorFamily, CandidateID: candidate.ID, NodeID: candidate.NodeID,
 		FieldPath: candidate.FieldPath, Route: []capability.ConstructionRouteStep{},
 	}
-	prior := authoringv2.ConstructionCodedPivot{
+	prior := ws.ConstructionCodedPivot{
 		ConstructionID: "coded-pivot", Source: priorSource,
-		Categories: []authoringv2.ConstructionCodedPivotCategory{{
+		Categories: []ws.ConstructionCodedPivotCategory{{
 			System: "urn:stage", Code: "stage-zero", OutputColumnID: "stage-zero",
 		}},
-		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
-		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
+		DuplicatePolicy:   ws.ConstructionPivotDuplicateError,
+		MissingCellPolicy: ws.ConstructionPivotMissingNull,
 	}
 	base := constructionBase{
 		ExplorerID: "explorer-a",
-		Document:   authoringv2.Document{Output: authoringv2.Output{ID: "out-observation"}, RootResourceType: "Observation", Rows: authoringv2.RecordsRowDefinition()},
-		Construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
-			ID: "coded-pivot", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCodedPivot, CodedPivot: &prior},
+		Document:   ws.Document{Output: ws.Output{ID: "out-observation"}, RootResourceType: "Observation", Rows: ws.RecordsRowDefinition()},
+		Construction: ws.Construction{Steps: []ws.ConstructionStep{{
+			ID: "coded-pivot", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCodedPivot, CodedPivot: &prior},
 		}}},
 		Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		Stages: []explorer.ReceiptConstructionStage{{
+		Stages: []receiptmodel.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedPivotOp), Supported: true}},
+			Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedPivotOp), Supported: true}},
 		}},
 	}
 	service := &Service{config: Config{
@@ -117,16 +119,16 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		}}}
 
 	candidateConstruction := base.Construction
-	candidateConstruction.Steps = append([]authoringv2.ConstructionStep(nil), base.Construction.Steps...)
+	candidateConstruction.Steps = append([]ws.ConstructionStep(nil), base.Construction.Steps...)
 	candidateStep := &candidateConstruction.Steps[0]
-	candidateStep.Operation.CodedPivot = &authoringv2.ConstructionCodedPivot{
+	candidateStep.Operation.CodedPivot = &ws.ConstructionCodedPivot{
 		ConstructionID: "coded-pivot", SourceChoiceID: frameChoice.ChoiceID,
-		Categories: []authoringv2.ConstructionCodedPivotCategory{
+		Categories: []ws.ConstructionCodedPivotCategory{
 			{System: "urn:stage", Code: "stage-zero", OutputColumnID: "stage-zero"},
 			{ChoiceID: categoryChoice.ChoiceID, OutputColumnID: "stage-two"},
 		},
-		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
-		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
+		DuplicatePolicy:   ws.ConstructionPivotDuplicateError,
+		MissingCellPolicy: ws.ConstructionPivotMissingNull,
 	}
 	resolved, verified, err := service.resolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", candidateConstruction)
 	if err != nil {
@@ -139,7 +141,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	if got.SourceChoiceID != "" || !reflect.DeepEqual(got.Source, priorSource) {
 		t.Fatalf("reauthorized saved primary source changed: got=%#v want=%#v", got.Source, priorSource)
 	}
-	wantCategories := []authoringv2.ConstructionCodedPivotCategory{
+	wantCategories := []ws.ConstructionCodedPivotCategory{
 		{System: "urn:stage", Code: "stage-zero", OutputColumnID: "stage-zero"},
 		{System: "urn:stage", Code: "stage-two", OutputColumnID: "stage-two"},
 	}
@@ -158,12 +160,12 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		t.Fatal(err)
 	}
 	tampered := candidateConstruction
-	tampered.Steps = append([]authoringv2.ConstructionStep(nil), candidateConstruction.Steps...)
-	tampered.Steps[0].Operation.CodedPivot = &authoringv2.ConstructionCodedPivot{
+	tampered.Steps = append([]ws.ConstructionStep(nil), candidateConstruction.Steps...)
+	tampered.Steps[0].Operation.CodedPivot = &ws.ConstructionCodedPivot{
 		ConstructionID: "coded-pivot", SourceChoiceID: tamperedChoice.ChoiceID,
 		Categories:        candidateConstruction.Steps[0].Operation.CodedPivot.Categories,
-		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
-		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
+		DuplicatePolicy:   ws.ConstructionPivotDuplicateError,
+		MissingCellPolicy: ws.ConstructionPivotMissingNull,
 	}
 	_, _, err = service.resolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", tampered)
 	assertLifecycleError(t, err, ports.ClassUnprocessable, "INVALID_FRAME_SOURCE")

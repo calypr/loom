@@ -6,25 +6,28 @@ import (
 	"encoding/json"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func migrateStoredWorkspaceFixture(t *testing.T, raw []byte, catalog authoringv2.CatalogSnapshot) authoringv2.StoredWorkspaceMigration {
+func migrateStoredWorkspaceFixture(t *testing.T, raw []byte, catalog ws.CatalogSnapshot) ws.StoredWorkspaceMigration {
 	t.Helper()
-	if _, err := authoringv2.DecodeWorkspace(raw); err == nil {
+	if _, err := ws.DecodeWorkspace(raw); err == nil {
 		t.Fatal("legacy fixture unexpectedly accepted by strict runtime decoder")
 	}
-	migrated, err := authoringv2.MigrateStoredWorkspace(raw, catalog)
+	migrated, err := ws.MigrateStoredWorkspace(raw, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authoringv2.DecodeWorkspace(migrated.CanonicalJSON); err != nil {
+	if _, err := ws.DecodeWorkspace(migrated.CanonicalJSON); err != nil {
 		t.Fatalf("offline migration did not produce strict current workspace: %v", err)
 	}
 	return migrated
@@ -33,7 +36,7 @@ func migrateStoredWorkspaceFixture(t *testing.T, raw []byte, catalog authoringv2
 func TestBuilderRequiresExplicitStoredMigrationForLegacyNilSteps(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	service.config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +45,7 @@ func TestBuilderRequiresExplicitStoredMigrationForLegacyNilSteps(t *testing.T) {
 			workspace.Documents[0].Columns[index].ColumnID = workspace.Documents[0].Columns[index].Column
 		}
 	}
-	workspace.Documents[0].Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}}
+	workspace.Documents[0].Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}}
 	current, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -90,11 +93,11 @@ func TestBuilderRequiresExplicitStoredMigrationForLegacyNilSteps(t *testing.T) {
 func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
 	receipt := nativeReceipt(snapshot)
-	historical, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	historical, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
 	}
-	historical.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 1
+	historical.SemanticsVersion = ws.CurrentSemanticsVersion - 1
 	receipt.NormalizedBundle, err = historical.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -103,11 +106,11 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = explorer.ReceiptID(*receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +124,11 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 	store := &fakeStore{receipt: receipt}
 	config := testConfig(snapshot)
 	previewCalls, materializeCalls, releaseCalls, sinkCalls := 0, 0, 0, 0
-	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		return dataframeexecution.PreviewSummary{}, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		materializeCalls++
 		return ports.Execution{}, nil
 	}
@@ -135,7 +138,7 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
 	service := newTestService(t, store, config)
-	_, err = service.Preview(context.Background(), PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 10, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	_, err = service.Preview(context.Background(), PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 10, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		sinkCalls++
 		return func(map[string]any) error { return nil }, nil
 	}})

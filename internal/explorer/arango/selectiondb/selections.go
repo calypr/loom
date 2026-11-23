@@ -5,10 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	store "github.com/calypr/loom/internal/store/arango"
 )

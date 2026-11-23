@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/testkit/recipetest"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/compilation"
 )
 
@@ -62,11 +64,11 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		Bundle: bundle, RecipeDigest: compiled.StoredRecipeDigest,
 		ResolvedRecipeDigest: resolvedDigest, ResolvedSchemaDigest: compiled.ResolvedSchemaDigest,
 		OutputFingerprints: fingerprints, OutputColumnProvenance: provenance,
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 			{OutputID: "patients", PublicColumn: "patient_id"},
 			{OutputID: "specimens", PublicColumn: "specimen_id"},
 		},

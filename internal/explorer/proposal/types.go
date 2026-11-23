@@ -4,17 +4,19 @@ import (
 	"context"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 type PreviewResult struct {
-	Receipt *explorer.CompilationReceipt
-	Columns []explorer.EmittedColumn
+	Receipt *receiptmodel.CompilationReceipt
+	Columns []viewer.EmittedColumn
 	Summary dataframeexecution.PreviewSummary
 }
 
-type PreviewSinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
+type PreviewSinkFactory func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error)
 
 type ProposalPreviewOptions struct {
 	Limit                 *int

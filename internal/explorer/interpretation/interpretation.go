@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -100,8 +101,8 @@ type InterpretationRule struct {
 }
 
 type InterpretationFeatureDefinition struct {
-	Source      authoringv2.ColumnSource          `json:"source"`
-	Contributor *authoringv2.ContributorPredicate `json:"contributor,omitempty"`
+	Source      ws.ColumnSource          `json:"source"`
+	Contributor *ws.ContributorPredicate `json:"contributor,omitempty"`
 }
 
 type ResolvedInterpretation struct {
@@ -385,13 +386,13 @@ func (r InterpretationRevision) canonicalized() (InterpretationRevision, error) 
 func canonicalInterpretationDefinition(def InterpretationFeatureDefinition, resourceType string) (InterpretationFeatureDefinition, error) {
 	def.Source = def.Source.Normalized()
 
-	document := authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "interpretation", Title: "Interpretation"},
+	document := ws.Document{
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "interpretation", Title: "Interpretation"},
 		RootResourceType: resourceType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType},
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Columns:          []authoringv2.Column{{Column: "value", Label: "Value", OccurrenceID: authoringv2.RootOccurrenceID, Source: def.Source, Contributor: def.Contributor}},
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: resourceType},
+		Rows:             ws.RecordsRowDefinition(),
+		Columns:          []ws.Column{{Column: "value", Label: "Value", OccurrenceID: ws.RootOccurrenceID, Source: def.Source, Contributor: def.Contributor}},
 	}
 	if err := document.Validate(); err != nil {
 		return InterpretationFeatureDefinition{}, err

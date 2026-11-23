@@ -10,6 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	proposalpkg "github.com/calypr/loom/internal/explorer/proposal"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -36,7 +40,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope), SchemaDigest: "schema", ShapeDigest: "shape"}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "c_patient", Expr: recipe.Expression{Select: "root.id"}}}}
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "custom"), map[string][]recipe.StageColumn{"patients": {{ID: "patient-id", Name: "c_patient", Label: "Patient ID", Type: "string"}}})
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "custom"), map[string][]recipe.StageColumn{"patients": {{ID: "patient-id", Name: "c_patient", Label: "Patient ID", Type: "string"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,18 +69,18 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		},
 		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-		}, Catalog: authoringv2.CatalogFromCapability,
+		}, Catalog: ws.CatalogFromCapability,
 	},
-		EditImportedRelationship: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+		EditImportedRelationship: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, change authoringv2.ImportedRelationshipChange) (ws.Document, error) {
 			edits++
-			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change.Action != "ADD" || change.ParentOccurrenceID != "base" || change.EdgeID != "authorized-edge" || change.MatchMode != authoringv2.RouteMatchOptional {
+			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change.Action != "ADD" || change.ParentOccurrenceID != "base" || change.EdgeID != "authorized-edge" || change.MatchMode != ws.RouteMatchOptional {
 				t.Fatalf("transport retargeted intent: %#v", change)
 			}
 			plan := recipeimport.SourcePlan(output)
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		EditImportedSource: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+		EditImportedSource: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
 			stepEdits++
 			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change == nil || change.StepID != "fields" || !change.Remove {
 				t.Fatalf("source-step transport lost settings: %#v", change)
@@ -87,7 +91,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		EditImportedSources: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+		EditImportedSources: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, changes []authoringv2.ImportedSourceStepChange) (ws.Document, error) {
 			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || len(changes) != 2 {
 				t.Fatal("HTTP batch lost one owner/intent")
 			}
@@ -102,16 +106,16 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		AuthoringNetwork: func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+		AuthoringNetwork: func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
 			networks++
-			network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-			network.Occurrences = append(network.Occurrences, authoringv2.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Label: "Patient", Enabled: true, PreservesRowIdentity: true})
+			network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+			network.Occurrences = append(network.Occurrences, ws.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Label: "Patient", Enabled: true, PreservesRowIdentity: true})
 			if !containsSourceStepRemoval(document.ImportedSource, "fields") {
-				network.Bindings = append(network.Bindings, authoringv2.NetworkColumnBinding{ColumnID: "patient-id", OccurrenceID: "base", SourceStepID: "fields", ValueMode: "ALL", Status: "EXACT"})
+				network.Bindings = append(network.Bindings, ws.NetworkColumnBinding{ColumnID: "patient-id", OccurrenceID: "base", SourceStepID: "fields", ValueMode: "ALL", Status: "EXACT"})
 			}
 			return network, nil
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 			if err != nil {
 				return nil, err
@@ -122,17 +126,17 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			clone := *receipt
 			binding := *request.SourceRelationshipProposal
 			clone.SourceRelationshipProposal = &binding
-			clone.CompilationKey, err = explorer.CompilationKey(clone)
+			clone.CompilationKey, err = receiptmodel.CompilationKey(clone)
 			if err != nil {
 				return nil, err
 			}
-			clone.ID, err = explorer.ReceiptID(clone)
+			clone.ID, err = receiptmodel.ReceiptID(clone)
 			if err != nil {
 				return nil, err
 			}
 			return service.StoreCompilationReceipt(ctx, clone)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previews++
 			lastPreviewLimit = bindings.PreviewLimit
 			if receipt.SourceRelationshipProposal == nil || !bindings.IncludeRowIdentity || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
@@ -302,7 +306,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		t.Fatal("HTTP Preview/Cancel changed saved draft")
 	}
 	applyBody := func(id string) string {
-		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,%s,"commands":[{"type":"APPLY_IMPORTED_RELATIONSHIP_PROPOSAL","outputId":"patients","proposalId":%q}]}`, id, authoringv2.CurrentSemanticsVersion, strings.Replace(identity, `,"outputId":"patients"`, "", 1), proposal.ProposalID)
+		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,%s,"commands":[{"type":"APPLY_IMPORTED_RELATIONSHIP_PROPOSAL","outputId":"patients","proposalId":%q}]}`, id, ws.CurrentSemanticsVersion, strings.Replace(identity, `,"outputId":"patients"`, "", 1), proposal.ProposalID)
 	}
 	applied := requestJSON(t, app, http.MethodPost, basePath+"/commands", applyBody("source-apply"))
 	if applied.StatusCode != http.StatusOK {
@@ -315,7 +319,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if saved.DraftVersion != 2 || previews != previewsBeforeApply+1 {
 		t.Fatal("HTTP Apply did not validate receipt and save once")
 	}
-	savedWorkspace, err := authoringv2.DecodeWorkspace(saved.DraftConfig)
+	savedWorkspace, err := ws.DecodeWorkspace(saved.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +365,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if afterStepPreview.DraftVersion != saved.DraftVersion || afterStepPreview.DraftDigest != saved.DraftDigest || !bytes.Equal(afterStepPreview.DraftConfig, saved.DraftConfig) {
 		t.Fatal("source-step removal Preview changed draft")
 	}
-	stepApplyBody := fmt.Sprintf(`{"commandId":"source-step-remove","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_IMPORTED_RELATIONSHIP_PROPOSAL","outputId":"patients","proposalId":%q}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, saved.DraftVersion, saved.DraftDigest, stepProposal.ProposalID)
+	stepApplyBody := fmt.Sprintf(`{"commandId":"source-step-remove","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_IMPORTED_RELATIONSHIP_PROPOSAL","outputId":"patients","proposalId":%q}]}`, ws.CurrentSemanticsVersion, snapshot.Token, saved.DraftVersion, saved.DraftDigest, stepProposal.ProposalID)
 	stepApplied := requestJSON(t, app, http.MethodPost, basePath+"/commands", stepApplyBody)
 	if stepApplied.StatusCode != http.StatusOK {
 		t.Fatalf("source-step removal Apply HTTP %d: %s", stepApplied.StatusCode, stepApplied.Body)
@@ -370,7 +374,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredWorkspace, err := authoringv2.DecodeWorkspace(restored.DraftConfig)
+	restoredWorkspace, err := ws.DecodeWorkspace(restored.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +384,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 
 }
 
-func httpSourceStepPresent(plan *authoringv2.ImportedSourcePlan, id string) bool {
+func httpSourceStepPresent(plan *ws.ImportedSourcePlan, id string) bool {
 	if plan == nil {
 		return false
 	}
@@ -392,7 +396,7 @@ func httpSourceStepPresent(plan *authoringv2.ImportedSourcePlan, id string) bool
 	return false
 }
 
-func containsSourceStepRemoval(plan *authoringv2.ImportedSourcePlan, id string) bool {
+func containsSourceStepRemoval(plan *ws.ImportedSourcePlan, id string) bool {
 	if plan == nil {
 		return false
 	}
@@ -404,7 +408,7 @@ func containsSourceStepRemoval(plan *authoringv2.ImportedSourcePlan, id string) 
 	return false
 }
 
-func removeTestSourceStep(steps []authoringv2.ImportedSourceStep, id string) []authoringv2.ImportedSourceStep {
+func removeTestSourceStep(steps []ws.ImportedSourceStep, id string) []ws.ImportedSourceStep {
 	retained := steps[:0]
 	for _, step := range steps {
 		if step.ID != id {

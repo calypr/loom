@@ -6,20 +6,21 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestCompileExpandedRowsBindsDeepExactOccurrenceAndIdentity(t *testing.T) {
 	snapshot := expandedRowsSnapshot()
 	document := expandedRowsDocument("second_patient", "name[]")
-	document.Route.Children = []authoringv2.RouteNode{{
+	document.Route.Children = []ws.RouteNode{{
 		OccurrenceID: "first_condition", ResourceType: "Condition", Relationship: "subject_Patient", CatalogEdgeID: "e_condition",
-		Children: []authoringv2.RouteNode{{
+		Children: []ws.RouteNode{{
 			OccurrenceID: "second_patient", ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "e_patient_return",
 		}},
 	}}
@@ -32,7 +33,7 @@ func TestCompileExpandedRowsBindsDeepExactOccurrenceAndIdentity(t *testing.T) {
 		t.Fatalf("compiled outputs=%d, want one", len(compiled.Bundle.Outputs))
 	}
 	output := compiled.Bundle.Outputs[0]
-	if output.RootOccurrenceID != authoringv2.RootOccurrenceID || output.RowGrain != "expanded" {
+	if output.RootOccurrenceID != ws.RootOccurrenceID || output.RowGrain != "expanded" {
 		t.Fatalf("compiled root identity/grain = %q/%q", output.RootOccurrenceID, output.RowGrain)
 	}
 	if output.Expand == nil || output.Expand.OwnerOccurrenceID != "second_patient" || output.Expand.From.Select != "second_patient.name[]" || output.Expand.As != "__loom_expanded_item" || output.Expand.Ordinality != "__loom_expanded_ordinal" || output.Expand.EmptyPolicy != recipe.ExpansionPreserveParent {
@@ -76,19 +77,19 @@ func TestCompileExpandedRowsBindsDeepExactOccurrenceAndIdentity(t *testing.T) {
 }
 
 func TestCompileExpandedRowsRebasesDirectFieldsWithinSelectedScope(t *testing.T) {
-	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
-	document.Route.Children = []authoringv2.RouteNode{{
+	document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
+	document.Route.Children = []ws.RouteNode{{
 		OccurrenceID: "first_condition", ResourceType: "Condition", Relationship: "subject_Patient", CatalogEdgeID: "e_condition",
-		Children: []authoringv2.RouteNode{{
+		Children: []ws.RouteNode{{
 			OccurrenceID: "second_patient", ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "e_patient_return",
 		}},
 	}}
 	document.Columns = append(document.Columns,
-		authoringv2.Column{Column: "given_first", Label: "Given first", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
-		authoringv2.Column{Column: "given_all", Label: "Given all", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}},
-		authoringv2.Column{Column: "family_first", Label: "Family", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}},
-		authoringv2.Column{Column: "related_given", Label: "Related given", OccurrenceID: "second_patient", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
-		authoringv2.Column{Column: "related_given_slots", Label: "Related given slots", OccurrenceID: "second_patient", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}},
+		ws.Column{Column: "given_first", Label: "Given first", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
+		ws.Column{Column: "given_all", Label: "Given all", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}},
+		ws.Column{Column: "family_first", Label: "Family", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}},
+		ws.Column{Column: "related_given", Label: "Related given", OccurrenceID: "second_patient", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
+		ws.Column{Column: "related_given_slots", Label: "Related given slots", OccurrenceID: "second_patient", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}},
 	)
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
 	if err != nil {
@@ -138,10 +139,10 @@ func TestCompileExpandedRowsRebasesDirectFieldsWithinSelectedScope(t *testing.T)
 }
 
 func TestCompileExpandedRowsRejectsIndexedProjectionThatConsumesExpandedBoundary(t *testing.T) {
-	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
-	document.Columns = append(document.Columns, authoringv2.Column{
-		Column: "given_slots", Label: "Given slots", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}},
+	document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
+	document.Columns = append(document.Columns, ws.Column{
+		Column: "given_slots", Label: "Given slots", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}},
 	})
 
 	_, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
@@ -163,10 +164,10 @@ func TestCompileExpandedRowsKeepsIndexedProjectionOnUnrelatedBoundary(t *testing
 		SupportedOperations: []capability.Operation{capability.OperationSelect},
 	})
 	snapshot = capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
-	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
-	document.Columns = append(document.Columns, authoringv2.Column{
-		Column: "telecom_value", Label: "Telecom value", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "telecom[].value", ProjectionMode: "INDEXED"}},
+	document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
+	document.Columns = append(document.Columns, ws.Column{
+		Column: "telecom_value", Label: "Telecom value", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "telecom[].value", ProjectionMode: "INDEXED"}},
 	})
 
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
@@ -186,23 +187,23 @@ func TestCompileExpandedRowsKeepsIndexedProjectionOnUnrelatedBoundary(t *testing
 
 func TestCompileExpandedRowsBindsRootOccurrenceAndMapsEmptyPolicies(t *testing.T) {
 	policies := []struct {
-		authored authoringv2.EmptyCollectionPolicy
+		authored ws.EmptyCollectionPolicy
 		recipe   recipe.ExpansionEmptyPolicy
 	}{
-		{authoringv2.EmptyCollectionError, recipe.ExpansionError},
-		{authoringv2.EmptyCollectionExclude, recipe.ExpansionExclude},
-		{authoringv2.EmptyCollectionPreserveParent, recipe.ExpansionPreserveParent},
+		{ws.EmptyCollectionError, recipe.ExpansionError},
+		{ws.EmptyCollectionExclude, recipe.ExpansionExclude},
+		{ws.EmptyCollectionPreserveParent, recipe.ExpansionPreserveParent},
 	}
 	for _, policy := range policies {
 		t.Run(string(policy.authored), func(t *testing.T) {
-			document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+			document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
 			document.Rows.Expanded.EmptyCollectionPolicy = policy.authored
 			compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
 			if err != nil {
 				t.Fatal(err)
 			}
 			output := compiled.Bundle.Outputs[0]
-			if output.RootOccurrenceID != authoringv2.RootOccurrenceID || output.Expand == nil || output.Expand.OwnerOccurrenceID != authoringv2.RootOccurrenceID || output.Expand.From.Select != "root.name[]" || output.Expand.EmptyPolicy != policy.recipe {
+			if output.RootOccurrenceID != ws.RootOccurrenceID || output.Expand == nil || output.Expand.OwnerOccurrenceID != ws.RootOccurrenceID || output.Expand.From.Select != "root.name[]" || output.Expand.EmptyPolicy != policy.recipe {
 				t.Fatalf("root expansion = %#v", output.Expand)
 			}
 			if output.Identity == nil || output.Identity.Expansion == nil || compiled.OutputContract.RowMultiplication != "expand" {
@@ -222,13 +223,13 @@ func TestCompileExpandedRowsUsesAuthorizedRepeatedBoundaryWitnesses(t *testing.T
 	}
 	snapshot.Candidates = leafCandidates
 	snapshot = capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
-	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+	document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
 
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
 	if err != nil {
 		t.Fatalf("compile leaf-only repeated-boundary scope: %v", err)
 	}
-	if expanded := compiled.Bundle.Outputs[0].Expand; expanded == nil || expanded.OwnerOccurrenceID != authoringv2.RootOccurrenceID || expanded.From.Select != "root.name[]" {
+	if expanded := compiled.Bundle.Outputs[0].Expand; expanded == nil || expanded.OwnerOccurrenceID != ws.RootOccurrenceID || expanded.From.Select != "root.name[]" {
 		t.Fatalf("expanded row definition = %#v, want root-owned root.name[]", expanded)
 	}
 
@@ -271,10 +272,10 @@ func TestCompileExpandedRowsUsesAuthorizedRepeatedBoundaryWitnesses(t *testing.T
 }
 
 func TestCompileExplicitGroupRowsPinsRevisionAndPolicy(t *testing.T) {
-	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
-	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{
-		Kind:     authoringv2.GroupSourceExplicit,
-		Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned},
+	document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{Source: ws.GroupSource{
+		Kind:     ws.GroupSourceExplicit,
+		Explicit: &ws.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: ws.UnassignedMemberGroupAsUnassigned},
 	}}}
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
 	if err != nil {
@@ -292,26 +293,26 @@ func TestCompileExplicitGroupRowsPinsRevisionAndPolicy(t *testing.T) {
 func TestCompileExpandedRowsRejectsStaleAmbiguousAndScalarScope(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*authoringv2.Document, *capability.Snapshot)
+		mutate func(*ws.Document, *capability.Snapshot)
 		code   string
 	}{
 		{
 			name: "stale occurrence",
-			mutate: func(document *authoringv2.Document, _ *capability.Snapshot) {
+			mutate: func(document *ws.Document, _ *capability.Snapshot) {
 				document.Rows.Expanded.OccurrenceID = "missing_occurrence"
 			},
 			code: "STALE_EXPANSION_OCCURRENCE",
 		},
 		{
 			name: "scalar scope",
-			mutate: func(document *authoringv2.Document, _ *capability.Snapshot) {
+			mutate: func(document *ws.Document, _ *capability.Snapshot) {
 				document.Rows.Expanded.ScopePath = "id"
 			},
 			code: "UNSUPPORTED_EXPANSION_SCOPE",
 		},
 		{
 			name: "ambiguous capability scope",
-			mutate: func(_ *authoringv2.Document, snapshot *capability.Snapshot) {
+			mutate: func(_ *ws.Document, snapshot *capability.Snapshot) {
 				snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
 					ID: "c_patient_names_duplicate", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]",
 					LogicalType: "HumanName", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "name[]", MaxItems: 2}},
@@ -326,7 +327,7 @@ func TestCompileExpandedRowsRejectsStaleAmbiguousAndScalarScope(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			snapshot := expandedRowsSnapshot()
-			document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+			document := expandedRowsDocument(ws.RootOccurrenceID, "name[]")
 			test.mutate(&document, &snapshot)
 			_, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
 			var compileErr *Error
@@ -337,16 +338,16 @@ func TestCompileExpandedRowsRejectsStaleAmbiguousAndScalarScope(t *testing.T) {
 	}
 }
 
-func expandedRowsDocument(owner, scopePath string) authoringv2.Document {
-	return authoringv2.Document{
-		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
-			OccurrenceID: owner, ScopePath: scopePath, EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+func expandedRowsDocument(owner, scopePath string) ws.Document {
+	return ws.Document{
+		Rows: ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{
+			OccurrenceID: owner, ScopePath: scopePath, EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent,
 		}},
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{
-			Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{{
+			Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 		}},
 	}
 }

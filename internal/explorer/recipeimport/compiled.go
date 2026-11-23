@@ -2,34 +2,34 @@ package recipeimport
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []facade.CompiledOutputColumn, plans ...*authoringv2.ImportedSourcePlan) (authoringv2.AuthoringNetwork, error) {
+func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledOutputColumn, plans ...*ws.ImportedSourcePlan) (ws.AuthoringNetwork, error) {
 	if len(plans) != 1 || plans[0] == nil {
-		return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: exact source descriptors are required")
+		return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: exact source descriptors are required")
 	}
 	plan := plans[0]
 	if err := plan.Validate(); err != nil {
-		return authoringv2.AuthoringNetwork{}, err
+		return ws.AuthoringNetwork{}, err
 	}
-	occurrences := map[string]authoringv2.NetworkOccurrence{}
-	scopes := map[string]authoringv2.NetworkOccurrence{}
+	occurrences := map[string]ws.NetworkOccurrence{}
+	scopes := map[string]ws.NetworkOccurrence{}
 	for _, o := range network.Occurrences {
 		occurrences[o.OccurrenceID] = o
 		scopes[o.SourceStepID] = o
 	}
-	additions := map[string]authoringv2.ImportedRelationship{}
+	additions := map[string]ws.ImportedRelationship{}
 	if plan.Relationships != nil {
 		for _, a := range plan.Relationships.Additions {
 			additions[a.OccurrenceID] = a
 		}
 	}
-	bound := map[string]authoringv2.NetworkColumnBinding{}
+	bound := map[string]ws.NetworkColumnBinding{}
 	for _, column := range columns {
 		if column.Internal || column.Identity || column.SourceOrigin == nil {
 			continue
@@ -41,7 +41,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []facade.
 			occurrence, ok = scopes[scope]
 		}
 		if !ok {
-			return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: compiled source column %q refers to unavailable occurrence %q", column.ID, origin.OccurrenceID)
+			return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: compiled source column %q refers to unavailable occurrence %q", column.ID, origin.OccurrenceID)
 		}
 		sourceStep := ""
 		if addition, exists := additions[occurrence.OccurrenceID]; exists && (origin.SourceKind == SourcePlanFieldGroup || origin.SourceKind == "" && strings.HasPrefix(relative, "fields")) {
@@ -51,7 +51,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []facade.
 				}
 			}
 			if sourceStep == "" {
-				return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: addition %q does not own column %q", addition.OccurrenceID, column.ID)
+				return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: addition %q does not own column %q", addition.OccurrenceID, column.ID)
 			}
 		} else {
 			kind := origin.SourceKind
@@ -74,12 +74,12 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []facade.
 				if end := strings.Index(relative[start:], "]"); end >= 0 {
 					value, err := strconv.Atoi(relative[start+1 : start+end])
 					if err != nil {
-						return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: malformed compiler source path")
+						return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: malformed compiler source path")
 					}
 					index = value
 				}
 			}
-			var eligible []authoringv2.ImportedSourceStep
+			var eligible []ws.ImportedSourceStep
 			for _, step := range plan.Steps {
 				if step.ParentID == occurrence.SourceStepID && step.Kind == kind {
 					eligible = append(eligible, step)
@@ -96,18 +96,18 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []facade.
 				eligible = matching
 				index = 0
 				if len(eligible) != 1 {
-					return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d source owners matching native family %q", column.ID, len(eligible), origin.SourceKey)
+					return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d source owners matching native family %q", column.ID, len(eligible), origin.SourceKey)
 				}
 			}
 			if kind == SourcePlanCatalogProjection && len(eligible) != 1 {
-				return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d eligible catalog projection owners in occurrence %q", column.ID, len(eligible), occurrence.OccurrenceID)
+				return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d eligible catalog projection owners in occurrence %q", column.ID, len(eligible), occurrence.OccurrenceID)
 			}
 			if index >= len(eligible) || kind == "" {
-				return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: column %q has no original %s source step in occurrence %q", column.ID, kind, occurrence.OccurrenceID)
+				return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: column %q has no original %s source step in occurrence %q", column.ID, kind, occurrence.OccurrenceID)
 			}
 			sourceStep = eligible[index].ID
 		}
-		bound[column.ID] = authoringv2.NetworkColumnBinding{ColumnID: column.ID, OccurrenceID: occurrence.OccurrenceID, SourceStepID: sourceStep, OutputKey: origin.OutputKey, ValueMode: authoringValueMode(origin.ValueMode), Status: "EXACT"}
+		bound[column.ID] = ws.NetworkColumnBinding{ColumnID: column.ID, OccurrenceID: occurrence.OccurrenceID, SourceStepID: sourceStep, OutputKey: origin.OutputKey, ValueMode: authoringValueMode(origin.ValueMode), Status: "EXACT"}
 	}
 	for i, b := range network.Bindings {
 		if exact, ok := bound[b.ColumnID]; ok {
@@ -158,7 +158,7 @@ func authoringValueMode(mode string) string {
 	}
 }
 
-func effectiveSourceKey(step authoringv2.ImportedSourceStep) string {
+func effectiveSourceKey(step ws.ImportedSourceStep) string {
 	if p := step.Parameters; p != nil {
 		switch {
 		case p.Catalog != nil:

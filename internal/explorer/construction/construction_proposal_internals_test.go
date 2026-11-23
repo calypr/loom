@@ -4,24 +4,26 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestConstructionSourceProjectionAvailabilityUsesAuthoringCarryPolicy(t *testing.T) {
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
-		{ID: "filter_before", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter}},
-		{ID: "expand_first", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand}},
-		{ID: "filter_between", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter}},
-		{ID: "expand_second", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand}},
-		{ID: "group_rows", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup}},
-		{ID: "pivot_rows", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot}},
-		{ID: "append_rows", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine}},
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
+		{ID: "filter_before", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter}},
+		{ID: "expand_first", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand}},
+		{ID: "filter_between", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter}},
+		{ID: "expand_second", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand}},
+		{ID: "group_rows", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup}},
+		{ID: "pivot_rows", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot}},
+		{ID: "append_rows", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine}},
 	}}
 	for _, stageID := range []string{recipe.ConstructionSourceProjectionID, "filter_before", "expand_first", "filter_between", "expand_second"} {
 		availability := constructionSourceProjectionAvailability(construction, stageID)
@@ -58,14 +60,14 @@ func TestConstructionCodedGroupChoicesRequirePopulatedCodeAndShowPathBreadcrumb(
 	)
 	base := constructionBase{
 		Snapshot: snapshot,
-		Document: authoringv2.Document{
+		Document: ws.Document{
 			RootResourceType: "BodyStructure",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: ws.RecordsRowDefinition(),
 		},
 	}
-	stage := explorer.ReceiptConstructionStage{
+	stage := receiptmodel.ReceiptConstructionStage{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-		Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}},
+		Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}},
 	}
 	choices, err := constructionCodedGroupChoices(base, "body-structures", stage)
 	if err != nil {
@@ -109,9 +111,9 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 	service := &Service{config: Config{RowChoicePlanner: resolver}}
 	base := constructionBase{
 		Snapshot: snapshot,
-		Document: authoringv2.Document{
+		Document: ws.Document{
 			RootResourceType: "BodyStructure",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: ws.RecordsRowDefinition(),
 		},
 	}
 	capability, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
@@ -162,9 +164,9 @@ func TestConstructionGroupSourceChoicesExcludeConstantResourceTypeMetadata(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := authoringv2.Document{
+	document := ws.Document{
 		RootResourceType: "BodyStructure",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: ws.RecordsRowDefinition(),
 	}
 	rowChoices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {
@@ -192,11 +194,11 @@ func TestConstructionGroupSourceChoicesExcludeConstantResourceTypeMetadata(t *te
 }
 
 func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing.T) {
-	accepted := authoringv2.ConstructionSourceProjection{ColumnID: "accepted", FieldPath: "status", OwnerStepID: "group"}
-	forged := authoringv2.ConstructionSourceProjection{ColumnID: "forged", FieldPath: "secret", OwnerStepID: "group"}
-	base := constructionBase{Construction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{accepted}}}
+	accepted := ws.ConstructionSourceProjection{ColumnID: "accepted", FieldPath: "status", OwnerStepID: "group"}
+	forged := ws.ConstructionSourceProjection{ColumnID: "forged", FieldPath: "secret", OwnerStepID: "group"}
+	base := constructionBase{Construction: ws.Construction{SourceProjections: []ws.ConstructionSourceProjection{accepted}}}
 	service := &Service{}
-	candidate, err := service.constructionSources().constructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{forged}}})
+	candidate, err := service.constructionSources().constructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: ws.Construction{SourceProjections: []ws.ConstructionSourceProjection{forged}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,22 +208,22 @@ func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing
 }
 
 func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t *testing.T) {
-	workspaceOutput := func(id string, steps ...authoringv2.ConstructionStep) authoringv2.Document {
-		return authoringv2.Document{Output: authoringv2.Output{ID: id, Title: "Table " + id}, Construction: &authoringv2.Construction{Version: 1, Steps: steps}, Rows: authoringv2.RecordsRowDefinition()}
+	workspaceOutput := func(id string, steps ...ws.ConstructionStep) ws.Document {
+		return ws.Document{Output: ws.Output{ID: id, Title: "Table " + id}, Construction: &ws.Construction{Version: 1, Steps: steps}, Rows: ws.RecordsRowDefinition()}
 	}
-	combineInput := func(outputID string) authoringv2.ConstructionStep {
-		return authoringv2.ConstructionStep{Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: outputID}}}
+	combineInput := func(outputID string) ws.ConstructionStep {
+		return ws.ConstructionStep{Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: outputID}}}
 	}
 	base := constructionBase{
-		Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
-			{Output: authoringv2.Output{ID: "upstream", Title: "Upstream"}, Rows: authoringv2.RecordsRowDefinition()},
+		Workspace: ws.Workspace{Documents: []ws.Document{
+			{Output: ws.Output{ID: "upstream", Title: "Upstream"}, Rows: ws.RecordsRowDefinition()},
 			workspaceOutput("target"),
 			workspaceOutput("depends-on-target", combineInput("target")),
 			workspaceOutput("transitive-dependent", combineInput("depends-on-target")),
-			{Output: authoringv2.Output{ID: "independent", Title: "Independent"}, Rows: authoringv2.RecordsRowDefinition()},
-		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+			{Output: ws.Output{ID: "independent", Title: "Independent"}, Rows: ws.RecordsRowDefinition()},
+		}, SemanticsVersion: ws.CurrentSemanticsVersion,
 		},
-		Receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
+		Receipt: &receiptmodel.CompilationReceipt{CompiledOutputSchemas: map[string][]receiptmodel.ReceiptCompiledOutputColumn{
 			"upstream": {
 				{ID: "patient-id", Name: "patient_id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one"},
 				{ID: "birth-date", Name: "birth_date", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one", Nullable: true},
@@ -259,12 +261,12 @@ func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t 
 
 func TestConstructionWorkspaceInputsRejectMissingFinalSiblingSchema(t *testing.T) {
 	base := constructionBase{
-		Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
-			{Output: authoringv2.Output{ID: "target"}, Rows: authoringv2.RecordsRowDefinition()},
-			{Output: authoringv2.Output{ID: "sibling"}, Rows: authoringv2.RecordsRowDefinition()},
-		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Workspace: ws.Workspace{Documents: []ws.Document{
+			{Output: ws.Output{ID: "target"}, Rows: ws.RecordsRowDefinition()},
+			{Output: ws.Output{ID: "sibling"}, Rows: ws.RecordsRowDefinition()},
+		}, SemanticsVersion: ws.CurrentSemanticsVersion,
 		},
-		Receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
+		Receipt: &receiptmodel.CompilationReceipt{CompiledOutputSchemas: map[string][]receiptmodel.ReceiptCompiledOutputColumn{
 			"target": {{ID: "target-id", Name: "target", Label: "Target", LogicalType: "string", Cardinality: "required_one"}},
 		}},
 	}

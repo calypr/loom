@@ -12,6 +12,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -32,13 +37,13 @@ import (
 
 func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	config := testConfig(snapshot)
-	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		return nil, &explorercompilation.Error{Stage: "construction", Code: "PIVOT_REDUCER_REQUIRES_NUMERIC", Message: "Choose a numeric value field for this Pivot duplicate rule, or choose Show an error."}
 	}
 	service := newTestService(t, &fakeStore{}, config)
@@ -51,15 +56,15 @@ func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
 
 type fakeRevisionStore struct{}
 
-func (fakeRevisionStore) InsertCompilationReceipt(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (fakeRevisionStore) InsertCompilationReceipt(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 	return nil, errors.New("revision store is not configured")
 }
 
-func (fakeRevisionStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
+func (fakeRevisionStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
 	return nil, errors.New("revision store is not configured")
 }
 
-func (fakeRevisionStore) PublishAuthoring(context.Context, explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease, int64) (*explorer.Revision, error) {
+func (fakeRevisionStore) PublishAuthoring(context.Context, receiptmodel.CompilationReceipt, explorer.Revision, dataset.ProjectRelease, int64) (*explorer.Revision, error) {
 	return nil, errors.New("revision store is not configured")
 }
 
@@ -71,7 +76,7 @@ func (fakeRevisionStore) GetRevision(context.Context, string) (*explorer.Revisio
 	return nil, errors.New("revision store is not configured")
 }
 
-func (fakeRevisionStore) FailRevision(context.Context, string, []explorer.Diagnostic) (*explorer.Revision, error) {
+func (fakeRevisionStore) FailRevision(context.Context, string, []viewer.Diagnostic) (*explorer.Revision, error) {
 	return nil, errors.New("revision store is not configured")
 }
 
@@ -110,10 +115,10 @@ type fakeStore struct {
 	fakeRevisionStore
 	fakeSelectionStore
 	listValues         []explorer.Explorer
-	state              explorer.ExplorerStateV1
+	state              viewer.ExplorerStateV1
 	created            *explorer.Explorer
 	applyErr           error
-	receipt            *explorer.CompilationReceipt
+	receipt            *receiptmodel.CompilationReceipt
 	publishErr         error
 	published          bool
 	repositoryOwner    *explorer.Explorer
@@ -208,7 +213,7 @@ func (f *fakeStore) GetDraftRevision(_ context.Context, project, explorerID, rev
 	return &copy, nil
 }
 
-func (f *fakeStore) InsertCompilationReceipt(_ context.Context, value explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (f *fakeStore) InsertCompilationReceipt(_ context.Context, value receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 	if f.receipt != nil {
 		return f.receipt, nil
 	}
@@ -231,7 +236,7 @@ func (f *fakeStore) InsertRevision(_ context.Context, value explorer.Revision) (
 	return stored, nil
 }
 
-func (f *fakeStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
+func (f *fakeStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
 	if f.receipt == nil {
 		return nil, explorer.ErrNotFound
 	}
@@ -274,7 +279,7 @@ func (f *fakeStore) GetRevision(context.Context, string) (*explorer.Revision, er
 	return nil, explorer.ErrNotFound
 }
 
-func (f *fakeStore) PublishAuthoring(_ context.Context, _ explorer.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedRevision int64) (*explorer.Revision, error) {
+func (f *fakeStore) PublishAuthoring(_ context.Context, _ receiptmodel.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedRevision int64) (*explorer.Revision, error) {
 	if f.order != nil {
 		*f.order = append(*f.order, "persist")
 	}
@@ -287,7 +292,7 @@ func (f *fakeStore) PublishAuthoring(_ context.Context, _ explorer.CompilationRe
 	return &revision, nil
 }
 
-func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []viewer.Diagnostic) (*explorer.Revision, error) {
 	target := f.repositoryRevision
 	if target == nil || target.ID != id {
 		target = f.revisions[id]
@@ -296,7 +301,7 @@ func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []exp
 		return nil, explorer.ErrNotFound
 	}
 	target.Status = explorer.RevisionFailed
-	target.Diagnostics = append([]explorer.Diagnostic(nil), diagnostics...)
+	target.Diagnostics = append([]viewer.Diagnostic(nil), diagnostics...)
 	failedAt := time.Now().UTC()
 	target.FailedAt = &failedAt
 	target.Publication.State = string(explorer.RevisionFailed)
@@ -374,8 +379,8 @@ func testConfig(snapshot capability.Snapshot) Config {
 		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
-		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
-			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
+		Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot {
+			return ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true}, Nodes: []ws.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
 	}, PopulationMappingCursorCodec: cursorCodec}
 }
@@ -390,19 +395,19 @@ func completedTestSelection(snapshot capability.Snapshot, resourceType string) *
 	}
 }
 
-func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
+func nativeReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                "native-test",
 		TranslationVersion:  "test",
 		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
 	}
-	emitted := []explorer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
+	emitted := []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
 	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
 	bundleDigest, _ := bundle.Digest()
-	workspace := authoringv2.NewWorkspace("Patients")
-	workspace.Documents = []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: authoringv2.RecordsRowDefinition(), Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
-	workspace.Tabs = []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	workspace := ws.NewWorkspace("Patients")
+	workspace.Documents = []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
+	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
 	normalized, err := workspace.CanonicalJSON()
 	if err != nil {
 		panic(err)
@@ -411,9 +416,9 @@ func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
 	if err != nil {
 		panic(err)
 	}
-	receipt := &explorer.CompilationReceipt{
-		ReceiptFormatVersion:     explorer.CurrentReceiptFormatVersion,
-		CompilerContractVersion:  explorer.CurrentCompilerContractVersion,
+	receipt := &receiptmodel.CompilationReceipt{
+		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
+		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
 		Project:                  snapshot.Identity.Project,
 		ExplorerID:               "patients",
 		IntentDigest:             intentDigest,
@@ -432,13 +437,13 @@ func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
 		EmittedColumns:           emitted,
 		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
 	}
-	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(contract)
-	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
-	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 	return receipt
 }
 
-func successfulTestExecution(receipt *explorer.CompilationReceipt, state string) ports.Execution {
+func successfulTestExecution(receipt *receiptmodel.CompilationReceipt, state string) ports.Execution {
 	scopeDigest := "execution-scope"
 	outputs := make([]ports.ExecutionOutput, 0, len(receipt.Bundle.Outputs))
 	reports := make([]publication.QualityReport, 0, len(receipt.Bundle.Outputs))
@@ -458,13 +463,13 @@ func successfulTestExecution(receipt *explorer.CompilationReceipt, state string)
 }
 
 func TestListGetCreateUseApplicationStore(t *testing.T) {
-	store := &fakeStore{listValues: []explorer.Explorer{{ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive}}}
+	store := &fakeStore{listValues: []explorer.Explorer{{ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive}}}
 	service := newTestService(t, store, Config{})
 	list, err := service.List(context.Background(), "project-a")
 	if err != nil || len(list.Summaries) != 1 || list.Summaries[0].ExplorerID != "patients" {
 		t.Fatalf("list = %#v, err=%v", list, err)
 	}
-	store.state = explorer.ExplorerStateV1{Project: "project-a", ExplorerID: "patients"}
+	store.state = viewer.ExplorerStateV1{Project: "project-a", ExplorerID: "patients"}
 	state, err := service.Get(context.Background(), "project-a", "patients")
 	if err != nil || state.ExplorerID != "patients" {
 		t.Fatalf("get = %#v, err=%v", state, err)
@@ -477,7 +482,7 @@ func TestListGetCreateUseApplicationStore(t *testing.T) {
 
 func TestApplyCommandsMapsCASFailures(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	request := authoringv2.ApplyCommandsRequest{CommandID: "command-a", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: "token", Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "node"}}}}
+	request := authoringv2.ApplyCommandsRequest{CommandID: "command-a", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: "token", Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "node"}}}}
 	for _, test := range []struct {
 		name string
 		err  error
@@ -500,16 +505,16 @@ func TestApplyCommandsMapsCASFailures(t *testing.T) {
 
 func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	catalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "observations",
+	catalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "observations",
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-		Nodes: []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+		Nodes: []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Observations"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Observations"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -520,18 +525,18 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *
 		t.Fatal(err)
 	}
 	store := &fakeStore{created: &explorer.Explorer{
-		Project: "project-a", ExplorerID: "observations", Title: "Observations", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "observations", Title: "Observations", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: draft, DraftVersion: 4, DraftDigest: digest,
 	}}
 	config := testConfig(snapshot)
-	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "add-correlated", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "add-correlated", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", Payload: &authoringv2.ColumnPayload{OccurrenceID: authoringv2.RootOccurrenceID, Source: &authoringv2.ColumnSource{
-			Kind: authoringv2.SourceCodedValue,
-			Lookup: &authoringv2.LookupSource{
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", Payload: &authoringv2.ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{
+			Kind: ws.SourceCodedValue,
+			Lookup: &ws.LookupSource{
 				Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
 				Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 			},
@@ -556,15 +561,15 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *
 func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}
-	catalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients",
+	catalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "patients",
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token,
-		Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
+		Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true}, Nodes: []ws.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -574,13 +579,13 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: completedTestSelection(snapshot, "Patient")}
+	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: completedTestSelection(snapshot, "Patient")}
 	config := testConfig(snapshot)
 	config.SelectionMembersCollection = "loom_explorer_selection_members"
 	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
 	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
@@ -590,7 +595,7 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 		t.Fatalf("zero-hop population route choices = %#v, %v", routes, err)
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "set-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "set-population", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
 	}, "alice")
@@ -602,7 +607,7 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	}
 
 	var compileRequestSeen ports.CompileReceiptRequest
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileRequestSeen = request
 		receipt := nativeReceipt(snapshot)
 		store.receipt = receipt
@@ -628,15 +633,15 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}
-	catalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation,
-		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-		Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
+	catalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation,
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+		Nodes: []ws.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -648,12 +653,12 @@ func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testin
 	}
 	selection := completedTestSelection(snapshot, "Patient")
 	selection.Complete = false
-	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: selection}
+	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: selection}
 	config := testConfig(snapshot)
 	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
 	choiceID, err := capability.NewPopulationRouteChoiceID(capability.PopulationRouteChoiceIdentity{
 		Version: 1, SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-1",
@@ -662,7 +667,7 @@ func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testin
 		t.Fatal(err)
 	}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "set-incomplete-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "set-incomplete-population", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: choiceID}}},
 	}, "alice")
@@ -681,16 +686,16 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 	}
 	store := &fakeStore{
 		created: &explorer.Explorer{
-			Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+			Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 			DraftConfig: legacyDraft, DraftVersion: 4, DraftDigest: "legacy-digest",
 		},
 		receipt: oldReceipt,
 	}
-	migration := migrateStoredWorkspaceFixture(t, legacyDraft, authoringv2.CatalogFromCapability(snapshot, "patients"))
+	migration := migrateStoredWorkspaceFixture(t, legacyDraft, ws.CatalogFromCapability(snapshot, "patients"))
 	store.created.DraftConfig, store.created.DraftDigest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	service := newTestService(t, store, testConfig(snapshot))
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "migrate-legacy", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "migrate-legacy", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: migration.MigratedCanonicalDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Renamed", Payload: &authoringv2.TablePayload{}}},
 	}
@@ -698,7 +703,7 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion || first.Workspace.Documents[0].Columns[0].Source.Field == nil || first.Workspace.Documents[0].Columns[0].Source.Field.RelatedSelection == nil || first.Workspace.Documents[0].Columns[0].Source.Field.RelatedSelection.Acknowledged {
+	if first.Workspace.SemanticsVersion != ws.CurrentSemanticsVersion || first.Workspace.Documents[0].Columns[0].Source.Field == nil || first.Workspace.Documents[0].Columns[0].Source.Field.RelatedSelection == nil || first.Workspace.Documents[0].Columns[0].Source.Field.RelatedSelection.Acknowledged {
 		t.Fatalf("migrated workspace = %#v", first.Workspace)
 	}
 	if store.created.DraftVersion != 5 || store.created.LastAuthoringCommandID != request.CommandID {
@@ -732,7 +737,7 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 	}
 	unsupported := request
 	unsupported.CommandID = "unsupported-semantics"
-	unsupported.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 1
+	unsupported.SemanticsVersion = ws.CurrentSemanticsVersion - 1
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", unsupported, "alice")
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "UNSUPPORTED_SEMANTICS_VERSION" {
 		t.Fatalf("unsupported semantics error = %v, want conflict UNSUPPORTED_SEMANTICS_VERSION", err)
@@ -748,23 +753,23 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 
 func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	base := nativeReceipt(snapshot)
 	tests := []struct {
 		name   string
-		mutate func(*explorer.CompilationReceipt)
+		mutate func(*receiptmodel.CompilationReceipt)
 		code   string
 	}{
-		{name: "wrong project", mutate: func(receipt *explorer.CompilationReceipt) { receipt.Project = "other-project" }, code: "INVALID_COMPILATION_RECEIPT"},
-		{name: "wrong explorer", mutate: func(receipt *explorer.CompilationReceipt) { receipt.ExplorerID = "other" }, code: "INVALID_COMPILATION_RECEIPT"},
-		{name: "wrong snapshot token", mutate: func(receipt *explorer.CompilationReceipt) { receipt.SnapshotToken = "other-token" }, code: "INVALID_COMPILATION_RECEIPT"},
-		{name: "wrong scope digest", mutate: func(receipt *explorer.CompilationReceipt) { receipt.AuthorizationScopeDigest = "other-scope" }, code: "INVALID_COMPILATION_RECEIPT"},
-		{name: "invalid compilation key", mutate: func(receipt *explorer.CompilationReceipt) { receipt.CompilationKey = "key_invalid" }, code: "INVALID_COMPILATION_RECEIPT"},
-		{name: "invalid receipt id", mutate: func(receipt *explorer.CompilationReceipt) { receipt.ID = "receipt_invalid" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong project", mutate: func(receipt *receiptmodel.CompilationReceipt) { receipt.Project = "other-project" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong explorer", mutate: func(receipt *receiptmodel.CompilationReceipt) { receipt.ExplorerID = "other" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong snapshot token", mutate: func(receipt *receiptmodel.CompilationReceipt) { receipt.SnapshotToken = "other-token" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong scope digest", mutate: func(receipt *receiptmodel.CompilationReceipt) { receipt.AuthorizationScopeDigest = "other-scope" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "invalid compilation key", mutate: func(receipt *receiptmodel.CompilationReceipt) { receipt.CompilationKey = "key_invalid" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "invalid receipt id", mutate: func(receipt *receiptmodel.CompilationReceipt) { receipt.ID = "receipt_invalid" }, code: "INVALID_COMPILATION_RECEIPT"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -772,7 +777,7 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 			test.mutate(&receipt)
 			store := &fakeStore{}
 			config := testConfig(snapshot)
-			config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				return &receipt, nil
 			}
 			service := newTestService(t, store, config)
@@ -786,7 +791,7 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 
 	store := &fakeStore{}
 	config := testConfig(snapshot)
-	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		return base, nil
 	}
 	service := newTestService(t, store, config)
@@ -806,17 +811,17 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	visible := true
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Default"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Default"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}}}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	base := nativeReceipt(snapshot)
 	base.ExplorerID = "default"
 	base.NormalizedBundle, _ = workspace.CanonicalJSON()
 	base.IntentDigest, _ = workspace.Digest()
-	base.CompilationKey, _ = explorer.CompilationKey(*base)
-	base.ID, _ = explorer.ReceiptID(*base)
+	base.CompilationKey, _ = receiptmodel.CompilationKey(*base)
+	base.ID, _ = receiptmodel.ReceiptID(*base)
 
 	for _, test := range []struct {
 		name             string
@@ -834,10 +839,10 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 			config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			}
-			config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				return base, nil
 			}
-			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+			config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 				return successfulTestExecution(base, "PUBLISHED"), nil
 			}
 			releaseErrors := append([]error(nil), test.releaseErrors...)
@@ -884,7 +889,7 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeStore{receipt: receipt}
 			config := testConfig(test.snapshot)
-			config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 				return dataframeexecution.PreviewSummary{}, nil
 			}
 			service := newTestService(t, store, config)
@@ -912,25 +917,25 @@ func TestPreviewIncludesStableRowIdentityForRecordsAndGroups(t *testing.T) {
 				receipt.RecipeDigest, _ = receipt.Bundle.Digest()
 				receipt.ResolvedRecipeDigest = receipt.RecipeDigest
 				var err error
-				receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+				receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 				if err != nil {
 					t.Fatal(err)
 				}
-				receipt.ID, err = explorer.ReceiptID(*receipt)
+				receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
 			config := testConfig(snapshot)
 			var previewBindings recipe.RuntimeBindings
-			config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 				previewBindings = bindings
 				return dataframeexecution.PreviewSummary{}, nil
 			}
 			service := newTestService(t, &fakeStore{receipt: receipt}, config)
 			_, err := service.Preview(context.Background(), PreviewRequest{
 				Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10,
-				SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+				SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
 				},
 			})
@@ -964,7 +969,7 @@ func TestValidateReceiptRouteAcceptsEquivalentProjectIdentities(t *testing.T) {
 func TestAuthorizedReceiptExecutionPreservesRestrictedEmptyScope(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
-	receipt := &explorer.CompilationReceipt{Project: "project-a", SnapshotToken: "token", SourceGeneration: "generation-a", CapabilitySchemaDigest: "schema", AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest}
+	receipt := &receiptmodel.CompilationReceipt{Project: "project-a", SnapshotToken: "token", SourceGeneration: "generation-a", CapabilitySchemaDigest: "schema", AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest}
 	if err := validateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}); err != nil {
 		t.Fatal(err)
 	}
@@ -984,7 +989,7 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 		order = append(order, "prepare-release")
 		return dataset.ProjectRelease{ID: "release-a", Project: "project-a", Generation: "generation-a", GitCommit: "generation-a"}, 7, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		order = append(order, "materialize")
 		return successfulTestExecution(receipt, "READY"), nil
 	}
@@ -1067,7 +1072,7 @@ func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing
 				prepared = true
 				return dataset.ProjectRelease{}, 0, nil
 			}
-			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+			config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 				execution := successfulTestExecution(receipt, "PUBLISHED")
 				test.mutate(&execution)
 				return execution, nil
@@ -1094,7 +1099,7 @@ func TestPublishPreservesPublicationInProgress(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return ports.Execution{}, dataframeerrors.NewError(
 			dataframeerrors.CodePublicationInProgress,
 			"an identical publication is already in progress",
@@ -1128,7 +1133,7 @@ func TestPublishKeepsMaterializationFailuresUnavailable(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return ports.Execution{}, errors.New("ClickHouse insert failed")
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
@@ -1152,7 +1157,7 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return ports.Execution{}, dataframeerrors.NewError(
 			dataframeerrors.CodeRelationshipCardinalityViolation,
 			"related feature matched more than one value",
@@ -1217,7 +1222,7 @@ func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return ports.Execution{}, dataframeerrors.NewError(
 			dataframeerrors.CodeQueryMemoryLimitExceeded,
 			"",

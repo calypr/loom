@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -26,7 +28,7 @@ func TestConstructionChoiceCommandRejectsClientSourceAndRouteFields(t *testing.T
 func TestConstructionChoiceRequestAcceptsOnlyBoundedChoiceBatches(t *testing.T) {
 	selection := &ConstructionChoiceSelection{ChoiceID: "cc1.a.b", Form: capability.ConstructionChoiceValue}
 	request := ApplyCommandsRequest{
-		CommandID: "choice-batch", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot", ExpectedDraftVersion: 1,
+		CommandID: "choice-batch", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: "snapshot", ExpectedDraftVersion: 1,
 		Commands: []Command{
 			{Type: CommandApplyConstructionChoice, OutputID: "patients", Payload: &ConstructionChoicePayload{ConstructionChoice: selection}},
 			{Type: CommandApplyConstructionChoice, OutputID: "patients", Payload: &ConstructionChoicePayload{ConstructionChoice: selection}},
@@ -56,16 +58,16 @@ func TestConstructionChoiceRequestAcceptsOnlyBoundedChoiceBatches(t *testing.T) 
 
 func TestConstructionChoiceAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 	document := workspaceDocument("patients")
-	document.ImportedRecipe = &ImportedRecipeRef{
+	document.ImportedRecipe = &ws.ImportedRecipeRef{
 		Name: "default", TranslationVersion: "v1", Output: "patients", Digest: strings.Repeat("a", 64),
 	}
 	workspace := constructionWorkspace(document)
 	command := Command{
 		Type: CommandApplyConstructionChoice, OutputID: "patients",
-		Payload: &ConstructionChoicePayload{OccurrenceID: RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue}},
+		Payload: &ConstructionChoicePayload{OccurrenceID: ws.RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue}},
 	}
 	_, err := applyColumnSource(&workspace, commandCatalog(), "imported-additive", 0, command,
-		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
+		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
 	if err != nil {
 		t.Fatalf("additive construction column on imported recipe was rejected: %v", err)
 	}
@@ -76,12 +78,12 @@ func TestConstructionChoiceAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 
 func TestDocumentValidationAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 	document := workspaceDocument("patients")
-	document.ImportedRecipe = &ImportedRecipeRef{
+	document.ImportedRecipe = &ws.ImportedRecipeRef{
 		Name: "default", TranslationVersion: "v1", Output: "patients", Digest: strings.Repeat("a", 64),
 	}
-	document.Columns = append(document.Columns, Column{
-		Column: "additive_id", Label: "Additive ID", OccurrenceID: RootOccurrenceID,
-		Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+	document.Columns = append(document.Columns, ws.Column{
+		Column: "additive_id", Label: "Additive ID", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 	})
 	if err := document.Validate(); err != nil {
 		t.Fatalf("additive column on imported recipe failed validation: %v", err)
@@ -90,11 +92,11 @@ func TestDocumentValidationAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 
 func TestDirectSourceEditStillRejectsImportedRecipe(t *testing.T) {
 	document := workspaceDocument("patients")
-	document.ImportedRecipe = &ImportedRecipeRef{
+	document.ImportedRecipe = &ws.ImportedRecipeRef{
 		Name: "default", TranslationVersion: "v1", Output: "patients", Digest: strings.Repeat("a", 64),
 	}
-	err := validateEditableSource(document, commandCatalog(), RootOccurrenceID,
-		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}})
+	err := validateEditableSource(document, commandCatalog(), ws.RootOccurrenceID,
+		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}})
 	if err == nil || !strings.Contains(err.Error(), "imported recipe source columns are immutable") {
 		t.Fatalf("direct imported source edit error = %v, want immutable-source refusal", err)
 	}
@@ -104,15 +106,15 @@ func TestConstructionChoiceAddsMemberFieldToExplicitCohort(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.Columns = nil
 	document.Construction = nil
-	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{Source: GroupSource{
-		Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: "EXCLUDE"},
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{Source: ws.GroupSource{
+		Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: "EXCLUDE"},
 	}}}
 	workspace := constructionWorkspace(document)
 	command := Command{Type: CommandApplyConstructionChoice, OutputID: "patients",
-		Payload: &ConstructionChoicePayload{OccurrenceID: RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue, RowValuePolicy: ConstructionRowValueAll}},
+		Payload: &ConstructionChoicePayload{OccurrenceID: ws.RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue, RowValuePolicy: ws.ConstructionRowValueAll}},
 	}
 	_, err := applyColumnSource(&workspace, commandCatalog(), "cohort-field", 0, command,
-		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
+		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
 	if err != nil {
 		t.Fatalf("cohort member field was rejected: %v", err)
 	}
@@ -122,7 +124,7 @@ func TestConstructionChoiceAddsMemberFieldToExplicitCohort(t *testing.T) {
 		t.Fatalf("member field must follow cohort label, ordinal and members: %#v", column.Table)
 	}
 	values := workspace.Documents[0].Rows.Groups.RowValues
-	if column.ColumnID == "" || len(values) != 1 || values[0].ColumnID != column.ColumnID || values[0].Policy != ConstructionRowValueAll {
+	if column.ColumnID == "" || len(values) != 1 || values[0].ColumnID != column.ColumnID || values[0].Policy != ws.ConstructionRowValueAll {
 		t.Fatalf("cohort field lost stable identity or member policy: column=%#v values=%#v", column, values)
 	}
 }

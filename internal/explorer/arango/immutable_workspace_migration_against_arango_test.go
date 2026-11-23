@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -22,7 +23,7 @@ func TestImmutableWorkspaceMigrationReceiptFixture(t *testing.T) {
 	if err := receipt.Validate(); err != nil {
 		t.Fatalf("nil-step receipt fixture is invalid: %v", err)
 	}
-	if _, err := authoringv2.MigrateStoredWorkspace(raw, authoringv2.CatalogSnapshot{}); err != nil {
+	if _, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{}); err != nil {
 		t.Fatalf("nil-step workspace fixture is invalid: %v", err)
 	}
 }
@@ -30,7 +31,7 @@ func TestImmutableWorkspaceMigrationReceiptFixture(t *testing.T) {
 func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw, oldDigest := workspaceMigrationNilStepsWire(t)
-	migration, err := authoringv2.MigrateStoredWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migration, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +162,8 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 	if updatedLegacyConfig == nil || string(updatedLegacyConfig["intentDigest"]) != `"`+migration.MigratedCanonicalDigest+`"` {
 		t.Fatalf("legacy repository digest was not migrated: %#v", updatedLegacyConfig)
 	}
-	var legacyWorkspace authoringv2.Workspace
-	if err := json.Unmarshal(updatedLegacyConfig["workspace"], &legacyWorkspace); err != nil || legacyWorkspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
+	var legacyWorkspace ws.Workspace
+	if err := json.Unmarshal(updatedLegacyConfig["workspace"], &legacyWorkspace); err != nil || legacyWorkspace.SemanticsVersion != ws.CurrentSemanticsVersion {
 		t.Fatalf("legacy repository workspace was not replaced by current projection: %#v err=%v", legacyWorkspace, err)
 	}
 
@@ -173,8 +174,8 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	strictWorkspace, err := authoringv2.DecodeCurrentWorkspace(owner.DraftConfig)
-	if err != nil || strictWorkspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion || owner.DraftDigest != migration.MigratedCanonicalDigest {
+	strictWorkspace, err := ws.DecodeCurrentWorkspace(owner.DraftConfig)
+	if err != nil || strictWorkspace.SemanticsVersion != ws.CurrentSemanticsVersion || owner.DraftDigest != migration.MigratedCanonicalDigest {
 		t.Fatalf("startup owner is not strict/current: owner=%#v workspace=%#v err=%v", owner, strictWorkspace, err)
 	}
 

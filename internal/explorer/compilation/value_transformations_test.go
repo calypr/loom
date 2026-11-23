@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
@@ -14,7 +16,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -98,8 +99,8 @@ func TestCodedValueRecodeCompilationExplainsLossOfSystemIdentity(t *testing.T) {
 	document := exactRecodeDocument(nil)
 	document.RootResourceType = "Observation"
 	document.Route.ResourceType = "Observation"
-	document.Columns[0].OccurrenceID = authoringv2.RootOccurrenceID
-	document.Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	document.Columns[0].OccurrenceID = ws.RootOccurrenceID
+	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 		Binding: &fhirbinding.CorrelatedBinding{
 			OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code",
 			ValuePath: "valueString", LogicalType: "string",
@@ -170,19 +171,19 @@ func TestCompileRejectsUnsupportedTransformationTypeAndShape(t *testing.T) {
 	})
 }
 
-func exactRecodeDocument(transformation *columntransform.ValueTransformation) authoringv2.Document {
+func exactRecodeDocument(transformation *columntransform.ValueTransformation) ws.Document {
 	visible := true
-	return authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-		RootResourceType: "Patient", Rows: authoringv2.RecordsRowDefinition(),
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{
-			{Column: "status", Label: "Status", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source:              authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-				ValueTransformation: transformation, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "untouched", Label: "Untouched", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
-				Table:  &authoringv2.TablePresentation{Visible: &visible}},
+	return ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(),
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{
+			{Column: "status", Label: "Status", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+				Source:              ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				ValueTransformation: transformation, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "untouched", Label: "Untouched", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceProjectID},
+				Table:  &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 }

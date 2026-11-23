@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -26,32 +29,32 @@ const (
 	unpivotMeltValueColumn = "melt_value"
 )
 
-func unpivotKey(value string) authoringv2.TableScalar {
-	kind := authoringv2.TableScalarString
-	return authoringv2.TableScalar{Kind: kind, String: &value}
+func unpivotKey(value string) ws.TableScalar {
+	kind := ws.TableScalarString
+	return ws.TableScalar{Kind: kind, String: &value}
 }
 
-func unpivotMeltStep(stepID string, inputIDs []string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	inputs := make([]authoringv2.ConstructionUnpivotInput, 0, len(inputIDs))
+func unpivotMeltStep(stepID string, inputIDs []string, outputs []ws.StageColumn) ws.ConstructionStep {
+	inputs := make([]ws.ConstructionUnpivotInput, 0, len(inputIDs))
 	for index, id := range inputIDs {
-		inputs = append(inputs, authoringv2.ConstructionUnpivotInput{ColumnID: id, Key: unpivotKey("variant-" + string(rune('a'+index)))})
+		inputs = append(inputs, ws.ConstructionUnpivotInput{ColumnID: id, Key: unpivotKey("variant-" + string(rune('a'+index)))})
 	}
-	return authoringv2.ConstructionStep{
+	return ws.ConstructionStep{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 			ConstructionID: stepID, Inputs: inputs,
 			KeyOutputColumnID: unpivotMeltKeyColumn, ValueOutputColumnID: unpivotMeltValueColumn,
-			NullRowPolicy: authoringv2.ConstructionUnpivotDrop,
+			NullRowPolicy: ws.ConstructionUnpivotDrop,
 		}},
 		Outputs: outputs,
 	}
 }
 
-func unpivotMeltOutputs(extra ...authoringv2.StageColumn) []authoringv2.StageColumn {
-	outputs := append(append([]authoringv2.StageColumn(nil), extra...),
-		authoringv2.StageColumn{ID: unpivotMeltKeyColumn, Name: unpivotMeltKeyColumn, Label: "Melt key", Type: "string"},
-		authoringv2.StageColumn{ID: unpivotMeltValueColumn, Name: unpivotMeltValueColumn, Label: "Melt value", Type: "integer"},
+func unpivotMeltOutputs(extra ...ws.StageColumn) []ws.StageColumn {
+	outputs := append(append([]ws.StageColumn(nil), extra...),
+		ws.StageColumn{ID: unpivotMeltKeyColumn, Name: unpivotMeltKeyColumn, Label: "Melt key", Type: "string"},
+		ws.StageColumn{ID: unpivotMeltValueColumn, Name: unpivotMeltValueColumn, Label: "Melt value", Type: "integer"},
 	)
 	return outputs
 }
@@ -92,7 +95,7 @@ func TestConstructionUnpivotSourceCapabilityExposesPopulatedUnselectedRootScalar
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-bs")
 	service := deriveSourceService(t)
 	result, err := service.constructionUnpivotSourceCapability(context.Background(),
-		deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
+		deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +136,7 @@ func TestConstructionUnpivotSourceCapabilityReportsNoEligibleFields(t *testing.T
 	snapshot := unpivotSourceEmptySnapshot("unpivot-source-empty")
 	service := deriveSourceService(t)
 	result, err := service.constructionUnpivotSourceCapability(context.Background(),
-		deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
+		deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +149,7 @@ func TestConstructionUnpivotSourceRefusesForgedAndCrossSnapshotChoices(t *testin
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-current")
 	other := unpivotSourceBSSnapshot("unpivot-source-other")
 	service := deriveSourceService(t)
-	base := deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
+	base := deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion})
 	request := deriveSourceProposalRequest(unpivotSourceStep, nil)
 
 	foreign := deriveSourceRowChoice(t, other, deriveSourceRootType, "active")
@@ -194,7 +197,7 @@ func TestConstructionUnpivotSourceRejectsNonScalarKindOnAdmission(t *testing.T) 
 		t.Fatalf("crafted number candidate produced no signed token: %v", err)
 	}
 	projection, err := harness.service.resolveConstructionUnpivotSource(context.Background(),
-		deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+		deriveSourcePatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
 		unpivotPatientProposalRequest(unpivotSourceStep, nil), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionUnpivotSourceSelection{ChoiceID: numberChoice.ChoiceID, ColumnID: unpivotPatientColumn})
 	if err == nil {
@@ -223,7 +226,7 @@ func TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission(t *testing.T) {
 		})
 		dateChoice := deriveSourceRowChoice(t, snapshot, "Patient", row.fieldPath)
 		projection, err := harness.service.resolveConstructionUnpivotSource(context.Background(),
-			deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+			deriveSourcePatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
 			unpivotPatientProposalRequest(unpivotSourceStep, nil), recipe.ConstructionSourceProjectionID,
 			rowsource.ConstructionUnpivotSourceSelection{ChoiceID: dateChoice.ChoiceID, ColumnID: unpivotPatientColumn})
 		if err == nil {
@@ -254,7 +257,7 @@ func TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind(t *testing.T) {
 			Observed:            true, Populated: true, ObservedDocumentCount: 12,
 		})
 	result, err := harness.service.constructionUnpivotSourceCapability(context.Background(),
-		deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), "patients", recipe.ConstructionSourceProjectionID)
+		deriveSourcePatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), "patients", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,16 +279,16 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	baseCarriers := append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	baseCarriers := append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", baseCarriers)
-	meltOutputs := unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"})
+	meltOutputs := unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"})
 	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, meltOutputs)
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, melt}}
 	base := deriveSourcePatientBase(snapshot, construction)
-	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{
 		ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 		},
@@ -296,7 +299,7 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 		t.Fatal(err)
 	}
 	clone.Steps[1].Operation.Unpivot.Inputs = append(clone.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	clone.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
 	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
@@ -311,13 +314,13 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 	}
 	projection := prepared.SourceProjections[0]
 	if projection.ColumnID != unpivotPatientColumn || projection.OwnerStepID != unpivotSourceStep ||
-		projection.OccurrenceID != authoringv2.RootOccurrenceID || projection.FieldPath != "multipleBirthInteger" ||
+		projection.OccurrenceID != ws.RootOccurrenceID || projection.FieldPath != "multipleBirthInteger" ||
 		projection.FHIRType != "integer" || projection.LogicalType != "integer" || projection.Label != "Birth count" {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", projection)
 	}
 	carried := false
 	for _, output := range prepared.Steps[0].Outputs {
-		if output.ID == unpivotPatientColumn && output.Name == authoringv2.ConstructionSourceProjectionName(unpivotPatientColumn) && output.Type == "integer" {
+		if output.ID == unpivotPatientColumn && output.Name == ws.ConstructionSourceProjectionName(unpivotPatientColumn) && output.Type == "integer" {
 			carried = true
 		}
 	}
@@ -345,17 +348,17 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 func TestConstructionUnpivotSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	group := filterSourceGroupStep()
-	carrierOutputs := []authoringv2.StageColumn{
+	carrierOutputs := []ws.StageColumn{
 		{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 		{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 	}
 	melt := unpivotMeltStep(unpivotSourceStep, []string{unpivotPatientColumn}, unpivotMeltOutputs(carrierOutputs...))
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: group.ID}}
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group, melt}}
-	base := deriveSourcePatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group}})
-	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: group.ID}}
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{group, melt}}
+	base := deriveSourcePatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{group}})
+	base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{
 		ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 		},
@@ -376,10 +379,10 @@ func TestConstructionUnpivotSourceCannotCrossRowChangingPrefix(t *testing.T) {
 func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.T) {
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-kinds")
 	service := deriveSourceService(t)
-	base := deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
-	base.Stages = []explorer.ReceiptConstructionStage{{
+	base := deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion})
+	base.Stages = []receiptmodel.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "boolean"},
 			{ID: "note_col", Name: "note_col", Label: "Note", Type: "string"},
 		},
@@ -395,7 +398,7 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{
 				unpivotBSSelections(t, snapshot, "active", "foreign_column"),
 			},
-		}, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{notInput}})
+		}, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{notInput}})
 	if err == nil {
 		t.Fatal("a selection outside the melt inputs was accepted")
 	}
@@ -412,7 +415,7 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{
 				unpivotBSSelections(t, snapshot, "active", unpivotSourceBSColumn),
 			},
-		}, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{mixed}})
+		}, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{mixed}})
 	if err == nil {
 		t.Fatal("a melt mixing string and boolean value columns was accepted")
 	}
@@ -424,17 +427,17 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 func TestConstructionUnpivotSourceRefusesSecondCarrierOfSameField(t *testing.T) {
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-collision")
 	service := deriveSourceService(t)
-	base := deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
+	base := deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion})
 	document := deriveSourceDocument()
-	document.Columns = append(document.Columns, authoringv2.Column{
+	document.Columns = append(document.Columns, ws.Column{
 		ColumnID: "active_flag", Column: "active_flag", Label: "Active", LogicalType: "boolean",
-		OccurrenceID: authoringv2.RootOccurrenceID,
-		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "active", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "active", ProjectionMode: "VALUE"}},
 	})
 	base.Document = document
-	base.Stages = []explorer.ReceiptConstructionStage{{
+	base.Stages = []receiptmodel.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "boolean"},
 			{ID: "active_flag", Name: "active_flag", Label: "Active", Type: "boolean"},
 		},
@@ -449,7 +452,7 @@ func TestConstructionUnpivotSourceRefusesSecondCarrierOfSameField(t *testing.T) 
 			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{
 				unpivotBSSelections(t, snapshot, "active", unpivotSourceBSColumn),
 			},
-		}, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{melt}})
+		}, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{melt}})
 	if err == nil {
 		t.Fatal("a signed slot duplicating an authored column was accepted")
 	}
@@ -462,23 +465,23 @@ func TestConstructionUnpivotSourceRemovalStripsProjection(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: unpivotPatientColumn, OwnerStepID: unpivotSourceStep, OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: unpivotPatientColumn, OwnerStepID: unpivotSourceStep, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 	}
 	carriers := append(deriveSourcePatientIdentityColumns(),
-		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
-		authoringv2.StageColumn{ID: unpivotPatientColumn, Name: authoringv2.ConstructionSourceProjectionName(unpivotPatientColumn), Label: "Patient.multipleBirthInteger", Type: "integer"})
+		ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+		ws.StageColumn{ID: unpivotPatientColumn, Name: ws.ConstructionSourceProjectionName(unpivotPatientColumn), Label: "Patient.multipleBirthInteger", Type: "integer"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
 	meltOutputs := unpivotMeltOutputs(
-		authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
-		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+		ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
+		ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 	melt := unpivotMeltStep(unpivotSourceStep, []string{unpivotPatientColumn}, meltOutputs)
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	saved := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{carrier, melt},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	saved := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{carrier, melt},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	savedDocument := deriveSourcePatientDocument(saved)
 	if err := savedDocument.Validate(); err != nil {
@@ -504,10 +507,10 @@ func TestConstructionUnpivotSourceRemovalStripsProjection(t *testing.T) {
 
 func TestConstructionUnpivotSourceLeavesSelectedColumnBehaviorUnchanged(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(deriveSourcePatientIdentityColumns()...)),
 	}}
-	construction.Steps[0].Operation.Unpivot.Inputs = []authoringv2.ConstructionUnpivotInput{
+	construction.Steps[0].Operation.Unpivot.Inputs = []ws.ConstructionUnpivotInput{
 		{ColumnID: "derived_total", Key: unpivotKey("variant-a")},
 	}
 	unchanged, err := harness.service.constructionCandidateWithUnpivotSources(context.Background(),
@@ -579,18 +582,18 @@ func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSi
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: unpivotPatientColumn, OwnerStepID: unpivotSourceStep, OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: unpivotPatientColumn, OwnerStepID: unpivotSourceStep, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 	}
-	liveMelt := unpivotMeltStep(unpivotSourceStep, []string{unpivotPatientColumn}, unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	liveMelt := unpivotMeltStep(unpivotSourceStep, []string{unpivotPatientColumn}, unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
 	shrunkMelt := unpivotMeltStep(unpivotSourceStep, []string{"patient-id"}, unpivotMeltOutputs())
 
-	choiceColumnID := func(t *testing.T, construction authoringv2.Construction, stageID string) string {
+	choiceColumnID := func(t *testing.T, construction ws.Construction, stageID string) string {
 		t.Helper()
 		base := deriveSourcePatientBase(snapshot, construction)
 		if stageID != recipe.ConstructionSourceProjectionID {
-			base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+			base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
 		result, err := service.constructionUnpivotSourceCapability(context.Background(), base, "patients", stageID)
 		if err != nil {
@@ -604,29 +607,29 @@ func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSi
 		return "<missing choice>"
 	}
 
-	live := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{liveMelt},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	live := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{liveMelt},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, live, recipe.ConstructionSourceProjectionID); got != unpivotPatientColumn {
 		t.Fatalf("live durable materialization advertised columnId %q, want %q", got, unpivotPatientColumn)
 	}
 
-	repointed := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{shrunkMelt},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	repointed := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{shrunkMelt},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, repointed, recipe.ConstructionSourceProjectionID); got != "" {
 		t.Fatalf("saved melt no longer declaring the source column was still advertised as columnId %q", got)
 	}
 
-	foreignOwner := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps:   []authoringv2.ConstructionStep{liveMelt},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: unpivotPatientColumn, OwnerStepID: "another-step", OccurrenceID: authoringv2.RootOccurrenceID,
+	foreignOwner := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps:   []ws.ConstructionStep{liveMelt},
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: unpivotPatientColumn, OwnerStepID: "another-step", OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 		}},
 	}
@@ -678,13 +681,13 @@ func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourc
 
 func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
-	carriers := append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	carriers := append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
 	carrier.Operation.Derive.OutputColumnID = "derived_total"
-	carrier.Operation.Derive.Left = authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: deriveSourceInt(2)}}
-	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	saved := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+	carrier.Operation.Derive.Left = ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: deriveSourceInt(2)}}
+	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	saved := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, melt}}
 	harness.saveDraft(t, saved)
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
@@ -694,7 +697,7 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 		t.Fatal(err)
 	}
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
@@ -714,7 +717,7 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 	}
 	durable := proposal.CandidateConstruction.SourceProjections[0]
 	if durable.OwnerStepID != unpivotSourceStep || durable.ColumnID != unpivotPatientColumn || durable.FieldPath != "multipleBirthInteger" ||
-		durable.FHIRType != "integer" || durable.LogicalType != "integer" || durable.OccurrenceID != authoringv2.RootOccurrenceID {
+		durable.FHIRType != "integer" || durable.LogicalType != "integer" || durable.OccurrenceID != ws.RootOccurrenceID {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", durable)
 	}
 	if harness.store.saveDraftCalls != 0 || string(acceptedBefore) != string(harness.store.created.DraftConfig) {
@@ -726,7 +729,7 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 		t.Fatalf("compiled receipt omits the candidate bundle: %#v", receipt)
 	}
 	output := receipt.Bundle.Outputs[0]
-	name := authoringv2.ConstructionSourceProjectionName(unpivotPatientColumn)
+	name := ws.ConstructionSourceProjectionName(unpivotPatientColumn)
 	var slotFieldRef, slotSelect string
 	for index := range output.Fields {
 		if output.Fields[index].Name == name {
@@ -752,23 +755,23 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 	}
 }
 
-func unpivotSaveDraftPublicNote(t *testing.T, harness *unpivotSourceHarness, construction authoringv2.Construction) {
+func unpivotSaveDraftPublicNote(t *testing.T, harness *unpivotSourceHarness, construction ws.Construction) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(harness.store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(harness.store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
 	document := workspace.Documents[0]
-	document.Rows = authoringv2.RecordsRowDefinition()
+	document.Rows = ws.RecordsRowDefinition()
 	for index := range document.Columns {
 		if document.Columns[index].Column == "patient_id" && document.Columns[index].ColumnID == "" {
 			document.Columns[index].ColumnID = "patient-id"
 		}
 	}
-	document.Columns = append(document.Columns, authoringv2.Column{
-		ColumnID: "note", Column: "note", Label: "Note", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "gender", ProjectionMode: "VALUE"}},
+	document.Columns = append(document.Columns, ws.Column{
+		ColumnID: "note", Column: "note", Label: "Note", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "gender", ProjectionMode: "VALUE"}},
 	})
 	document.ArchiveRetiredShape = nil
 	document.Construction = &construction
@@ -813,18 +816,18 @@ func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *te
 			})
 		harness.snapshot = snapshot
 		carriers := append(deriveSourcePatientIdentityColumns(),
-			authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
-			authoringv2.StageColumn{ID: "note", Name: "note", Label: "Note", Type: "string"})
+			ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+			ws.StageColumn{ID: "note", Name: "note", Label: "Note", Type: "string"})
 		carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
 		carrier.Operation.Derive.OutputColumnID = "derived_total"
-		melt := unpivotMeltStep(unpivotSourceStep, []string{"note"}, []authoringv2.StageColumn{
+		melt := unpivotMeltStep(unpivotSourceStep, []string{"note"}, []ws.StageColumn{
 			{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
 			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 			{ID: unpivotMeltKeyColumn, Name: unpivotMeltKeyColumn, Label: "Melt key", Type: "string"},
 			{ID: unpivotMeltValueColumn, Name: unpivotMeltValueColumn, Label: "Melt value", Type: "string"},
 		})
-		melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-		saved := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+		melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+		saved := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, melt}}
 		unpivotSaveDraftPublicNote(t, harness, saved)
 		version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 
@@ -833,7 +836,7 @@ func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *te
 			t.Fatal(err)
 		}
 		candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-			authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+			ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 		choice := deriveSourceRowChoice(t, snapshot, "Patient", row.fieldPath)
 		proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
@@ -872,18 +875,18 @@ func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(
 		})
 	harness.snapshot = snapshot
 	carriers := append(deriveSourcePatientIdentityColumns(),
-		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
-		authoringv2.StageColumn{ID: "note", Name: "note", Label: "Note", Type: "string"})
+		ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+		ws.StageColumn{ID: "note", Name: "note", Label: "Note", Type: "string"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
 	carrier.Operation.Derive.OutputColumnID = "derived_total"
-	melt := unpivotMeltStep(unpivotSourceStep, []string{"note"}, []authoringv2.StageColumn{
+	melt := unpivotMeltStep(unpivotSourceStep, []string{"note"}, []ws.StageColumn{
 		{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
 		{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 		{ID: unpivotMeltKeyColumn, Name: unpivotMeltKeyColumn, Label: "Melt key", Type: "string"},
 		{ID: unpivotMeltValueColumn, Name: unpivotMeltValueColumn, Label: "Melt value", Type: "string"},
 	})
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	saved := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	saved := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, melt}}
 	unpivotSaveDraftPublicNote(t, harness, saved)
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 
@@ -892,7 +895,7 @@ func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(
 		t.Fatal(err)
 	}
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-language")})
+		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-language")})
 
 	choice := deriveSourceRowChoice(t, snapshot, "Patient", "language")
 	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
@@ -928,13 +931,13 @@ func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T
 		Observed:            true, Populated: true, ObservedDocumentCount: 12,
 	})
 	harness.snapshot = snapshot
-	carriers := append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	carriers := append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
 	carrier.Operation.Derive.OutputColumnID = "derived_total"
-	carrier.Operation.Derive.Right = authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: deriveSourceInt(2)}}
-	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	saved := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+	carrier.Operation.Derive.Right = ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: deriveSourceInt(2)}}
+	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	saved := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, melt}}
 	harness.saveDraft(t, saved)
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 
@@ -943,7 +946,7 @@ func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T
 		t.Fatal(err)
 	}
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 	choice := deriveSourceRowChoice(t, snapshot, "Patient", "birthDate")
 	_, err = harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
@@ -966,12 +969,12 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 		}
 		t.Run(name, func(t *testing.T) {
 			harness := newUnpivotSourceHarness(t)
-			carriers := append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+			carriers := append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 			carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
 			carrier.Operation.Derive.OutputColumnID = "derived_total"
-			melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
-			melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-			saved := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+			melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"}, unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+			melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+			saved := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, melt}}
 			harness.saveDraft(t, saved)
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 			candidate, err := decodeConstruction(saved)
@@ -979,7 +982,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 				t.Fatal(err)
 			}
 			candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-				authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+				ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
@@ -994,7 +997,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 				harness.unobserveBirthCount()
 			}
 			_, err = harness.service.ApplyCommands(context.Background(), harness.store.created.Project, harness.store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
-				CommandID: "unpivot-source-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
+				CommandID: "unpivot-source-apply", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 			}, "unpivot-source-actor")
@@ -1014,7 +1017,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 			if applied == nil {
 				t.Fatal("apply did not save the draft")
 			}
-			workspace, decodeErr := authoringv2.DecodeWorkspace(applied.DraftConfig)
+			workspace, decodeErr := ws.DecodeWorkspace(applied.DraftConfig)
 			if decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
@@ -1025,7 +1028,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 			}
 			restored := ""
 			restoreBase := deriveSourcePatientBase(harness.snapshot, *savedConstruction)
-			restoreBase.Stages = append(restoreBase.Stages, explorer.ReceiptConstructionStage{
+			restoreBase.Stages = append(restoreBase.Stages, receiptmodel.ReceiptConstructionStage{
 				ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
 			})
 			restoreCapability, capErr := harness.service.constructionUnpivotSourceCapability(context.Background(), restoreBase, "patients", "derive-base")
@@ -1044,14 +1047,14 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 	}
 }
 
-func decodeConstruction(construction authoringv2.Construction) (authoringv2.Construction, error) {
+func decodeConstruction(construction ws.Construction) (ws.Construction, error) {
 	encoded, err := json.Marshal(construction)
 	if err != nil {
-		return authoringv2.Construction{}, err
+		return ws.Construction{}, err
 	}
-	var clone authoringv2.Construction
+	var clone ws.Construction
 	if err := json.Unmarshal(encoded, &clone); err != nil {
-		return authoringv2.Construction{}, err
+		return ws.Construction{}, err
 	}
 	return clone, nil
 }
@@ -1066,9 +1069,9 @@ func TestConstructionUnpivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t
 		t.Fatal(err)
 	}
 	harness := newUnpivotSourceHarness(t)
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
-	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
-	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
+	rowChanging := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []receiptmodel.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
 	patient := func(candidates ...capability.Candidate) capability.Snapshot {
 		snapshot := harness.snapshot
 		snapshot.Candidates = candidates
@@ -1198,7 +1201,7 @@ func TestConstructionUnpivotSourceCapabilityNamesInventoryFailureDistinctly(t *t
 	const internalDetail = "capability-store-dsn=secret-token"
 	inventoryErr := errors.New("row-choice inventory store unreachable: " + internalDetail)
 	harness := newUnpivotSourceHarness(t)
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
 	patient := func(candidates ...capability.Candidate) capability.Snapshot {
 		snapshot := harness.snapshot
 		snapshot.Candidates = candidates
@@ -1280,7 +1283,7 @@ func TestConstructionUnpivotSourceAdvertisedLabelsFollowBuilderPrecedence(t *tes
 		t.Helper()
 		service := deriveSourceService(t)
 		result, err := service.constructionUnpivotSourceCapability(context.Background(),
-			deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
+			deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
 		if err != nil {
 			t.Fatal(err)
 		}

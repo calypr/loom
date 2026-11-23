@@ -3,8 +3,11 @@ package explorer
 import (
 	"context"
 	"errors"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/dataset"
 )
@@ -28,12 +31,12 @@ type ExplorerStore interface {
 }
 
 type RevisionStore interface {
-	InsertCompilationReceipt(context.Context, CompilationReceipt) (*CompilationReceipt, error)
-	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*CompilationReceipt, error)
-	PublishAuthoring(context.Context, CompilationReceipt, Revision, dataset.ProjectRelease, int64) (*Revision, error)
+	InsertCompilationReceipt(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error)
+	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	PublishAuthoring(context.Context, receiptmodel.CompilationReceipt, Revision, dataset.ProjectRelease, int64) (*Revision, error)
 	InsertRevision(context.Context, Revision) (*Revision, error)
 	GetRevision(context.Context, string) (*Revision, error)
-	FailRevision(context.Context, string, []Diagnostic) (*Revision, error)
+	FailRevision(context.Context, string, []viewer.Diagnostic) (*Revision, error)
 	ActivateRepositoryGeneration(context.Context, string, string, string) error
 }
 

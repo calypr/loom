@@ -6,20 +6,23 @@ import (
 	"reflect"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func analyzeConstructionCandidateWithCascade(
-	base authoringv2.Document,
-	candidate authoringv2.Construction,
+	base ws.Document,
+	candidate ws.Construction,
 	changedStepID string,
 	requestedRemovals []string,
-	baseStages []explorer.ReceiptConstructionStage,
-) (authoringv2.Document, authoringv2.ConstructionImpact, error) {
+	baseStages []receiptmodel.ReceiptConstructionStage,
+) (ws.Document, ws.ConstructionImpact, error) {
 	removeStepIDs := append([]string(nil), requestedRemovals...)
 	removed := make(map[string]bool, len(removeStepIDs))
 	for _, stepID := range removeStepIDs {
@@ -29,7 +32,7 @@ func analyzeConstructionCandidateWithCascade(
 	if constructionRelatedExpandTargetChanged(base.Construction, candidate, changedStepID) {
 		invalidatedProviders = append(invalidatedProviders, changedStepID)
 	}
-	seedImpact := authoringv2.ConstructionImpact{RemovedStepIDs: invalidatedProviders}
+	seedImpact := ws.ConstructionImpact{RemovedStepIDs: invalidatedProviders}
 	seedImpact = constructionImpactForRemovedRelatedExpandAnchors(baseStages, &candidate, seedImpact)
 	for _, stepID := range constructionStepsToRemoveForMissingInputs(candidate.Steps, seedImpact.MissingInputs, changedStepID, removed) {
 		removed[stepID] = true
@@ -38,7 +41,7 @@ func analyzeConstructionCandidateWithCascade(
 
 	for {
 		candidateAttempt := candidate
-		candidateAttempt.Steps = make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
+		candidateAttempt.Steps = make([]ws.ConstructionStep, 0, len(candidate.Steps))
 		for _, step := range candidate.Steps {
 			if !removed[step.ID] {
 				candidateAttempt.Steps = append(candidateAttempt.Steps, step)
@@ -46,7 +49,7 @@ func analyzeConstructionCandidateWithCascade(
 		}
 		candidateDocument, impact, err := base.AnalyzeConstructionCandidate(candidateAttempt, changedStepID, removeStepIDs)
 		if err != nil {
-			return authoringv2.Document{}, authoringv2.ConstructionImpact{}, err
+			return ws.Document{}, ws.ConstructionImpact{}, err
 		}
 		impact = constructionImpactForRemovedRelatedExpandAnchors(baseStages, candidateDocument.Construction, impact)
 		if !impact.HasMissingInputs() {
@@ -64,11 +67,11 @@ func analyzeConstructionCandidateWithCascade(
 	}
 }
 
-func constructionRelatedExpandTargetChanged(base *authoringv2.Construction, candidate authoringv2.Construction, changedStepID string) bool {
+func constructionRelatedExpandTargetChanged(base *ws.Construction, candidate ws.Construction, changedStepID string) bool {
 	if base == nil || changedStepID == "" {
 		return false
 	}
-	var baseStep, candidateStep *authoringv2.ConstructionStep
+	var baseStep, candidateStep *ws.ConstructionStep
 	for index := range base.Steps {
 		if base.Steps[index].ID == changedStepID {
 			baseStep = &base.Steps[index]
@@ -92,12 +95,12 @@ func constructionRelatedExpandTargetChanged(base *authoringv2.Construction, cand
 }
 
 func constructionStepsToRemoveForMissingInputs(
-	steps []authoringv2.ConstructionStep,
-	missingInputs []authoringv2.ConstructionDependencyIssue,
+	steps []ws.ConstructionStep,
+	missingInputs []ws.ConstructionDependencyIssue,
 	protectedStepID string,
 	alreadyRemoved map[string]bool,
 ) []string {
-	stepsByID := make(map[string]authoringv2.ConstructionStep, len(steps))
+	stepsByID := make(map[string]ws.ConstructionStep, len(steps))
 	for _, step := range steps {
 		stepsByID[step.ID] = step
 	}
@@ -128,10 +131,10 @@ func constructionStepsToRemoveForMissingInputs(
 }
 
 func constructionImpactForRemovedRelatedExpandAnchors(
-	baseStages []explorer.ReceiptConstructionStage,
-	candidate *authoringv2.Construction,
-	impact authoringv2.ConstructionImpact,
-) authoringv2.ConstructionImpact {
+	baseStages []receiptmodel.ReceiptConstructionStage,
+	candidate *ws.Construction,
+	impact ws.ConstructionImpact,
+) ws.ConstructionImpact {
 	if candidate == nil || len(impact.RemovedStepIDs) == 0 {
 		return impact
 	}
@@ -151,7 +154,7 @@ func constructionImpactForRemovedRelatedExpandAnchors(
 	for _, step := range candidate.Steps {
 		anchorColumnID := ""
 		switch step.Operation.Kind {
-		case authoringv2.ConstructionOperationRelatedField:
+		case ws.ConstructionOperationRelatedField:
 			for _, stage := range baseStages {
 				if stage.ID == step.ID && stage.ActiveRelatedRecord != nil &&
 					removedTerminalIdentities[stage.ActiveRelatedRecord.TerminalIdentityColumn] {
@@ -159,11 +162,11 @@ func constructionImpactForRemovedRelatedExpandAnchors(
 					break
 				}
 			}
-		case authoringv2.ConstructionOperationRelatedExpand:
+		case ws.ConstructionOperationRelatedExpand:
 			if step.Operation.RelatedExpand != nil {
 				anchorColumnID = step.Operation.RelatedExpand.AnchorColumnID
 			}
-		case authoringv2.ConstructionOperationRelatedEligibility:
+		case ws.ConstructionOperationRelatedEligibility:
 			if step.Operation.RelatedEligibility != nil {
 				anchorColumnID = step.Operation.RelatedEligibility.AnchorColumnID
 			}
@@ -171,7 +174,7 @@ func constructionImpactForRemovedRelatedExpandAnchors(
 		if anchorColumnID == "" || !removedTerminalIdentities[anchorColumnID] {
 			continue
 		}
-		issue := authoringv2.ConstructionDependencyIssue{StepID: step.ID, ColumnID: anchorColumnID}
+		issue := ws.ConstructionDependencyIssue{StepID: step.ID, ColumnID: anchorColumnID}
 		alreadyReported := false
 		for _, existing := range impact.MissingInputs {
 			if existing == issue {
@@ -189,14 +192,14 @@ func constructionImpactForRemovedRelatedExpandAnchors(
 func reauthorizeConstructionRelatedField(
 	ctx context.Context,
 	base Base,
-	step authoringv2.ConstructionStep,
-	related authoringv2.ConstructionRelatedField,
+	step ws.ConstructionStep,
+	related ws.ConstructionRelatedField,
 ) error {
 	inputStageID, err := relatedFieldInputStageID(step)
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
-	var inputStage *explorer.ReceiptConstructionStage
+	var inputStage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == inputStageID {
 			inputStage = &base.Stages[index]
@@ -264,10 +267,10 @@ func reauthorizeConstructionRelatedField(
 func constructionCodedGroupChoices(
 	base Base,
 	outputID string,
-	stage explorer.ReceiptConstructionStage,
-) ([]explorer.ReceiptConstructionCodedGroupChoice, error) {
+	stage receiptmodel.ReceiptConstructionStage,
+) ([]receiptmodel.ReceiptConstructionCodedGroupChoice, error) {
 	if importedSourceRootChoiceInventoryMissing(base) {
-		return []explorer.ReceiptConstructionCodedGroupChoice{}, nil
+		return []receiptmodel.ReceiptConstructionCodedGroupChoice{}, nil
 	}
 	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" ||
 		!constructionStageSupportsCodedGroup(stage) {
@@ -275,7 +278,7 @@ func constructionCodedGroupChoices(
 	}
 	occurrence, err := resolveRowChoiceOccurrence(
 		base.Snapshot, base.Document.RootResourceType, base.Document.Route,
-		authoringv2.RootOccurrenceID, "",
+		ws.RootOccurrenceID, "",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("the direct root occurrence is not available for coded grouping: %w", err)
@@ -298,7 +301,7 @@ func constructionCodedGroupChoices(
 			populatedPaths[candidate.FieldPath] = struct{}{}
 		}
 	}
-	choices := make([]explorer.ReceiptConstructionCodedGroupChoice, 0, len(paths))
+	choices := make([]receiptmodel.ReceiptConstructionCodedGroupChoice, 0, len(paths))
 	for _, path := range paths {
 		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.Document.RootResourceType), path)
 		if err != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
@@ -316,7 +319,7 @@ func constructionCodedGroupChoices(
 		if err != nil {
 			return nil, err
 		}
-		choices = append(choices, explorer.ReceiptConstructionCodedGroupChoice{
+		choices = append(choices, receiptmodel.ReceiptConstructionCodedGroupChoice{
 			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, ResourceType: choice.ResourceType,
 			CodingPath: choice.CodingPath, Label: choice.Label,
 		})
@@ -328,8 +331,8 @@ func reauthorizeConstructionCodedGroup(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	step authoringv2.ConstructionStep,
-	coded authoringv2.ConstructionCodedGroup,
+	step ws.ConstructionStep,
+	coded ws.ConstructionCodedGroup,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -337,11 +340,11 @@ func reauthorizeConstructionCodedGroup(
 	if err := requireExactIdentity(coded.ChoiceID, "codedGroup.choiceId"); err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "choose a current repeated Coding field before proposing this step", err)
 	}
-	if len(step.Inputs) != 1 || step.Inputs[0].Kind != authoringv2.ConstructionInputSourceProjection ||
+	if len(step.Inputs) != 1 || step.Inputs[0].Kind != ws.ConstructionInputSourceProjection ||
 		step.Inputs[0].StepID != "" {
 		return unprocessable("construction-proposal", "DIRECT_SOURCE_STAGE_REQUIRED", "coded grouping is currently available only on the direct source projection stage", nil)
 	}
-	var inputStage *explorer.ReceiptConstructionStage
+	var inputStage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == recipe.ConstructionSourceProjectionID {
 			inputStage = &base.Stages[index]
@@ -351,7 +354,7 @@ func reauthorizeConstructionCodedGroup(
 	if inputStage == nil || inputStage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedGroup(*inputStage) {
 		return unprocessable("construction-proposal", "CODED_GROUP_UNAVAILABLE", "the direct source stage does not expose executable repeated Coding fields", nil)
 	}
-	if coded.Source.OccurrenceID != authoringv2.RootOccurrenceID || coded.Source.ResourceType != base.Document.RootResourceType ||
+	if coded.Source.OccurrenceID != ws.RootOccurrenceID || coded.Source.ResourceType != base.Document.RootResourceType ||
 		coded.Source.FHIRType != "Coding" || coded.Source.Cardinality != "MANY" || coded.Source.Shape != "ARRAY" || len(coded.Source.Route) != 0 {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source facts must identify a root repeated Coding path with an empty route", nil)
 	}
@@ -403,7 +406,7 @@ func reauthorizeConstructionCodedGroup(
 	return nil
 }
 
-func constructionStageSupportsCodedGroup(stage explorer.ReceiptConstructionStage) bool {
+func constructionStageSupportsCodedGroup(stage receiptmodel.ReceiptConstructionStage) bool {
 	for _, operation := range stage.Capabilities {
 		if operation.Kind == string(recipe.ConstructionCodedGroupOp) {
 			return operation.Supported
@@ -412,15 +415,15 @@ func constructionStageSupportsCodedGroup(stage explorer.ReceiptConstructionStage
 	return false
 }
 
-func relatedFieldInputStageID(step authoringv2.ConstructionStep) (string, error) {
+func relatedFieldInputStageID(step ws.ConstructionStep) (string, error) {
 	if len(step.Inputs) != 1 {
 		return "", fmt.Errorf("related field requires exactly one input stage")
 	}
 	input := step.Inputs[0]
 	switch input.Kind {
-	case authoringv2.ConstructionInputSourceProjection:
+	case ws.ConstructionInputSourceProjection:
 		return recipe.ConstructionSourceProjectionID, nil
-	case authoringv2.ConstructionInputStepOutput:
+	case ws.ConstructionInputStepOutput:
 		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
 			return "", fmt.Errorf("related field input step ID must be exact")
 		}
@@ -434,14 +437,14 @@ func reauthorizeConstructionRelatedExpand(
 	ctx context.Context,
 	base Base,
 	rootResourceType string,
-	step authoringv2.ConstructionStep,
-	related authoringv2.ConstructionRelatedExpand,
+	step ws.ConstructionStep,
+	related ws.ConstructionRelatedExpand,
 ) error {
 	inputStageID, err := relatedExpandInputStageID(step)
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
-	var inputStage *explorer.ReceiptConstructionStage
+	var inputStage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == inputStageID {
 			inputStage = &base.Stages[index]
@@ -492,29 +495,29 @@ func reauthorizeConstructionRelatedEligibility(
 	ctx context.Context,
 	base Base,
 	rootResourceType string,
-	step authoringv2.ConstructionStep,
-	related authoringv2.ConstructionRelatedEligibility,
+	step ws.ConstructionStep,
+	related ws.ConstructionRelatedEligibility,
 ) error {
 
-	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, authoringv2.ConstructionRelatedExpand{
+	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, ws.ConstructionRelatedExpand{
 		AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
 		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
 		Route: related.Route, ContributorRule: related.ContributorRule,
 		ContributorSource: related.ContributorSource, ContributorChoiceID: related.ContributorChoiceID,
-		EmptyPolicy:           authoringv2.ConstructionExpandEmptyExclude,
+		EmptyPolicy:           ws.ConstructionExpandEmptyExclude,
 		RelatedRecordColumnID: "__related_eligibility_probe",
 	})
 }
 
-func relatedExpandInputStageID(step authoringv2.ConstructionStep) (string, error) {
+func relatedExpandInputStageID(step ws.ConstructionStep) (string, error) {
 	if len(step.Inputs) != 1 {
 		return "", fmt.Errorf("related expansion requires exactly one input stage")
 	}
 	input := step.Inputs[0]
 	switch input.Kind {
-	case authoringv2.ConstructionInputSourceProjection:
+	case ws.ConstructionInputSourceProjection:
 		return recipe.ConstructionSourceProjectionID, nil
-	case authoringv2.ConstructionInputStepOutput:
+	case ws.ConstructionInputStepOutput:
 		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
 			return "", fmt.Errorf("related expansion input step ID must be exact")
 		}
@@ -524,7 +527,7 @@ func relatedExpandInputStageID(step authoringv2.ConstructionStep) (string, error
 	}
 }
 
-func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootResourceType string, related authoringv2.ConstructionRelatedExpand) error {
+func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootResourceType string, related ws.ConstructionRelatedExpand) error {
 	if related.ContributorSource == nil || related.ContributorChoiceID == "" {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor predicate has no exact field choice", nil)
 	}
@@ -600,7 +603,7 @@ func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootRes
 	return nil
 }
 
-func reauthorizeConstructionRelatedSource(ctx context.Context, base Base, rootResourceType string, related authoringv2.ConstructionRelatedSource) error {
+func reauthorizeConstructionRelatedSource(ctx context.Context, base Base, rootResourceType string, related ws.ConstructionRelatedSource) error {
 	identity, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source choice identity is invalid", err)

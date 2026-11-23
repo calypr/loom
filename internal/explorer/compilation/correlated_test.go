@@ -7,12 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -41,21 +43,21 @@ func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *test
 				RuleHint:     semantic.RuleHintCodedConceptV1,
 				RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
 			}
-			selection := authoringv2.ResolveSemanticSelectionPlan(observation)
+			selection := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 			if selection.Source == nil || selection.Source.Lookup == nil || selection.Source.Lookup.Key == nil {
 				t.Fatalf("versioned semantic selection was not ready: %#v", selection.Readiness)
 			}
 			if got := selection.Source.Lookup.Key.Version; got != test.version {
 				t.Fatalf("selection key version = %q, want %q", got, test.version)
 			}
-			document := authoringv2.Document{
-				Rows:             authoringv2.RecordsRowDefinition(),
-				Kind:             authoringv2.Kind,
-				Output:           authoringv2.Output{ID: "conditions", Title: "Conditions"},
+			document := ws.Document{
+				Rows:             ws.RecordsRowDefinition(),
+				Kind:             ws.Kind,
+				Output:           ws.Output{ID: "conditions", Title: "Conditions"},
 				RootResourceType: "Condition",
-				Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
-				Columns: []authoringv2.Column{{
-					Column: "condition_display", Label: "Condition display", OccurrenceID: authoringv2.RootOccurrenceID,
+				Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Condition"},
+				Columns: []ws.Column{{
+					Column: "condition_display", Label: "Condition display", OccurrenceID: ws.RootOccurrenceID,
 					LogicalType: selection.LogicalType,
 					Source:      *selection.Source,
 				}},
@@ -104,10 +106,10 @@ func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *test
 }
 
 func TestCompileAuthoringCorrelatedLookupCarriesSelectedPair(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-		Columns: []authoringv2.Column{{Column: "height_cm", Label: "Shared", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []ws.Column{{Column: "height_cm", Label: "Shared", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
 			Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared.code"},
 		}}}},
@@ -128,10 +130,10 @@ func TestCompileAuthoringCorrelatedLookupCarriesSelectedPair(t *testing.T) {
 }
 
 func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Condition",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
-		Columns: []authoringv2.Column{{Column: "condition_category", Label: "Condition category", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Condition",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Condition"},
+		Columns: []ws.Column{{Column: "condition_category", Label: "Condition category", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 			Binding: &fhirbinding.CorrelatedBinding{
 				KeyPath: "code.coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 				SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion, SystemPath: "system", CodePath: "code",
@@ -198,12 +200,12 @@ func TestCompileAuthoringOwnerRecordsCarriesLosslessBinding(t *testing.T) {
 		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
 		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
 	}
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-		Columns: []authoringv2.Column{{
-			Column: "height_records", Label: "Height records", LogicalType: "object", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceOwnerRecords, OwnerRecords: &authoringv2.OwnerRecordsSource{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []ws.Column{{
+			Column: "height_records", Label: "Height records", LogicalType: "object", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceOwnerRecords, OwnerRecords: &ws.OwnerRecordsSource{
 				Binding: binding, Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 			}},
 		}},
@@ -232,10 +234,10 @@ func TestCompileCodedValueForMedicationRequestNestedOwner(t *testing.T) {
 		keyPath   = "dosageInstruction[].doseAndRate[].type.coding[]"
 		valuePath = "doseQuantity.value"
 	)
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "medications", Title: "Medication requests"}, RootResourceType: "MedicationRequest",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationRequest"},
-		Columns: []authoringv2.Column{{Column: "daily_dose", Label: "Daily dose", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "medications", Title: "Medication requests"}, RootResourceType: "MedicationRequest",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "MedicationRequest"},
+		Columns: []ws.Column{{Column: "daily_dose", Label: "Daily dose", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: ownerPath, KeyPath: keyPath, SystemPath: "system", CodePath: "code", ValuePath: valuePath, ChoiceArms: []string{"doseQuantity"}, LogicalType: "decimal"},
 			Key:     &fhirbinding.CorrelatedKey{System: "http://example.org/dose-types", Code: "daily-dose"},
 		}}}},
@@ -261,10 +263,10 @@ func TestCompileCodedValueForMedicationRequestNestedOwner(t *testing.T) {
 }
 
 func TestCompileAuthoringExtensionLookupCarriesOnlyTypedAncestry(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-		Columns: []authoringv2.Column{{Column: "left_leaf", Label: "Left leaf", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{Extension: &fhirbinding.ExtensionBinding{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []ws.Column{{Column: "left_leaf", Label: "Left leaf", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceExtensionByURL, Lookup: &ws.LookupSource{Extension: &fhirbinding.ExtensionBinding{
 			OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 		}, ProjectionMode: "ALL"}}}},
 	}
@@ -284,10 +286,10 @@ func TestCompileAuthoringExtensionLookupCarriesOnlyTypedAncestry(t *testing.T) {
 }
 
 func TestCompileAuthoringIdentifierBindingLowersToSystemKeyedDynamicColumn(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "case_id", Label: "Case ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{ProjectionMode: "ALL",
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{{Column: "case_id", Label: "Case ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceIdentifierBySystem, Lookup: &ws.LookupSource{ProjectionMode: "ALL",
 			Identifier: &fhirbinding.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"},
 		}}}},
 	}
@@ -321,7 +323,7 @@ func TestCapabilityConceptCandidatesReachAuthoringCatalog(t *testing.T) {
 		ValueSelector: "valueQuantity.value", ChoiceArm: "valueQuantity", LogicalType: "decimal", ObservedUnits: []string{"cm"},
 		Completeness: "COMPLETE", Status: "SUPPORTED", Population: 2, Examples: []string{"111"}, ExamplesTruncated: true, RuleHint: "paired", RuleVersion: "v1",
 	}}
-	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer")
+	catalog := ws.CatalogFromCapability(snapshot, "explorer")
 	if len(catalog.Candidates) == 0 || len(catalog.Candidates[0].ConceptCandidates) != 1 {
 		t.Fatalf("catalog candidates = %#v", catalog.Candidates)
 	}

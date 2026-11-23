@@ -5,11 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func importedSchemaFromDocument(document authoringv2.Document) []recipe.StageColumn {
+func importedSchemaFromDocument(document ws.Document) []recipe.StageColumn {
 	var schema []recipe.StageColumn
 	for _, column := range document.Columns {
 		if !isImportedRecipeColumn(column) {
@@ -29,8 +30,8 @@ func rebuildSourceOutput(t *testing.T, fixture unifiedAuthoringFixture) recipe.O
 	return output
 }
 
-func rebuildSourceCatalog(fixture unifiedAuthoringFixture) authoringv2.CatalogSnapshot {
-	return authoringv2.CatalogFromCapability(fixture.authorized.Snapshot, "")
+func rebuildSourceCatalog(fixture unifiedAuthoringFixture) ws.CatalogSnapshot {
+	return ws.CatalogFromCapability(fixture.authorized.Snapshot, "")
 }
 
 func TestRebuildImportedDocumentPreservesAuthoredColumnsAcrossSchemaChanges(t *testing.T) {
@@ -42,20 +43,20 @@ func TestRebuildImportedDocumentPreservesAuthoredColumnsAcrossSchemaChanges(t *t
 	}
 	authoredDirect, authoredCoded := document.Columns[len(document.Columns)-2], document.Columns[len(document.Columns)-1]
 	visible, tableOrder, filterOrder, chartOrder := false, 7, 3, 2
-	authoredDirect.Table = &authoringv2.TablePresentation{Visible: &visible, Order: &tableOrder, Pinned: true, CellRenderer: "fileActions"}
-	authoredDirect.Filter = &authoringv2.FilterPresentation{Label: "Dose filter", Order: &filterOrder}
-	authoredDirect.Chart = &authoringv2.ChartPresentation{Type: "bar", Title: "Dose units", Order: &chartOrder}
+	authoredDirect.Table = &ws.TablePresentation{Visible: &visible, Order: &tableOrder, Pinned: true, CellRenderer: "fileActions"}
+	authoredDirect.Filter = &ws.FilterPresentation{Label: "Dose filter", Order: &filterOrder}
+	authoredDirect.Chart = &ws.ChartPresentation{Type: "bar", Title: "Dose units", Order: &chartOrder}
 	authoredDirect.LogicalType = "string"
-	authoredCoded.Table = &authoringv2.TablePresentation{Visible: &visible, Pinned: true}
+	authoredCoded.Table = &ws.TablePresentation{Visible: &visible, Pinned: true}
 	authoredCoded.Label = "Authored medication category"
-	document.Columns = []authoringv2.Column{
+	document.Columns = []ws.Column{
 		document.Columns[0], authoredDirect, document.Columns[1], document.Columns[2],
 		authoredCoded, document.Columns[3], document.Columns[4],
 	}
 	if err := document.Validate(); err != nil {
 		t.Fatalf("interleaved source and authored columns are invalid: %v", err)
 	}
-	wantAuthored := []authoringv2.Column{authoredDirect, authoredCoded}
+	wantAuthored := []ws.Column{authoredDirect, authoredCoded}
 
 	schema := []recipe.StageColumn{
 		{ID: pinned[0].ID, Name: "renamed_pinned_column", Label: "Renamed source field", Type: "string"},
@@ -71,7 +72,7 @@ func TestRebuildImportedDocumentPreservesAuthoredColumnsAcrossSchemaChanges(t *t
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Fatalf("merged column order = %v, want %v", gotIDs, wantIDs)
 	}
-	var gotAuthored []authoringv2.Column
+	var gotAuthored []ws.Column
 	for _, column := range updated.Columns {
 		if column.ColumnID == authoredDirect.ColumnID || column.ColumnID == authoredCoded.ColumnID {
 			gotAuthored = append(gotAuthored, column)
@@ -95,7 +96,7 @@ func TestRebuildImportedDocumentRejectsAuthoredIdentityAndNameCollisions(t *test
 		fixture := newUnifiedAuthoringFixture(t)
 		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
 		document.Columns[len(document.Columns)-2].ColumnID = "new_pinned_column_id"
-		inputColumns := append([]authoringv2.Column(nil), document.Columns...)
+		inputColumns := append([]ws.Column(nil), document.Columns...)
 		schema := append(importedSchemaFromDocument(document), recipe.StageColumn{ID: "new_pinned_column_id", Name: "new_pinned", Label: "New pinned"})
 		updated, err := rebuildImportedDocument(document, rebuildSourceOutput(t, fixture), schema, rebuildSourceCatalog(fixture))
 		if err == nil || !strings.Contains(err.Error(), "collides with an authored column") {
@@ -121,7 +122,7 @@ func TestRebuildImportedDocumentRejectsRemovedAuthoredDependencies(t *testing.T)
 	t.Run("removed route", func(t *testing.T) {
 		fixture := newUnifiedAuthoringFixture(t)
 		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
-		document.Route.Children = []authoringv2.RouteNode{{OccurrenceID: "pinned_child", ResourceType: "Patient", Relationship: "subject"}}
+		document.Route.Children = []ws.RouteNode{{OccurrenceID: "pinned_child", ResourceType: "Patient", Relationship: "subject"}}
 		document.Columns[len(document.Columns)-2].OccurrenceID = "pinned_child"
 		if err := document.Validate(); err != nil {
 			t.Fatalf("route dependency fixture is invalid: %v", err)
@@ -141,7 +142,7 @@ func TestRebuildImportedDocumentRejectsRemovedAuthoredDependencies(t *testing.T)
 			t.Fatal("fixture has no imported columns")
 		}
 		removed := document.Columns[0]
-		document.FixedFilters = []authoringv2.FixedFilter{{Column: removed.Column, Values: []string{"active"}}}
+		document.FixedFilters = []ws.FixedFilter{{Column: removed.Column, Values: []string{"active"}}}
 		if err := document.Validate(); err != nil {
 			t.Fatalf("fixed filter dependency fixture is invalid: %v", err)
 		}
@@ -156,14 +157,14 @@ func TestRebuildImportedDocumentRejectsRemovedAuthoredDependencies(t *testing.T)
 		fixture := newUnifiedAuthoringFixture(t)
 		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
 		input := document.Columns[0]
-		outputs := make([]authoringv2.StageColumn, len(document.Columns))
+		outputs := make([]ws.StageColumn, len(document.Columns))
 		for index, column := range document.Columns {
-			outputs[index] = authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType}
+			outputs[index] = ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType}
 		}
-		document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-			ID: "retain_source", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: input.ColumnID, Operator: authoringv2.ConstructionFilterExists,
+		document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+			ID: "retain_source", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: input.ColumnID, Operator: ws.ConstructionFilterExists,
 			}},
 			Outputs: outputs,
 		}}}

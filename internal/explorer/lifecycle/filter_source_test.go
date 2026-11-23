@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 
@@ -57,28 +61,28 @@ func filterSourceSnapshot(token string) capability.Snapshot {
 	)
 }
 
-func filterSourceDocument() authoringv2.Document {
-	return authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: filterSourceOutput, Title: "Body structures"},
+func filterSourceDocument() ws.Document {
+	return ws.Document{
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: filterSourceOutput, Title: "Body structures"},
 		RootResourceType: filterSourceRootType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: filterSourceRootType},
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: filterSourceRootType},
+		Rows:             ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{
 			ColumnID: filterSourceIdentity, Column: "body_structure_id", Label: "Body structure ID",
-			LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 		}},
 	}
 }
 
-func filterSourceIdentityColumns() []authoringv2.StageColumn {
-	return []authoringv2.StageColumn{{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"}}
+func filterSourceIdentityColumns() []ws.StageColumn {
+	return []ws.StageColumn{{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"}}
 }
 
-func filterSourceProjectionColumn() authoringv2.StageColumn {
-	return authoringv2.StageColumn{
-		ID: filterSourceColumn, Name: authoringv2.ConstructionSourceProjectionName(filterSourceColumn),
+func filterSourceProjectionColumn() ws.StageColumn {
+	return ws.StageColumn{
+		ID: filterSourceColumn, Name: ws.ConstructionSourceProjectionName(filterSourceColumn),
 		Label: "BodyStructure.active", Type: "boolean",
 	}
 }
@@ -102,28 +106,28 @@ func filterSourceService(t *testing.T) *Service {
 	return &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
 }
 
-func filterSourceBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
+func filterSourceBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
 	return constructionBase{
 		Document:     filterSourceDocument(),
 		Construction: construction,
 		Snapshot:     snapshot,
 		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		Stages: []explorer.ReceiptConstructionStage{{
+		Stages: []receiptmodel.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			Columns: []explorer.ReceiptConstructionStageColumn{
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{
 				{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			},
 		}},
 	}
 }
 
-func filterSourceFilterStep(columnID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func filterSourceFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     "filter-active",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: columnID, Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
 		}},
 		Outputs: outputs,
 	}
@@ -131,16 +135,16 @@ func filterSourceFilterStep(columnID string, outputs []authoringv2.StageColumn) 
 
 func filterSourceBool(value bool) *bool { return &value }
 
-func filterSourceGroupStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func filterSourceGroupStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     "group-first",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: "group-first", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: filterSourceIdentity, OutputColumnID: "group_key"}},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "rows"}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group-first", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys:       []ws.ConstructionGroupKey{{InputColumnID: filterSourceIdentity, OutputColumnID: "group_key"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "rows"}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 		},
@@ -154,7 +158,7 @@ func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path stri
 		t.Fatal(err)
 	}
 	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
 			return choice
 		}
 	}
@@ -178,7 +182,7 @@ func filterSourceProposalRequest(changedStepID string, sources []rowsource.Const
 func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-discovery")
 	result, err := filterSourceService(t).constructionFilterSourceCapability(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +234,7 @@ func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t 
 	const titleLabel = "Whether this record is in active use"
 
 	result, err := service.constructionFilterSourceCapability(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +248,7 @@ func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t 
 		t.Fatalf("offered label = %q, want the exact schema Title %q", advertisedLabel, titleLabel)
 	}
 
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 	}}
 	candidate := construction
@@ -275,7 +279,7 @@ func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T)
 	}
 	service := filterSourceService(t)
 	result, err := service.constructionFilterSourceCapability(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +293,7 @@ func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T)
 		t.Fatalf("offered label for an empty-Title candidate = %q, want the raw path %q (no resource prefix)", advertisedLabel, filterSourceField)
 	}
 
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 	}}
 	candidate := construction
@@ -310,7 +314,7 @@ type labeledRowSourceChoicePlanner struct {
 	label string
 }
 
-func (p labeledRowSourceChoicePlanner) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document authoringv2.Document) ([]capability.RowChoice, error) {
+func (p labeledRowSourceChoicePlanner) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document ws.Document) ([]capability.RowChoice, error) {
 	choices, err := p.inner.ListRowChoices(ctx, snapshot, document)
 	if err != nil {
 		return nil, err
@@ -332,7 +336,7 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 		t.Helper()
 		service := &Service{config: Config{RowChoicePlanner: labeledRowSourceChoicePlanner{inner: filterSourceResolver(t), label: label}}}
 		result, err := service.constructionFilterSourceCapability(context.Background(),
-			filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+			filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -353,7 +357,7 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 
 	service := filterSourceService(t)
 	projection, err := service.resolveConstructionFilterSource(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
 		filterSourceProposalRequest("filter-active", nil), recipe.ConstructionSourceProjectionID,
 		filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn))
 	if err != nil {
@@ -373,15 +377,15 @@ func TestConstructionFilterSourceCapabilityRefusesStaleStageAndRowChangingPrefix
 	snapshot := filterSourceSnapshot("filter-source-stages")
 	service := filterSourceService(t)
 	stale, err := service.constructionFilterSourceCapability(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, "frontend-invented-stage")
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, "frontend-invented-stage")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stale.Supported || stale.ReasonCode != "STALE_STAGE_REFERENCE" || len(stale.Choices) != 0 {
 		t.Fatalf("invented stage capability = %#v, want a stale-stage refusal without choices", stale)
 	}
-	blocked := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}})
-	blocked.Stages = append(blocked.Stages, explorer.ReceiptConstructionStage{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+	blocked := filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filterSourceGroupStep()}})
+	blocked.Stages = append(blocked.Stages, receiptmodel.ReceiptConstructionStage{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 	blockedStage, err := service.constructionFilterSourceCapability(context.Background(), blocked, filterSourceOutput, "group-first")
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +399,7 @@ func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(
 	snapshot := filterSourceSnapshot("filter-source-unpopulated")
 	service := filterSourceService(t)
 	result, err := service.constructionFilterSourceCapability(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +414,7 @@ func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(
 		t.Fatalf("crafted schema-only candidate produced no signed token: %v", err)
 	}
 	projection, err := service.resolveConstructionFilterSource(context.Background(),
-		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
 		filterSourceProposalRequest("filter-active", nil), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionFilterSourceSelection{ChoiceID: unpopulated.ChoiceID, ColumnID: filterSourceColumn})
 	if err == nil {
@@ -425,7 +429,7 @@ func TestConstructionFilterSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 	snapshot := filterSourceSnapshot("filter-source-current")
 	other := filterSourceSnapshot("filter-source-other")
 	service := filterSourceService(t)
-	base := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
+	base := filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion})
 	request := filterSourceProposalRequest("filter-active", nil)
 
 	foreign := filterSourceRowChoice(t, other, filterSourceField)
@@ -457,7 +461,7 @@ func TestConstructionFilterSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-apply")
 	service := filterSourceService(t)
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 	}}
 	base := filterSourceBase(snapshot, construction)
@@ -476,13 +480,13 @@ func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *te
 	}
 	projection := prepared.SourceProjections[0]
 	if projection.ColumnID != filterSourceColumn || projection.OwnerStepID != "filter-active" ||
-		projection.OccurrenceID != authoringv2.RootOccurrenceID || projection.FieldPath != filterSourceField ||
+		projection.OccurrenceID != ws.RootOccurrenceID || projection.FieldPath != filterSourceField ||
 		projection.FHIRType != "boolean" || projection.LogicalType != "boolean" || projection.Label != "Whether this record is in active use" {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", projection)
 	}
 	carried := false
 	for _, output := range prepared.Steps[0].Outputs {
-		if output.ID == filterSourceColumn && output.Name == authoringv2.ConstructionSourceProjectionName(filterSourceColumn) && output.Type == "boolean" {
+		if output.ID == filterSourceColumn && output.Name == ws.ConstructionSourceProjectionName(filterSourceColumn) && output.Type == "boolean" {
 			carried = true
 		}
 	}
@@ -515,7 +519,7 @@ func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *te
 func TestConstructionFilterSourceRequiresMatchingColumnAndIgnoresNonFilterSteps(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-mismatch")
 	service := filterSourceService(t)
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 	}}
 	base := filterSourceBase(snapshot, construction)
@@ -543,18 +547,18 @@ func TestConstructionFilterSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-prefix")
 	service := filterSourceService(t)
 	group := filterSourceGroupStep()
-	filterInputs := []authoringv2.StageColumn{
+	filterInputs := []ws.StageColumn{
 		{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 		{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 	}
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group, filterSourceFilterStep("group_key", filterInputs)}}
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{group, filterSourceFilterStep("group_key", filterInputs)}}
 	candidate.Steps[1].Operation.Filter.ColumnID = filterSourceColumn
-	candidate.Steps[1].Outputs = append(append([]authoringv2.StageColumn(nil), filterInputs...), filterSourceProjectionColumn())
+	candidate.Steps[1].Outputs = append(append([]ws.StageColumn(nil), filterInputs...), filterSourceProjectionColumn())
 
-	base := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group}})
-	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
+	base := filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{group}})
+	base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{
 		ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 		},
@@ -573,13 +577,13 @@ func TestConstructionFilterSourceCannotCrossRowChangingPrefix(t *testing.T) {
 func TestConstructionFilterSourceProjectionMustMatchItsFilterColumn(t *testing.T) {
 	document := filterSourceDocument()
 
-	foreign := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	foreign := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			filterSourceFilterStep(filterSourceIdentity, append(filterSourceIdentityColumns(), filterSourceProjectionColumn())),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: filterSourceColumn, OwnerStepID: "another-step", OccurrenceID: authoringv2.RootOccurrenceID,
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: filterSourceColumn, OwnerStepID: "another-step", OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
 		}},
 	}
@@ -589,13 +593,13 @@ func TestConstructionFilterSourceProjectionMustMatchItsFilterColumn(t *testing.T
 		t.Fatal("a projection owned by a step that does not consume it was accepted")
 	}
 
-	mismatched := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	mismatched := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			filterSourceFilterStep(filterSourceIdentity, append(filterSourceIdentityColumns(), filterSourceProjectionColumn())),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: filterSourceColumn, OwnerStepID: "filter-active", OccurrenceID: authoringv2.RootOccurrenceID,
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: filterSourceColumn, OwnerStepID: "filter-active", OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
 		}},
 	}
@@ -609,15 +613,15 @@ func TestConstructionFilterSourceProjectionMustMatchItsFilterColumn(t *testing.T
 func TestConstructionFilterSourceRemovalStripsProjectionAndRefusesDanglingFilter(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-removal")
 	service := filterSourceService(t)
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: filterSourceColumn, OwnerStepID: "filter-active", OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: filterSourceColumn, OwnerStepID: "filter-active", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
 	}
 	outputs := append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
-	saved := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	saved := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 
 	savedDocument := filterSourceDocument()
@@ -641,9 +645,9 @@ func TestConstructionFilterSourceRemovalStripsProjectionAndRefusesDanglingFilter
 	}
 
 	dangling := filterSourceDocument()
-	dangling.Construction = &authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps:   []authoringv2.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
+	dangling.Construction = &ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps:   []ws.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
 	}
 	if err := dangling.Validate(); err == nil || !strings.Contains(err.Error(), filterSourceColumn) {
 		t.Fatalf("dangling filter validation error = %v, want the missing projection column named", err)
@@ -658,7 +662,7 @@ func TestConstructionFilterSourceRemovalStripsProjectionAndRefusesDanglingFilter
 func TestConstructionFilterSourceLeavesSelectedColumnFilterBehaviorUnchanged(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-regression")
 	service := filterSourceService(t)
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 	}}
 	document := filterSourceDocument()
@@ -738,16 +742,16 @@ func TestConstructionFilterSourceChoiceWireShapeIsExactlySixFields(t *testing.T)
 func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSigned(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-column-binding")
 	service := filterSourceService(t)
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: filterSourceColumn, OwnerStepID: "filter-active", OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: filterSourceColumn, OwnerStepID: "filter-active", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
 	}
 	outputs := append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
-	choiceColumnID := func(t *testing.T, construction authoringv2.Construction, stageID string) string {
+	choiceColumnID := func(t *testing.T, construction ws.Construction, stageID string) string {
 		t.Helper()
 		base := filterSourceBase(snapshot, construction)
 		if stageID != recipe.ConstructionSourceProjectionID {
-			base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+			base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
 		result, err := service.constructionFilterSourceCapability(context.Background(), base, filterSourceOutput, stageID)
 		if err != nil {
@@ -760,27 +764,27 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 		}
 		return "<missing choice>"
 	}
-	live := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	live := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, live, recipe.ConstructionSourceProjectionID); got != filterSourceColumn {
 		t.Fatalf("live durable materialization advertised columnId %q, want %q", got, filterSourceColumn)
 	}
-	repointed := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{filterSourceFilterStep(filterSourceIdentity, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	repointed := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{filterSourceFilterStep(filterSourceIdentity, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, repointed, recipe.ConstructionSourceProjectionID); got != "" {
 		t.Fatalf("saved condition column no longer present was still advertised as columnId %q", got)
 	}
-	foreignOwner := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps:   []authoringv2.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: filterSourceColumn, OwnerStepID: "another-step", OccurrenceID: authoringv2.RootOccurrenceID,
+	foreignOwner := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps:   []ws.ConstructionStep{filterSourceFilterStep(filterSourceColumn, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: filterSourceColumn, OwnerStepID: "another-step", OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
 		}},
 	}
@@ -788,18 +792,18 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 		t.Fatalf("materialization not owned by this stage's filter was advertised as columnId %q", got)
 	}
 	group := filterSourceGroupStep()
-	pastPrefix := filterSourceFilterStep(filterSourceColumn, []authoringv2.StageColumn{
+	pastPrefix := filterSourceFilterStep(filterSourceColumn, []ws.StageColumn{
 		{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 		{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 		filterSourceProjectionColumn(),
 	})
-	pastPrefix.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group-first"}}
-	otherStage := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	pastPrefix.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group-first"}}
+	otherStage := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			group, pastPrefix,
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, otherStage, recipe.ConstructionSourceProjectionID); got != "" {
 		t.Fatalf("materialization owned past the row-changing prefix was advertised at the source stage as columnId %q", got)
@@ -855,7 +859,7 @@ func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceI
 
 func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t *testing.T) {
 	harness := newFilterSourceHarness(t)
-	harness.saveDraft(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	harness.saveDraft(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourcePatientFilterStep("patient-id"),
 	}})
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
@@ -879,7 +883,7 @@ func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t
 	}
 	durable := proposal.CandidateConstruction.SourceProjections[0]
 	if durable.OwnerStepID != "filter-birth" || durable.ColumnID != filterSourceColumn || durable.FieldPath != "multipleBirthInteger" ||
-		durable.FHIRType != "integer" || durable.LogicalType != "integer" || durable.OccurrenceID != authoringv2.RootOccurrenceID {
+		durable.FHIRType != "integer" || durable.LogicalType != "integer" || durable.OccurrenceID != ws.RootOccurrenceID {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", durable)
 	}
 	if harness.store.saveDraftCalls != 0 || string(acceptedBefore) != string(harness.store.created.DraftConfig) {
@@ -891,7 +895,7 @@ func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t
 		t.Fatalf("compiled receipt omits the candidate bundle: %#v", receipt)
 	}
 	output := receipt.Bundle.Outputs[0]
-	name := authoringv2.ConstructionSourceProjectionName(filterSourceColumn)
+	name := ws.ConstructionSourceProjectionName(filterSourceColumn)
 	var slotColumnID, slotFieldRef, slotSelect string
 	for index := range output.Fields {
 		if output.Fields[index].Name == name {
@@ -930,7 +934,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 		}
 		t.Run(name, func(t *testing.T) {
 			harness := newFilterSourceHarness(t)
-			harness.saveDraft(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+			harness.saveDraft(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 				filterSourcePatientFilterStep("patient-id"),
 			}})
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
@@ -948,7 +952,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 				harness.unobserveBirthCount()
 			}
 			_, err = harness.service.ApplyCommands(context.Background(), harness.store.created.Project, harness.store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
-				CommandID: "filter-source-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
+				CommandID: "filter-source-apply", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 			}, "filter-source-actor")
@@ -968,7 +972,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 			if applied == nil {
 				t.Fatal("apply did not save the draft")
 			}
-			workspace, decodeErr := authoringv2.DecodeWorkspace(applied.DraftConfig)
+			workspace, decodeErr := ws.DecodeWorkspace(applied.DraftConfig)
 			if decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
@@ -1000,24 +1004,24 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 
 func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T) {
 	harness := newFilterSourceHarness(t)
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			{
 				ID:     "filter-birth",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-					ColumnID: filterSourceColumn, Operator: authoringv2.ConstructionFilterExists,
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+					ColumnID: filterSourceColumn, Operator: ws.ConstructionFilterExists,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
-					{ID: filterSourceColumn, Name: authoringv2.ConstructionSourceProjectionName(filterSourceColumn),
+					{ID: filterSourceColumn, Name: ws.ConstructionSourceProjectionName(filterSourceColumn),
 						Label: "Patient.multipleBirthInteger", Type: "integer"},
 				},
 			},
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: filterSourceColumn, OwnerStepID: "filter-birth", OccurrenceID: authoringv2.RootOccurrenceID,
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: filterSourceColumn, OwnerStepID: "filter-birth", OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 		}},
 	}
@@ -1061,14 +1065,14 @@ func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T
 	}
 }
 
-func filterSourcePatientFilterStep(columnID string) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func filterSourcePatientFilterStep(columnID string) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     "filter-birth",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: columnID, Operator: authoringv2.ConstructionFilterExists,
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: columnID, Operator: ws.ConstructionFilterExists,
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}},
+		Outputs: []ws.StageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}},
 	}
 }
 
@@ -1076,7 +1080,7 @@ type filterSourceHarness struct {
 	service  *Service
 	store    *fakeStore
 	snapshot capability.Snapshot
-	proposal *explorer.CompilationReceipt
+	proposal *receiptmodel.CompilationReceipt
 }
 
 func filterSourceBirthCandidate(populated bool) capability.Candidate {
@@ -1116,7 +1120,7 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return harness.snapshot, nil }
 	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
 	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
-	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		catalog := lifecycleInterpretationCatalog(got, explorerID)
 		for _, candidate := range harness.snapshot.Candidates {
 			if candidate.FieldPath == "id" {
@@ -1126,7 +1130,7 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 			if err != nil {
 				t.Fatalf("make source choice for %s: %v", candidate.ID, err)
 			}
-			catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
 				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
 				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
 				ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
@@ -1134,7 +1138,7 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 		}
 		return catalog
 	}
-	service.config.ReceiptLookup = func(_ context.Context, _, _, receiptID string) (*explorer.CompilationReceipt, error) {
+	service.config.ReceiptLookup = func(_ context.Context, _, _, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 		if harness.proposal != nil && harness.proposal.ID == receiptID {
 			return harness.proposal, nil
 		}
@@ -1143,7 +1147,7 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 		}
 		return nil, explorer.ErrNotFound
 	}
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt, err := compileTraceReceipt(ctx, request, harness.snapshot, harness.service.catalog(harness.snapshot, request.ExplorerID))
 		if err != nil {
 			return nil, err
@@ -1155,7 +1159,7 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 		}
 		return receipt, nil
 	}
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not receive the proposal receipt")
 		}
@@ -1164,15 +1168,15 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 	return harness
 }
 
-func (h *filterSourceHarness) saveDraft(t *testing.T, construction authoringv2.Construction) {
+func (h *filterSourceHarness) saveDraft(t *testing.T, construction ws.Construction) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(h.store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(h.store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
 	document := workspace.Documents[0]
-	document.Rows = authoringv2.RecordsRowDefinition()
+	document.Rows = ws.RecordsRowDefinition()
 	for index := range document.Columns {
 		if document.Columns[index].Column == "patient_id" && document.Columns[index].ColumnID == "" {
 			document.Columns[index].ColumnID = "patient-id"
@@ -1195,12 +1199,12 @@ func (h *filterSourceHarness) saveDraft(t *testing.T, construction authoringv2.C
 	h.store.created.DraftConfig, h.store.created.DraftDigest = draft, digest
 }
 
-func (h *filterSourceHarness) candidateConstruction() authoringv2.Construction {
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+func (h *filterSourceHarness) candidateConstruction() ws.Construction {
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		filterSourcePatientFilterStep(filterSourceColumn),
 	}}
-	candidate.Steps[0].Outputs = append(candidate.Steps[0].Outputs, authoringv2.StageColumn{
-		ID: filterSourceColumn, Name: authoringv2.ConstructionSourceProjectionName(filterSourceColumn),
+	candidate.Steps[0].Outputs = append(candidate.Steps[0].Outputs, ws.StageColumn{
+		ID: filterSourceColumn, Name: ws.ConstructionSourceProjectionName(filterSourceColumn),
 		Label: "Patient.multipleBirthInteger", Type: "integer",
 	})
 	return candidate
@@ -1208,16 +1212,16 @@ func (h *filterSourceHarness) candidateConstruction() authoringv2.Construction {
 
 func (h *filterSourceHarness) choice(t *testing.T, path string) capability.RowChoice {
 	t.Helper()
-	document := authoringv2.Document{
+	document := ws.Document{
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(),
 	}
 	choices, err := filterSourceResolver(t).ListRowChoices(context.Background(), h.snapshot, document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
 			return choice
 		}
 	}
@@ -1238,13 +1242,13 @@ type staleRowSourceChoicePlanner struct {
 	issued capability.Snapshot
 }
 
-func (p staleRowSourceChoicePlanner) ListRowChoices(ctx context.Context, _ capability.Snapshot, document authoringv2.Document) ([]capability.RowChoice, error) {
+func (p staleRowSourceChoicePlanner) ListRowChoices(ctx context.Context, _ capability.Snapshot, document ws.Document) ([]capability.RowChoice, error) {
 	return p.inner.ListRowChoices(ctx, p.issued, document)
 }
 
 type emptyRowSourceChoicePlanner struct{}
 
-func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	return nil, nil
 }
 
@@ -1273,9 +1277,9 @@ func rowSourceLaneCandidate(node, resourceType, id, path, logicalType, cardinali
 
 func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
 	resolver := filterSourceResolver(t)
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
-	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
-	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
+	rowChanging := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []receiptmodel.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
 	bs := func(id, path, logicalType, cardinality string, populated bool) capability.Candidate {
 		return rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, id, path, logicalType, cardinality, populated)
 	}
@@ -1288,9 +1292,9 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		name         string
 		snapshot     capability.Snapshot
 		service      *Service
-		construction authoringv2.Construction
+		construction ws.Construction
 		stageID      string
-		stages       []explorer.ReceiptConstructionStage
+		stages       []receiptmodel.ReceiptConstructionStage
 		wantCode     string
 	}{
 		{
@@ -1396,14 +1400,14 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 
 type failingRowSourcePlanner struct{ err error }
 
-func (p failingRowSourcePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (p failingRowSourcePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	return nil, p.err
 }
 
 func TestConstructionFilterSourceCapabilityNamesInventoryFailureDistinctly(t *testing.T) {
 	const internalDetail = "capability-store-dsn=secret-token"
 	inventoryErr := errors.New("row-choice inventory store unreachable: " + internalDetail)
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
 	observedSnapshot := filterSourceSnapshot("filter-source-inventory-observed")
 	observedSnapshot.Candidates = []capability.Candidate{
 		rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, "bs-id", "id", "string", "optional_one", false),

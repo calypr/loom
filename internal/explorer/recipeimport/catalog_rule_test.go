@@ -2,12 +2,13 @@ package recipeimport
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeschema "github.com/calypr/loom/internal/dataframe/recipe/schema"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 type catalogRuleDiscovery struct {
@@ -30,14 +31,14 @@ func TestCatalogRuleAppliesAndRediscoversIncludedFields(t *testing.T) {
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
 	}
 	plan := SourcePlan(output)
-	rule := authoringv2.SourceRuleCreate{
+	rule := ws.SourceRuleCreate{
 		Kind: SourcePlanCatalogProjection,
-		Parameters: &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{
+		Parameters: &ws.ImportedSourceParameters{Catalog: &ws.ImportedCatalogParameters{
 			Name: "demographic_fields", IncludePaths: []string{"birthDate", "gender", "identifier[].value", "identifier[].system"},
 			ExcludePaths: []string{"gender"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath,
 		}},
 	}
-	plan, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+	plan, err := EditPlan(output, plan, ws.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestCatalogRuleAppliesAndRediscoversIncludedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(effective.CatalogProjections) != 1 || effective.CatalogProjections[0].Name != "demographic_fields" ||
-		effective.CatalogProjections[0].MaxColumns != authoringv2.MaxImportedRuleColumns {
+		effective.CatalogProjections[0].MaxColumns != ws.MaxImportedRuleColumns {
 		t.Fatalf("applied catalog rule = %#v", effective.CatalogProjections)
 	}
 
@@ -84,12 +85,12 @@ func TestNewCatalogRuleKeepsSeparateColumnOwnership(t *testing.T) {
 	output := recipe.Output{Name: "documents", RootResourceType: "DocumentReference", RowGrain: "resource",
 		CatalogProjections: []recipe.CatalogProjection{{Name: "catalog_fields", IncludePaths: []string{"status"}, MaxColumns: 10}},
 	}
-	rule := authoringv2.SourceRuleCreate{Kind: SourcePlanCatalogProjection,
-		Parameters: &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{
+	rule := ws.SourceRuleCreate{Kind: SourcePlanCatalogProjection,
+		Parameters: &ws.ImportedSourceParameters{Catalog: &ws.ImportedCatalogParameters{
 			Name: "catalog_fields", IncludePaths: []string{"description"}, Naming: recipe.ColumnNamingPath,
 		}},
 	}
-	plan, err := EditPlan(output, SourcePlan(output), authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+	plan, err := EditPlan(output, SourcePlan(output), ws.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +98,9 @@ func TestNewCatalogRuleKeepsSeparateColumnOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	network := authoringv2.AuthoringNetwork{
-		Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}},
-		Bindings:    []authoringv2.NetworkColumnBinding{{ColumnID: "status"}, {ColumnID: "description"}},
+	network := ws.AuthoringNetwork{
+		Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}},
+		Bindings:    []ws.NetworkColumnBinding{{ColumnID: "status"}, {ColumnID: "description"}},
 	}
 	columns := []facade.CompiledOutputColumn{
 		{ID: "status", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourceKind: SourcePlanCatalogProjection, SourceKey: effective.CatalogProjections[0].Name}},

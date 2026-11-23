@@ -7,29 +7,30 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/interpretation"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type interpretationContextRepository struct {
-	libraries []explorer.InterpretationLibrary
-	revisions map[explorer.InterpretationRevisionID]explorer.InterpretationRevision
-	reads     map[explorer.InterpretationRevisionID]int
+	libraries []interpretation.InterpretationLibrary
+	revisions map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision
+	reads     map[interpretation.InterpretationRevisionID]int
 }
 
-func (repository *interpretationContextRepository) ListInterpretationLibraries(context.Context, string) ([]explorer.InterpretationLibrary, error) {
-	return append([]explorer.InterpretationLibrary(nil), repository.libraries...), nil
+func (repository *interpretationContextRepository) ListInterpretationLibraries(context.Context, string) ([]interpretation.InterpretationLibrary, error) {
+	return append([]interpretation.InterpretationLibrary(nil), repository.libraries...), nil
 }
 
-func (repository *interpretationContextRepository) GetInterpretationRevision(_ context.Context, project string, id explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
+func (repository *interpretationContextRepository) GetInterpretationRevision(_ context.Context, project string, id interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
 	if repository.reads == nil {
-		repository.reads = make(map[explorer.InterpretationRevisionID]int)
+		repository.reads = make(map[interpretation.InterpretationRevisionID]int)
 	}
 	repository.reads[id]++
 	revision, ok := repository.revisions[id]
@@ -40,7 +41,7 @@ func (repository *interpretationContextRepository) GetInterpretationRevision(_ c
 	return &copy, nil
 }
 
-func (*interpretationContextRepository) CreateInterpretationRevision(context.Context, explorer.InterpretationRevision, *explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
+func (*interpretationContextRepository) CreateInterpretationRevision(context.Context, interpretation.InterpretationRevision, *interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
 	return nil, errors.New("not used")
 }
 
@@ -48,8 +49,8 @@ func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns,
-		authoringv2.Column{Column: "project", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
-		authoringv2.Column{Column: "missing", Label: "Missing", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name.family", ProjectionMode: "FIRST"}}},
+		ws.Column{Column: "project", Label: "Project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
+		ws.Column{Column: "missing", Label: "Missing", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name.family", ProjectionMode: "FIRST"}}},
 	)
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -64,8 +65,8 @@ func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *
 	before.DraftConfig = append([]byte(nil), owner.DraftConfig...)
 	store := &fakeStore{created: owner, copyGet: true}
 	repository := &interpretationContextRepository{
-		libraries: []explorer.InterpretationLibrary{{ID: revision.LibraryID, Project: revision.Project, HeadRevisionID: revision.ID, HeadDigest: revision.ContentDigest}},
-		revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision},
+		libraries: []interpretation.InterpretationLibrary{{ID: revision.LibraryID, Project: revision.Project, HeadRevisionID: revision.ID, HeadDigest: revision.ContentDigest}},
+		revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision},
 	}
 	snapshot, scope := interpretationContextSnapshot()
 	service := newTestService(t, store, Config{
@@ -125,7 +126,7 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, scope := interpretationContextSnapshot()
-	repository := &interpretationContextRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision}}
+	repository := &interpretationContextRepository{revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision}}
 	request := interpretation.ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 7, ExpectedDraftDigest: digest}
 
 	t.Run("draft", func(t *testing.T) {
@@ -165,7 +166,7 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
-	workspace.Documents[0].Route.Children = []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject"}}
+	workspace.Documents[0].Route.Children = []ws.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject"}}
 	workspace.Documents[0].Columns[0].OccurrenceID = "observation"
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -176,7 +177,7 @@ func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, scope := interpretationContextSnapshot()
-	repository := &interpretationContextRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision}}
+	repository := &interpretationContextRepository{revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision}}
 	service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 		InterpretationRepository: repository,
 		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
@@ -199,11 +200,11 @@ func TestConfiguredColumnContextRejectsWorkAboveExplicitLimits(t *testing.T) {
 		workspace := lifecycleInterpretationWorkspace("", true)
 		workspace.Documents = workspace.Documents[:1]
 		workspace.Tabs = workspace.Tabs[:1]
-		workspace.Documents[0].Columns = make([]authoringv2.Column, maxInterpretationContextColumns+1)
+		workspace.Documents[0].Columns = make([]ws.Column, maxInterpretationContextColumns+1)
 		for index := range workspace.Documents[0].Columns {
-			workspace.Documents[0].Columns[index] = authoringv2.Column{
-				Column: fmt.Sprintf("column_%03d", index), Label: fmt.Sprintf("Column %d", index), OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
+			workspace.Documents[0].Columns[index] = ws.Column{
+				Column: fmt.Sprintf("column_%03d", index), Label: fmt.Sprintf("Column %d", index), OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceProjectID},
 			}
 		}
 		draft, err := workspace.CanonicalJSON()
@@ -231,9 +232,9 @@ func TestConfiguredColumnContextRejectsWorkAboveExplicitLimits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		libraries := make([]explorer.InterpretationLibrary, maxInterpretationContextLibraries+1)
+		libraries := make([]interpretation.InterpretationLibrary, maxInterpretationContextLibraries+1)
 		for index := range libraries {
-			libraries[index] = explorer.InterpretationLibrary{ID: explorer.InterpretationLibraryID(fmt.Sprintf("library-%03d", index)), Project: "project-a"}
+			libraries[index] = interpretation.InterpretationLibrary{ID: interpretation.InterpretationLibraryID(fmt.Sprintf("library-%03d", index)), Project: "project-a"}
 		}
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 			InterpretationRepository: &interpretationContextRepository{libraries: libraries}, Capability: capabilityResolver,
@@ -267,8 +268,8 @@ func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSourc
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns,
-		authoringv2.Column{Column: "project", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
-		authoringv2.Column{Column: "missing", Label: "Missing", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name.family", ProjectionMode: "FIRST"}}},
+		ws.Column{Column: "project", Label: "Project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
+		ws.Column{Column: "missing", Label: "Missing", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name.family", ProjectionMode: "FIRST"}}},
 	)
 	ordinaryColumns := 0
 	for _, document := range workspace.Documents {
@@ -276,14 +277,14 @@ func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSourc
 	}
 	imported := workspace.Documents[0]
 	imported.Output.ID = "imported"
-	imported.ImportedRecipe = &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: fmt.Sprintf("%064d", 0), Output: "Patient"}
-	imported.Columns = make([]authoringv2.Column, maxInterpretationContextColumns+1)
+	imported.ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: fmt.Sprintf("%064d", 0), Output: "Patient"}
+	imported.Columns = make([]ws.Column, maxInterpretationContextColumns+1)
 	for index := range imported.Columns {
 		name := fmt.Sprintf("imported_%d", index)
-		imported.Columns[index] = authoringv2.Column{ColumnID: name, Column: name, Label: name, OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: name}}}
+		imported.Columns[index] = ws.Column{ColumnID: name, Column: name, Label: name, OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: name}}}
 	}
 	workspace.Documents = append(workspace.Documents, imported)
-	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "imported", Title: "Imported", OutputID: "imported", Order: len(workspace.Tabs), Visible: true})
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: "imported", Title: "Imported", OutputID: "imported", Order: len(workspace.Tabs), Visible: true})
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -297,8 +298,8 @@ func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSourc
 	before.DraftConfig = append([]byte(nil), owner.DraftConfig...)
 	store := &fakeStore{created: owner, copyGet: true}
 	repository := &interpretationContextRepository{
-		libraries: []explorer.InterpretationLibrary{{ID: revision.LibraryID, Project: revision.Project, HeadRevisionID: revision.ID, HeadDigest: revision.ContentDigest}},
-		revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision},
+		libraries: []interpretation.InterpretationLibrary{{ID: revision.LibraryID, Project: revision.Project, HeadRevisionID: revision.ID, HeadDigest: revision.ContentDigest}},
+		revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision},
 	}
 	snapshot, scope := interpretationContextSnapshot()
 	service := newTestService(t, store, Config{

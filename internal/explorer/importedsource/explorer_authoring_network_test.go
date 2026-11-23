@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
@@ -18,7 +20,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -59,7 +60,7 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "patients"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "patients"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,11 +77,11 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	if pinnedID == "" {
 		t.Fatal("fixture is missing its sibling pinned field")
 	}
-	authored := authoringv2.Column{ColumnID: "project-id", Column: "project_id", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}}
-	directField := authoringv2.Column{ColumnID: "patient-birthdate", Column: "birth_date", Label: "Birth date", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}}
-	codedValue := authoringv2.Column{
-		ColumnID: "coded-value", Column: "identifier_type", Label: "Identifier type", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	authored := ws.Column{ColumnID: "project-id", Column: "project_id", Label: "Project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}}
+	directField := ws.Column{ColumnID: "patient-birthdate", Column: "birth_date", Label: "Birth date", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}}
+	codedValue := ws.Column{
+		ColumnID: "coded-value", Column: "identifier_type", Label: "Identifier type", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "identifier[]", KeyPath: "identifier[].type.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"},
 			Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "MRN"},
 		}},
@@ -90,14 +91,14 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var target authoringv2.ProjectedField
+	var target ws.ProjectedField
 	for _, field := range network.ProjectedFields {
 		if field.Column == "gender" {
 			target = field
 			break
 		}
 	}
-	if target.ColumnID == "" || target.Owner != authoringv2.ProjectedFieldOwnerPinned || target.Removal != authoringv2.ProjectedFieldRemovalDisablePinned || target.SourceStepID != "fields" || target.SourceFieldID != "fields[1]" {
+	if target.ColumnID == "" || target.Owner != ws.ProjectedFieldOwnerPinned || target.Removal != ws.ProjectedFieldRemovalDisablePinned || target.SourceStepID != "fields" || target.SourceFieldID != "fields[1]" {
 		t.Fatalf("legacy pinned field removal capability = %+v", target)
 	}
 	updated, err := resolver.RemoveField(ctx, "project-a", authorized, document, target.SourceStepID, target.SourceFieldID)
@@ -117,7 +118,7 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 		t.Fatalf("source rebuild did not preserve sibling pin field, direct field, and codedValue addition: %#v", updated.Columns)
 	}
 	for _, column := range updated.Columns {
-		var expected *authoringv2.Column
+		var expected *ws.Column
 		switch column.ColumnID {
 		case authored.ColumnID:
 			expected = &authored
@@ -167,7 +168,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "Specimen"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "Specimen"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 		}
 		if field.Column == "patient__id" {
 			traversalID = field.ColumnID
-			if field.Removal != authoringv2.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]" {
+			if field.Removal != ws.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]" {
 				t.Fatalf("initial traversal field has no exact removal action: %+v", field)
 			}
 		}
@@ -211,13 +212,13 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 		t.Fatal(err)
 	}
 	for _, field := range after.ProjectedFields {
-		if field.ColumnID == traversalID && (field.Removal != authoringv2.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]") {
+		if field.ColumnID == traversalID && (field.Removal != ws.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]") {
 			t.Fatalf("unmodified traversal field lost its exact removal action after root edit: %+v", field)
 		}
 	}
 }
 
-func hasServerColumn(document authoringv2.Document, columnID string) bool {
+func hasServerColumn(document ws.Document, columnID string) bool {
 	for _, column := range document.Columns {
 		if column.ColumnID == columnID {
 			return true
@@ -242,23 +243,23 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 		{ID: "performer-id", Name: "patient_performer__id", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_performer", SourcePath: "traversals[1].fields"}},
 		{ID: "discovered-gender", Name: "gender", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "CATALOG_PROJECTION", SourceKey: "patient_fields", OutputKey: "gender", OccurrenceID: "base", SourcePath: "catalogProjections[0]"}},
 	}
-	document := authoringv2.Document{
-		Output:         authoringv2.Output{ID: "observations"},
-		ImportedRecipe: &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "observations"},
+	document := ws.Document{
+		Output:         ws.Output{ID: "observations"},
+		ImportedRecipe: &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "observations"},
 		ImportedSource: &plan,
-		Columns: []authoringv2.Column{
-			{ColumnID: "subject-id", Column: "patient_subject__id", Label: "Subject ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: "patient_subject__id"}}},
-			{ColumnID: "performer-id", Column: "patient_performer__id", Label: "Performer ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: "patient_performer__id"}}},
-			{ColumnID: "discovered-gender", Column: "gender", Label: "Gender", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: "gender"}}},
+		Columns: []ws.Column{
+			{ColumnID: "subject-id", Column: "patient_subject__id", Label: "Subject ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: "patient_subject__id"}}},
+			{ColumnID: "performer-id", Column: "patient_performer__id", Label: "Performer ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: "patient_performer__id"}}},
+			{ColumnID: "discovered-gender", Column: "gender", Label: "Gender", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: "gender"}}},
 		},
 	}
-	network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []authoringv2.NetworkOccurrence{
+	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []ws.NetworkOccurrence{
 		{OccurrenceID: "base", ResourceType: "Observation", Enabled: true},
 		{OccurrenceID: "patient_subject", SourceStepID: "traversals[0]", ResourceType: "Patient", Enabled: true},
 		{OccurrenceID: "patient_performer", SourceStepID: "traversals[1]", ResourceType: "Patient", Enabled: true},
 	}
-	network.Bindings = []authoringv2.NetworkColumnBinding{
+	network.Bindings = []ws.NetworkColumnBinding{
 		{ColumnID: "subject-id", Status: "UNKNOWN"},
 		{ColumnID: "performer-id", Status: "UNKNOWN"},
 		{ColumnID: "discovered-gender", Status: "UNKNOWN"},
@@ -267,7 +268,7 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, bound)
+	bound.ProjectedFields = ws.ProjectedFieldsForDocument(document, bound)
 	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
@@ -275,7 +276,7 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 	if len(bound.ProjectedFields) != 3 {
 		t.Fatalf("inventory hid a source output: %#v", bound.ProjectedFields)
 	}
-	byID := map[string]authoringv2.ProjectedField{}
+	byID := map[string]ws.ProjectedField{}
 	for _, field := range bound.ProjectedFields {
 		byID[field.ColumnID] = field
 	}
@@ -286,12 +287,12 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 		{"performer-id", "patient_performer", "traversals[1].fields", "traversals[1].fields[0]"},
 	} {
 		got := byID[want.id]
-		if got.Owner != authoringv2.ProjectedFieldOwnerPinned || got.Status != authoringv2.ProjectedFieldStatusExact || got.Removal != authoringv2.ProjectedFieldRemovalDisablePinned || got.OccurrenceID != want.occurrence || got.SourceStepID != want.sourceStep || got.SourceFieldID != want.fieldID {
+		if got.Owner != ws.ProjectedFieldOwnerPinned || got.Status != ws.ProjectedFieldStatusExact || got.Removal != ws.ProjectedFieldRemovalDisablePinned || got.OccurrenceID != want.occurrence || got.SourceStepID != want.sourceStep || got.SourceFieldID != want.fieldID {
 			t.Fatalf("legacy field %q mapping = %+v, want exact slot %+v", want.id, got, want)
 		}
 	}
 	generated := byID["discovered-gender"]
-	if generated.Owner != authoringv2.ProjectedFieldOwnerPinned || generated.Status != authoringv2.ProjectedFieldStatusExact || generated.SourceStepID != "catalogProjections[0]" || generated.Removal != authoringv2.ProjectedFieldRemovalDisablePinnedOutput || generated.SourceOutputKey != "gender" || generated.SourceFieldID != "" {
+	if generated.Owner != ws.ProjectedFieldOwnerPinned || generated.Status != ws.ProjectedFieldStatusExact || generated.SourceStepID != "catalogProjections[0]" || generated.Removal != ws.ProjectedFieldRemovalDisablePinnedOutput || generated.SourceOutputKey != "gender" || generated.SourceFieldID != "" {
 		t.Fatalf("generated projection must have an exact output removal identity: %+v", generated)
 	}
 }
@@ -305,20 +306,20 @@ func TestPinnedPivotOutputGetsExactRemovalIdentity(t *testing.T) {
 	columns := []facade.CompiledOutputColumn{
 		{ID: "systolic", Name: "components__urn_loinc_8480_6", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "PIVOT", SourceKey: "components", OutputKey: "urn:loinc|8480-6", OccurrenceID: "base", SourcePath: "pivots[0]"}},
 	}
-	document := authoringv2.Document{
-		Output:         authoringv2.Output{ID: "observations"},
-		ImportedRecipe: &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "observations"},
+	document := ws.Document{
+		Output:         ws.Output{ID: "observations"},
+		ImportedRecipe: &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "observations"},
 		ImportedSource: &plan,
-		Columns:        []authoringv2.Column{{ColumnID: "systolic", Column: columns[0].Name, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: columns[0].Name}}}},
+		Columns:        []ws.Column{{ColumnID: "systolic", Column: columns[0].Name, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: columns[0].Name}}}},
 	}
-	network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []authoringv2.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Observation", Enabled: true}}
-	network.Bindings = []authoringv2.NetworkColumnBinding{{ColumnID: "systolic", Status: "UNKNOWN"}}
+	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []ws.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Observation", Enabled: true}}
+	network.Bindings = []ws.NetworkColumnBinding{{ColumnID: "systolic", Status: "UNKNOWN"}}
 	bound, err := recipeimport.BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, bound)
+	bound.ProjectedFields = ws.ProjectedFieldsForDocument(document, bound)
 	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
@@ -327,14 +328,14 @@ func TestPinnedPivotOutputGetsExactRemovalIdentity(t *testing.T) {
 		t.Fatalf("projected field count = %d", len(bound.ProjectedFields))
 	}
 	got := bound.ProjectedFields[0]
-	if got.ColumnID != "systolic" || got.SourceStepID != "pivots[0]" || got.SourceOutputKey != "urn:loinc|8480-6" || got.Removal != authoringv2.ProjectedFieldRemovalDisablePinnedOutput {
+	if got.ColumnID != "systolic" || got.SourceStepID != "pivots[0]" || got.SourceOutputKey != "urn:loinc|8480-6" || got.Removal != ws.ProjectedFieldRemovalDisablePinnedOutput {
 		t.Fatalf("pivot output removal identity = %+v", got)
 	}
 }
 
 func TestDisablePinnedProjectionOutputChangesOnlyExactKey(t *testing.T) {
 	name := "systolic"
-	catalog := authoringv2.ImportedCatalogParameters{Outputs: []authoringv2.ImportedCatalogOutput{
+	catalog := ws.ImportedCatalogParameters{Outputs: []ws.ImportedCatalogOutput{
 		{FieldPath: "status", Enabled: true, Name: "study_status"},
 		{FieldPath: "birthDate", Enabled: true},
 	}}
@@ -345,7 +346,7 @@ func TestDisablePinnedProjectionOutputChangesOnlyExactKey(t *testing.T) {
 	if _, err := disableCatalogOutput(&catalog, "status"); err == nil {
 		t.Fatal("repeated catalog output disable was accepted")
 	}
-	pivot := authoringv2.ImportedPivotParameters{Outputs: []authoringv2.ImportedPivotOutput{
+	pivot := ws.ImportedPivotParameters{Outputs: []ws.ImportedPivotOutput{
 		{Key: "urn:loinc|8480-6", Enabled: true, Name: &name},
 		{Key: "urn:loinc|8462-4", Enabled: true},
 	}}
@@ -357,7 +358,7 @@ func TestDisablePinnedProjectionOutputChangesOnlyExactKey(t *testing.T) {
 		t.Fatal("repeated pivot output disable was accepted")
 	}
 	const whitespaceKey = "  urn:study:raw-key  "
-	whitespacePivot := authoringv2.ImportedPivotParameters{Outputs: []authoringv2.ImportedPivotOutput{{Key: whitespaceKey, Enabled: true}}}
+	whitespacePivot := ws.ImportedPivotParameters{Outputs: []ws.ImportedPivotOutput{{Key: whitespaceKey, Enabled: true}}}
 	if changed, err := disablePivotOutput(&whitespacePivot, whitespaceKey); err != nil || !changed || whitespacePivot.Outputs[0].Enabled {
 		t.Fatalf("pivot raw whitespace key was not preserved: changed=%t outputs=%+v err=%v", changed, whitespacePivot.Outputs, err)
 	}
@@ -366,10 +367,10 @@ func TestDisablePinnedProjectionOutputChangesOnlyExactKey(t *testing.T) {
 func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *testing.T) {
 	key := "ext-v1:" + strings.Repeat("ab", 32)
 	other := "ext-v1:" + strings.Repeat("cd", 32)
-	parameters := &authoringv2.ImportedExtensionParameters{Outputs: []authoringv2.ImportedExtensionOutput{
+	parameters := &ws.ImportedExtensionParameters{Outputs: []ws.ImportedExtensionOutput{
 		{Key: key, Enabled: true}, {Key: other, Enabled: true},
 	}}
-	step := authoringv2.ImportedSourceStep{Kind: recipeimport.SourcePlanExtensionColumn, Parameters: &authoringv2.ImportedSourceParameters{Extension: parameters}}
+	step := ws.ImportedSourceStep{Kind: recipeimport.SourcePlanExtensionColumn, Parameters: &ws.ImportedSourceParameters{Extension: parameters}}
 	if !supportsPinnedOutputRemoval(step, key) || supportsPinnedOutputRemoval(step, "last_segment") || supportsPinnedOutputRemoval(step, "ext-v1:abcd") {
 		t.Fatal("extension removal accepted a non-compiler opaque mapping key")
 	}
@@ -391,18 +392,18 @@ func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *t
 	columns := []facade.CompiledOutputColumn{{ID: "extension-status", Name: "extensions__parent__status", SourceOrigin: &facade.CompiledSourceOrigin{
 		SourceKind: "EXTENSION_COLUMN", SourceKey: "extensions", OutputKey: key, OccurrenceID: "base", SourcePath: "extensionColumns[0]",
 	}}}
-	document := authoringv2.Document{
-		Output: authoringv2.Output{ID: "patients"}, ImportedRecipe: &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "patients"},
-		ImportedSource: &plan, Columns: []authoringv2.Column{{ColumnID: "extension-status", Column: columns[0].Name, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: columns[0].Name}}}},
+	document := ws.Document{
+		Output: ws.Output{ID: "patients"}, ImportedRecipe: &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "patients"},
+		ImportedSource: &plan, Columns: []ws.Column{{ColumnID: "extension-status", Column: columns[0].Name, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: columns[0].Name}}}},
 	}
-	network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []authoringv2.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}
-	network.Bindings = []authoringv2.NetworkColumnBinding{{ColumnID: "extension-status", Status: "UNKNOWN"}}
+	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []ws.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}
+	network.Bindings = []ws.NetworkColumnBinding{{ColumnID: "extension-status", Status: "UNKNOWN"}}
 	bound, err := recipeimport.BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, bound)
+	bound.ProjectedFields = ws.ProjectedFieldsForDocument(document, bound)
 	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
@@ -411,7 +412,7 @@ func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *t
 		t.Fatalf("extension projected field inventory = %+v", bound.ProjectedFields)
 	}
 	field := bound.ProjectedFields[0]
-	if field.Removal != authoringv2.ProjectedFieldRemovalDisablePinnedOutput || field.SourceStepID != "extensionColumns[0]" || field.SourceOutputKey != key {
+	if field.Removal != ws.ProjectedFieldRemovalDisablePinnedOutput || field.SourceStepID != "extensionColumns[0]" || field.SourceOutputKey != key {
 		t.Fatalf("extension compiler binding did not yield exact removal: %+v", field)
 	}
 }
@@ -478,7 +479,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "DocumentReference"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "DocumentReference"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +487,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	var extension *authoringv2.ImportedExtensionParameters
+	var extension *ws.ImportedExtensionParameters
 	for _, step := range updated.ImportedSource.Steps {
 		if step.ID == "extensionColumns[0]" && step.Parameters != nil {
 			extension = step.Parameters.Extension
@@ -564,7 +565,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "patients"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "patients"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +573,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var dynamic *authoringv2.ImportedDynamicParameters
+	var dynamic *ws.ImportedDynamicParameters
 	for _, step := range updated.ImportedSource.Steps {
 		if step.ID == "dynamicColumns[0]" && step.Parameters != nil {
 			dynamic = step.Parameters.Dynamic

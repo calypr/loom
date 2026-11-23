@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
@@ -18,7 +19,7 @@ func TestCellTraceValidatesReceiptAndReturnsBoundEvidence(t *testing.T) {
 	receipt := nativeReceipt(snapshot)
 	store := &fakeStore{receipt: receipt}
 	config := testConfig(snapshot)
-	config.CellTrace = func(_ context.Context, gotReceipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+	config.CellTrace = func(_ context.Context, gotReceipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
 		if gotReceipt.ID != receipt.ID || bindings.DatasetGeneration != receipt.SourceGeneration || request.Output != "patients" || request.Column != "patient_id" || request.RowID != "row-7" {
 			t.Fatalf("unexpected trace invocation: receipt=%#v bindings=%#v request=%#v", gotReceipt, bindings, request)
 		}
@@ -41,7 +42,7 @@ func TestCellTraceMissingRowBecomesTypedNotFound(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
 	receipt := nativeReceipt(snapshot)
 	config := testConfig(snapshot)
-	config.CellTrace = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+	config.CellTrace = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
 		return dataframeexecution.CellTraceResult{}, dataframeerrors.Wrap(
 			dataframeexecution.ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest,
 			fmt.Sprintf("published row %q was not found in output %q", request.RowID, request.Output),
@@ -60,7 +61,7 @@ func TestCellTraceRejectsUnknownColumnBeforeExecution(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
 	receipt := nativeReceipt(snapshot)
 	config := testConfig(snapshot)
-	config.CellTrace = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+	config.CellTrace = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
 		t.Fatal("trace executor must not run")
 		return dataframeexecution.CellTraceResult{}, nil
 	}

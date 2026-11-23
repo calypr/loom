@@ -4,18 +4,20 @@ import (
 	"context"
 	"errors"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, catalog ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if s.config.EditImportedSource == nil {
 		return nil, support.Unavailable("commands", "IMPORTED_SOURCE_UNAVAILABLE", "source editing is unavailable", nil)
 	}
 	command := commands[0]
-	var document *authoringv2.Document
+	var document *ws.Document
 	for i := range workspace.Documents {
 		if workspace.Documents[i].Output.ID == command.OutputID {
 			document = &workspace.Documents[i]

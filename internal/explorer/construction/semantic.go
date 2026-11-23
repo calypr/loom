@@ -8,10 +8,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
@@ -23,7 +26,7 @@ const (
 	constructionSemanticGroupChoicePageLimit = 5
 )
 
-func constructionStageSupportsGroup(stage explorer.ReceiptConstructionStage) bool {
+func constructionStageSupportsGroup(stage receiptmodel.ReceiptConstructionStage) bool {
 	for _, operation := range stage.Capabilities {
 		if operation.Kind == string(recipe.ConstructionGroupOp) {
 			return operation.Supported
@@ -37,7 +40,7 @@ func semanticGroupFamilyReady(family semantic.Family) bool {
 		family.SchemaVersion <= 0 || family.Population <= 0 || family.Completeness != semantic.CompletenessComplete || family.Status != "SUPPORTED" {
 		return false
 	}
-	plan := authoringv2.ResolveSemanticSelectionPlan(semanticInventoryEntryForFamily(family).Observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(semanticInventoryEntryForFamily(family).Observation)
 	return plan.Readiness.Addable() && plan.Source != nil && plan.Source.Lookup != nil && plan.Source.Lookup.Binding != nil && plan.Source.Lookup.Key != nil
 }
 
@@ -77,7 +80,7 @@ func constructionSemanticGroupCodingPathSet(rootResourceType string) (map[string
 	return actual.(map[string]bool), nil
 }
 
-func semanticBindingForGroupKey(keys []authoringv2.ConstructionGroupKey, outputColumnID string) *authoringv2.ConstructionGroupKey {
+func semanticBindingForGroupKey(keys []ws.ConstructionGroupKey, outputColumnID string) *ws.ConstructionGroupKey {
 	for index := range keys {
 		if keys[index].OutputColumnID == outputColumnID && keys[index].SemanticCategory != nil {
 			return &keys[index]
@@ -86,14 +89,14 @@ func semanticBindingForGroupKey(keys []authoringv2.ConstructionGroupKey, outputC
 	return nil
 }
 
-func constructionGroupSemanticBinding(family semantic.Family, codingPath string) authoringv2.ConstructionGroupSemanticCategory {
-	return authoringv2.ConstructionGroupSemanticCategory{
+func constructionGroupSemanticBinding(family semantic.Family, codingPath string) ws.ConstructionGroupSemanticCategory {
+	return ws.ConstructionGroupSemanticCategory{
 		Kind: "BINDING", BindingID: family.BindingID, RuleVersion: family.RuleVersion, FamilyID: family.FamilyID, SourceKind: family.SourceKind,
 		System: family.System, Version: family.Version, ResourceType: family.ResourceType, CodingPath: codingPath,
 	}
 }
 
-func findSemanticOutput(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+func findSemanticOutput(workspace ws.Workspace, outputID string) *ws.Document {
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == outputID {
 			return &workspace.Documents[index]
@@ -106,14 +109,14 @@ func (s *Service) constructionSemanticGroupChoices(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	stage explorer.ReceiptConstructionStage,
+	stage receiptmodel.ReceiptConstructionStage,
 ) ([]ConstructionSemanticGroupChoice, bool, error) {
 	choices := []ConstructionSemanticGroupChoice{}
 	if importedSourceRootChoiceInventoryMissing(base) {
 		return choices, false, nil
 	}
 	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedPivot(stage) ||
-		!constructionStageSupportsGroup(stage) || base.Document.Route.OccurrenceID != authoringv2.RootOccurrenceID ||
+		!constructionStageSupportsGroup(stage) || base.Document.Route.OccurrenceID != ws.RootOccurrenceID ||
 		s.config.SemanticInventory == nil {
 		return choices, false, nil
 	}
@@ -218,17 +221,17 @@ func (s *Service) resolveConstructionGroupSemanticCategories(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, error) {
-	priorByStep := make(map[string][]authoringv2.ConstructionGroupKey)
+	candidate ws.Construction,
+) (ws.Construction, error) {
+	priorByStep := make(map[string][]ws.ConstructionGroupKey)
 	for _, step := range base.Construction.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationGroup && step.Operation.Group != nil {
-			priorByStep[step.ID] = append([]authoringv2.ConstructionGroupKey(nil), step.Operation.Group.Keys...)
+		if step.Operation.Kind == ws.ConstructionOperationGroup && step.Operation.Group != nil {
+			priorByStep[step.ID] = append([]ws.ConstructionGroupKey(nil), step.Operation.Group.Keys...)
 		}
 	}
 	for stepIndex := range candidate.Steps {
 		step := &candidate.Steps[stepIndex]
-		if step.Operation.Kind != authoringv2.ConstructionOperationGroup || step.Operation.Group == nil {
+		if step.Operation.Kind != ws.ConstructionOperationGroup || step.Operation.Group == nil {
 			continue
 		}
 		group := step.Operation.Group
@@ -239,7 +242,7 @@ func (s *Service) resolveConstructionGroupSemanticCategories(
 				continue
 			}
 			semanticCount++
-			if len(step.Inputs) != 1 || step.Inputs[0].Kind != authoringv2.ConstructionInputSourceProjection || step.Inputs[0].StepID != "" {
+			if len(step.Inputs) != 1 || step.Inputs[0].Kind != ws.ConstructionInputSourceProjection || step.Inputs[0].StepID != "" {
 				return candidate, unprocessable("construction-proposal", "DIRECT_SOURCE_STAGE_REQUIRED", "semantic Group keys currently require the direct source projection stage", nil)
 			}
 			stage := constructionSourceStage(base.Stages)
@@ -277,35 +280,35 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 	ctx context.Context,
 	base Base,
 	outputID, stageID, choiceID string,
-) (authoringv2.ConstructionGroupSemanticCategory, error) {
+) (ws.ConstructionGroupSemanticCategory, error) {
 	identity, err := capability.DecodeConstructionChoiceID(choiceID)
 	if err != nil || identity.SnapshotToken != base.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemantic {
-		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the semantic Group field for the current snapshot", nil, err)
+		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the semantic Group field for the current snapshot", nil, err)
 	}
 	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
 	if !ok || source.GroupOutputID != outputID || source.GroupStageID != stageID || len(identity.Route) != 0 ||
 		source.RuleHint != semantic.RuleHintCodedCategoryV1 {
-		return authoringv2.ConstructionGroupSemanticCategory{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the semantic Group choice does not belong to this exact output stage", nil)
+		return ws.ConstructionGroupSemanticCategory{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the semantic Group choice does not belong to this exact output stage", nil)
 	}
 	family, err := s.reauthorizeConstructionSemanticGroupFamily(ctx, base, source.BindingID, source.ConceptID, source.SourceKind, source.ResourceType, source.SourcePath, source.System, source.Version, source.RuleVersion)
 	if err != nil {
-		return authoringv2.ConstructionGroupSemanticCategory{}, err
+		return ws.ConstructionGroupSemanticCategory{}, err
 	}
 	codingPath, ok := constructionSemanticGroupCodingPath(base.Document.RootResourceType, family)
 	if !ok || codingPath != strings.TrimPrefix(family.Source.Path, base.Document.RootResourceType+".") {
-		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected semantic family no longer maps to a generated root Coding path", nil, nil)
+		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected semantic family no longer maps to a generated root Coding path", nil, nil)
 	}
 	candidate, ok := semanticConstructionCandidate(base.Snapshot, semanticInventoryEntryForFamily(family).Observation)
 	if !ok || candidate.ID != source.CandidateID || candidate.NodeID != source.NodeID || candidate.FieldPath != source.FieldPath {
-		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the semantic family no longer has its exact compiler-proved field", nil, nil)
+		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the semantic family no longer has its exact compiler-proved field", nil, nil)
 	}
 	buildID := semantic.BuildID(projectid.Legacy(base.Snapshot.Identity.Project), base.Snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(base.Snapshot, base.ExplorerID, base.Document.RootResourceType, buildID)
 	if err != nil {
-		return authoringv2.ConstructionGroupSemanticCategory{}, internal("construction-proposal", "SEMANTIC_CONTEXT_FAILED", "the semantic inventory context token could not be built", err)
+		return ws.ConstructionGroupSemanticCategory{}, internal("construction-proposal", "SEMANTIC_CONTEXT_FAILED", "the semantic inventory context token could not be built", err)
 	}
 	if identity.SemanticContextToken != contextToken || identity.BuildID != buildID {
-		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, nil)
+		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, nil)
 	}
 	entry := semanticInventoryEntryForFamily(family)
 	expected, err := semanticCategoryConstructionChoiceForRoute(base.Snapshot, contextToken, buildID, nil, family, candidate)
@@ -317,7 +320,7 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 		}
 	}
 	if err != nil || expected.ChoiceID != choiceID || identity.BuildID != buildID || entry.BindingID != family.BindingID {
-		return authoringv2.ConstructionGroupSemanticCategory{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the semantic Group choice cannot be reissued from current inventory evidence", err)
+		return ws.ConstructionGroupSemanticCategory{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the semantic Group choice cannot be reissued from current inventory evidence", err)
 	}
 	return constructionGroupSemanticBinding(family, codingPath), nil
 }
@@ -325,7 +328,7 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 func (s *Service) reauthorizeConstructionSemanticGroupBinding(
 	ctx context.Context,
 	base Base,
-	binding authoringv2.ConstructionGroupSemanticCategory,
+	binding ws.ConstructionGroupSemanticCategory,
 ) error {
 	family, err := s.reauthorizeConstructionSemanticGroupFamily(ctx, base, binding.BindingID, binding.FamilyID,
 		binding.SourceKind, binding.ResourceType, binding.CodingPath, binding.System, binding.Version, binding.RuleVersion)

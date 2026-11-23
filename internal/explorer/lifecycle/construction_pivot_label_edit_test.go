@@ -5,12 +5,14 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) {
@@ -18,12 +20,12 @@ func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) 
 		t.Run(map[bool]string{false: "label only", true: "category changed"}[semanticChange], func(t *testing.T) {
 			service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
 			scans := 0
-			service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 				scans++
 				if !scan.RequireValue {
 					t.Fatal("category proof must remain value-bearing")
 				}
-				var category explorer.ReceiptConstructionStageColumn
+				var category receiptmodel.ReceiptConstructionStageColumn
 				for _, stage := range receipt.ConstructionStages["patients"] {
 					if stage.ID == scan.StageID {
 						for _, column := range stage.Columns {
@@ -36,7 +38,7 @@ func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) 
 				proof := compilerCategoryScanProof(construction.ConstructionCategoryDiscoveryRequest{OutputID: scan.Output, StageID: scan.StageID, CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID}, category)
 				return dataframeexecution.CategoryScanResult{Values: []dataframeexecution.CategoryValue{{Present: true, Value: "other-observed-category"}}, Complete: true, Proof: proof}, nil
 			}
-			request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
+			request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
 			request.CandidateConstruction.Steps[0].Outputs[1].Label = "Renamed empty category"
 			if semanticChange {
 				request.CandidateConstruction.Steps[0].Operation.Pivot.Categories[0].Key = lifecycleTestStringScalar("new-unobserved-category")

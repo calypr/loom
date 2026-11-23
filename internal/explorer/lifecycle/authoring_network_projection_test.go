@@ -4,23 +4,23 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestRowIdentityForNetworkUsesEffectiveOccurrencesAndPreservesDocument(t *testing.T) {
-	document := authoringv2.Document{
-		Output:           authoringv2.Output{ID: "subjects"},
+	document := ws.Document{
+		Output:           ws.Output{ID: "subjects"},
 		RootResourceType: "ResearchSubject",
-		Rows:             authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionRecords},
-		Route:            authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []authoringv2.RouteNode{{OccurrenceID: "historical", ResourceType: "Patient"}}},
+		Rows:             ws.RowDefinition{Kind: ws.RowDefinitionRecords},
+		Route:            ws.RouteNode{OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []ws.RouteNode{{OccurrenceID: "historical", ResourceType: "Patient"}}},
 	}
 	before := document
-	network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []authoringv2.NetworkOccurrence{
+	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []ws.NetworkOccurrence{
 		{OccurrenceID: "base", ResourceType: "ResearchSubject", Enabled: true},
-		{OccurrenceID: "subject_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: authoringv2.RouteMatchRequired},
-		{OccurrenceID: "observation_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: authoringv2.RouteMatchOptional},
-		{OccurrenceID: "removed", ParentOccurrenceID: "base", ResourceType: "Observation", Enabled: false, MatchMode: authoringv2.RouteMatchRequired},
+		{OccurrenceID: "subject_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: ws.RouteMatchRequired},
+		{OccurrenceID: "observation_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: ws.RouteMatchOptional},
+		{OccurrenceID: "removed", ParentOccurrenceID: "base", ResourceType: "Observation", Enabled: false, MatchMode: ws.RouteMatchRequired},
 	}
 	projected := rowIdentityForNetwork(document, network)
 	if !reflect.DeepEqual(document, before) {

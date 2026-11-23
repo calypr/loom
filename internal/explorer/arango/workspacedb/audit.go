@@ -4,11 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 type WorkspaceAuditReport struct {
@@ -111,7 +111,7 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 	discover = func(packet json.RawMessage, path string) {
 		object, normalized := AuditObject(packet)
 		if object != nil {
-			if !known[path] && AuditString(object["apiVersion"]) == authoringv2.APIVersion && AuditString(object["kind"]) == authoringv2.WorkspaceKind {
+			if !known[path] && AuditString(object["apiVersion"]) == ws.APIVersion && AuditString(object["kind"]) == ws.WorkspaceKind {
 				entry := auditWorkspacePacket(collection, key, path, normalized, object, false)
 				entry.finishDigestRelation()
 				r.addWorkspaceAuditEntry(entry)
@@ -133,7 +133,7 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 			}
 		}
 	}
-	if AuditString(document["apiVersion"]) == authoringv2.APIVersion && AuditString(document["kind"]) == authoringv2.WorkspaceKind {
+	if AuditString(document["apiVersion"]) == ws.APIVersion && AuditString(document["kind"]) == ws.WorkspaceKind {
 		packet := make(map[string]json.RawMessage, len(document))
 		for field, value := range document {
 			if field != "_key" && field != "_id" && field != "_rev" {
@@ -172,7 +172,7 @@ func AuditWorkspaceShape(object map[string]json.RawMessage) bool {
 	if object == nil {
 		return false
 	}
-	if AuditString(object["kind"]) == authoringv2.WorkspaceKind {
+	if AuditString(object["kind"]) == ws.WorkspaceKind {
 		return true
 	}
 	_, documents := object["documents"]
@@ -207,7 +207,7 @@ func containsAuditString(values []string, want string) bool {
 func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, object map[string]json.RawMessage, authoritative bool) WorkspaceAuditEntry {
 	entry := WorkspaceAuditEntry{Collection: collection, Key: key, Path: path, Authoritative: authoritative, Immutable: collection == db.DraftRevisionsCollection || collection == db.RevisionsCollection || collection == db.CompilationReceiptsCollection, Features: []string{}}
 	_ = json.Unmarshal(object["semanticsVersion"], &entry.SemanticsVersion)
-	if entry.SemanticsVersion < authoringv2.CurrentSemanticsVersion {
+	if entry.SemanticsVersion < ws.CurrentSemanticsVersion {
 		entry.Features = append(entry.Features, "legacy-semantics")
 		entry.NeedsPinnedCatalog = true
 	}
@@ -255,7 +255,7 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 		}
 	}
 	sort.Strings(entry.Features)
-	var direct authoringv2.Workspace
+	var direct ws.Workspace
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	strictErr := decoder.Decode(&direct)
@@ -266,10 +266,10 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 	if strictErr != nil {
 		entry.StrictCurrentError = strictErr.Error()
 	}
-	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
+	workspace, err := ws.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		entry.Classification = "invalid-or-unsupported"
-		if entry.SemanticsVersion > authoringv2.CurrentSemanticsVersion {
+		if entry.SemanticsVersion > ws.CurrentSemanticsVersion {
 			entry.Classification = "future"
 		}
 		entry.DecodeError = err.Error()
@@ -277,7 +277,7 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 	}
 	if strictErr != nil {
 		withoutArchive := direct
-		withoutArchive.Documents = append([]authoringv2.Document(nil), direct.Documents...)
+		withoutArchive.Documents = append([]ws.Document(nil), direct.Documents...)
 		for index := range withoutArchive.Documents {
 			withoutArchive.Documents[index].ArchiveRetiredShape = nil
 		}
@@ -285,7 +285,7 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 			entry.Features = append(entry.Features, "persisted-decoder-compatibility")
 		}
 	}
-	canonical, err := authoringv2.CanonicalStoredWorkspaceForMigration(workspace)
+	canonical, err := ws.CanonicalStoredWorkspaceForMigration(workspace)
 	if err != nil {
 		entry.DecodeError = err.Error()
 		entry.Classification = "invalid-or-unsupported"
@@ -299,7 +299,7 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 		entry.DecodeError = err.Error()
 	}
 	switch {
-	case entry.SemanticsVersion > authoringv2.CurrentSemanticsVersion:
+	case entry.SemanticsVersion > ws.CurrentSemanticsVersion:
 		entry.Classification = "future"
 	case len(entry.Features) > 0 || entry.NilConstructionStepLists > 0:
 		entry.Classification = "legacy"

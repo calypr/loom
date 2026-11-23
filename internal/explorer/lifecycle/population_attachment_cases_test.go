@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -34,34 +36,34 @@ type attachmentCase struct {
 }
 
 type attachmentExpectation struct {
-	Accepted            bool                              `json:"accepted"`
-	SearchChoices       int                               `json:"searchChoices"`
-	SearchPreservedHead bool                              `json:"searchPreservedHead"`
-	SaveAttempts        int                               `json:"saveAttempts"`
-	Writes              int                               `json:"writes"`
-	PreservedHead       bool                              `json:"preservedHead"`
-	ExactWorkspace      bool                              `json:"exactWorkspace"`
-	StableHead          bool                              `json:"stableHead"`
-	VersionBefore       int64                             `json:"versionBefore"`
-	VersionAfter        int64                             `json:"versionAfter"`
-	SelectionID         string                            `json:"selectionId"`
-	Route               []authoringv2.PopulationRouteStep `json:"route"`
+	Accepted            bool                     `json:"accepted"`
+	SearchChoices       int                      `json:"searchChoices"`
+	SearchPreservedHead bool                     `json:"searchPreservedHead"`
+	SaveAttempts        int                      `json:"saveAttempts"`
+	Writes              int                      `json:"writes"`
+	PreservedHead       bool                     `json:"preservedHead"`
+	ExactWorkspace      bool                     `json:"exactWorkspace"`
+	StableHead          bool                     `json:"stableHead"`
+	VersionBefore       int64                    `json:"versionBefore"`
+	VersionAfter        int64                    `json:"versionAfter"`
+	SelectionID         string                   `json:"selectionId"`
+	Route               []ws.PopulationRouteStep `json:"route"`
 }
 type attachmentResult struct {
-	ID                  string                            `json:"id"`
-	Accepted            bool                              `json:"accepted"`
-	SearchChoices       int                               `json:"searchChoices"`
-	SearchPreservedHead bool                              `json:"searchPreservedHead"`
-	SaveAttempts        int                               `json:"saveAttempts"`
-	Writes              int                               `json:"writes"`
-	PreservedHead       bool                              `json:"preservedHead"`
-	ExactWorkspace      bool                              `json:"exactWorkspace"`
-	StableHead          bool                              `json:"stableHead"`
-	VersionBefore       int64                             `json:"versionBefore"`
-	VersionAfter        int64                             `json:"versionAfter"`
-	SelectionID         string                            `json:"selectionId"`
-	Route               []authoringv2.PopulationRouteStep `json:"route"`
-	Error               string                            `json:"error"`
+	ID                  string                   `json:"id"`
+	Accepted            bool                     `json:"accepted"`
+	SearchChoices       int                      `json:"searchChoices"`
+	SearchPreservedHead bool                     `json:"searchPreservedHead"`
+	SaveAttempts        int                      `json:"saveAttempts"`
+	Writes              int                      `json:"writes"`
+	PreservedHead       bool                     `json:"preservedHead"`
+	ExactWorkspace      bool                     `json:"exactWorkspace"`
+	StableHead          bool                     `json:"stableHead"`
+	VersionBefore       int64                    `json:"versionBefore"`
+	VersionAfter        int64                    `json:"versionAfter"`
+	SelectionID         string                   `json:"selectionId"`
+	Route               []ws.PopulationRouteStep `json:"route"`
+	Error               string                   `json:"error"`
 }
 type attachmentStore struct {
 	*fakeStore
@@ -137,12 +139,12 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		}
 	}
 
-	initial, setupErr := authoringv2.DecodeWorkspace(base.created.DraftConfig)
+	initial, setupErr := ws.DecodeWorkspace(base.created.DraftConfig)
 	if setupErr != nil {
 		t.Fatal(setupErr)
 	}
-	initial.SemanticsVersion = authoringv2.CurrentSemanticsVersion
-	initial.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	initial.SemanticsVersion = ws.CurrentSemanticsVersion
+	initial.Documents[0].Rows = ws.RecordsRowDefinition()
 	initial.Documents[0].Columns[0].ColumnID = "patient-id"
 	initial.Explorer.Title = base.created.Title
 	base.created.DraftConfig, setupErr = initial.CanonicalJSON()
@@ -183,7 +185,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	domain, err := explorer.NewService(store)
 	if err != nil {
 		t.Fatal(err)
@@ -282,30 +284,30 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		}
 		commands = append(commands, authoringv2.Command{Type: authoringv2.CommandSetTablePopulation, OutputID: "missing-output", Payload: &authoringv2.TablePayload{SelectionRevisionID: selectionID, RouteChoiceID: token}})
 	}
-	expected, err := authoringv2.DecodeWorkspace(before.DraftConfig)
+	expected, err := ws.DecodeWorkspace(before.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	literalRoute := []authoringv2.PopulationRouteStep{}
+	literalRoute := []ws.PopulationRouteStep{}
 	if c.Edge != "zero" {
-		literalRoute = append(literalRoute, authoringv2.PopulationRouteStep{ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: edgeID, StorageDirection: "INBOUND"})
+		literalRoute = append(literalRoute, ws.PopulationRouteStep{ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: edgeID, StorageDirection: "INBOUND"})
 	}
-	expected.Documents[0].Population = &authoringv2.Population{SelectionRevisionID: selectionID, Route: literalRoute}
+	expected.Documents[0].Population = &ws.Population{SelectionRevisionID: selectionID, Route: literalRoute}
 	expectedBytes, err := expected.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "attachment-" + c.ID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: before.DraftVersion, ExpectedDraftDigest: before.DraftDigest, Commands: commands}, "alice")
+	_, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "attachment-" + c.ID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: before.DraftVersion, ExpectedDraftDigest: before.DraftDigest, Commands: commands}, "alice")
 	reloaded, err := domain.Get(context.Background(), "project-a", "patients")
 	if err != nil {
 		t.Fatal(err)
 	}
 	after := attachmentHead(t, reloaded)
-	result := attachmentResult{ID: c.ID, Accepted: applyErr == nil, SearchChoices: len(choices.Choices), SearchPreservedHead: searchPreserved, SaveAttempts: store.attempts, Writes: store.writes, PreservedHead: reflect.DeepEqual(before, after), ExactWorkspace: bytes.Equal(after.DraftConfig, expectedBytes), StableHead: before.Project == after.Project && before.ExplorerID == after.ExplorerID && before.Title == after.Title && before.ManagementMode == after.ManagementMode && before.ActiveRevisionID == after.ActiveRevisionID, VersionBefore: before.DraftVersion, VersionAfter: after.DraftVersion, Route: []authoringv2.PopulationRouteStep{}}
+	result := attachmentResult{ID: c.ID, Accepted: applyErr == nil, SearchChoices: len(choices.Choices), SearchPreservedHead: searchPreserved, SaveAttempts: store.attempts, Writes: store.writes, PreservedHead: reflect.DeepEqual(before, after), ExactWorkspace: bytes.Equal(after.DraftConfig, expectedBytes), StableHead: before.Project == after.Project && before.ExplorerID == after.ExplorerID && before.Title == after.Title && before.ManagementMode == after.ManagementMode && before.ActiveRevisionID == after.ActiveRevisionID, VersionBefore: before.DraftVersion, VersionAfter: after.DraftVersion, Route: []ws.PopulationRouteStep{}}
 	if applyErr != nil {
 		result.Error = applyErr.Error()
 	}
-	workspace, err := authoringv2.DecodeWorkspace(after.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(after.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

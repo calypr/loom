@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -19,7 +23,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -51,15 +54,15 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Signals"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Signals", RowLabel: "Signals"},
-			RootResourceType: "SignalPacket", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "SignalPacket"},
-			Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Signals"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Signals", RowLabel: "Signals"},
+			RootResourceType: "SignalPacket", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "SignalPacket"},
+			Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "signals-tab", Title: "Signals", OutputID: "patients", Visible: true}},
+		Tabs: []ws.Tab{{ID: "signals-tab", Title: "Signals", OutputID: "patients", Visible: true}},
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -89,14 +92,14 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
 		RowChoiceResolver: rowChoices,
 		RowChoicePlanner:  rowChoices,
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previews++
 			if receipt == nil || !bindings.IncludeRowIdentity || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("preview did not receive an exact output and row identity request: receipt=%#v bindings=%#v", receipt, bindings)
@@ -149,7 +152,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if proposal.ProposalID == "" || proposal.Comparison.Status != rowdef.RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || proposal.Comparison.Base.Sampled || proposal.Comparison.Candidate.Sampled || len(proposal.Comparison.AffectedColumns) != 1 || proposal.Comparison.AffectedColumns[0] != "value" || previews != 2 {
 		t.Fatalf("proposal comparison=%#v preview calls=%d", proposal.Comparison, previews)
 	}
-	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.Rows.Kind != authoringv2.RowDefinitionExpanded || proposal.CandidateDocument.Rows.Expanded == nil || proposal.CandidateDocument.Rows.Expanded.ScopePath != "values[]" || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.SourceRows.Kind != authoringv2.RowDefinitionExpanded || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "SOURCE_ITEM" || proposal.CandidateRowIdentity.Stages[0].Identity.MissingPolicy != "PRESERVE_PARENT" {
+	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.Rows.Kind != ws.RowDefinitionExpanded || proposal.CandidateDocument.Rows.Expanded == nil || proposal.CandidateDocument.Rows.Expanded.ScopePath != "values[]" || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.SourceRows.Kind != ws.RowDefinitionExpanded || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "SOURCE_ITEM" || proposal.CandidateRowIdentity.Stages[0].Identity.MissingPolicy != "PRESERVE_PARENT" {
 		t.Fatalf("row proposal HTTP transport lost exact candidate source meaning: %s", proposed.Body)
 	}
 	if !strings.Contains(proposed.Body, `"rowIdentity":"row-1"`) || strings.Contains(proposed.Body, `"value":`) {
@@ -178,7 +181,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 		t.Fatalf("stale choice mutated the draft: before=%#v after=%#v", before, afterStale)
 	}
 	applyBody := fmt.Sprintf(`{"commandId":"apply-row-definition","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_ROW_DEFINITION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, before.DraftVersion, before.DraftDigest, proposal.ProposalID)
+		ws.CurrentSemanticsVersion, snapshot.Token, before.DraftVersion, before.DraftDigest, proposal.ProposalID)
 	applied := requestJSON(t, app, http.MethodPost, basePath+"/commands", applyBody)
 	if applied.StatusCode != http.StatusOK {
 		t.Fatalf("apply row-definition proposal status=%d body=%s", applied.StatusCode, applied.Body)
@@ -187,11 +190,11 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var appliedWorkspace authoringv2.Workspace
+	var appliedWorkspace ws.Workspace
 	if err := json.Unmarshal(afterApply.DraftConfig, &appliedWorkspace); err != nil {
 		t.Fatal(err)
 	}
-	if appliedWorkspace.Documents[0].Rows.Kind != authoringv2.RowDefinitionExpanded {
+	if appliedWorkspace.Documents[0].Rows.Kind != ws.RowDefinitionExpanded {
 		t.Fatalf("applied row definition = %#v, want EXPANDED", appliedWorkspace.Documents[0].Rows)
 	}
 }

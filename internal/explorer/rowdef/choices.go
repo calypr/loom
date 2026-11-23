@@ -7,8 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -29,7 +30,7 @@ type RowChoiceResolveRequest struct {
 	ExplorerID   string
 	OutputID     string
 	Snapshot     capability.Snapshot
-	Route        authoringv2.RouteNode
+	Route        ws.RouteNode
 	RowChoiceID  string
 	ExpectedKind RowChoiceKind
 }
@@ -46,7 +47,7 @@ type RowChoiceResolver interface {
 }
 
 type RowChoicePlanner interface {
-	ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error)
+	ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error)
 }
 
 type RowDefinitionChoice struct {
@@ -81,20 +82,20 @@ func NewSchemaRowChoiceResolver(index *fhirschema.Index) (*SchemaRowChoiceResolv
 	return &SchemaRowChoiceResolver{index: index}, nil
 }
 
-func (r *SchemaRowChoiceResolver) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document authoringv2.Document) ([]capability.RowChoice, error) {
+func (r *SchemaRowChoiceResolver) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document ws.Document) ([]capability.RowChoice, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := snapshot.ValidateToken(snapshot.Token); err != nil {
 		return nil, err
 	}
-	if document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+	if document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return nil, fmt.Errorf("saved output route has no exact row root")
 	}
 	var choices []capability.RowChoice
 	seen := make(map[string]struct{})
-	var visit func(authoringv2.RouteNode) error
-	visit = func(node authoringv2.RouteNode) error {
+	var visit func(ws.RouteNode) error
+	visit = func(node ws.RouteNode) error {
 		occurrence, err := ResolveRowChoiceOccurrence(snapshot, document.RootResourceType, document.Route, node.OccurrenceID, "")
 		if err != nil {
 			return err
@@ -224,9 +225,9 @@ func ApplicableRowChoiceKinds(facts capability.RowChoiceFacts) []capability.RowC
 	return kinds
 }
 
-func ResolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot authoringv2.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
+func ResolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
 	path, found := support.RoutePathToOccurrence(authoredRoot, occurrenceID)
-	if !found || len(path) == 0 || path[0].OccurrenceID != authoringv2.RootOccurrenceID || path[0].ResourceType != rootResourceType {
+	if !found || len(path) == 0 || path[0].OccurrenceID != ws.RootOccurrenceID || path[0].ResourceType != rootResourceType {
 		return capability.RowChoiceOccurrence{}, fmt.Errorf("row choice occurrence is not in the saved route")
 	}
 	var current capability.Node
@@ -316,11 +317,11 @@ func RowChoicePolicies(kind capability.RowChoiceKind) []RowDefinitionChoicePolic
 	switch kind {
 	case capability.RowChoiceFieldGroupKey:
 		return []RowDefinitionChoicePolicy{{Name: "missingKeyPolicy", Options: []string{
-			string(authoringv2.MissingKeyError), string(authoringv2.MissingKeyExclude), string(authoringv2.MissingKeyGroupAsMissing),
+			string(ws.MissingKeyError), string(ws.MissingKeyExclude), string(ws.MissingKeyGroupAsMissing),
 		}}}
 	case capability.RowChoiceExpandedScope:
 		return []RowDefinitionChoicePolicy{{Name: "emptyCollectionPolicy", Options: []string{
-			string(authoringv2.EmptyCollectionError), string(authoringv2.EmptyCollectionExclude), string(authoringv2.EmptyCollectionPreserveParent),
+			string(ws.EmptyCollectionError), string(ws.EmptyCollectionExclude), string(ws.EmptyCollectionPreserveParent),
 		}}}
 	default:
 		return []RowDefinitionChoicePolicy{}
@@ -362,7 +363,7 @@ func responseFromRowChoices(snapshotToken, outputID string, choices []capability
 	return response
 }
 
-func findSemanticOutput(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+func findSemanticOutput(workspace ws.Workspace, outputID string) *ws.Document {
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == outputID {
 			return &workspace.Documents[index]
@@ -402,8 +403,8 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 	result = responseFromRowChoices(request.SnapshotToken, request.OutputID, choices)
 	if s.config.ExplicitGroupResolver != nil {
 		pinnedRevisionID := ""
-		if document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil &&
-			document.Rows.Groups.Source.Kind == authoringv2.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil {
+		if document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil &&
+			document.Rows.Groups.Source.Kind == ws.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil {
 			pinnedRevisionID = document.Rows.Groups.Source.Explicit.RevisionID
 		}
 		result.ExplicitGroups, err = s.config.ExplicitGroupResolver.ListExplicitGroupRevisions(ctx, explicitgroup.ExplicitGroupRevisionListRequest{
@@ -417,32 +418,32 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 	return result, nil
 }
 
-func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (authoringv2.Workspace, error) {
+func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (ws.Workspace, error) {
 	project = projectid.Canonical(project)
 	owner, err := s.config.GetOwner(ctx, project, explorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
-		return authoringv2.Workspace{}, support.NotFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
+		return ws.Workspace{}, support.NotFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
 	if err != nil {
-		return authoringv2.Workspace{}, support.PersistenceFailure("construction-choices", "the current Explorer workspace could not be loaded", err)
+		return ws.Workspace{}, support.PersistenceFailure("construction-choices", "the current Explorer workspace could not be loaded", err)
 	}
 	if len(owner.DraftConfig) != 0 {
-		workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
+		workspace, decodeErr := ws.DecodeWorkspace(owner.DraftConfig)
 		if decodeErr != nil {
-			return authoringv2.Workspace{}, support.Conflict("construction-choices", "DRAFT_STATE_INVALID", "the saved Explorer draft is invalid", nil, decodeErr)
+			return ws.Workspace{}, support.Conflict("construction-choices", "DRAFT_STATE_INVALID", "the saved Explorer draft is invalid", nil, decodeErr)
 		}
 		return workspace, nil
 	}
 	if owner.ActiveRevisionID != "" {
 		active, activeErr := s.config.Store.ActiveRevision(ctx, project, explorerID)
 		if activeErr != nil {
-			return authoringv2.Workspace{}, support.PersistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
+			return ws.Workspace{}, support.PersistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
 		}
 		workspace, decodeErr := s.config.Store.RevisionWorkspace(ctx, *active)
 		if decodeErr != nil {
-			return authoringv2.Workspace{}, support.Conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace is invalid", nil, decodeErr)
+			return ws.Workspace{}, support.Conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace is invalid", nil, decodeErr)
 		}
 		return workspace, nil
 	}
-	return authoringv2.Workspace{}, support.Conflict("construction-choices", "AUTHORING_STATE_MISSING", "the Explorer has no V2 authoring workspace", nil, nil)
+	return ws.Workspace{}, support.Conflict("construction-choices", "AUTHORING_STATE_MISSING", "the Explorer has no V2 authoring workspace", nil, nil)
 }

@@ -4,49 +4,51 @@ import (
 	"encoding/json"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
-func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID string) []explorer.ReceiptConstructionStage {
+func testConstructionStageDescriptors(workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
 	index := constructionDocumentIndex(workspace, outputID)
 	if index < 0 {
 		return nil
 	}
 	document := workspace.Documents[index]
-	columns := make([]explorer.ReceiptConstructionStageColumn, 0, len(document.Columns))
+	columns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, explorer.ReceiptConstructionStageColumn{
+		columns = append(columns, receiptmodel.ReceiptConstructionStageColumn{
 			ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType, Cardinality: expression.OptionalOne,
 		})
 	}
-	allChoices := func() []explorer.ReceiptConstructionOperationChoice {
-		return []explorer.ReceiptConstructionOperationChoice{
+	allChoices := func() []receiptmodel.ReceiptConstructionOperationChoice {
+		return []receiptmodel.ReceiptConstructionOperationChoice{
 			{Kind: "PIVOT", Supported: true}, {Kind: "DERIVE", Supported: true},
 			{Kind: "FILTER", Supported: true}, {Kind: "UNPIVOT", Supported: true},
 			{Kind: "RELATED_EXPAND", Supported: true},
 		}
 	}
-	rootAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{
+	rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
 		AnchorColumnID: "_key", Kind: "root", ResourceType: document.RootResourceType,
 		Label: "Original " + document.RootResourceType,
 	}
-	stages := []explorer.ReceiptConstructionStage{{
+	stages := []receiptmodel.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: allChoices(),
-		RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
+		RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
 	}}
-	var activeAnchor *explorer.ReceiptConstructionActiveRelatedRecord
+	var activeAnchor *receiptmodel.ReceiptConstructionActiveRelatedRecord
 	if document.Construction == nil {
 		return stages
 	}
 	for _, step := range document.Construction.Steps {
-		stageColumns := make([]explorer.ReceiptConstructionStageColumn, 0, len(step.Outputs))
+		stageColumns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(step.Outputs))
 		for _, column := range step.Outputs {
-			stageColumns = append(stageColumns, explorer.ReceiptConstructionStageColumn{
+			stageColumns = append(stageColumns, receiptmodel.ReceiptConstructionStageColumn{
 				ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type, Cardinality: expression.OptionalOne,
 			})
 		}
@@ -54,7 +56,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 		if len(stages) > 1 {
 			inputStageID = stages[len(stages)-1].ID
 		}
-		stage := explorer.ReceiptConstructionStage{
+		stage := receiptmodel.ReceiptConstructionStage{
 			ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
 			Columns: stageColumns, Capabilities: allChoices(),
 		}
@@ -67,7 +69,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 					Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
 				})
 			}
-			stage.RelatedExpand = &explorer.ReceiptConstructionRelatedExpand{
+			stage.RelatedExpand = &receiptmodel.ReceiptConstructionRelatedExpand{
 				AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumnID,
 				AnchorKind: "root", AnchorNodeID: related.Route[0].FromNodeID,
 				AnchorResourceType:     related.Route[0].FromResourceType,
@@ -76,20 +78,20 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 				TerminalIdentityColumn: "__test_terminal_identity", TargetNodeID: related.TargetNodeID,
 				TargetResourceType: related.TargetResourceType, Route: route,
 			}
-			activeAnchor = &explorer.ReceiptConstructionActiveRelatedRecord{
+			activeAnchor = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
 				TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
 				TerminalIdentityColumn: "__test_terminal_identity",
 			}
-		} else if step.Operation.Kind != authoringv2.ConstructionOperationFilter &&
-			step.Operation.Kind != authoringv2.ConstructionOperationDerive &&
-			step.Operation.Kind != authoringv2.ConstructionOperationRelatedSource &&
-			step.Operation.Kind != authoringv2.ConstructionOperationRelatedField {
+		} else if step.Operation.Kind != ws.ConstructionOperationFilter &&
+			step.Operation.Kind != ws.ConstructionOperationDerive &&
+			step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
+			step.Operation.Kind != ws.ConstructionOperationRelatedField {
 			activeAnchor = nil
 		}
-		stage.RelatedExpandAnchors = []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
+		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
 		if activeAnchor != nil {
 			stage.ActiveRelatedRecord = activeAnchor
-			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, explorer.ReceiptConstructionRelatedExpandAnchor{
+			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, receiptmodel.ReceiptConstructionRelatedExpandAnchor{
 				AnchorColumnID: activeAnchor.TerminalIdentityColumn, Kind: "activeRelatedRecord",
 				NodeID: activeAnchor.TargetNodeID, ResourceType: activeAnchor.TargetResourceType,
 				Label: "Current related " + activeAnchor.TargetResourceType,
@@ -106,45 +108,45 @@ func TestConstructionRemovalCascadeRemovesOwnerOfDependentRelatedField(t *testin
 	construction.Steps = construction.Steps[:1]
 	expansion := construction.Steps[0]
 	statusColumnID := "observation_status"
-	statusSource := authoringv2.ConstructionRelatedFieldSource{
+	statusSource := ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-status", NodeID: "observation-node",
 		ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
 	}
-	relatedFieldOutputs := append(append([]authoringv2.StageColumn(nil), expansion.Outputs...), authoringv2.StageColumn{
+	relatedFieldOutputs := append(append([]ws.StageColumn(nil), expansion.Outputs...), ws.StageColumn{
 		ID: statusColumnID, Name: statusColumnID, Label: "Observation status", Type: "string", Nullable: true,
 	})
-	relatedField := authoringv2.ConstructionStep{
+	relatedField := ws.ConstructionStep{
 		ID: "related_status_input", OwnerStepID: "group_status",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: expansion.ID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: expansion.ID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 			ChoiceID: "saved-status-choice", Source: statusSource, OutputColumnID: statusColumnID,
 		}},
 		Outputs: relatedFieldOutputs,
 	}
 	patientIDColumnID := document.Columns[0].ColumnID
-	groupOutputs := []authoringv2.StageColumn{
+	groupOutputs := []ws.StageColumn{
 		{ID: patientIDColumnID, Name: document.Columns[0].Column, Label: document.Columns[0].Label, Type: document.Columns[0].LogicalType},
 		{ID: "status_group", Name: "status_group", Label: "Observation status", Type: "string"},
 		{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"},
 	}
-	group := authoringv2.ConstructionStep{
-		ID: "group_status", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: relatedField.ID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: "group_status", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys: []authoringv2.ConstructionGroupKey{
+	group := ws.ConstructionStep{
+		ID: "group_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: relatedField.ID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group_status", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys: []ws.ConstructionGroupKey{
 				{InputColumnID: patientIDColumnID, OutputColumnID: patientIDColumnID},
 				{InputColumnID: statusColumnID, OutputColumnID: "status_group"},
 			},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
 		}},
 		Outputs: groupOutputs,
 	}
-	filter := authoringv2.ConstructionStep{
-		ID: "keep_root_filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: group.ID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: patientIDColumnID, Operator: authoringv2.ConstructionFilterExists,
+	filter := ws.ConstructionStep{
+		ID: "keep_root_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: group.ID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: patientIDColumnID, Operator: ws.ConstructionFilterExists,
 		}},
-		Outputs: append([]authoringv2.StageColumn(nil), groupOutputs...),
+		Outputs: append([]ws.StageColumn(nil), groupOutputs...),
 	}
 	construction.Steps = append(construction.Steps, relatedField, group, filter)
 	document.Construction = &construction
@@ -199,7 +201,7 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 
 	t.Run("same target with changed route and empty policy keeps valid downstream operations", func(t *testing.T) {
 		candidate := cloneLifecycleTestConstruction(t, construction)
-		candidate.Steps[0].Operation.RelatedExpand.EmptyPolicy = authoringv2.ConstructionExpandEmptyError
+		candidate.Steps[0].Operation.RelatedExpand.EmptyPolicy = ws.ConstructionExpandEmptyError
 		candidate.Steps[0].Operation.RelatedExpand.Route[0].EdgeID = "edited-observations-edge"
 		candidate.Steps[0].Operation.RelatedExpand.Route[0].Relationship = "edited_observations"
 		updated, impact, err := analyzeConstructionCandidateWithCascade(document, candidate, firstStepID, nil, baseStages)
@@ -249,27 +251,27 @@ func TestConstructionEditCascadeKeepsChangedStepWhenItsOwnInputIsMissing(t *test
 	if len(impact.RemovedStepIDs) != 0 || !equalStringSlices(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
 		t.Fatalf("edit cascade removed the changed step or its descendants: steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 	}
-	if len(impact.MissingInputs) != 1 || impact.MissingInputs[0] != (authoringv2.ConstructionDependencyIssue{StepID: "group-records", ColumnID: "missing_source_column"}) {
+	if len(impact.MissingInputs) != 1 || impact.MissingInputs[0] != (ws.ConstructionDependencyIssue{StepID: "group-records", ColumnID: "missing_source_column"}) {
 		t.Fatalf("missing changed-step input = %#v, want one NEEDS_REPAIR issue", impact.MissingInputs)
 	}
 }
 
-func cloneLifecycleTestConstruction(t *testing.T, construction authoringv2.Construction) authoringv2.Construction {
+func cloneLifecycleTestConstruction(t *testing.T, construction ws.Construction) ws.Construction {
 	t.Helper()
 	raw, err := json.Marshal(construction)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var clone authoringv2.Construction
+	var clone ws.Construction
 	if err := json.Unmarshal(raw, &clone); err != nil {
 		t.Fatal(err)
 	}
 	return clone
 }
 
-func constructionWithoutStep(construction authoringv2.Construction, stepID string) authoringv2.Construction {
+func constructionWithoutStep(construction ws.Construction, stepID string) ws.Construction {
 	candidate := construction
-	candidate.Steps = make([]authoringv2.ConstructionStep, 0, len(construction.Steps)-1)
+	candidate.Steps = make([]ws.ConstructionStep, 0, len(construction.Steps)-1)
 	for _, step := range construction.Steps {
 		if step.ID != stepID {
 			candidate.Steps = append(candidate.Steps, step)
@@ -278,7 +280,7 @@ func constructionWithoutStep(construction authoringv2.Construction, stepID strin
 	return candidate
 }
 
-func constructionStepIDs(steps []authoringv2.ConstructionStep) []string {
+func constructionStepIDs(steps []ws.ConstructionStep) []string {
 	ids := make([]string, 0, len(steps))
 	for _, step := range steps {
 		ids = append(ids, step.ID)
@@ -298,31 +300,31 @@ func equalStringSlices(left, right []string) bool {
 	return true
 }
 
-func seedRelatedExpandRemovalConstruction(t *testing.T) (authoringv2.Workspace, authoringv2.Construction) {
+func seedRelatedExpandRemovalConstruction(t *testing.T) (ws.Workspace, ws.Construction) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	resources := []string{"Patient", "Observation", "Condition", "Medication"}
 	nodes := []string{"patient", "observation", "condition", "medication"}
 	relationships := []string{"observations", "conditions", "medications"}
-	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns)+len(relationships))
+	outputs := make([]ws.StageColumn, 0, len(document.Columns)+len(relationships))
 	for _, column := range document.Columns {
-		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		outputs = append(outputs, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	steps := make([]authoringv2.ConstructionStep, 0, len(relationships))
+	steps := make([]ws.ConstructionStep, 0, len(relationships))
 	for index, relationship := range relationships {
 		stepID := "expand_" + relationship
 		anchorColumnID := "_key"
-		input := authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputSourceProjection}
+		input := ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}
 		if index > 0 {
 			anchorColumnID = "test_terminal_identity_" + steps[index-1].ID
-			input = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: steps[index-1].ID}
+			input = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: steps[index-1].ID}
 		}
 		relatedRecordColumnID := "related_" + relationship
 		route := []capability.ConstructionRouteStep{{
@@ -330,31 +332,31 @@ func seedRelatedExpandRemovalConstruction(t *testing.T) (authoringv2.Workspace, 
 			FromResourceType: resources[index], ToResourceType: resources[index+1],
 			Relationship: relationship, StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
 		}}
-		stepOutputs := append(append([]authoringv2.StageColumn(nil), outputs...), authoringv2.StageColumn{
+		stepOutputs := append(append([]ws.StageColumn(nil), outputs...), ws.StageColumn{
 			ID: relatedRecordColumnID, Name: relatedRecordColumnID, Label: relatedRecordColumnID, Type: "string", Nullable: false,
 		})
-		steps = append(steps, authoringv2.ConstructionStep{
-			ID: stepID, Inputs: []authoringv2.ConstructionInputRef{input},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &authoringv2.ConstructionRelatedExpand{
+		steps = append(steps, ws.ConstructionStep{
+			ID: stepID, Inputs: []ws.ConstructionInputRef{input},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{
 				AnchorColumnID: anchorColumnID, ChoiceID: "choice_" + stepID,
 				TargetNodeID: nodes[index+1], TargetResourceType: resources[index+1], Route: route,
-				ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
-				EmptyPolicy:     authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: relatedRecordColumnID,
+				ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+				EmptyPolicy:     ws.ConstructionExpandEmptyExclude, RelatedRecordColumnID: relatedRecordColumnID,
 			}},
 			Outputs: stepOutputs,
 		})
 		outputs = stepOutputs
 	}
 	filterColumnID := document.Columns[0].ColumnID
-	steps = append(steps, authoringv2.ConstructionStep{
-		ID: "keep_root_filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: steps[len(steps)-1].ID}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind:   authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{ColumnID: filterColumnID, Operator: authoringv2.ConstructionFilterExists},
+	steps = append(steps, ws.ConstructionStep{
+		ID: "keep_root_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: steps[len(steps)-1].ID}},
+		Operation: ws.ConstructionOperation{
+			Kind:   ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{ColumnID: filterColumnID, Operator: ws.ConstructionFilterExists},
 		},
-		Outputs: append([]authoringv2.StageColumn(nil), outputs...),
+		Outputs: append([]ws.StageColumn(nil), outputs...),
 	})
-	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: steps}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: steps}
 	workspace.Documents[0] = document
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate related expansion chain: %v", err)
@@ -362,7 +364,7 @@ func seedRelatedExpandRemovalConstruction(t *testing.T) (authoringv2.Workspace, 
 	return workspace, *document.Construction
 }
 
-func relatedExpandRemovalTestStages(t *testing.T, workspace authoringv2.Workspace, outputID string) []explorer.ReceiptConstructionStage {
+func relatedExpandRemovalTestStages(t *testing.T, workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
 	t.Helper()
 	stages := testConstructionStageDescriptors(workspace, outputID)
 	index := constructionDocumentIndex(workspace, outputID)
@@ -370,20 +372,20 @@ func relatedExpandRemovalTestStages(t *testing.T, workspace authoringv2.Workspac
 		t.Fatal("related expansion test workspace has no construction")
 	}
 	rootAnchor := stages[0].RelatedExpandAnchors[0]
-	var active *explorer.ReceiptConstructionActiveRelatedRecord
+	var active *receiptmodel.ReceiptConstructionActiveRelatedRecord
 	for stepIndex, step := range workspace.Documents[index].Construction.Steps {
 		related := step.Operation.RelatedExpand
 		if related == nil {
-			if step.Operation.Kind != authoringv2.ConstructionOperationFilter &&
-				step.Operation.Kind != authoringv2.ConstructionOperationDerive &&
-				step.Operation.Kind != authoringv2.ConstructionOperationRelatedSource &&
-				step.Operation.Kind != authoringv2.ConstructionOperationRelatedField {
+			if step.Operation.Kind != ws.ConstructionOperationFilter &&
+				step.Operation.Kind != ws.ConstructionOperationDerive &&
+				step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
+				step.Operation.Kind != ws.ConstructionOperationRelatedField {
 				active = nil
 			}
 			if active != nil {
 				stage := &stages[stepIndex+1]
 				stage.ActiveRelatedRecord = active
-				stage.RelatedExpandAnchors = []explorer.ReceiptConstructionRelatedExpandAnchor{
+				stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{
 					rootAnchor,
 					{AnchorColumnID: active.TerminalIdentityColumn, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related " + active.TargetResourceType},
 				}
@@ -405,12 +407,12 @@ func relatedExpandRemovalTestStages(t *testing.T, workspace authoringv2.Workspac
 		stage.RelatedExpand.AnchorNodeID = anchorNodeID
 		stage.RelatedExpand.AnchorResourceType = anchorResourceType
 		stage.RelatedExpand.TerminalIdentityColumn = terminalColumnID
-		active = &explorer.ReceiptConstructionActiveRelatedRecord{
+		active = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
 			TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
 			TerminalIdentityColumn: terminalColumnID,
 		}
 		stage.ActiveRelatedRecord = active
-		stage.RelatedExpandAnchors = []explorer.ReceiptConstructionRelatedExpandAnchor{
+		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{
 			rootAnchor,
 			{AnchorColumnID: terminalColumnID, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related " + active.TargetResourceType},
 		}
@@ -418,13 +420,13 @@ func relatedExpandRemovalTestStages(t *testing.T, workspace authoringv2.Workspac
 	return stages
 }
 
-func seedGroupKeyEditConstruction(t *testing.T) (authoringv2.Workspace, authoringv2.Construction) {
+func seedGroupKeyEditConstruction(t *testing.T) (ws.Workspace, ws.Construction) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,33 +434,33 @@ func seedGroupKeyEditConstruction(t *testing.T) (authoringv2.Workspace, authorin
 		t.Fatal("group-key test document has no source columns")
 	}
 	inputID := document.Columns[0].ColumnID
-	groupOutputs := []authoringv2.StageColumn{
+	groupOutputs := []ws.StageColumn{
 		{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
 		{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"},
 	}
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
-			ID: "group-records", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-				ConstructionID: "group-records", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-				Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: "group_id"}},
-				Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+			ID: "group-records", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+				ConstructionID: "group-records", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+				Keys:       []ws.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: "group_id"}},
+				Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
 			}},
 			Outputs: groupOutputs,
 		},
 		{
-			ID: "dependent-id-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group-records"}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: "group_id", Operator: authoringv2.ConstructionFilterExists,
+			ID: "dependent-id-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group-records"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: append([]authoringv2.StageColumn(nil), groupOutputs...),
+			Outputs: append([]ws.StageColumn(nil), groupOutputs...),
 		},
 		{
-			ID: "independent-count-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "dependent-id-filter"}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: "row_count", Operator: authoringv2.ConstructionFilterExists,
+			ID: "independent-count-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "dependent-id-filter"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "row_count", Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: append([]authoringv2.StageColumn(nil), groupOutputs...),
+			Outputs: append([]ws.StageColumn(nil), groupOutputs...),
 		},
 	}}
 	document.Construction = &construction

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -33,17 +35,17 @@ func TestQuantityIdentityPathsRequireGeneratedFHIRQuantity(t *testing.T) {
 }
 
 func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScopes(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patients", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{
 			{OccurrenceID: "observation_a", ResourceType: "Observation", Relationship: "focus_Patient"},
 			{OccurrenceID: "observation_b", ResourceType: "Observation", Relationship: "focus_Patient"},
 		}},
-		Columns: []authoringv2.Column{
-			{Column: "registered_count", Label: "Registered", OccurrenceID: "observation_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "registered")},
-			{Column: "cancelled_count", Label: "Cancelled", OccurrenceID: "observation_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "cancelled")},
+		Columns: []ws.Column{
+			{Column: "registered_count", Label: "Registered", OccurrenceID: "observation_a", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "registered")},
+			{Column: "cancelled_count", Label: "Cancelled", OccurrenceID: "observation_b", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "cancelled")},
 		},
 	}
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
@@ -100,26 +102,26 @@ func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScope
 	}
 }
 
-func contributorEquals(candidateID, value string) *authoringv2.ContributorPredicate {
-	return &authoringv2.ContributorPredicate{
+func contributorEquals(candidateID, value string) *ws.ContributorPredicate {
+	return &ws.ContributorPredicate{
 		CandidateID: candidateID,
-		Operator:    authoringv2.ContributorEquals,
-		Value:       &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &value},
+		Operator:    ws.ContributorEquals,
+		Value:       &ws.ContributorValue{Kind: ws.ContributorString, String: &value},
 	}
 }
 
 func TestCompileContributorUsesCatalogCandidateIdentityAndResolvedSelector(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patients", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{
 			{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"},
 		}},
-		Columns: []authoringv2.Column{{
+		Columns: []ws.Column{{
 			Column: "registered_count", Label: "Registered", OccurrenceID: "observation",
-			Source:      authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
-			Contributor: &authoringv2.ContributorPredicate{CandidateID: "c_observation_status", Operator: authoringv2.ContributorEquals, Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: stringPtr("registered")}},
+			Source:      ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}},
+			Contributor: &ws.ContributorPredicate{CandidateID: "c_observation_status", Operator: ws.ContributorEquals, Value: &ws.ContributorValue{Kind: ws.ContributorString, String: stringPtr("registered")}},
 		}},
 	}
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
@@ -136,16 +138,16 @@ func TestCompileContributorUsesCatalogCandidateIdentityAndResolvedSelector(t *te
 }
 
 func TestCompileAuthoredRequiredRouteLowersToPopulationMatch(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patients", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
-			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", MatchMode: authoringv2.RouteMatchRequired,
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", MatchMode: ws.RouteMatchRequired,
 		}}},
-		Columns: []authoringv2.Column{{
+		Columns: []ws.Column{{
 			Column: "observation_count", Label: "Observations", OccurrenceID: "observation",
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+			Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}},
 		}},
 	}
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
@@ -181,13 +183,13 @@ func TestCompileAuthoredRequiredRouteLowersToPopulationMatch(t *testing.T) {
 }
 
 func TestCompileRejectsRepeatedEdgeWithinOneRouteWhenPolicyDisallows(t *testing.T) {
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patients", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
-			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", Children: []authoringv2.RouteNode{{
-				OccurrenceID: "patient", ResourceType: "Patient", Relationship: "focus_Patient", Children: []authoringv2.RouteNode{{
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", Children: []ws.RouteNode{{
+				OccurrenceID: "patient", ResourceType: "Patient", Relationship: "focus_Patient", Children: []ws.RouteNode{{
 					OccurrenceID: "repeated_observation", ResourceType: "Observation", Relationship: "focus_Patient",
 				}},
 			}},
@@ -244,7 +246,7 @@ func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
 		{ID: "array", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name", Label: "Patient name", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 		{ID: "distinct", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier", Label: "Identifier", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionDistinctArray}},
 	}
-	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
+	catalog := ws.CatalogFromCapability(snapshot, "explorer-a")
 	got := map[string][]string{}
 	for _, candidate := range catalog.Candidates {
 		got[candidate.ID] = candidate.ProjectionModes
@@ -265,7 +267,7 @@ func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 		{ID: "many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 		{ID: "observed-many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier[].value", LogicalType: "string", Cardinality: "unknown_observed_many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 	}
-	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
+	catalog := ws.CatalogFromCapability(snapshot, "explorer-a")
 	got := map[string]bool{}
 	for _, candidate := range catalog.Candidates {
 		got[candidate.ID] = candidate.Repeated
@@ -284,9 +286,9 @@ func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 	snapshot := fixtureSnapshot()
 	snapshot.Policy.Route.MaxHops = 1
-	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
+	catalog := ws.CatalogFromCapability(snapshot, "explorer-a")
 	workspace, created, err := authoringv2.ApplyCommands(
-		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: authoringv2.CurrentSemanticsVersion},
+		ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: ws.CurrentSemanticsVersion},
 		catalog,
 		"create",
 		[]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "n_patient"}}},
@@ -295,7 +297,7 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "first-hop", []authoringv2.Command{{Type: authoringv2.CommandAddRoute, OutputID: outputID, Payload: &authoringv2.RoutePayload{ParentOccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "e_encounter"}}})
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "first-hop", []authoringv2.Command{{Type: authoringv2.CommandAddRoute, OutputID: outputID, Payload: &authoringv2.RoutePayload{ParentOccurrenceID: ws.RootOccurrenceID, EdgeID: "e_encounter"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,10 +307,10 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 		t.Fatalf("command over-depth route error = %v, want ROUTE_TOO_LONG", err)
 	}
 
-	_, err = Compile(context.Background(), "project-a", "explorer-a", authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
-			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters", Children: []authoringv2.RouteNode{{
+	_, err = Compile(context.Background(), "project-a", "explorer-a", ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{
+			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters", Children: []ws.RouteNode{{
 				OccurrenceID: "repeat-encounter", ResourceType: "Encounter", Relationship: "revisits",
 			}},
 		}}},
@@ -320,18 +322,18 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 }
 
 func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T) {
-	base := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+	base := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 	}
 	for _, test := range []struct {
 		name   string
-		mutate func(*authoringv2.Document)
+		mutate func(*ws.Document)
 		code   string
 	}{
-		{name: "logical type", mutate: func(document *authoringv2.Document) { document.Columns[0].LogicalType = "integer" }, code: "CAPABILITY_LOGICAL_TYPE_MISMATCH"},
-		{name: "projection mode", mutate: func(document *authoringv2.Document) { document.Columns[0].Source.Field.ProjectionMode = "FIRST" }, code: "UNSUPPORTED_PROJECTION_MODE"},
+		{name: "logical type", mutate: func(document *ws.Document) { document.Columns[0].LogicalType = "integer" }, code: "CAPABILITY_LOGICAL_TYPE_MISMATCH"},
+		{name: "projection mode", mutate: func(document *ws.Document) { document.Columns[0].Source.Field.ProjectionMode = "FIRST" }, code: "UNSUPPORTED_PROJECTION_MODE"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			document := base
@@ -347,15 +349,15 @@ func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T
 
 func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T) {
 	snapshot := fixtureSnapshot()
-	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
+	catalog := ws.CatalogFromCapability(snapshot, "explorer-a")
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: ws.CurrentSemanticsVersion}
 	var created []authoringv2.CommandResult
 	var err error
 	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "n_patient"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "column", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: authoringv2.RootOccurrenceID, CandidateID: "c_patient_id"}}})
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "column", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "c_patient_id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,16 +368,16 @@ func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T)
 
 func TestCompileWorkspaceSetsCanonicalResolvedInputsIdentity(t *testing.T) {
 	snapshot := fixtureSnapshot()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
-		Documents: []authoringv2.Document{{
-			Rows: authoringv2.RecordsRowDefinition(),
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"},
+		Documents: []ws.Document{{
+			Rows: ws.RecordsRowDefinition(),
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{})
 	if err != nil {
@@ -400,21 +402,21 @@ func TestCompileWorkspaceSetsCanonicalResolvedInputsIdentity(t *testing.T) {
 
 func TestCompileWorkspaceCarriesPopulationIntoRecipeAndReceiptIdentity(t *testing.T) {
 	snapshot := fixtureSnapshot()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Rows: authoringv2.RecordsRowDefinition(),
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route:      authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{}},
-			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Rows: ws.RecordsRowDefinition(),
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:      ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Population: &ws.Population{SelectionRevisionID: "selection-1", Route: []ws.PopulationRouteStep{}},
+			Columns:    []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
 		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
-		ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{},
+		ResourceType: "Patient", Route: []ws.PopulationRouteStep{},
 	}}}
 	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
 	if err != nil {
@@ -444,21 +446,21 @@ func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *test
 		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
 		[]capability.Edge{{ID: "e_patient_parent", FromNodeID: "n_patient", ToNodeID: "n_patient", Label: "parent", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Patient"}},
 		[]capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}}}, nil)
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
-			Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route:      authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent"}}},
-			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Rows: ws.RecordsRowDefinition(), Kind: ws.Kind,
+			Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:      ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Population: &ws.Population{SelectionRevisionID: "selection-1", Route: []ws.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent"}}},
+			Columns:    []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
 		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
-		ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent", StorageDirection: "INBOUND"}},
+		ResourceType: "Patient", Route: []ws.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent", StorageDirection: "INBOUND"}},
 	}}}
 	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
 	if err != nil {
@@ -473,7 +475,7 @@ func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *test
 
 	withoutDirection := resolved
 	withoutDirection.Populations = append([]ResolvedPopulation(nil), resolved.Populations...)
-	withoutDirection.Populations[0].Route = append([]authoringv2.PopulationRouteStep(nil), resolved.Populations[0].Route...)
+	withoutDirection.Populations[0].Route = append([]ws.PopulationRouteStep(nil), resolved.Populations[0].Route...)
 	withoutDirection.Populations[0].Route[0].StorageDirection = ""
 	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, withoutDirection); err == nil || !strings.Contains(err.Error(), "current capability") {
 		t.Fatalf("unresolved legacy direction compiled: %v", err)
@@ -481,7 +483,7 @@ func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *test
 
 	wrongDirection := resolved
 	wrongDirection.Populations = append([]ResolvedPopulation(nil), resolved.Populations...)
-	wrongDirection.Populations[0].Route = append([]authoringv2.PopulationRouteStep(nil), resolved.Populations[0].Route...)
+	wrongDirection.Populations[0].Route = append([]ws.PopulationRouteStep(nil), resolved.Populations[0].Route...)
 	wrongDirection.Populations[0].Route[0].StorageDirection = "OUTBOUND"
 	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, wrongDirection); err == nil || !strings.Contains(err.Error(), "current capability") {
 		t.Fatalf("forged legacy direction compiled: %v", err)
@@ -511,10 +513,10 @@ func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *test
 
 func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}, Table: &ws.TablePresentation{Visible: &visible}}},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
 	if err != nil {
@@ -564,10 +566,10 @@ func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
 
 func TestCompileRootRepeatedFirstClaimsLoss(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}}},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
 	if err != nil {
@@ -581,12 +583,12 @@ func TestCompileRootRepeatedFirstClaimsLoss(t *testing.T) {
 
 func TestCompileIndexedProjectionTracksEveryOwnerOfSharedBoundaryCount(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{
-			{Column: "given", Label: "Given", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "family", Label: "Family", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].family", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{
+			{Column: "given", Label: "Given", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "family", Label: "Family", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].family", ProjectionMode: "INDEXED"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
@@ -610,15 +612,15 @@ func TestCompileIndexedProjectionTracksEveryOwnerOfSharedBoundaryCount(t *testin
 
 func TestCompileAcceptsEquivalentProjectIdentities(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patient_output", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{
+		Route:            ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
+		Columns: []ws.Column{{
 			Column: "project_id", Label: "Project", LogicalType: "string", OccurrenceID: "base",
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
-			Table:  &authoringv2.TablePresentation{Visible: &visible},
+			Source: ws.ColumnSource{Kind: ws.SourceProjectID},
+			Table:  &ws.TablePresentation{Visible: &visible},
 		}},
 	}
 	snapshot := fixtureSnapshotForProject("HTAN_INT/BForePC")
@@ -644,15 +646,15 @@ func TestCompileAcceptsEquivalentProjectIdentities(t *testing.T) {
 
 func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *testing.T) {
 	visible, order := true, 0
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients", RowLabel: "People"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patient_output", Title: "Patients", RowLabel: "People"},
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}},
-			{Column: "encounter__code", Label: "Encounter code", LogicalType: "string", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}},
-			{Column: "project_id", Label: "Project", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
+		Route:            ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []ws.Column{
+			{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible, Order: &order}},
+			{Column: "encounter__code", Label: "Encounter code", LogicalType: "string", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}},
+			{Column: "project_id", Label: "Project", LogicalType: "string", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
 		},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
@@ -681,21 +683,21 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 
 func TestCompileSemanticWorkspacePreservesSiblingBranchesDeterministically(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patient_output", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{
+		Route: ws.RouteNode{
 			OccurrenceID: "base", ResourceType: "Patient",
-			Children: []authoringv2.RouteNode{
+			Children: []ws.RouteNode{
 				{OccurrenceID: "encounter_b", ResourceType: "Encounter", Relationship: "encounters"},
 				{OccurrenceID: "encounter_a", ResourceType: "Encounter", Relationship: "encounters"},
 			},
 		},
-		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		Columns: []ws.Column{
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 
@@ -736,22 +738,22 @@ func TestCompileParallelSemanticRoutesUsesPinnedCatalogEdges(t *testing.T) {
 		base.Nodes, append(append([]capability.Edge(nil), base.Edges...), parallel), base.Candidates, nil,
 	)
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patients", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{
-			OccurrenceID: authoringv2.RootOccurrenceID,
+		Route: ws.RouteNode{
+			OccurrenceID: ws.RootOccurrenceID,
 			ResourceType: "Patient",
-			Children: []authoringv2.RouteNode{
+			Children: []ws.RouteNode{
 				{OccurrenceID: "encounter_a", ResourceType: "Encounter", CatalogEdgeID: "e_encounter", Relationship: "encounters"},
 				{OccurrenceID: "encounter_b", ResourceType: "Encounter", CatalogEdgeID: "e_encounter_parallel", Relationship: "encounters"},
 			},
 		},
-		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		Columns: []ws.Column{
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 	occurrences, _, err := resolveSemanticRoute(document, snapshot)
@@ -773,17 +775,17 @@ func TestCompileParallelSemanticRoutesUsesPinnedCatalogEdges(t *testing.T) {
 
 func TestCompileSemanticAggregateDistinguishesResourceAndValueCounts(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patient_output", Title: "Patients"},
 		RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+		Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{
 			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters",
 		}}},
-		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_count", Label: "Encounter count", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "family_count", Label: "Family value count", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Path: "name[].family"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		Columns: []ws.Column{
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter_count", Label: "Encounter count", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "family_count", Label: "Family value count", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT", Path: "name[].family"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 
@@ -811,11 +813,11 @@ func TestCompileSemanticAggregateDistinguishesResourceAndValueCounts(t *testing.
 
 func TestCompileRelatedFirstClaimsLossAndRequiresReview(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-		Columns: []authoringv2.Column{
-			{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST", RelatedSelection: &authoringv2.RelatedSelection{Kind: "first-by-resource-key"}}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []ws.Column{
+			{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST", RelatedSelection: &ws.RelatedSelection{Kind: "first-by-resource-key"}}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
@@ -837,10 +839,10 @@ func TestCompileRelatedIndexedCountClaimsAssociationLoss(t *testing.T) {
 			snapshot.Candidates[index].RepeatedBoundaries = []capability.RepeatedBoundary{{Path: "code.coding[]", MaxItems: 2}}
 		}
 	}
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route:   authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-		Columns: []authoringv2.Column{{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []ws.Column{{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "INDEXED"}}, Table: &ws.TablePresentation{Visible: &visible}}},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
 	if err != nil {
@@ -858,10 +860,10 @@ func TestCompileRelatedIndexedCountClaimsAssociationLoss(t *testing.T) {
 
 func TestCompileRelatedAllUsesAssociationLossReasonNotFirstSelection(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route:   authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-		Columns: []authoringv2.Column{{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "ALL"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []ws.Column{{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "ALL"}}, Table: &ws.TablePresentation{Visible: &visible}}},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
 	if err != nil {
@@ -875,10 +877,10 @@ func TestCompileRelatedAllUsesAssociationLossReasonNotFirstSelection(t *testing.
 
 func TestCompileDistinctValuesAggregateIsArrayAndLossy(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route:   authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "distinct_names", Label: "Distinct names", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "DISTINCT_VALUES", Path: "name[].family"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
+		Columns: []ws.Column{{Column: "distinct_names", Label: "Distinct names", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "DISTINCT_VALUES", Path: "name[].family"}}, Table: &ws.TablePresentation{Visible: &visible}}},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
 	if err != nil {
@@ -892,13 +894,13 @@ func TestCompileDistinctValuesAggregateIsArrayAndLossy(t *testing.T) {
 
 func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{
-		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
-		Output: authoringv2.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-		Columns: []authoringv2.Column{
-			{Column: "value_sum", Label: "Value sum", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "value_mean", Label: "Value mean", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "MEAN", Path: "valueQuantity.value"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{
+		Rows: ws.RecordsRowDefinition(), Kind: ws.Kind,
+		Output: ws.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []ws.Column{
+			{Column: "value_sum", Label: "Value sum", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "value_mean", Label: "Value mean", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "MEAN", Path: "valueQuantity.value"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
@@ -915,14 +917,14 @@ func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
 		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, SupportedOperations: []capability.Operation{capability.OperationSelect},
 	})
 	expandedSnapshot = capability.NewSnapshot(expandedSnapshot.Identity, expandedSnapshot.Policy, expandedSnapshot.Status, expandedSnapshot.Complete, expandedSnapshot.Truncated, expandedSnapshot.Nodes, expandedSnapshot.Edges, expandedSnapshot.Candidates, expandedSnapshot.Diagnostics)
-	expandedDocument := authoringv2.Document{
-		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
-			OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+	expandedDocument := ws.Document{
+		Rows: ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{
+			OccurrenceID: ws.RootOccurrenceID, ScopePath: "component[]", EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent,
 		}},
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "expanded_observations", Title: "Expanded observations"}, RootResourceType: "Observation",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-		Columns: []authoringv2.Column{{Column: "value_sum", Label: "Value sum", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}},
+		Kind: ws.Kind, Output: ws.Output{ID: "expanded_observations", Title: "Expanded observations"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []ws.Column{{Column: "value_sum", Label: "Value sum", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}},
 		}},
 	}
 	_, expandedErr := Compile(context.Background(), "project-a", "explorer-a", expandedDocument, expandedSnapshot)
@@ -962,12 +964,12 @@ func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
 
 func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
-		Columns: []authoringv2.Column{
-			{Column: "one_status", Label: "One status", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "REQUIRE_ONE", Path: "status"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "all_statuses", Label: "All statuses", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COLLECT", Path: "status"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []ws.Column{
+			{Column: "one_status", Label: "One status", OccurrenceID: "observation", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "REQUIRE_ONE", Path: "status"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "all_statuses", Label: "All statuses", OccurrenceID: "observation", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COLLECT", Path: "status"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
@@ -993,20 +995,20 @@ func TestCompileOrderedContributorWindowPreservesWindowAndOrdering(t *testing.T)
 			}}
 		}
 	}
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
-		Columns: []authoringv2.Column{{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []ws.Column{{
 			Column: "latest_value", Label: "Latest value", OccurrenceID: "observation",
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
+			Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{
 				Operation: "FIRST_ORDERED", Path: "valueQuantity.value",
-				ContributorWindow: &authoringv2.ContributorWindowSource{
+				ContributorWindow: &ws.ContributorWindowSource{
 					TimestampPath: "effectiveDateTime", AnchorPath: "root.meta.lastUpdated", LowerOffset: -86400, UpperOffset: 0,
 					LowerInclusive: true, UpperInclusive: true, Precision: "INSTANT",
 				},
-				Ordering:          &authoringv2.TemporalOrderingSource{TimestampPath: "effectiveDateTime", Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
-				UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
-			}}, Table: &authoringv2.TablePresentation{Visible: &visible},
+				Ordering:          &ws.TemporalOrderingSource{TimestampPath: "effectiveDateTime", Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
+				UnitNormalization: &ws.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
+			}}, Table: &ws.TablePresentation{Visible: &visible},
 		}},
 	}
 	result, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
@@ -1038,11 +1040,11 @@ func TestCompileRejectsUnadvertisedUnitNormalization(t *testing.T) {
 			}}
 		}
 	}
-	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
-		Columns: []authoringv2.Column{{Column: "value", Label: "Value", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
-			Operation: "SUM", Path: "valueQuantity.value", UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
+	document := ws.Document{Rows: ws.RecordsRowDefinition(),
+		Kind: ws.Kind, Output: ws.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []ws.Column{{Column: "value", Label: "Value", OccurrenceID: "observation", Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{
+			Operation: "SUM", Path: "valueQuantity.value", UnitNormalization: &ws.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
 		}}}},
 	}
 	if _, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot); err == nil || !strings.Contains(err.Error(), "UNIT_NORMALIZATION_UNAVAILABLE") {

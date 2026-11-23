@@ -5,6 +5,10 @@ import (
 	"errors"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -12,7 +16,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
@@ -48,7 +51,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 		return PublishResult{}, support.Unprocessable("publish", "NO_SELECTED_COLUMNS", "select at least one output column before publishing", nil)
 	}
 	if s.config.CompileReceipt != nil {
-		workspace, decodeErr := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		workspace, decodeErr := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if decodeErr != nil {
 			return PublishResult{}, support.Conflict("publish", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains invalid authoring intent", nil, decodeErr)
 		}
@@ -107,7 +110,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	}
 	now := s.now()
 	revisionID := "authoring_" + strings.TrimPrefix(receipt.ID, "receipt_")
-	revisionValue := explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), QualityReports: publication.CloneQualityReports(execution.QualityReports), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now}
+	revisionValue := explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), QualityReports: publication.CloneQualityReports(execution.QualityReports), Publication: viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now}
 	revision, err := s.store.PublishAuthoring(ctx, *receipt, revisionValue, release, expectedReleaseRevision)
 	if err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {

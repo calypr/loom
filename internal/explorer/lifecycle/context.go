@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/projectid"
@@ -110,7 +111,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request interpret
 	if err != nil {
 		return result, err
 	}
-	project, err := explorer.CanonicalInterpretationProject(request.Project)
+	project, err := interpretation.CanonicalInterpretationProject(request.Project)
 	if err != nil {
 		return result, support.Malformed("interpretation-context", err.Error(), err)
 	}
@@ -128,7 +129,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request interpret
 	columnCount := 0
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
-			if column.Source.Kind != authoringv2.SourceImported {
+			if column.Source.Kind != ws.SourceImported {
 				columnCount++
 			}
 		}
@@ -156,7 +157,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request interpret
 	if err != nil {
 		return result, support.Conflict("interpretation-context", "AUTHORING_STATE_MISSING", "the saved Explorer draft contains an invalid pinned interpretation", nil, err)
 	}
-	revisionIDs := make(map[explorer.InterpretationRevisionID]struct{}, len(pinnedIDs)+len(libraries))
+	revisionIDs := make(map[interpretation.InterpretationRevisionID]struct{}, len(pinnedIDs)+len(libraries))
 	for id := range pinnedIDs {
 		revisionIDs[id] = struct{}{}
 	}
@@ -183,7 +184,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request interpret
 	headRevisions := s.interpretationService.HeadRevisions(libraries, revisions)
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
-			if column.Source.Kind == authoringv2.SourceImported {
+			if column.Source.Kind == ws.SourceImported {
 				continue
 			}
 			resolution, resolveErr := explorercompilation.ResolveInterpretationCandidate(document, column, authorized.Snapshot)

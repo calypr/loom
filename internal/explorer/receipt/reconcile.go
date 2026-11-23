@@ -5,14 +5,17 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -42,7 +45,7 @@ type groupFieldSourceOutputIdentity struct {
 }
 
 func groupFieldSourceOutputIdentityForReconcile(
-	binding *authoringv2.ConstructionGroupFieldSource,
+	binding *ws.ConstructionGroupFieldSource,
 ) (groupFieldSourceOutputIdentity, bool) {
 	if binding == nil || binding.Kind != "BINDING" || binding.SourceStageID == "" || binding.SourceShapeID == "" {
 		return groupFieldSourceOutputIdentity{}, false
@@ -126,7 +129,7 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("final compiler output %d identity %q does not match recipe output %q", index, resolved.Compiled.Outputs[index].Name, resolved.Bundle.Outputs[index].Name)
 		}
 	}
-	if err := (explorer.PublicOutputContracts{Outputs: translated.OutputContracts}).ValidateAgainst(translated.Bundle, translated.EmittedColumns); err != nil {
+	if err := (receiptmodel.PublicOutputContracts{Outputs: translated.OutputContracts}).ValidateAgainst(translated.Bundle, translated.EmittedColumns); err != nil {
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("translated output contract is inconsistent: %w", err)
 	}
 
@@ -148,10 +151,10 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("workspace document set does not match compiled output set")
 	}
 
-	emittedByOutput := make(map[string]map[string]explorer.EmittedColumn, len(translated.Bundle.Outputs))
+	emittedByOutput := make(map[string]map[string]viewer.EmittedColumn, len(translated.Bundle.Outputs))
 	emittedIDs := make(map[string]map[string]struct{}, len(translated.Bundle.Outputs))
 	for _, output := range resolved.Bundle.Outputs {
-		emittedByOutput[output.Name] = make(map[string]explorer.EmittedColumn)
+		emittedByOutput[output.Name] = make(map[string]viewer.EmittedColumn)
 		emittedIDs[output.Name] = make(map[string]struct{})
 	}
 	for _, emitted := range translated.EmittedColumns {
@@ -173,7 +176,7 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 	if err != nil {
 		return explorercompilation.WorkspaceResult{}, err
 	}
-	contracts := make(map[string]explorer.PublicOutputContract, len(translated.OutputContracts))
+	contracts := make(map[string]receiptmodel.PublicOutputContract, len(translated.OutputContracts))
 	for _, contract := range translated.OutputContracts {
 		if _, duplicate := contracts[contract.OutputID]; duplicate {
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("duplicate translated output contract identity %q", contract.OutputID)
@@ -185,8 +188,8 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 	}
 
 	reconciled := translated
-	reconciled.EmittedColumns = make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
-	reconciled.OutputContracts = make([]explorer.PublicOutputContract, 0, len(translated.OutputContracts))
+	reconciled.EmittedColumns = make([]viewer.EmittedColumn, 0, len(translated.EmittedColumns))
+	reconciled.OutputContracts = make([]receiptmodel.PublicOutputContract, 0, len(translated.OutputContracts))
 	reconciled.Presentations = make([]explorercompilation.PresentationConfig, 0, len(translated.Presentations))
 	publicEmissionIDs := make(map[string]map[string]struct{}, len(resolved.Bundle.Outputs))
 	for _, output := range resolved.Bundle.Outputs {
@@ -210,7 +213,7 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("translated presentation %q is missing", recipeOutput.Name)
 		}
 		constructed := authoredColumns[recipeOutput.Name]
-		explicitGroupOutputs := make(map[string]explorer.EmittedColumn)
+		explicitGroupOutputs := make(map[string]viewer.EmittedColumn)
 		inheritedExplicitGroupNames := make(map[string]struct{})
 		for _, schemaColumn := range compiledOutput.OutputSchema {
 			if schemaColumn.Internal || schemaColumn.Identity {
@@ -231,7 +234,7 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 		}
 		finalNames := make(map[string]struct{}, len(compiledOutput.OutputSchema))
 		contract := translatedContract
-		contract.Columns = make([]explorer.PublicOutputColumn, 0, len(compiledOutput.OutputSchema))
+		contract.Columns = make([]receiptmodel.PublicOutputColumn, 0, len(compiledOutput.OutputSchema))
 		contract.Lossless = true
 		contract.MLReady = true
 		contract.StructuralSuitability = ""
@@ -293,7 +296,7 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile constructed output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
 				}
 				sourceEmission := cloneEmittedColumn(emitted)
-				emitted = explorer.EmittedColumn{
+				emitted = viewer.EmittedColumn{
 					EmissionID:            constructedEmissionID(metadata.ConstructionID, schemaColumn.Name),
 					OutputID:              recipeOutput.Name,
 					AuthoredColumns:       append([]string(nil), lineage[schemaColumn.Name]...),
@@ -393,13 +396,13 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 	if err != nil {
 		return explorercompilation.WorkspaceResult{}, err
 	}
-	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(resolved.Bundle, reconciled.EmittedColumns); err != nil {
+	if err := (receiptmodel.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(resolved.Bundle, reconciled.EmittedColumns); err != nil {
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconciled output contract is inconsistent: %w", err)
 	}
 	return reconciled, nil
 }
 
-func orderReconciledOutputColumns(contract *explorer.PublicOutputContract, presentation []explorercompilation.PresentationColumn, emitted []explorer.EmittedColumn) {
+func orderReconciledOutputColumns(contract *receiptmodel.PublicOutputContract, presentation []explorercompilation.PresentationColumn, emitted []viewer.EmittedColumn) {
 	tableOrder := make(map[string]int, len(presentation))
 	physicalOrder := make(map[string]int, len(presentation))
 	for _, column := range presentation {
@@ -430,36 +433,36 @@ func orderReconciledOutputColumns(contract *explorer.PublicOutputContract, prese
 	}
 }
 
-func explicitGroupOutputEmission(document authoringv2.Document, outputID string, column facade.CompiledOutputColumn) (explorer.EmittedColumn, bool, error) {
-	if document.Rows.Kind != authoringv2.RowDefinitionGroups || document.Rows.Groups == nil ||
-		document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
-		return explorer.EmittedColumn{}, false, nil
+func explicitGroupOutputEmission(document ws.Document, outputID string, column facade.CompiledOutputColumn) (viewer.EmittedColumn, bool, error) {
+	if document.Rows.Kind != ws.RowDefinitionGroups || document.Rows.Groups == nil ||
+		document.Rows.Groups.Source.Kind != ws.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
+		return viewer.EmittedColumn{}, false, nil
 	}
 	explicit := document.Rows.Groups.Source.Explicit
 	if strings.TrimSpace(explicit.RevisionID) == "" {
-		return explorer.EmittedColumn{}, false, fmt.Errorf("explicit group revision identity is required")
+		return viewer.EmittedColumn{}, false, fmt.Errorf("explicit group revision identity is required")
 	}
 	shape, label, filterable, chartable := "", "", false, false
 	switch column.Name {
 	case "group_label":
 		shape, label, filterable, chartable = "scalar", "Group label", true, true
 		if column.Kind != "string" || column.Cardinality != "required_one" || column.Nullable {
-			return explorer.EmittedColumn{}, false, fmt.Errorf("compiled group label schema has unexpected type or cardinality")
+			return viewer.EmittedColumn{}, false, fmt.Errorf("compiled group label schema has unexpected type or cardinality")
 		}
 	case "group_ordinal":
 		shape, label, filterable, chartable = "scalar", "Group ordinal", true, true
 		if column.Kind != "integer" || column.Cardinality != "required_one" || column.Nullable {
-			return explorer.EmittedColumn{}, false, fmt.Errorf("compiled group ordinal schema has unexpected type or cardinality")
+			return viewer.EmittedColumn{}, false, fmt.Errorf("compiled group ordinal schema has unexpected type or cardinality")
 		}
 	case "members":
 		shape, label = "record_list", "Members"
 		if column.Kind != "object" || column.Cardinality != "many" || column.Nullable {
-			return explorer.EmittedColumn{}, false, fmt.Errorf("compiled group members schema has unexpected type or cardinality")
+			return viewer.EmittedColumn{}, false, fmt.Errorf("compiled group members schema has unexpected type or cardinality")
 		}
 	default:
-		return explorer.EmittedColumn{}, false, nil
+		return viewer.EmittedColumn{}, false, nil
 	}
-	emitted := explorer.EmittedColumn{
+	emitted := viewer.EmittedColumn{
 		EmissionID:            explicitGroupEmissionID(explicit.RevisionID, column.Name),
 		OutputID:              outputID,
 		PublicColumn:          column.Name,
@@ -473,7 +476,7 @@ func explicitGroupOutputEmission(document authoringv2.Document, outputID string,
 		Chartable:             chartable,
 	}
 	if err := applyCompiledColumnMetadata(&emitted, column); err != nil {
-		return explorer.EmittedColumn{}, false, err
+		return viewer.EmittedColumn{}, false, err
 	}
 	return emitted, true, nil
 }
@@ -482,7 +485,7 @@ func explicitGroupEmissionID(revisionID, column string) string {
 	return "explicit-group:" + revisionID + ":" + column
 }
 
-func compiledFilterSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+func compiledFilterSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection ws.ConstructionSourceProjection) bool {
 	if len(compiledOutput.Stages) == 0 || compiledOutput.Stages[0].ID != recipe.ConstructionSourceProjectionID {
 		return false
 	}
@@ -491,7 +494,7 @@ func compiledFilterSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput,
 			continue
 		}
 		return !column.Internal && !column.Identity &&
-			column.Name == authoringv2.ConstructionSourceProjectionName(projection.ColumnID) &&
+			column.Name == ws.ConstructionSourceProjectionName(projection.ColumnID) &&
 			strings.TrimSpace(column.SemanticPath) == strings.TrimSpace(projection.FieldPath) &&
 			column.Kind == projection.LogicalType &&
 			strings.TrimSpace(column.Label) == strings.TrimSpace(projection.Label)
@@ -499,25 +502,25 @@ func compiledFilterSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput,
 	return false
 }
 
-func compiledDeriveSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+func compiledDeriveSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection ws.ConstructionSourceProjection) bool {
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
-func compiledUnpivotSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+func compiledUnpivotSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection ws.ConstructionSourceProjection) bool {
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
-func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]AuthoredOutputColumn, error) {
+func authoredOutputColumns(workspace ws.Workspace) (map[string]ws.Document, map[string]map[string]AuthoredOutputColumn, error) {
 	return AuthoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
 }
 
 func AuthoredOutputColumnsWithCombineInputs(
-	workspace authoringv2.Workspace,
+	workspace ws.Workspace,
 	compiledOutputs map[string]facade.CompiledRecipeOutput,
 	combineInputs map[string]map[int]facade.ResolvedClickHouseTable,
 	rowSourceSnapshot capability.Snapshot,
-) (map[string]authoringv2.Document, map[string]map[string]AuthoredOutputColumn, error) {
-	documents := make(map[string]authoringv2.Document, len(workspace.Documents))
+) (map[string]ws.Document, map[string]map[string]AuthoredOutputColumn, error) {
+	documents := make(map[string]ws.Document, len(workspace.Documents))
 	columns := make(map[string]map[string]AuthoredOutputColumn, len(workspace.Documents))
 	for _, document := range workspace.Documents {
 		outputID := document.Output.ID
@@ -536,7 +539,7 @@ func AuthoredOutputColumnsWithCombineInputs(
 			compiledOutput, exists := compiledOutputs[outputID]
 			needsCompiledCombine := false
 			for _, step := range document.Construction.Steps {
-				if step.Operation.Kind == authoringv2.ConstructionOperationCombine {
+				if step.Operation.Kind == ws.ConstructionOperationCombine {
 					needsCompiledCombine = true
 					break
 				}
@@ -552,12 +555,12 @@ func AuthoredOutputColumnsWithCombineInputs(
 	return documents, columns, nil
 }
 
-func authoredConstructionOutputs(document authoringv2.Document, authored map[string]AuthoredOutputColumn) error {
+func authoredConstructionOutputs(document ws.Document, authored map[string]AuthoredOutputColumn) error {
 	return AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{})
 }
 
 func AuthoredConstructionOutputsWithCombineInputs(
-	document authoringv2.Document,
+	document ws.Document,
 	authored map[string]AuthoredOutputColumn,
 	compiledOutput facade.CompiledRecipeOutput,
 	resolvedInputs map[int]facade.ResolvedClickHouseTable,
@@ -842,7 +845,7 @@ func isSupportedConstructedScalarKind(kind expression.ValueKind) bool {
 	}
 }
 
-func resolveAuthoredOutputLineage(constructed map[string]AuthoredOutputColumn, emitted map[string]explorer.EmittedColumn, sourceFreeGenerated map[string]struct{}) (map[string][]string, error) {
+func resolveAuthoredOutputLineage(constructed map[string]AuthoredOutputColumn, emitted map[string]viewer.EmittedColumn, sourceFreeGenerated map[string]struct{}) (map[string][]string, error) {
 	states := make(map[string]uint8, len(constructed))
 	resolved := make(map[string][]string, len(constructed))
 	baseLineage := func(column string) ([]string, error) {
@@ -975,7 +978,7 @@ func presentationColumnByName(presentation explorercompilation.PresentationConfi
 	return explorercompilation.PresentationColumn{}, false
 }
 
-func applyCompiledColumnMetadata(emitted *explorer.EmittedColumn, column facade.CompiledOutputColumn) error {
+func applyCompiledColumnMetadata(emitted *viewer.EmittedColumn, column facade.CompiledOutputColumn) error {
 	if emitted == nil || emitted.PublicColumn != column.Name || strings.TrimSpace(column.Kind) == "" || strings.TrimSpace(column.Cardinality) == "" {
 		return fmt.Errorf("compiled public column identity, kind, or cardinality is missing")
 	}
@@ -986,14 +989,14 @@ func applyCompiledColumnMetadata(emitted *explorer.EmittedColumn, column facade.
 	return nil
 }
 
-func cloneEmittedColumn(value explorer.EmittedColumn) explorer.EmittedColumn {
+func cloneEmittedColumn(value viewer.EmittedColumn) viewer.EmittedColumn {
 	value.AuthoredColumns = append([]string(nil), value.AuthoredColumns...)
 	value.InputColumns = append([]string(nil), value.InputColumns...)
 	value.Coordinates = append([]capability.RepeatedCoordinate(nil), value.Coordinates...)
 	value.LossReasons = append([]string(nil), value.LossReasons...)
 	if value.UnitNormalization != nil {
 		copy := *value.UnitNormalization
-		copy.Rules = append([]explorer.PublicUnitRuleIdentity(nil), value.UnitNormalization.Rules...)
+		copy.Rules = append([]viewer.PublicUnitRuleIdentity(nil), value.UnitNormalization.Rules...)
 		value.UnitNormalization = &copy
 	}
 	value.ResultUnit = cloneResultUnit(value.ResultUnit)
@@ -1008,8 +1011,8 @@ func cloneResultUnit(value *unit.UnitIdentity) *unit.UnitIdentity {
 	return &copy
 }
 
-func publicOutputColumnFromEmission(emitted explorer.EmittedColumn) explorer.PublicOutputColumn {
-	return explorer.PublicOutputColumn{
+func publicOutputColumnFromEmission(emitted viewer.EmittedColumn) receiptmodel.PublicOutputColumn {
+	return receiptmodel.PublicOutputColumn{
 		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...), InputColumns: append([]string(nil), emitted.InputColumns...),
 		ConstructionID: emitted.ConstructionID, Label: emitted.Label,
 		LogicalType: emitted.LogicalType, Cardinality: emitted.Cardinality, Nullable: emitted.Nullable,
@@ -1024,7 +1027,7 @@ func publicOutputColumnFromEmission(emitted explorer.EmittedColumn) explorer.Pub
 	}
 }
 
-func mergeReconciledContractQuality(contract *explorer.PublicOutputContract, emitted explorer.EmittedColumn) {
+func mergeReconciledContractQuality(contract *receiptmodel.PublicOutputContract, emitted viewer.EmittedColumn) {
 	contract.Lossless = contract.Lossless && emitted.Lossless
 	contract.MLReady = contract.MLReady && emitted.MLReady
 	if emitted.StructuralSuitability == "requires-review" {
@@ -1050,17 +1053,17 @@ func ContainsOutputContractString(values []string, want string) bool {
 	return false
 }
 
-func cloneOutputUnitNormalization(value *explorer.PublicUnitNormalization) *explorer.PublicUnitNormalization {
+func cloneOutputUnitNormalization(value *viewer.PublicUnitNormalization) *viewer.PublicUnitNormalization {
 	if value == nil {
 		return nil
 	}
 	copy := *value
-	copy.Rules = append([]explorer.PublicUnitRuleIdentity(nil), value.Rules...)
+	copy.Rules = append([]viewer.PublicUnitRuleIdentity(nil), value.Rules...)
 	return &copy
 }
 
-func reconcileIdentityMappings(values []explorer.IdentityMapping, emittedIDs map[string]map[string]struct{}) ([]explorer.IdentityMapping, error) {
-	result := make([]explorer.IdentityMapping, 0, len(values))
+func reconcileIdentityMappings(values []receiptmodel.IdentityMapping, emittedIDs map[string]map[string]struct{}) ([]receiptmodel.IdentityMapping, error) {
+	result := make([]receiptmodel.IdentityMapping, 0, len(values))
 	for _, mapping := range values {
 		ids, ok := emittedIDs[mapping.OutputID]
 		if !ok {
@@ -1100,11 +1103,11 @@ func (stage constructionOutputStep) reconcileDerive() error {
 	}
 	derive := step.Operation.Derive
 	inputs := make([]string, 0, 2)
-	for _, operand := range []authoringv2.ConstructionOperand{derive.Left, derive.Right} {
+	for _, operand := range []ws.ConstructionOperand{derive.Left, derive.Right} {
 		switch operand.Kind {
-		case authoringv2.ConstructionColumnOperand:
+		case ws.ConstructionColumnOperand:
 			inputs = append(inputs, operand.ColumnID)
-		case authoringv2.ConstructionLiteralOperand:
+		case ws.ConstructionLiteralOperand:
 		default:
 			return fmt.Errorf("derive step %q has unsupported operand kind %q", step.ID, operand.Kind)
 		}
@@ -1121,15 +1124,15 @@ func (stage constructionOutputStep) reconcileDerive() error {
 			continue
 		}
 		consumed := false
-		for _, operand := range []authoringv2.ConstructionOperand{derive.Left, derive.Right} {
-			if operand.Kind == authoringv2.ConstructionColumnOperand && operand.ColumnID == projection.ColumnID {
+		for _, operand := range []ws.ConstructionOperand{derive.Left, derive.Right} {
+			if operand.Kind == ws.ConstructionColumnOperand && operand.ColumnID == projection.ColumnID {
 				consumed = true
 			}
 		}
 		if !consumed {
 			return fmt.Errorf("derive step %q carries source projection column %q it does not consume", step.ID, projection.ColumnID)
 		}
-		var declared *authoringv2.StageColumn
+		var declared *ws.StageColumn
 		for outputIndex := range step.Outputs {
 			if step.Outputs[outputIndex].ID == projection.ColumnID {
 				declared = &step.Outputs[outputIndex]
@@ -1149,7 +1152,7 @@ func (stage constructionOutputStep) reconcileDerive() error {
 			return fmt.Errorf("derive step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
 		}
 		derived, ok := lifecycle.ConstructionDeriveSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
-		expected := authoringv2.ConstructionSourceProjection{
+		expected := ws.ConstructionSourceProjection{
 			ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 			OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
 			FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
@@ -1188,7 +1191,7 @@ func (stage constructionOutputStep) reconcileFilter() error {
 		if projection.ColumnID != step.Operation.Filter.ColumnID {
 			return fmt.Errorf("filter step %q carries source projection column %q it does not consume", step.ID, projection.ColumnID)
 		}
-		var declared *authoringv2.StageColumn
+		var declared *ws.StageColumn
 		for outputIndex := range step.Outputs {
 			if step.Outputs[outputIndex].ID == projection.ColumnID {
 				declared = &step.Outputs[outputIndex]
@@ -1208,7 +1211,7 @@ func (stage constructionOutputStep) reconcileFilter() error {
 			return fmt.Errorf("filter step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
 		}
 		derived, ok := lifecycle.ConstructionFilterSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
-		expected := authoringv2.ConstructionSourceProjection{
+		expected := ws.ConstructionSourceProjection{
 			ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 			OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
 			FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
@@ -1318,7 +1321,7 @@ func (stage constructionOutputStep) reconcileGroup() error {
 	}
 	for _, aggregate := range group.Aggregates {
 		inputs := []string(nil)
-		if aggregate.Operation != authoringv2.ConstructionGroupCountRows {
+		if aggregate.Operation != ws.ConstructionGroupCountRows {
 			inputs = []string{aggregate.InputColumnID}
 		}
 		if err := stage.addOutput(aggregate.OutputColumnID, group.ConstructionID, inputs, quality); err != nil {
@@ -1327,7 +1330,7 @@ func (stage constructionOutputStep) reconcileGroup() error {
 	}
 	for _, rowValue := range step.RowValues {
 		rowQuality := quality
-		if rowValue.Policy == authoringv2.ConstructionRowValueAll {
+		if rowValue.Policy == ws.ConstructionRowValueAll {
 			rowQuality.Shape = "array"
 		}
 		inputs := []string(nil)
@@ -1487,7 +1490,7 @@ func (stage constructionOutputStep) reconcileCodedPivot() error {
 		return fmt.Errorf("coded pivot step %q: %w", step.ID, err)
 	}
 	quality.LossReasons = []string{"CODED_PIVOT_SELECTED_CATEGORIES_ONLY"}
-	if pivot.DuplicatePolicy != authoringv2.ConstructionPivotDuplicateError {
+	if pivot.DuplicatePolicy != ws.ConstructionPivotDuplicateError {
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_DUPLICATES_AGGREGATED")
 	}
 	for _, category := range pivot.Categories {
@@ -1556,7 +1559,7 @@ func (stage constructionOutputStep) reconcileUnpivot() error {
 		if !consumed {
 			return fmt.Errorf("unpivot step %q carries source projection column %q it does not melt as an input", step.ID, projection.ColumnID)
 		}
-		var declared *authoringv2.StageColumn
+		var declared *ws.StageColumn
 		for carrierIndex := 0; carrierIndex < stepIndex; carrierIndex++ {
 			for outputIndex := range document.Construction.Steps[carrierIndex].Outputs {
 				if document.Construction.Steps[carrierIndex].Outputs[outputIndex].ID == projection.ColumnID {
@@ -1572,7 +1575,7 @@ func (stage constructionOutputStep) reconcileUnpivot() error {
 
 			for _, column := range compiledOutput.Stages[0].Columns {
 				if column.ID == projection.ColumnID && !column.Internal && !column.Identity {
-					declared = &authoringv2.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label}
+					declared = &ws.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label}
 					break
 				}
 			}
@@ -1590,7 +1593,7 @@ func (stage constructionOutputStep) reconcileUnpivot() error {
 			return fmt.Errorf("unpivot step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
 		}
 		derived, ok := lifecycle.ConstructionUnpivotSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
-		expected := authoringv2.ConstructionSourceProjection{
+		expected := ws.ConstructionSourceProjection{
 			ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 			OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
 			FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
@@ -1656,14 +1659,14 @@ func (stage constructionOutputStep) reconcileRelatedSource() error {
 		return fmt.Errorf("related-source step %q has no operation payload", step.ID)
 	}
 	related := step.Operation.RelatedSource
-	if (related.Form != capability.ConstructionChoiceAll && related.Form != capability.ConstructionChoiceCount && related.Form != capability.ConstructionChoicePresence) || related.ContributorRule.Policy != authoringv2.ConstructionRelatedAllMatches {
+	if (related.Form != capability.ConstructionChoiceAll && related.Form != capability.ConstructionChoiceCount && related.Form != capability.ConstructionChoicePresence) || related.ContributorRule.Policy != ws.ConstructionRelatedAllMatches {
 		return fmt.Errorf("related-source step %q has unsupported output form or contributor policy", step.ID)
 	}
 	quality := ConstructedOutputQuality{
 		Lossless: false, Shape: "array", StructuralSuitability: "requires-review",
 		LossReasons: []string{"RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY"},
 	}
-	if related.Form != capability.ConstructionChoiceAll || related.RowValuePolicy == authoringv2.ConstructionRowValueOne {
+	if related.Form != capability.ConstructionChoiceAll || related.RowValuePolicy == ws.ConstructionRowValueOne {
 		quality.Shape = ""
 	}
 	if related.Form != capability.ConstructionChoiceAll {

@@ -3,8 +3,9 @@ package ports
 import (
 	"context"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -13,7 +14,7 @@ type CapabilityResolver struct {
 	Token             func(context.Context, string, string) (capability.Snapshot, error)
 	ForCompilation    func(context.Context, string, string) (AuthorizedCapability, error)
 	ForExecution      func(context.Context, string, string) (AuthorizedCapability, error)
-	Catalog           func(capability.Snapshot, string) authoringv2.CatalogSnapshot
+	Catalog           func(capability.Snapshot, string) ws.CatalogSnapshot
 	ValidateReadScope func(authscope.ReadScope, string) error
 }
 

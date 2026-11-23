@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -44,7 +48,7 @@ func TestApplySemanticSelectionsPersistsAuthorizedFactsAndPreservesWorkspace(t *
 		t.Fatalf("existing graph-authored configuration was not preserved: %#v", document)
 	}
 	semanticColumn := document.Columns[1]
-	if semanticColumn.Source.Lookup == nil || semanticColumn.Source.Lookup.Key == nil || semanticColumn.Source.Lookup.Key.System != "urn:system:a" || semanticColumn.Source.Lookup.Key.Code != "code-a" || semanticColumn.OccurrenceID == authoringv2.RootOccurrenceID {
+	if semanticColumn.Source.Lookup == nil || semanticColumn.Source.Lookup.Key == nil || semanticColumn.Source.Lookup.Key.System != "urn:system:a" || semanticColumn.Source.Lookup.Key.Code != "code-a" || semanticColumn.OccurrenceID == ws.RootOccurrenceID {
 		t.Fatalf("server-resolved semantic column = %#v", semanticColumn)
 	}
 }
@@ -228,7 +232,7 @@ func semanticAuthoringServiceWithResolverScope(t *testing.T, store *fakeStore, s
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
 			},
-			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 		},
 		ResolveSemanticInventorySelections: resolver,
 	})
@@ -238,29 +242,29 @@ func semanticAuthoringSnapshot(scope authscope.ReadScope) capability.Snapshot {
 	return readySnapshot("project-a", "generation-a", "token", scope)
 }
 
-func semanticAuthoringCatalog(snapshot capability.Snapshot) authoringv2.CatalogSnapshot {
-	return authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients",
+func semanticAuthoringCatalog(snapshot capability.Snapshot) ws.CatalogSnapshot {
+	return ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients",
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true,
-		Nodes:       []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "encounter", ResourceType: "Encounter"}, {ID: "observation", ResourceType: "Observation"}},
-		Edges:       []authoringv2.CatalogEdge{{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"}, {ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"}},
-		Candidates:  []authoringv2.CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
-		RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		Nodes:       []ws.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "encounter", ResourceType: "Encounter"}, {ID: "observation", ResourceType: "Observation"}},
+		Edges:       []ws.CatalogEdge{{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"}, {ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"}},
+		Candidates:  []ws.CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
+		RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 }
 
 func semanticAuthoringStore(t *testing.T) *fakeStore {
 	t.Helper()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route:        authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter-authored", ResourceType: "Encounter", Relationship: "encounters"}}},
-			Columns:      []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: boolPointer(true), Order: intPointer(0)}}},
-			FixedFilters: []authoringv2.FixedFilter{{Column: "patient_id", Values: []string{"active"}}},
-			Actions:      []authoringv2.Action{{Type: "export", Title: "Export", Columns: []authoringv2.ActionColumn{{Column: "patient_id"}}}}, Rows: authoringv2.RecordsRowDefinition(),
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Builder"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:        ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter-authored", ResourceType: "Encounter", Relationship: "encounters"}}},
+			Columns:      []ws.Column{{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: boolPointer(true), Order: intPointer(0)}}},
+			FixedFilters: []ws.FixedFilter{{Column: "patient_id", Values: []string{"active"}}},
+			Actions:      []ws.Action{{Type: "export", Title: "Export", Columns: []ws.ActionColumn{{Column: "patient_id"}}}}, Rows: ws.RecordsRowDefinition(),
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	encoded, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -270,7 +274,7 @@ func semanticAuthoringStore(t *testing.T) *fakeStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: encoded, DraftVersion: 1, DraftDigest: digest}}
+	return &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive, DraftConfig: encoded, DraftVersion: 1, DraftDigest: digest}}
 }
 
 func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID, bindingID, projectionMode string) authoringv2.ApplyCommandsRequest {
@@ -280,7 +284,7 @@ func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID
 		panic(err)
 	}
 	return authoringv2.ApplyCommandsRequest{
-		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
+		CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
 		ExpectedDraftDigest: "", Commands: []authoringv2.Command{{Type: authoringv2.CommandAddSemanticSelections, OutputID: "patients", Payload: &authoringv2.SemanticPayload{ContextToken: contextToken, SemanticSelections: []authoringv2.SemanticSelection{{ConceptID: conceptID, BindingID: bindingID, RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: projectionMode}}}}},
 	}
 }

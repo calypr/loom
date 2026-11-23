@@ -7,6 +7,11 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	proposalpkg "github.com/calypr/loom/internal/explorer/proposal"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -45,7 +50,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if afterRemoval {
 		document := workspace.Documents[0]
 		column := document.Columns[0]
-		document.Construction = &authoringv2.Construction{Version: 1, Steps: []authoringv2.ConstructionStep{{ID: "last-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: column.ColumnID, Operator: authoringv2.ConstructionFilterExists}}, Outputs: []authoringv2.StageColumn{{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: "string"}}}}}
+		document.Construction = &ws.Construction{Version: 1, Steps: []ws.ConstructionStep{{ID: "last-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: column.ColumnID, Operator: ws.ConstructionFilterExists}}, Outputs: []ws.StageColumn{{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: "string"}}}}}
 		removed, impact, err := document.ProposeStepRemoval("last-filter", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -55,23 +60,23 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		}
 		workspace.Documents[0] = removed
 	}
-	workspace.Documents = append(workspace.Documents, authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "other", Title: "Unrelated"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{{ColumnID: "other-project", Column: "project", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}}}})
-	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "other-tab", OutputID: "other", Title: "Unrelated", Order: 1, Visible: true})
+	workspace.Documents = append(workspace.Documents, ws.Document{Kind: ws.Kind, Output: ws.Output{ID: "other", Title: "Unrelated"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{{ColumnID: "other-project", Column: "project", Label: "Project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}}}})
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: "other-tab", OutputID: "other", Title: "Unrelated", Order: 1, Visible: true})
 	raw, _ := workspace.CanonicalJSON()
 	digest, _ := workspace.Digest()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
-	config.EditImportedRelationship = func(_ context.Context, _ string, _ ports.AuthorizedCapability, d authoringv2.Document, _ authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+	config.EditImportedRelationship = func(_ context.Context, _ string, _ ports.AuthorizedCapability, d ws.Document, _ authoringv2.ImportedRelationshipChange) (ws.Document, error) {
 		plan := recipeimport.SourcePlan(output)
 		d.ImportedSource = &plan
 		return d, nil
 	}
-	config.AuthoringNetwork = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
-		network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-		network.Occurrences = append(network.Occurrences, authoringv2.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Enabled: true, PreservesRowIdentity: true})
+	config.AuthoringNetwork = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
+		network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+		network.Occurrences = append(network.Occurrences, ws.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Enabled: true, PreservesRowIdentity: true})
 		return network, nil
 	}
 	compileFailure := false
-	config.CompileReceipt = func(ctx context.Context, r ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, r ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		if compileFailure {
 			return nil, errors.New("downstream dependency would be removed")
 		}
@@ -81,14 +86,14 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 			return nil, err
 		}
 		receipt.SourceRelationshipProposal = cloneSourceRelationshipProposalBinding(r.SourceRelationshipProposal)
-		receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
-		receipt.ID, _ = explorer.ReceiptID(*receipt)
+		receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+		receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 		store.receipt = receipt
 		return receipt, nil
 	}
 	previewFailure := false
 	previewCalls := 0
-	config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if previewFailure {
 			return dataframeexecution.PreviewSummary{}, errors.New("native source preview execution failed")
@@ -101,7 +106,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		return dataframeexecution.PreviewSummary{RowCount: 3, Complete: true}, nil
 	}
 	service := newTestService(t, store, config)
-	request := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", Change: authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: "base", EdgeID: "authorized-edge", MatchMode: authoringv2.RouteMatchOptional}}
+	request := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", Change: authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: "base", EdgeID: "authorized-edge", MatchMode: ws.RouteMatchOptional}}
 	proposal, err := service.ProposeSourceRelationship(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +124,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 			rows := 0
 			beforeCalls := previewCalls
 			sentinel := errors.New("transport sink failure")
-			requestWithSink.PreviewSinkFactory = func(receipt *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			requestWithSink.PreviewSinkFactory = func(receipt *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 				if receipt.ID != proposal.CandidateReceiptID {
 					t.Fatal("sink received another receipt")
 				}
@@ -157,8 +162,8 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 
 	projectNetwork := service.config.AuthoringNetwork
-	service.config.AuthoringNetwork = func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
-		return authoringv2.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
+	service.config.AuthoringNetwork = func(context.Context, string, ports.AuthorizedCapability, ws.Document) (ws.AuthoringNetwork, error) {
+		return ws.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
 	}
 	if failed, err := service.ProposeSourceRelationship(ctx, request); err == nil || failed.ProposalID != "" {
 		t.Fatal("failed candidate network produced a ready proposal")
@@ -178,9 +183,9 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	compileFailure = false
 	store.receipt = candidateReceipt
-	apply := authoringv2.ApplyCommandsRequest{CommandID: "relationship-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: proposal.ProposalID}}}}
+	apply := authoringv2.ApplyCommandsRequest{CommandID: "relationship-apply", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: proposal.ProposalID}}}}
 
-	forgedWorkspace, err := authoringv2.DecodeWorkspace(candidateReceipt.NormalizedBundle)
+	forgedWorkspace, err := ws.DecodeWorkspace(candidateReceipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,11 +246,11 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("stale Apply changed saved source")
 	}
 
-	service.config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+	service.config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
 		if change == nil || change.StepID != "fields" || !change.Remove {
 			t.Fatal("source removal intent was lost")
 		}
-		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{},
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{},
 			recipeimport.PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{*change}}, recipeimport.PlanEditInput{})
 		if err == nil {
 			document.ImportedSource = &plan
@@ -268,7 +273,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
 		t.Fatal("source-step removal Preview wrote the draft")
 	}
-	removed, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "source-step-remove", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: stepProposal.ProposalID}}}}, "tester")
+	removed, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "source-step-remove", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: stepProposal.ProposalID}}}}, "tester")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,15 +281,15 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("confirmed source removal did not delete the step while retaining its immutable pin")
 	}
 
-	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+	parameters := &ws.ImportedSourceParameters{Dynamic: &ws.ImportedDynamicParameters{
 		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"},
 		Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"},
 	}}
-	service.config.CreateImportedSourceRule = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+	service.config.CreateImportedSourceRule = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, rule ws.SourceRuleCreate) (ws.Document, error) {
 		if rule.Kind != "DYNAMIC_COLUMN" || rule.Parameters.Dynamic.Name != "identifiers" {
 			t.Fatalf("unexpected source rule intent: %#v", rule)
 		}
-		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{RuleCreate: &rule}, recipeimport.PlanEditInput{})
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{}, recipeimport.PlanEdit{RuleCreate: &rule}, recipeimport.PlanEditInput{})
 		if err == nil {
 			document.ImportedSource = &plan
 		}
@@ -293,7 +298,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	ruleRequest := stepRequest
 	ruleRequest.ExpectedDraftVersion, ruleRequest.ExpectedDraftDigest = removed.DraftVersion, removed.DraftDigest
 	ruleRequest.SourceStep = nil
-	ruleRequest.SourceRule = &authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: parameters}
+	ruleRequest.SourceRule = &ws.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: parameters}
 	rawBeforeRule := append([]byte(nil), store.created.DraftConfig...)
 	ruleProposal, err := service.ProposeSourceRelationship(ctx, ruleRequest)
 	if err != nil {
@@ -305,7 +310,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	applyRule := func(version int64, digest, proposalID, commandID string) *authoringv2.ApplyCommandsResponse {
 		t.Helper()
 		result, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{
-			CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+			CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{ProposalID: proposalID}}},
 		}, "tester")
@@ -320,8 +325,8 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("Apply did not save the created rule")
 	}
 
-	service.config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
-		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{
+	service.config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, ws.CatalogSnapshot{}, recipeimport.PlanEdit{
 			StepChanges: []authoringv2.ImportedSourceStepChange{*change},
 		}, recipeimport.PlanEditInput{})
 		if err == nil {
@@ -354,7 +359,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 
 }
 
-func lifecycleHasSourceStep(plan *authoringv2.ImportedSourcePlan, id string) bool {
+func lifecycleHasSourceStep(plan *ws.ImportedSourcePlan, id string) bool {
 	if plan != nil {
 		for _, step := range plan.Steps {
 			if step.ID == id {

@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
@@ -19,7 +21,7 @@ const (
 	compilationReceiptConflictRetryDelay = 5 * time.Millisecond
 )
 
-func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 	if err := validateReceipt(receipt); err != nil {
 		return nil, err
 	}
@@ -53,7 +55,7 @@ func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt exp
 	return nil, errors.New("unreachable compilation receipt insert state")
 }
 
-func (s *ReceiptStore) getVerifiedCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) getVerifiedCompilationReceipt(ctx context.Context, receipt receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 	stored, err := s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
 	if err != nil {
 		return nil, err
@@ -61,7 +63,7 @@ func (s *ReceiptStore) getVerifiedCompilationReceipt(ctx context.Context, receip
 
 	same := false
 	if isContentAddressedReceiptID(stored.ID) {
-		expectedID, identityErr := explorer.ReceiptID(receipt)
+		expectedID, identityErr := receiptmodel.ReceiptID(receipt)
 		same = identityErr == nil && expectedID == stored.ID
 	} else {
 		same = sameReceipt(*stored, receipt)
@@ -83,14 +85,14 @@ func waitForCompilationReceiptRetry(ctx context.Context, delay time.Duration) er
 	}
 }
 
-func (s *ReceiptStore) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*receiptmodel.CompilationReceipt, error) {
 	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, map[string]any{"@c": db.CompilationReceiptsCollection, "key": id, "project": project, "explorerId": explorerID})
 }
 
-func (s *ReceiptStore) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
-	var out *explorer.CompilationReceipt
+func (s *ReceiptStore) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*receiptmodel.CompilationReceipt, error) {
+	var out *receiptmodel.CompilationReceipt
 	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(query, true), 1, binds, func(row map[string]any) error {
-		value, decodeErr := db.DecodeMigrationJSON[explorer.CompilationReceipt](row["migrationJSON"])
+		value, decodeErr := db.DecodeMigrationJSON[receiptmodel.CompilationReceipt](row["migrationJSON"])
 		if decodeErr != nil {
 			return decodeErr
 		}
@@ -109,7 +111,7 @@ func (s *ReceiptStore) readCompilationReceipt(ctx context.Context, query string,
 	return out, nil
 }
 
-func validateReceipt(receipt explorer.CompilationReceipt) error {
+func validateReceipt(receipt receiptmodel.CompilationReceipt) error {
 	if strings.TrimSpace(receipt.ID) == "" {
 		return explorer.ErrCorruptReceipt
 	}
@@ -133,9 +135,9 @@ func validateReceipt(receipt explorer.CompilationReceipt) error {
 	return nil
 }
 
-func sameReceipt(a, b explorer.CompilationReceipt) bool {
-	left, leftErr := explorer.ReceiptID(a)
-	right, rightErr := explorer.ReceiptID(b)
+func sameReceipt(a, b receiptmodel.CompilationReceipt) bool {
+	left, leftErr := receiptmodel.ReceiptID(a)
+	right, rightErr := receiptmodel.ReceiptID(b)
 	return leftErr == nil && rightErr == nil && left == right
 }
 
@@ -147,11 +149,11 @@ func isContentAddressedReceiptID(id string) bool {
 	return err == nil
 }
 
-func ValidateReceipt(receipt explorer.CompilationReceipt) error {
+func ValidateReceipt(receipt receiptmodel.CompilationReceipt) error {
 	return validateReceipt(receipt)
 }
 
-func SameReceipt(a, b explorer.CompilationReceipt) bool {
+func SameReceipt(a, b receiptmodel.CompilationReceipt) bool {
 	return sameReceipt(a, b)
 }
 

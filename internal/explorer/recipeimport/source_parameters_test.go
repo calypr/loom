@@ -2,10 +2,11 @@ package recipeimport
 
 import (
 	"encoding/json"
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
@@ -46,50 +47,50 @@ func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
 	}
 	cases := []struct {
 		name, output, step string
-		mutate             func(*authoringv2.ImportedSourceParameters)
+		mutate             func(*ws.ImportedSourceParameters)
 		check              func(recipe.Output) bool
 	}{
-		{"output", "ResearchSubject", "output", func(p *authoringv2.ImportedSourceParameters) { p.Output.CollisionPolicy = "error" }, func(o recipe.Output) bool { return o.CollisionPolicy == "error" }},
-		{"field", "ResearchSubject", "fields", func(p *authoringv2.ImportedSourceParameters) {
+		{"output", "ResearchSubject", "output", func(p *ws.ImportedSourceParameters) { p.Output.CollisionPolicy = "error" }, func(o recipe.Output) bool { return o.CollisionPolicy == "error" }},
+		{"field", "ResearchSubject", "fields", func(p *ws.ImportedSourceParameters) {
 			p.FieldGroup.Fields[1].Name = "subject_identifier"
 			p.FieldGroup.Fields[1].Expr.Args[0].Select = "root.identifier[].system"
 		}, func(o recipe.Output) bool {
 			return o.Fields[1].Name == "subject_identifier" && o.Fields[1].Expr.Args[0].Select == "root.identifier[].system"
 		}},
-		{"catalog", "ResearchSubject", "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"catalog", "ResearchSubject", "catalogProjections[0]", func(p *ws.ImportedSourceParameters) {
 			p.Catalog.IncludePaths = []string{"status"}
 			p.Catalog.Naming = recipe.ColumnNamingPathSuffix
-			p.Catalog.Outputs = []authoringv2.ImportedCatalogOutput{{FieldPath: "status", Enabled: true, Name: "study_status"}}
+			p.Catalog.Outputs = []ws.ImportedCatalogOutput{{FieldPath: "status", Enabled: true, Name: "study_status"}}
 		}, func(o recipe.Output) bool {
 			projection := o.CatalogProjections[0]
 			return reflect.DeepEqual(projection.IncludePaths, []string{"status"}) && projection.Naming == recipe.ColumnNamingPathSuffix && reflect.DeepEqual(projection.OutputOverrides, []recipe.CatalogProjectionOutputOverride{{FieldPath: "status", Enabled: true, Name: "study_status"}})
 		}},
-		{"dynamic", "DocumentReference", "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"dynamic", "DocumentReference", "dynamicColumns[0]", func(p *ws.ImportedSourceParameters) {
 			p.Dynamic.Key = &recipe.Expression{Select: "item.system"}
 			prefix := "ident_"
 			p.Dynamic.ColumnPrefix = &prefix
-			p.Dynamic.Outputs = []authoringv2.ImportedDynamicOutput{{Key: "urn:disabled", Enabled: false}}
+			p.Dynamic.Outputs = []ws.ImportedDynamicOutput{{Key: "urn:disabled", Enabled: false}}
 		}, func(o recipe.Output) bool {
 			return o.DynamicColumns[0].Key.Select == "item.system" && *o.DynamicColumns[0].ColumnPrefix == "ident_" && reflect.DeepEqual(o.DynamicColumns[0].OutputOverrides, []recipe.DynamicColumnOutputOverride{{Key: "urn:disabled", Enabled: false}})
 		}},
-		{"extension", "DocumentReference", "extensionColumns[1]", func(p *authoringv2.ImportedSourceParameters) {
+		{"extension", "DocumentReference", "extensionColumns[1]", func(p *ws.ImportedSourceParameters) {
 			p.Extension.Source.Select = "root.extension[]"
-			p.Extension.Outputs = []authoringv2.ImportedExtensionOutput{{Key: recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{URL: "https://example.org/value", URLPath: []string{"https://example.org/parent"}, SourcePath: "extension[].extension[]"}), Enabled: false}}
+			p.Extension.Outputs = []ws.ImportedExtensionOutput{{Key: recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{URL: "https://example.org/value", URLPath: []string{"https://example.org/parent"}, SourcePath: "extension[].extension[]"}), Enabled: false}}
 		}, func(o recipe.Output) bool {
 			return o.ExtensionColumns[1].Source.Select == "root.extension[]" && len(o.ExtensionColumns[1].OutputOverrides) == 1 && !o.ExtensionColumns[1].OutputOverrides[0].Enabled
 		}},
-		{"pivot", "ResearchSubject", "traversals[0].traversals[0].pivots[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"pivot", "ResearchSubject", "traversals[0].traversals[0].pivots[0]", func(p *ws.ImportedSourceParameters) {
 			p.Pivot.Discovery.Path = "component[].code"
-			p.Pivot.Outputs = []authoringv2.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false}}
+			p.Pivot.Outputs = []ws.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false}}
 		}, func(o recipe.Output) bool {
 			pivot := o.Traversals[0].Traversals[0].Pivots[0]
 			return pivot.Discovery.Path == "component[].code" && reflect.DeepEqual(pivot.OutputOverrides, []recipe.PivotOutputOverride{{Key: "http://loinc.org|8480-6", Enabled: false}})
 		}},
-		{"traversal", "ResearchSubject", "traversals[0]", func(p *authoringv2.ImportedSourceParameters) { p.Traversal.Alias = "person" }, func(o recipe.Output) bool { return o.Traversals[0].Alias == "person" }},
-		{"expansion", "GroupMember", "expand", func(p *authoringv2.ImportedSourceParameters) {
+		{"traversal", "ResearchSubject", "traversals[0]", func(p *ws.ImportedSourceParameters) { p.Traversal.Alias = "person" }, func(o recipe.Output) bool { return o.Traversals[0].Alias == "person" }},
+		{"expansion", "GroupMember", "expand", func(p *ws.ImportedSourceParameters) {
 			p.Expansion.EmptyPolicy = recipe.ExpansionPreserveParent
 		}, func(o recipe.Output) bool { return o.Expand.EmptyPolicy == recipe.ExpansionPreserveParent }},
-		{"identity", "GroupMember", "identity", func(p *authoringv2.ImportedSourceParameters) {
+		{"identity", "GroupMember", "identity", func(p *ws.ImportedSourceParameters) {
 			p.Identity.Expr.Args[0].Literal = json.RawMessage(`"project-namespace"`)
 		}, func(o recipe.Output) bool { return string(o.Identity.Expr.Args[0].Literal) == `"project-namespace"` }},
 	}
@@ -153,7 +154,7 @@ func TestSourceParametersRetainLegacyPathsAndRejectFieldRetargeting(t *testing.T
 
 func TestRenamedSourceFamilyUsesEffectiveNameWithoutChangingOriginalStepID(t *testing.T) {
 	plan := SourcePlan(outputNamed(t, defaultSourcePlanFixture(t), "DocumentReference"))
-	var step authoringv2.ImportedSourceStep
+	var step ws.ImportedSourceStep
 	for _, s := range plan.Steps {
 		if s.ID == "dynamicColumns[0]" {
 			step = s
@@ -175,8 +176,8 @@ func TestCatalogOutputOverrideDisableReloadAndReenableByFieldPath(t *testing.T) 
 		CatalogProjections: []recipe.CatalogProjection{{Name: "populated_fields", IncludePaths: []string{"*"}, MaxColumns: 4}},
 	}
 	plan := SourcePlan(output)
-	if err := updateSourcePlanStep(&plan, "catalogProjections[0]", func(step *authoringv2.ImportedSourceStep) {
-		step.Parameters.Catalog.Outputs = []authoringv2.ImportedCatalogOutput{{FieldPath: "gender", Enabled: false}}
+	if err := updateSourcePlanStep(&plan, "catalogProjections[0]", func(step *ws.ImportedSourceStep) {
+		step.Parameters.Catalog.Outputs = []ws.ImportedCatalogOutput{{FieldPath: "gender", Enabled: false}}
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestCatalogOutputOverrideDisableReloadAndReenableByFieldPath(t *testing.T) 
 	if !ok || len(step.Parameters.Catalog.Outputs) != 1 || step.Parameters.Catalog.Outputs[0].FieldPath != "gender" || step.Parameters.Catalog.Outputs[0].Enabled {
 		t.Fatalf("disabled output identity was lost on reload: %+v", step)
 	}
-	if err := updateSourcePlanStep(&reloaded, "catalogProjections[0]", func(step *authoringv2.ImportedSourceStep) {
+	if err := updateSourcePlanStep(&reloaded, "catalogProjections[0]", func(step *ws.ImportedSourceStep) {
 		step.Parameters.Catalog.Outputs[0].Enabled = true
 		step.Parameters.Catalog.Outputs[0].Name = "patient_gender"
 	}); err != nil {
@@ -217,8 +218,8 @@ func TestDiscoveredPivotOutputOverridePersistsThroughReloadAndReenable(t *testin
 		Pivots: []recipe.Pivot{{Name: "observation_values", Discovery: &recipe.PivotDiscovery{Family: "observation_code_value", MaxColumns: 8}}},
 	}
 	plan := SourcePlan(output)
-	if err := updateSourcePlanStep(&plan, "pivots[0]", func(step *authoringv2.ImportedSourceStep) {
-		step.Parameters.Pivot.Outputs = []authoringv2.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false, Name: stringPointer("systolic")}}
+	if err := updateSourcePlanStep(&plan, "pivots[0]", func(step *ws.ImportedSourceStep) {
+		step.Parameters.Pivot.Outputs = []ws.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false, Name: stringPointer("systolic")}}
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestDiscoveredPivotOutputOverridePersistsThroughReloadAndReenable(t *testin
 	if !ok || len(step.Parameters.Pivot.Outputs) != 1 || step.Parameters.Pivot.Outputs[0].Key != "http://loinc.org|8480-6" || step.Parameters.Pivot.Outputs[0].Enabled || step.Parameters.Pivot.Outputs[0].Name == nil || *step.Parameters.Pivot.Outputs[0].Name != "systolic" {
 		t.Fatalf("disabled pivot output identity was lost on reload: %+v", step)
 	}
-	if err := updateSourcePlanStep(&reloaded, "pivots[0]", func(step *authoringv2.ImportedSourceStep) {
+	if err := updateSourcePlanStep(&reloaded, "pivots[0]", func(step *ws.ImportedSourceStep) {
 		step.Parameters.Pivot.Outputs[0].Enabled = true
 	}); err != nil {
 		t.Fatal(err)

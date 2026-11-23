@@ -3,25 +3,26 @@ package compilation
 import (
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestRecipeConstructionStepPreservesWorkspaceOutputInputIdentity(t *testing.T) {
-	step := authoringv2.ConstructionStep{
+	step := ws.ConstructionStep{
 		ID: "combine",
-		Inputs: []authoringv2.ConstructionInputRef{
-			{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "grouped_output"},
-			{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "pivot_output"},
+		Inputs: []ws.ConstructionInputRef{
+			{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "grouped_output"},
+			{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "pivot_output"},
 		},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-			Kind: authoringv2.ConstructionCombineAppend,
-			Projections: []authoringv2.ConstructionCombineProjection{
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+			Kind: ws.ConstructionCombineAppend,
+			Projections: []ws.ConstructionCombineProjection{
 				{OutputColumnID: "value", InputIndex: 0, InputColumnID: "group_value"},
 				{OutputColumnID: "value", InputIndex: 1, InputColumnID: "pivot_value"},
 			},
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "value", Name: "value", Type: "string"}},
+		Outputs: []ws.StageColumn{{ID: "value", Name: "value", Type: "string"}},
 	}
 	mapped, err := recipeConstructionStep(step)
 	if err != nil {

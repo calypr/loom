@@ -7,18 +7,18 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestStoredWorkspaceMigrationMixedNilDigestAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	workspace := auditFixture(t)
-	workspace.Documents[0].Construction.Steps = []authoringv2.ConstructionStep{}
+	workspace.Documents[0].Construction.Steps = []ws.ConstructionStep{}
 	second := workspace.Documents[0]
 	second.Output.ID, second.Output.Title = "more_patients", "More patients"
-	second.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}}
+	second.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}}
 	workspace.Documents = append(workspace.Documents, second)
-	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: second.Output.ID, Title: second.Output.Title, OutputID: second.Output.ID, Order: 1})
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: second.Output.ID, Title: second.Output.Title, OutputID: second.Output.ID, Order: 1})
 	canonical, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestStoredWorkspaceMigrationMixedNilDigestAgainstArango(t *testing.T) {
 	if migrated.DraftVersion != owner.DraftVersion+1 || migrated.DraftDigest == oldDigest {
 		t.Fatalf("owner did not advance exactly once: %#v", migrated)
 	}
-	current, err := authoringv2.DecodeCurrentWorkspace(migrated.DraftConfig)
+	current, err := ws.DecodeCurrentWorkspace(migrated.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

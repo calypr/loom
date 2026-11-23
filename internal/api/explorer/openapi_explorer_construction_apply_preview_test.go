@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -21,7 +25,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -33,7 +36,7 @@ func TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave(t *testing.T)
 	proposalID := proposeConstructionRemovalForApplyPreview(t, app, basePath, snapshot, draftDigest)
 	applyBody := fmt.Sprintf(
 		`{"commandId":"apply-preview-exact","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
 	)
 
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", applyBody)
@@ -126,7 +129,7 @@ func TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview
 	proposalID := proposeConstructionRemovalForApplyPreview(t, app, basePath, snapshot, draftDigest)
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"apply-preview-capture-failure","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
 	))
 	if applyHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Apply with unavailable response capture status=%d body=%s", applyHTTP.StatusCode, applyHTTP.Body)
@@ -156,7 +159,7 @@ func TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray(t *testin
 	proposalID := proposeConstructionRemovalForApplyPreview(t, app, basePath, snapshot, draftDigest)
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"apply-preview-empty","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
 	))
 	if applyHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Apply with empty validation preview status=%d body=%s", applyHTTP.StatusCode, applyHTTP.Body)
@@ -186,7 +189,7 @@ func TestApplyConstructionProposalOverCapCaptureKeepsValidationAndSave(t *testin
 	proposalID := proposeConstructionRemovalForApplyPreview(t, app, basePath, snapshot, draftDigest)
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"apply-preview-over-cap","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposalID,
 	))
 	if applyHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Apply with over-cap response capture status=%d body=%s", applyHTTP.StatusCode, applyHTTP.Body)
@@ -232,32 +235,32 @@ func proposeConstructionRemovalForApplyPreview(t *testing.T, app *fiber.App, bas
 func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyApplyPreview, overCapApplyCapture bool) (*fiber.App, *explorer.Service, capability.Snapshot, string, *int) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	document.Construction.Steps = []authoringv2.ConstructionStep{{
-		ID: "only_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind:   authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+	document.Construction.Steps = []ws.ConstructionStep{{
+		ID: "only_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind:   ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterExists},
 		},
 		Outputs: columns,
 	}}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "apply-preview"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "apply-preview"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "apply-preview")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "apply-preview")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate initial construction workspace: %v", err)
 	}
@@ -297,12 +300,12 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCallCount++
 			if receipt == nil || receipt.ConstructionProposal == nil || bindings.PreviewLimit != 7 || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("unexpected preview receipt/bindings: receipt=%#v bindings=%#v", receipt, bindings)

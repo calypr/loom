@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 )
 
 var ErrReceiptExecutionContract = explorer.ErrReceiptExecutionContract
 
-func ValidateEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved dataframeexecution.Resolved) error {
+func ValidateEnginePublicColumns(receipt *receiptmodel.CompilationReceipt, resolved dataframeexecution.Resolved) error {
 	if receipt == nil {
 		return ExecutionContractError("receipt is required")
 	}

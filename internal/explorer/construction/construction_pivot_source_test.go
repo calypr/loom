@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/rowdef"
@@ -20,7 +22,7 @@ func TestRebuiltPivotSourceHelperDoesNotReusePresentationForChangedBinding(t *te
 	_, construction := pivotSourcePresentationFixture()
 	changedSource := construction.Steps[0].Operation.RelatedField.Source
 	changedSource.Path = "valueQuantity.unit"
-	output := authoringv2.StageColumn{
+	output := ws.StageColumn{
 		ID: "pivot-input", Name: constructionPivotSourceOutputName("pivot-input"),
 		Label: "Observation.valueQuantity.unit", Type: "string", Nullable: true,
 	}
@@ -43,7 +45,7 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		{ID: "observation", ResourceType: "Observation"},
 	}
 	snapshot.Candidates = []capability.Candidate{candidateSource}
-	source := authoringv2.ConstructionRelatedFieldSource{
+	source := ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: candidateSource.ID, NodeID: candidateSource.NodeID,
 		ResourceType: candidateSource.ResourceType, Path: candidateSource.FieldPath,
 		Cardinality: candidateSource.Cardinality, LogicalType: candidateSource.LogicalType,
@@ -56,21 +58,21 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 	construction.Steps[0].Operation.RelatedField.ChoiceID = anchorChoice.ChoiceID
 	construction.Steps[0].Operation.RelatedField.Source = source
 	construction.Steps[0].Outputs[len(construction.Steps[0].Outputs)-1].Label = "Status"
-	construction.Steps[0].Outputs[len(construction.Steps[0].Outputs)-1].Table = &authoringv2.TablePresentation{Visible: pivotPresentationBool(true), Order: pivotPresentationInt(4)}
+	construction.Steps[0].Outputs[len(construction.Steps[0].Outputs)-1].Table = &ws.TablePresentation{Visible: pivotPresentationBool(true), Order: pivotPresentationInt(4)}
 	construction.Steps[1].Outputs[1].Label = "Status"
 	document.Construction = &construction
 
-	active := &explorer.ReceiptConstructionActiveRelatedRecord{
+	active := &receiptmodel.ReceiptConstructionActiveRelatedRecord{
 		TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: "observation_id",
 	}
-	sourceStageColumns := []explorer.ReceiptConstructionStageColumn{
+	sourceStageColumns := []receiptmodel.ReceiptConstructionStageColumn{
 		{ID: "specimen", Name: "specimen_id", Label: "Specimen", Type: "string"},
 		{ID: "category", Name: "category", Label: "Category", Type: "string"},
 		{ID: "value", Name: "value", Label: "Value", Type: "string"},
 	}
-	stages := []explorer.ReceiptConstructionStage{
+	stages := []receiptmodel.ReceiptConstructionStage{
 		{ID: recipe.ConstructionSourceProjectionID, Columns: sourceStageColumns, ActiveRelatedRecord: active},
-		{ID: helperID, Columns: []explorer.ReceiptConstructionStageColumn{
+		{ID: helperID, Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "specimen", Name: "specimen_id", Label: "Specimen", Type: "string"},
 			{ID: "category", Name: "category", Label: "Category", Type: "string"},
 			{ID: "value", Name: "value", Label: "Value", Type: "string"},
@@ -87,8 +89,8 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		t.Fatal(err)
 	}
 	candidate := construction
-	candidate.Steps = append([]authoringv2.ConstructionStep(nil), construction.Steps...)
-	candidate.Steps[1].Outputs = append([]authoringv2.StageColumn(nil), construction.Steps[1].Outputs...)
+	candidate.Steps = append([]ws.ConstructionStep(nil), construction.Steps...)
+	candidate.Steps[1].Outputs = append([]ws.StageColumn(nil), construction.Steps[1].Outputs...)
 	candidate.Steps[1].Outputs[len(candidate.Steps[1].Outputs)-1].Label = "Observed quantity d"
 	request := ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "patients", OutputID: "patients", ChangedStepID: "pivot",
@@ -156,25 +158,25 @@ func TestConstructionFieldDisplayLabelChainAndFallbacks(t *testing.T) {
 	}
 }
 
-func pivotSourcePresentationFixture() (authoringv2.Document, authoringv2.Construction) {
+func pivotSourcePresentationFixture() (ws.Document, ws.Construction) {
 	visible := true
 	order := 4
-	source := authoringv2.ConstructionRelatedFieldSource{
+	source := ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: "obs-value", NodeID: "observation",
 		ResourceType: "Observation", Path: "valueQuantity.value", Cardinality: "optional_one", LogicalType: "string",
 	}
-	output := authoringv2.StageColumn{
+	output := ws.StageColumn{
 		ID: "pivot-input", Name: constructionPivotSourceOutputName("pivot-input"), Label: "Observation.valueQuantity.value",
-		Type: "string", Nullable: true, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order},
+		Type: "string", Nullable: true, Table: &ws.TablePresentation{Visible: &visible, Order: &order},
 	}
 	helperID := constructionPivotSourceHelperID("pivot", output.ID)
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
-			ID: helperID, OwnerStepID: "pivot", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+			ID: helperID, OwnerStepID: "pivot", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 				ChoiceID: "saved-choice", Source: source, OutputColumnID: output.ID,
 			}},
-			Outputs: []authoringv2.StageColumn{
+			Outputs: []ws.StageColumn{
 				{ID: "specimen", Name: "specimen_id", Label: "Specimen", Type: "string"},
 				{ID: "category", Name: "category", Label: "Category", Type: "string"},
 				{ID: "value", Name: "value", Label: "Value", Type: "string"},
@@ -182,30 +184,30 @@ func pivotSourcePresentationFixture() (authoringv2.Document, authoringv2.Constru
 			},
 		},
 		{
-			ID: "pivot", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: helperID}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+			ID: "pivot", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: helperID}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 				ConstructionID: "pivot", GroupKeyIDs: []string{"specimen", "pivot-input"},
 				CategoryColumnID: "category", ValueColumnID: "value",
-				Categories:             []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("A"), OutputColumnID: "d"}},
-				DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-				MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-				UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+				Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("A"), OutputColumnID: "d"}},
+				DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+				MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 			}},
-			Outputs: []authoringv2.StageColumn{
+			Outputs: []ws.StageColumn{
 				{ID: "specimen", Name: "specimen_id", Label: "Specimen", Type: "string"},
 				output,
 				{ID: "d", Name: "d", Label: "d", Type: "string"},
 			},
 		},
 	}}
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-		RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Rows: authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{
-			{ColumnID: "specimen", Column: "specimen_id", Label: "Specimen", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
-			{ColumnID: "category", Column: "category", Label: "Category", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
-			{ColumnID: "value", Column: "value", Label: "Value", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{
+			{ColumnID: "specimen", Column: "specimen_id", Label: "Specimen", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
+			{ColumnID: "category", Column: "category", Label: "Category", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
+			{ColumnID: "value", Column: "value", Label: "Value", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
 		},
 		Construction: &construction,
 	}
@@ -219,10 +221,10 @@ func pivotPresentationInt(value int) *int { return &value }
 func TestPivotSourcePresentationFailureIsPrefixScopeRejection(t *testing.T) {
 	document, construction := pivotSourcePresentationFixture()
 	candidate := construction
-	candidate.Steps = append([]authoringv2.ConstructionStep(nil), construction.Steps...)
-	candidate.Steps[0].Outputs = append([]authoringv2.StageColumn(nil), construction.Steps[0].Outputs...)
+	candidate.Steps = append([]ws.ConstructionStep(nil), construction.Steps...)
+	candidate.Steps[0].Outputs = append([]ws.StageColumn(nil), construction.Steps[0].Outputs...)
 	candidate.Steps[0].Outputs[len(candidate.Steps[0].Outputs)-1].Table = nil
-	candidate.Steps[1].Outputs = append([]authoringv2.StageColumn(nil), construction.Steps[1].Outputs...)
+	candidate.Steps[1].Outputs = append([]ws.StageColumn(nil), construction.Steps[1].Outputs...)
 	candidate.Steps[1].Outputs[len(candidate.Steps[1].Outputs)-1].Label = "Observed quantity d"
 	_, _, err := document.AnalyzeConstructionCandidate(candidate, "pivot", nil)
 	if err == nil || !strings.Contains(err.Error(), "candidate changes step") || !strings.Contains(err.Error(), construction.Steps[0].ID) {
@@ -239,9 +241,9 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
-	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
-	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
+	rowChanging := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []receiptmodel.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
 	bs := func(id, path, logicalType, cardinality string, populated bool) capability.Candidate {
 		return rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, id, path, logicalType, cardinality, populated)
 	}
@@ -254,9 +256,9 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 		name         string
 		snapshot     capability.Snapshot
 		service      *Service
-		construction authoringv2.Construction
+		construction ws.Construction
 		stageID      string
-		stages       []explorer.ReceiptConstructionStage
+		stages       []receiptmodel.ReceiptConstructionStage
 		wantCode     string
 	}{
 		{
@@ -382,7 +384,7 @@ func TestConstructionFieldDisplayLabelRefusesControlBytes(t *testing.T) {
 func TestConstructionPivotSourceCapabilityNamesInventoryFailureDistinctly(t *testing.T) {
 	const internalDetail = "capability-store-dsn=secret-token"
 	inventoryErr := errors.New("row-choice inventory store unreachable: " + internalDetail)
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
 	observedSnapshot := filterSourceSnapshot("pivot-source-inventory-observed")
 	observedSnapshot.Candidates = []capability.Candidate{
 		rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, "bs-active", filterSourceField, "boolean", "optional_one", false),

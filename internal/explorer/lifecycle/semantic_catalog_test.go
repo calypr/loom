@@ -10,12 +10,14 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
@@ -63,7 +65,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			}}
 			req := semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Limit: 50}
 			first, err := service.BrowseSemanticInventory(context.Background(), req)
-			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || len(first.Entries[0].Examples) != 2 || !first.Entries[0].ExamplesTruncated || len(first.Entries[0].ObservedUnits) != 2 || !first.Entries[0].ObservedUnitsTruncated || first.Entries[0].Completeness != semantic.CompletenessComplete || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != semantic.SourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
+			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || len(first.Entries[0].Examples) != 2 || !first.Entries[0].ExamplesTruncated || len(first.Entries[0].ObservedUnits) != 2 || !first.Entries[0].ObservedUnitsTruncated || first.Entries[0].Completeness != semantic.CompletenessComplete || first.Entries[0].Readiness.Status != semanticauthoring.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != semanticauthoring.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != semantic.SourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
 				t.Fatalf("first=%#v err=%v", first, err)
 			}
 			semanticSource, ok := first.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
@@ -259,7 +261,7 @@ func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizati
 		ChoiceArms: []string{"valueCodeableConcept"}, LogicalType: "string", RuleVersion: "5", SchemaVersion: 4,
 	}
 	entry := semantic.Entry{ConceptID: "stage", BindingID: family.BindingID, Observation: observation}
-	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || !semanticEntryMatchesFrameFamily(entry, family) {
 		t.Fatalf("fallback frame family did not reauthorize against current binding: plan=%#v family=%#v", plan, family)
 	}
@@ -325,7 +327,7 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
 	snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}}
-	frame, err := authoringv2.NewFrameDefinition("Observation component values", "Codes and their paired values on Observation records.", capability.SemanticFrameFamily{
+	frame, err := ws.NewFrameDefinition("Observation component values", "Codes and their paired values on Observation records.", capability.SemanticFrameFamily{
 		BindingID: "binding-component", ResourceType: "Observation", SourcePath: "component[]",
 		OwningScope: "component[]", KeyPath: "component[].code.coding[]", ValuePath: "valueInteger",
 		LogicalType: "integer", RuleVersion: "semantic-rule-v1", SchemaVersion: 1,
@@ -333,17 +335,17 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := func(outputID string) authoringv2.Document {
-		return authoringv2.Document{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: outputID, Title: outputID}, RootResourceType: "Observation",
-			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-			Rows:  authoringv2.RecordsRowDefinition(), Frames: []authoringv2.FrameDefinition{frame}, Columns: []authoringv2.Column{},
+	document := func(outputID string) ws.Document {
+		return ws.Document{
+			Kind: ws.Kind, Output: ws.Output{ID: outputID, Title: outputID}, RootResourceType: "Observation",
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+			Rows:  ws.RecordsRowDefinition(), Frames: []ws.FrameDefinition{frame}, Columns: []ws.Column{},
 		}
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
-		Documents: []authoringv2.Document{document("out_a"), document("out_b")},
-		Tabs:      []authoringv2.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Builder"},
+		Documents: []ws.Document{document("out_a"), document("out_b")},
+		Tabs:      []ws.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	config, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -432,7 +434,7 @@ func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testi
 	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "MedicationRequest",
 	})
-	if err != nil || len(result.Entries) != 1 || result.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || result.Entries[0].ConstructionChoice == nil {
+	if err != nil || len(result.Entries) != 1 || result.Entries[0].Readiness.Status != semanticauthoring.SemanticReadinessReady || result.Entries[0].ConstructionChoice == nil {
 		t.Fatalf("nested coded value was not compiler-proved: result=%#v error=%v", result, err)
 	}
 	source, ok := result.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
@@ -455,7 +457,7 @@ func TestBrowseSemanticInventoryMarksMissingCompilerProofUnsupported(t *testing.
 		},
 	}}
 	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
-	if err != nil || len(result.Entries) != 1 || result.Entries[0].ConstructionChoice != nil || result.Entries[0].Readiness.Status != authoringv2.SemanticReadinessUnsupported || result.Entries[0].Readiness.Code != "COMPILER_PROOF_UNAVAILABLE" {
+	if err != nil || len(result.Entries) != 1 || result.Entries[0].ConstructionChoice != nil || result.Entries[0].Readiness.Status != semanticauthoring.SemanticReadinessUnsupported || result.Entries[0].Readiness.Code != "COMPILER_PROOF_UNAVAILABLE" {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
 }

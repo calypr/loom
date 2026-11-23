@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 )
 
@@ -20,10 +22,10 @@ func exactCategoryTransformation() columntransform.ValueTransformation {
 
 func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *testing.T) {
 	catalog := commandCatalog()
-	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{workspaceDocument("patients")},
-		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{workspaceDocument("patients")},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	original := workspace.Documents[0].Columns[0]
 	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())}}}})
@@ -45,7 +47,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := DecodeWorkspace(canonical)
+	reloaded, err := ws.DecodeWorkspace(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,10 +65,10 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 }
 
 func TestUpdateColumnTransformationRejectsUnsupportedAndIncompleteMappings(t *testing.T) {
-	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{workspaceDocument("patients")},
-		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{workspaceDocument("patients")},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	catalog := commandCatalog()
 	catalog.Candidates[0].LogicalType = "boolean"
@@ -87,7 +89,7 @@ func TestUpdateColumnTransformationRejectsUnsupportedAndIncompleteMappings(t *te
 func TestCodedValueTransformationRefusalPreservesCodingIdentity(t *testing.T) {
 	document := workspaceDocument("patients")
 	column := document.Columns[0]
-	column.Source = ColumnSource{Kind: SourceCodedValue}
+	column.Source = ws.ColumnSource{Kind: ws.SourceCodedValue}
 	err := validateColumnValueTransformationForCatalog(document, commandCatalog(), column, column.Source, exactCategoryTransformation())
 	if err == nil || !strings.Contains(err.Error(), "CODED_VALUE_RECODE_UNAVAILABLE") || !strings.Contains(err.Error(), "Coding.system and Coding.code") {
 		t.Fatalf("coded-value transformation error = %v, want exact identity-preservation refusal", err)

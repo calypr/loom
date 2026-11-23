@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -115,7 +117,7 @@ func cloneDocument(value map[string]any) map[string]any {
 
 func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *testing.T) {
 	previous := explorer.Explorer{
-		Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig:  json.RawMessage(`{"documents":[{"outputId":"patients","construction":{"steps":[{"id":"pivot","outputs":[{"id":"col_age","name":"age"}]}]}}]}`),
 		DraftVersion: 4, DraftDigest: "sha256:old-draft", DraftSnapshotToken: "snapshot-old",
 		DraftSourceGeneration: "generation-old", DraftAuthorizationScopeDigest: "scope-old",

@@ -2,21 +2,24 @@ package explorer
 
 import (
 	"encoding/json"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"testing"
+
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestBuildViewerProjectionPreservesPublicContractColumnOrder(t *testing.T) {
-	emitted := []EmittedColumn{
+	emitted := []viewer.EmittedColumn{
 		{EmissionID: "subject-emission", OutputID: "observations", PublicColumn: "subject.reference", Label: "Subject", LogicalType: "string", Shape: "scalar"},
 		{EmissionID: "status-emission", OutputID: "observations", PublicColumn: "status", Label: "Status", LogicalType: "string", Shape: "scalar"},
 	}
-	contracts := PublicOutputContracts{Outputs: []PublicOutputContract{{
+	contracts := receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{{
 		OutputID: "observations",
-		Columns: []PublicOutputColumn{
+		Columns: []receiptmodel.PublicOutputColumn{
 			{Column: "subject.reference", Label: "Subject", LogicalType: "string", Shape: "scalar"},
 			{Column: "status", Label: "Status", LogicalType: "string", Shape: "scalar"},
 		},
@@ -47,7 +50,7 @@ func TestBuildViewerProjectionPreservesPublicContractColumnOrder(t *testing.T) {
 			}},
 		}),
 		Recipe: bundle,
-		Dataset: DatasetMetadata{Outputs: []DatasetOutput{{
+		Dataset: viewer.DatasetMetadata{Outputs: []viewer.DatasetOutput{{
 			Name: "observations", Queryable: true,
 			Columns: []publication.PhysicalColumn{
 				{Name: "status", LogicalType: "string", ClickHouse: "String"},
@@ -74,7 +77,7 @@ func TestBuildViewerProjectionPreservesPublicContractColumnOrder(t *testing.T) {
 		t.Fatalf("runtime table columns = %#v, want frozen public-contract order", table)
 	}
 
-	saved := &ProjectConfig{Views: []explorerconfig.ConfigView{{
+	saved := &explorerconfig.ProjectConfig{Views: []explorerconfig.ConfigView{{
 		ID: "observations", Output: "observations",
 		Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{
 			{Column: "status", Label: "Saved status", Visible: true, Pinned: true},

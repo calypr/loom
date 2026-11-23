@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 
@@ -15,7 +17,6 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -39,7 +40,7 @@ func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T
 		Current: func(ctx context.Context, project, _, generation string) (capability.Snapshot, error) {
 			return resolver.Resolve(ctx, project, generation)
 		},
-		Catalog: authoringv2.CatalogFromCapability,
+		Catalog: ws.CatalogFromCapability,
 	}}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)

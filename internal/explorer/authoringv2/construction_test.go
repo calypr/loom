@@ -7,94 +7,96 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func stagedConstructionDocument() Document {
+func stagedConstructionDocument() ws.Document {
 	document := workspaceDocument("patients")
-	document.Columns = []Column{
+	document.Columns = []ws.Column{
 		constructionSourceColumn("person_id", "person_id", "Person ID", "integer"),
 		constructionSourceColumn("group_id", "group_id", "Group", "string"),
 		constructionSourceColumn("category_id", "category", "Category", "string"),
 		constructionSourceColumn("value_id", "value", "Value", "integer"),
 	}
-	group := StageColumn{ID: "group_id", Name: "group_id", Label: "Group", Type: "string"}
-	categoryA := StageColumn{ID: "pivot_a", Name: "amount_a", Label: "Amount A", Type: "integer"}
-	categoryB := StageColumn{ID: "pivot_b", Name: "amount_b", Label: "Amount B", Type: "integer"}
-	pivotOutputs := []StageColumn{group, categoryA, categoryB}
-	quotient := StageColumn{ID: "ratio_id", Name: "ratio", Label: "Ratio", Type: "decimal"}
-	derivedOutputs := append(append([]StageColumn(nil), pivotOutputs...), quotient)
+	group := ws.StageColumn{ID: "group_id", Name: "group_id", Label: "Group", Type: "string"}
+	categoryA := ws.StageColumn{ID: "pivot_a", Name: "amount_a", Label: "Amount A", Type: "integer"}
+	categoryB := ws.StageColumn{ID: "pivot_b", Name: "amount_b", Label: "Amount B", Type: "integer"}
+	pivotOutputs := []ws.StageColumn{group, categoryA, categoryB}
+	quotient := ws.StageColumn{ID: "ratio_id", Name: "ratio", Label: "Ratio", Type: "decimal"}
+	derivedOutputs := append(append([]ws.StageColumn(nil), pivotOutputs...), quotient)
 	filterValue := int64(1)
-	filterOutputs := append([]StageColumn(nil), derivedOutputs...)
-	finalOutputs := []StageColumn{
+	filterOutputs := append([]ws.StageColumn(nil), derivedOutputs...)
+	finalOutputs := []ws.StageColumn{
 		group,
 		quotient,
 		{ID: "measure_key", Name: "measure", Label: "Measure"},
 		{ID: "measure_value", Name: "measure_value", Label: "Measure value", Type: "integer"},
 	}
-	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
 			ID:     "pivot_step",
-			Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 				ConstructionID: "pivot_step", GroupKeyIDs: []string{"group_id"}, CategoryColumnID: "category_id", ValueColumnID: "value_id",
-				Categories: []ConstructionPivotCategory{
+				Categories: []ws.ConstructionPivotCategory{
 					{Key: stringScalar("A"), OutputColumnID: "pivot_a"},
 					{Key: stringScalar("B"), OutputColumnID: "pivot_b"},
 				},
-				DuplicatePolicy: ConstructionPivotDuplicateSum, MissingCellPolicy: ConstructionPivotMissingNull,
-				UnlistedCategoryPolicy: ConstructionPivotUnlistedError,
+				DuplicatePolicy: ws.ConstructionPivotDuplicateSum, MissingCellPolicy: ws.ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 			}},
 			Outputs: pivotOutputs,
 		},
 		{
-			ID: "derive_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "pivot_step"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationDerive, Derive: &ConstructionDerive{
-				ConstructionID: "derive_step", OutputColumnID: "ratio_id", Operation: ConstructionDerivedDivide,
-				Left:               ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "pivot_a"},
-				Right:              ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "pivot_b"},
-				MissingInputPolicy: ConstructionMissingInputPropagateNull, DivisionByZeroPolicy: ConstructionDivisionByZeroNull,
+			ID: "derive_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_step"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+				ConstructionID: "derive_step", OutputColumnID: "ratio_id", Operation: ws.ConstructionDerivedDivide,
+				Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "pivot_a"},
+				Right:              ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "pivot_b"},
+				MissingInputPolicy: ws.ConstructionMissingInputPropagateNull, DivisionByZeroPolicy: ws.ConstructionDivisionByZeroNull,
 			}}, Outputs: derivedOutputs,
 		},
 		{
-			ID: "filter_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "derive_step"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
-				ColumnID: "ratio_id", Operator: ConstructionFilterGreaterEq,
-				Values: []FilterValue{{Kind: ConstructionFilterInteger, Integer: &filterValue}},
+			ID: "filter_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive_step"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "ratio_id", Operator: ws.ConstructionFilterGreaterEq,
+				Values: []ws.FilterValue{{Kind: ws.ConstructionFilterInteger, Integer: &filterValue}},
 			}}, Outputs: filterOutputs,
 		},
 		{
-			ID: "unpivot_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "filter_step"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationUnpivot, Unpivot: &ConstructionUnpivot{
+			ID: "unpivot_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "filter_step"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 				ConstructionID: "unpivot_step",
-				Inputs: []ConstructionUnpivotInput{
+				Inputs: []ws.ConstructionUnpivotInput{
 					{ColumnID: "pivot_a", Key: stringScalar("A")},
 					{ColumnID: "pivot_b", Key: stringScalar("B")},
 				},
-				KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: ConstructionUnpivotPreserve,
+				KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: ws.ConstructionUnpivotPreserve,
 			}}, Outputs: finalOutputs,
 		},
 	}}
 	return document
 }
 
-func constructionSourceColumn(id, name, label, logicalType string) Column {
-	return Column{
-		ColumnID: id, Column: name, Label: label, LogicalType: logicalType, OccurrenceID: RootOccurrenceID,
-		Source: ColumnSource{Kind: SourceProjectID},
+func constructionSourceColumn(id, name, label, logicalType string) ws.Column {
+	return ws.Column{
+		ColumnID: id, Column: name, Label: label, LogicalType: logicalType, OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceProjectID},
 	}
 }
 
-func stringScalar(value string) TableScalar {
-	return TableScalar{Kind: TableScalarString, String: &value}
+func stringScalar(value string) ws.TableScalar {
+	return ws.TableScalar{Kind: ws.TableScalarString, String: &value}
 }
 
-func constructionWorkspace(document Document) Workspace {
-	return Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion,
-		Explorer:  ExplorerMetadata{Title: "Construction test"},
-		Documents: []Document{document},
-		Tabs:      []Tab{{ID: "tab-patients", Title: "Patients", OutputID: document.Output.ID, Order: 0, Visible: true}},
+func constructionWorkspace(document ws.Document) ws.Workspace {
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:  ws.ExplorerMetadata{Title: "ws.Construction test"},
+		Documents: []ws.Document{document},
+		Tabs:      []ws.Tab{{ID: "tab-patients", Title: "Patients", OutputID: document.Output.ID, Order: 0, Visible: true}},
 	}
 }
 
@@ -109,7 +111,7 @@ func TestConstructionValidatesAndRoundTripsTypedOperationChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical JSON: %v", err)
 	}
-	decoded, err := DecodeWorkspace(encoded)
+	decoded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatalf("decode canonical workspace: %v", err)
 	}
@@ -121,19 +123,19 @@ func TestConstructionValidatesAndRoundTripsTypedOperationChain(t *testing.T) {
 func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.Columns = nil
-	projection := ConstructionSourceProjection{
-		ColumnID: "source_active", OccurrenceID: RootOccurrenceID, FieldPath: "active",
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: "source_active", OccurrenceID: ws.RootOccurrenceID, FieldPath: "active",
 		FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
 	}
-	candidate := Construction{
-		Version: ConstructionVersion, SourceProjections: []ConstructionSourceProjection{projection},
-		Steps: []ConstructionStep{{
-			ID: "group_by_active", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
-				ConstructionID: "group_by_active", Keys: []ConstructionGroupKey{{InputColumnID: projection.ColumnID, OutputColumnID: "active_key"}},
-				Aggregates: []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+	candidate := ws.Construction{
+		Version: ws.ConstructionVersion, SourceProjections: []ws.ConstructionSourceProjection{projection},
+		Steps: []ws.ConstructionStep{{
+			ID: "group_by_active", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+				ConstructionID: "group_by_active", Keys: []ws.ConstructionGroupKey{{InputColumnID: projection.ColumnID, OutputColumnID: "active_key"}},
+				Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "record_count"}},
 			}},
-			Outputs: []StageColumn{
+			Outputs: []ws.StageColumn{
 				{ID: "active_key", Name: "active", Label: projection.Label, Type: "boolean"},
 				{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
 			},
@@ -158,7 +160,7 @@ func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var reloaded Document
+	var reloaded ws.Document
 	if err := json.Unmarshal(encoded, &reloaded); err != nil {
 		t.Fatal(err)
 	}
@@ -176,49 +178,49 @@ func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
 
 func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 	document := workspaceDocument("patients")
-	document.Columns = []Column{
+	document.Columns = []ws.Column{
 		constructionSourceColumn("patient_id", "patient_id", "Patient ID", "string"),
 		constructionSourceColumn("amount", "amount", "Amount", "integer"),
 	}
-	projection := ConstructionSourceProjection{
-		ColumnID: "pivot_status", OwnerStepID: "pivot_step", OccurrenceID: RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: "pivot_status", OwnerStepID: "pivot_step", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Patient.active",
 	}
-	sourceColumns := []StageColumn{
+	sourceColumns := []ws.StageColumn{
 		{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 		{ID: "amount", Name: "amount", Label: "Amount", Type: "integer"},
-		{ID: projection.ColumnID, Name: ConstructionSourceProjectionName(projection.ColumnID), Label: projection.Label, Type: projection.LogicalType},
+		{ID: projection.ColumnID, Name: ws.ConstructionSourceProjectionName(projection.ColumnID), Label: projection.Label, Type: projection.LogicalType},
 	}
-	relatedSource := ConstructionRelatedFieldSource{
+	relatedSource := ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-status", NodeID: "observation-node",
 		ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
 	}
-	relatedOutputs := append(append([]StageColumn(nil), sourceColumns...), StageColumn{
+	relatedOutputs := append(append([]ws.StageColumn(nil), sourceColumns...), ws.StageColumn{
 		ID: "pivot_observation_status", Name: "__pivot_source_status", Label: "Observation.status", Type: "string", Nullable: true,
 	})
 	active := true
-	candidate := Construction{
-		Version:           ConstructionVersion,
-		SourceProjections: []ConstructionSourceProjection{projection},
-		Steps: []ConstructionStep{
+	candidate := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
+		Steps: []ws.ConstructionStep{
 			{
 				ID: "pivot_status_input", OwnerStepID: "pivot_step",
-				Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-				Operation: ConstructionOperation{Kind: ConstructionOperationRelatedField, RelatedField: &ConstructionRelatedField{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 					ChoiceID: "stage-bound-choice", Source: relatedSource, OutputColumnID: "pivot_observation_status",
 				}},
 				Outputs: relatedOutputs,
 			},
 			{
-				ID: "pivot_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "pivot_status_input"}},
-				Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+				ID: "pivot_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status_input"}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 					ConstructionID: "pivot_step", GroupKeyIDs: []string{"patient_id"},
 					CategoryColumnID: projection.ColumnID, ValueColumnID: "pivot_observation_status",
-					Categories:      []ConstructionPivotCategory{{Key: TableScalar{Kind: TableScalarBoolean, Boolean: &active}, OutputColumnID: "active_amount"}},
-					DuplicatePolicy: ConstructionPivotDuplicateError, MissingCellPolicy: ConstructionPivotMissingNull,
-					UnlistedCategoryPolicy: ConstructionPivotUnlistedError,
+					Categories:      []ws.ConstructionPivotCategory{{Key: ws.TableScalar{Kind: ws.TableScalarBoolean, Boolean: &active}, OutputColumnID: "active_amount"}},
+					DuplicatePolicy: ws.ConstructionPivotDuplicateError, MissingCellPolicy: ws.ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 				}},
-				Outputs: []StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 					{ID: "active_amount", Name: "active_amount", Label: "Active amount", Type: "string"},
 				},
@@ -235,13 +237,13 @@ func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 	}
 	t.Run("removal rebuilds preceding passthrough stages", func(t *testing.T) {
 		withPrefix := cloneDocumentForConstructionChange(accepted)
-		prefix := ConstructionStep{
-			ID: "keep_patient", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "patient_id", Operator: ConstructionFilterExists}},
-			Outputs:   append([]StageColumn(nil), sourceColumns...),
+		prefix := ws.ConstructionStep{
+			ID: "keep_patient", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "patient_id", Operator: ws.ConstructionFilterExists}},
+			Outputs:   append([]ws.StageColumn(nil), sourceColumns...),
 		}
-		withPrefix.Construction.Steps[0].Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: prefix.ID}}
-		withPrefix.Construction.Steps = append([]ConstructionStep{prefix}, withPrefix.Construction.Steps...)
+		withPrefix.Construction.Steps[0].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: prefix.ID}}
+		withPrefix.Construction.Steps = append([]ws.ConstructionStep{prefix}, withPrefix.Construction.Steps...)
 		if err := withPrefix.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -271,14 +273,14 @@ func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 
 func TestPivotGroupKeepsDeclaredPublicPresentationAndSourceType(t *testing.T) {
 	const groupID = "pivot_status"
-	step := ConstructionStep{
-		Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+	step := ws.ConstructionStep{
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			GroupKeyIDs: []string{groupID},
 		}},
-		Outputs: []StageColumn{{ID: groupID, Name: "status", Label: "Status", Type: "declared-wrong-type"}},
+		Outputs: []ws.StageColumn{{ID: groupID, Name: "status", Label: "Status", Type: "declared-wrong-type"}},
 	}
-	input := []StageColumn{{
-		ID: groupID, Name: ConstructionSourceProjectionName(groupID), Label: "Observation.status",
+	input := []ws.StageColumn{{
+		ID: groupID, Name: ws.ConstructionSourceProjectionName(groupID), Label: "Observation.status",
 		Type: "string", Nullable: true,
 	}}
 
@@ -303,41 +305,41 @@ func TestPivotGroupKeepsDeclaredPublicPresentationAndSourceType(t *testing.T) {
 
 func TestPivotEditCanDropOwnedRootProjectionAcrossPrefix(t *testing.T) {
 	document := workspaceDocument("patients")
-	document.Columns = []Column{
+	document.Columns = []ws.Column{
 		constructionSourceColumn("patient_id", "patient_id", "Patient ID", "string"),
 		constructionSourceColumn("amount", "amount", "Amount", "integer"),
 		constructionSourceColumn("category", "category", "Category", "string"),
 	}
-	projection := ConstructionSourceProjection{
-		ColumnID: "pivot_status", OwnerStepID: "pivot_step", OccurrenceID: RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: "pivot_status", OwnerStepID: "pivot_step", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Patient.active",
 	}
 	active := true
-	filterOutputs := []StageColumn{
+	filterOutputs := []ws.StageColumn{
 		{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 		{ID: "amount", Name: "amount", Label: "Amount", Type: "integer"},
 		{ID: "category", Name: "category", Label: "Category", Type: "string"},
-		{ID: projection.ColumnID, Name: ConstructionSourceProjectionName(projection.ColumnID), Label: projection.Label, Type: projection.LogicalType},
+		{ID: projection.ColumnID, Name: ws.ConstructionSourceProjectionName(projection.ColumnID), Label: projection.Label, Type: projection.LogicalType},
 	}
-	candidate := Construction{
-		Version: ConstructionVersion, SourceProjections: []ConstructionSourceProjection{projection},
-		Steps: []ConstructionStep{
+	candidate := ws.Construction{
+		Version: ws.ConstructionVersion, SourceProjections: []ws.ConstructionSourceProjection{projection},
+		Steps: []ws.ConstructionStep{
 			{
-				ID: "filter_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-				Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
-					ColumnID: "patient_id", Operator: ConstructionFilterExists,
+				ID: "filter_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+					ColumnID: "patient_id", Operator: ws.ConstructionFilterExists,
 				}}, Outputs: filterOutputs,
 			},
 			{
-				ID: "pivot_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "filter_step"}},
-				Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+				ID: "pivot_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "filter_step"}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 					ConstructionID: "pivot_step", GroupKeyIDs: []string{"patient_id"},
 					CategoryColumnID: projection.ColumnID, ValueColumnID: "amount",
-					Categories:      []ConstructionPivotCategory{{Key: TableScalar{Kind: TableScalarBoolean, Boolean: &active}, OutputColumnID: "active_amount"}},
-					DuplicatePolicy: ConstructionPivotDuplicateError, MissingCellPolicy: ConstructionPivotMissingNull,
-					UnlistedCategoryPolicy: ConstructionPivotUnlistedError,
+					Categories:      []ws.ConstructionPivotCategory{{Key: ws.TableScalar{Kind: ws.TableScalarBoolean, Boolean: &active}, OutputColumnID: "active_amount"}},
+					DuplicatePolicy: ws.ConstructionPivotDuplicateError, MissingCellPolicy: ws.ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 				}},
-				Outputs: []StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 					{ID: "active_amount", Name: "active_amount", Label: "Active amount", Type: "integer"},
 				},
@@ -346,7 +348,7 @@ func TestPivotEditCanDropOwnedRootProjectionAcrossPrefix(t *testing.T) {
 	}
 	acceptedFilter := candidate.Steps[0]
 	acceptedFilter.Outputs = acceptedFilter.Outputs[:3]
-	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{acceptedFilter}}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{acceptedFilter}}
 	accepted, _, err := document.AnalyzeConstructionCandidate(candidate, "pivot_step", nil)
 	if err != nil {
 		t.Fatalf("accept Pivot-owned root projection through filter: %v", err)
@@ -358,8 +360,8 @@ func TestPivotEditCanDropOwnedRootProjectionAcrossPrefix(t *testing.T) {
 	updated.SourceProjections = nil
 	updated.Steps[0].Outputs = updated.Steps[0].Outputs[:3]
 	updated.Steps[1].Operation.Pivot.CategoryColumnID = "category"
-	updated.Steps[1].Operation.Pivot.Categories = []ConstructionPivotCategory{{Key: stringScalar("final"), OutputColumnID: "final_amount"}}
-	updated.Steps[1].Outputs = []StageColumn{
+	updated.Steps[1].Operation.Pivot.Categories = []ws.ConstructionPivotCategory{{Key: stringScalar("final"), OutputColumnID: "final_amount"}}
+	updated.Steps[1].Outputs = []ws.StageColumn{
 		{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 		{ID: "final_amount", Name: "final_amount", Label: "Final amount", Type: "integer"},
 	}
@@ -374,9 +376,9 @@ func TestPivotEditCanDropOwnedRootProjectionAcrossPrefix(t *testing.T) {
 
 func TestEmptyConstructionSerializesStepsAsArray(t *testing.T) {
 	document := workspaceDocument("patients")
-	document.Rows = RecordsRowDefinition()
-	document.Columns = []Column{}
-	document.Construction = &Construction{Version: ConstructionVersion}
+	document.Rows = ws.RecordsRowDefinition()
+	document.Columns = []ws.Column{}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion}
 	workspace := constructionWorkspace(document)
 
 	encoded, err := workspace.CanonicalJSON()
@@ -387,7 +389,7 @@ func TestEmptyConstructionSerializesStepsAsArray(t *testing.T) {
 		t.Fatalf("empty construction steps were not persisted as an array: %s", encoded)
 	}
 
-	reloaded, err := DecodeWorkspace(encoded)
+	reloaded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatalf("decode canonical workspace: %v", err)
 	}
@@ -403,7 +405,7 @@ func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *tes
 	if err != nil {
 		t.Fatalf("upgrade fresh document: %v", err)
 	}
-	if upgraded.Construction == nil || upgraded.Construction.Version != ConstructionVersion || len(upgraded.Construction.Steps) != 0 {
+	if upgraded.Construction == nil || upgraded.Construction.Version != ws.ConstructionVersion || len(upgraded.Construction.Steps) != 0 {
 		t.Fatalf("fresh construction = %#v", upgraded.Construction)
 	}
 	if upgraded.Columns[0].ColumnID == "" {
@@ -414,13 +416,13 @@ func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *tes
 	}
 
 	sourceColumn := upgraded.Columns[0]
-	sourceStage := StageColumn{ID: sourceColumn.ColumnID, Name: sourceColumn.Column, Label: sourceColumn.Label, Type: sourceColumn.LogicalType}
-	candidate := Construction{Version: ConstructionVersion, Steps: []ConstructionStep{{
-		ID: "first_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
-			ColumnID: sourceColumn.ColumnID, Operator: ConstructionFilterExists,
+	sourceStage := ws.StageColumn{ID: sourceColumn.ColumnID, Name: sourceColumn.Column, Label: sourceColumn.Label, Type: sourceColumn.LogicalType}
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "first_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: sourceColumn.ColumnID, Operator: ws.ConstructionFilterExists,
 		}},
-		Outputs: []StageColumn{sourceStage},
+		Outputs: []ws.StageColumn{sourceStage},
 	}}}
 	firstStep, impact, err := upgraded.AnalyzeConstructionCandidate(candidate, "first_filter", nil)
 	if err != nil {
@@ -440,9 +442,9 @@ func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *tes
 func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
 	document := stagedConstructionDocument()
 	document.ArchiveRetiredShape = &storedTableShape{Derived: []storedDerivedConstruction{{
-		ConstructionID: "legacy-derived", Output: ColumnOutput{Column: "old_result", Label: "Old result"}, Operation: "ADD",
+		ConstructionID: "legacy-derived", Output: ws.ColumnOutput{Column: "old_result", Label: "Old result"}, Operation: "ADD",
 		Left:               storedArithmeticOperand{Kind: "COLUMN", Column: "value"},
-		Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(1)}},
+		Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &ws.TableScalar{Kind: ws.TableScalarInteger, Integer: int64Pointer(1)}},
 		MissingInputPolicy: "PROPAGATE_NULL",
 	}}}
 	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "stored-data migration") {
@@ -465,7 +467,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 		t.Fatalf("legacy document is invalid: %v", err)
 	}
 	original := legacy
-	original.Columns = append([]Column(nil), legacy.Columns...)
+	original.Columns = append([]ws.Column(nil), legacy.Columns...)
 	original.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
 
 	upgraded, err := migrateStoredDocumentFixture(legacy)
@@ -478,7 +480,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 	if len(upgraded.Construction.Steps) != 3 {
 		t.Fatalf("migrated steps = %d, want pivot plus two derived steps", len(upgraded.Construction.Steps))
 	}
-	if upgraded.Construction.Steps[0].Operation.Kind != ConstructionOperationPivot {
+	if upgraded.Construction.Steps[0].Operation.Kind != ws.ConstructionOperationPivot {
 		t.Fatalf("first migrated operation = %q, want PIVOT", upgraded.Construction.Steps[0].Operation.Kind)
 	}
 	if got := upgraded.Construction.Steps[1].Operation.Derive.OutputColumnID; got == "" {
@@ -487,10 +489,10 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 	if upgraded.Construction.Steps[1].Operation.Derive.OutputColumnID == upgraded.Construction.Steps[2].Operation.Derive.OutputColumnID {
 		t.Fatal("migrated derived columns share one stable identity")
 	}
-	if got := upgraded.Construction.Steps[0].Operation.Pivot.DuplicatePolicy; got != ConstructionPivotDuplicateMax {
+	if got := upgraded.Construction.Steps[0].Operation.Pivot.DuplicatePolicy; got != ws.ConstructionPivotDuplicateMax {
 		t.Fatalf("pivot duplicate policy = %q", got)
 	}
-	if got := upgraded.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy; got != ConstructionPivotUnlistedError {
+	if got := upgraded.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy; got != ws.ConstructionPivotUnlistedError {
 		t.Fatalf("pivot unlisted policy = %q", got)
 	}
 	for _, column := range upgraded.Columns {
@@ -507,7 +509,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 	if err != nil {
 		t.Fatalf("canonical upgraded workspace: %v", err)
 	}
-	decoded, err := DecodeWorkspace(encoded)
+	decoded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatalf("decode upgraded workspace: %v", err)
 	}
@@ -551,7 +553,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 
 func TestConstructionRejectsExcludeWithEvidencePivotBeforeCompilation(t *testing.T) {
 	document := stagedConstructionDocument()
-	document.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy = ConstructionPivotUnlistedExcludeWithEvidence
+	document.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy = ws.ConstructionPivotUnlistedExcludeWithEvidence
 	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
 		t.Fatalf("document validation accepted an unsupported construction pivot policy: %v", err)
 	}
@@ -561,7 +563,7 @@ func TestUpgradeRejectsExcludeWithEvidenceTableShapeBeforeCompilation(t *testing
 	legacy := legacyPivotDocument()
 	legacy.ArchiveRetiredShape.Reshape.Pivot.UnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
 	before := legacy
-	before.Columns = append([]Column(nil), legacy.Columns...)
+	before.Columns = append([]ws.Column(nil), legacy.Columns...)
 	before.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
 	if err := legacy.ValidateAllowArchive(); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
 		t.Fatalf("document validation accepted an unupgradable tableShape pivot policy: %v", err)
@@ -586,8 +588,8 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 			{Column: "group_id", Key: stringScalar("one")},
 			{Column: "category", Key: stringScalar("two")},
 		},
-		KeyOutput:     ColumnOutput{Column: "metric", Label: "Metric"},
-		ValueOutput:   ColumnOutput{Column: "metric_value", Label: "Metric value"},
+		KeyOutput:     ws.ColumnOutput{Column: "metric", Label: "Metric"},
+		ValueOutput:   ws.ColumnOutput{Column: "metric_value", Label: "Metric value"},
 		NullRowPolicy: "PRESERVE",
 	}}}
 	upgraded, err := migrateStoredDocumentFixture(legacy)
@@ -598,7 +600,7 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 		t.Fatalf("migrated step count = %d", len(upgraded.Construction.Steps))
 	}
 	unpivot := upgraded.Construction.Steps[0].Operation.Unpivot
-	if unpivot == nil || unpivot.NullRowPolicy != ConstructionUnpivotPreserve || len(unpivot.Inputs) != 2 {
+	if unpivot == nil || unpivot.NullRowPolicy != ws.ConstructionUnpivotPreserve || len(unpivot.Inputs) != 2 {
 		t.Fatalf("migrated unpivot = %#v", unpivot)
 	}
 	if unpivot.Inputs[0].Key.String == nil || *unpivot.Inputs[0].Key.String != "one" || unpivot.Inputs[1].Key.String == nil || *unpivot.Inputs[1].Key.String != "two" {
@@ -611,9 +613,9 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 
 func TestUpgradeDocumentToConstructionRejectsLossyShapeWithoutMutation(t *testing.T) {
 	legacy := legacyPivotDocument()
-	legacy.ArchiveRetiredShape.Derived[0].Left = storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarString, String: stringPointer("not numeric")}}
+	legacy.ArchiveRetiredShape.Derived[0].Left = storedArithmeticOperand{Kind: "LITERAL", Literal: &ws.TableScalar{Kind: ws.TableScalarString, String: stringPointer("not numeric")}}
 	before := legacy
-	before.Columns = append([]Column(nil), legacy.Columns...)
+	before.Columns = append([]ws.Column(nil), legacy.Columns...)
 	before.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
 	if _, err := migrateStoredDocumentFixture(legacy); err == nil || !strings.Contains(err.Error(), "not numeric") {
 		t.Fatalf("lossy conversion error = %v", err)
@@ -625,7 +627,7 @@ func TestUpgradeDocumentToConstructionRejectsLossyShapeWithoutMutation(t *testin
 
 func TestAnalyzeStepEditReportsMissingDownstreamColumnAndKeepsAcceptedDocument(t *testing.T) {
 	accepted := documentWithDependentSteps()
-	var replacement ConstructionStep
+	var replacement ws.ConstructionStep
 	raw, err := json.Marshal(accepted.Construction.Steps[0])
 	if err != nil {
 		t.Fatal(err)
@@ -634,8 +636,8 @@ func TestAnalyzeStepEditReportsMissingDownstreamColumnAndKeepsAcceptedDocument(t
 		t.Fatal(err)
 	}
 	replacement.Operation.Derive.OutputColumnID = "score_v2_id"
-	replacement.Outputs = append([]StageColumn(nil), replacement.Outputs[:2]...)
-	replacement.Outputs = append(replacement.Outputs, StageColumn{ID: "score_v2_id", Name: "score_v2", Label: "Score v2", Type: "integer"})
+	replacement.Outputs = append([]ws.StageColumn(nil), replacement.Outputs[:2]...)
+	replacement.Outputs = append(replacement.Outputs, ws.StageColumn{ID: "score_v2_id", Name: "score_v2", Label: "Score v2", Type: "integer"})
 	proposal, impact, err := accepted.AnalyzeStepEdit(replacement)
 	if err != nil {
 		t.Fatalf("analyze edit: %v", err)
@@ -661,12 +663,12 @@ func TestAnalyzeConstructionCandidateSupportsAppendAndRecalculatesStage(t *testi
 		t.Fatal(err)
 	}
 	filterValue := int64(0)
-	lastOutputs := append([]StageColumn(nil), construction.Steps[len(construction.Steps)-1].Outputs...)
-	construction.Steps = append(construction.Steps, ConstructionStep{
-		ID: "last_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "unpivot_step"}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
-			ColumnID: "measure_value", Operator: ConstructionFilterGreaterEq,
-			Values: []FilterValue{{Kind: ConstructionFilterInteger, Integer: &filterValue}},
+	lastOutputs := append([]ws.StageColumn(nil), construction.Steps[len(construction.Steps)-1].Outputs...)
+	construction.Steps = append(construction.Steps, ws.ConstructionStep{
+		ID: "last_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "unpivot_step"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: "measure_value", Operator: ws.ConstructionFilterGreaterEq,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterInteger, Integer: &filterValue}},
 		}},
 		Outputs: lastOutputs,
 	})
@@ -678,7 +680,7 @@ func TestAnalyzeConstructionCandidateSupportsAppendAndRecalculatesStage(t *testi
 	if impact.ChangedStepID != "last_filter" || !reflect.DeepEqual(impact.AffectedStepIDs, []string{"last_filter"}) {
 		t.Fatalf("append impact = %#v", impact)
 	}
-	if got := candidate.Construction.Steps[4].Inputs; !reflect.DeepEqual(got, []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "unpivot_step"}}) {
+	if got := candidate.Construction.Steps[4].Inputs; !reflect.DeepEqual(got, []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "unpivot_step"}}) {
 		t.Fatalf("appended input refs = %#v", got)
 	}
 	if err := candidate.Validate(); err != nil {
@@ -694,11 +696,11 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 	patientColumn := constructionSourceColumn(
 		"source_c3a8832f4fca3ef4fc094bb0", "col_649f8c7bba4d5b652204c73f", "Patient ID", "string",
 	)
-	patientColumn.Source = ColumnSource{
-		Kind:  SourceField,
-		Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"},
+	patientColumn.Source = ws.ColumnSource{
+		Kind:  ws.SourceField,
+		Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"},
 	}
-	document.Columns = []Column{patientColumn}
+	document.Columns = []ws.Column{patientColumn}
 
 	route := []capability.ConstructionRouteStep{{
 		EdgeID: "e_e225a17091bb09974fb4afe2", FromNodeID: "n_7855547e43c259d43ab787c6",
@@ -707,44 +709,44 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 	}}
 	makeRelatedSource := func(
 		stepID, choiceID, candidateID, fieldPath, logicalType, outputID, outputName, outputLabel string,
-		input ConstructionInputRef,
-		outputs []StageColumn,
-	) ConstructionStep {
-		return ConstructionStep{
-			ID: stepID, Inputs: []ConstructionInputRef{input},
-			Operation: ConstructionOperation{
-				Kind: ConstructionOperationRelatedSource,
-				RelatedSource: &ConstructionRelatedSource{
+		input ws.ConstructionInputRef,
+		outputs []ws.StageColumn,
+	) ws.ConstructionStep {
+		return ws.ConstructionStep{
+			ID: stepID, Inputs: []ws.ConstructionInputRef{input},
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationRelatedSource,
+				RelatedSource: &ws.ConstructionRelatedSource{
 					AnchorColumnID: "_key", ChoiceID: choiceID, SourceOccurrenceID: "n_e8ff24d9e0b8c8f91ea140a6",
-					Source: ConstructionRelatedFieldSource{
+					Source: ws.ConstructionRelatedFieldSource{
 						Kind: capability.ConstructionChoiceSourceField, CandidateID: candidateID,
 						NodeID: "n_e8ff24d9e0b8c8f91ea140a6", ResourceType: "Observation", Path: fieldPath,
 						Cardinality: "optional_one", LogicalType: logicalType,
 					},
 					Route:           append([]capability.ConstructionRouteStep(nil), route...),
-					ContributorRule: ConstructionRelatedContributorRule{Policy: ConstructionRelatedAllMatches},
+					ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
 					Form:            capability.ConstructionChoiceAll, OutputColumnID: outputID,
 				},
 			},
-			Outputs: append(append([]StageColumn(nil), outputs...), StageColumn{
+			Outputs: append(append([]ws.StageColumn(nil), outputs...), ws.StageColumn{
 				ID: outputID, Name: outputName, Label: outputLabel, Type: logicalType,
 			}),
 		}
 	}
-	rootOutput := StageColumn{ID: patientColumn.ColumnID, Name: patientColumn.Column, Label: patientColumn.Label, Type: patientColumn.LogicalType}
+	rootOutput := ws.StageColumn{ID: patientColumn.ColumnID, Name: patientColumn.Column, Label: patientColumn.Label, Type: patientColumn.LogicalType}
 	first := makeRelatedSource(
 		"step-204eaeb8-5b66-45d2-9bae-8a2de6b47a07", "choice-observation-id", "c_31b05f0dcbcf99c2c17e6d95",
 		"id", "string", "related-e026caab-7839-460f-a872-acc4504c418b", "related_Observation_id", "Observation IDs",
-		ConstructionInputRef{Kind: ConstructionInputSourceProjection}, []StageColumn{rootOutput},
+		ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}, []ws.StageColumn{rootOutput},
 	)
 	second := makeRelatedSource(
 		"step-b1b10346-9c35-43ef-9861-afdd3ba6ad4f", "choice-observation-value", "c_b84351cf8639d336ef2ff4a5",
 		"valueQuantity.value", "decimal", "related-b9c96965-3b12-4037-bdd5-39fe090bf091",
 		"related_Observation_valueQuantity_value", "Observation valueQuantity.value",
-		ConstructionInputRef{Kind: ConstructionInputStepOutput, StepID: first.ID},
-		[]StageColumn{rootOutput, first.Outputs[1]},
+		ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: first.ID},
+		[]ws.StageColumn{rootOutput, first.Outputs[1]},
 	)
-	candidate := Construction{Version: ConstructionVersion, Steps: []ConstructionStep{first, second}}
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{first, second}}
 
 	updated, impact, err := document.AnalyzeConstructionCandidate(candidate, second.ID, nil)
 	if err != nil {
@@ -764,7 +766,7 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("second appended stage columns = %#v, want %#v", got, want)
 	}
-	if updated.Construction.Steps[1].Inputs[0] != (ConstructionInputRef{Kind: ConstructionInputStepOutput, StepID: first.ID}) {
+	if updated.Construction.Steps[1].Inputs[0] != (ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: first.ID}) {
 		t.Fatalf("second related source is not chained from the first: %#v", updated.Construction.Steps[1].Inputs)
 	}
 	if document.Construction != nil {
@@ -775,19 +777,19 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 	}
 	t.Run("appends after unchanged existing filter", func(t *testing.T) {
 		filteredDocument := document
-		filter := ConstructionStep{
+		filter := ws.ConstructionStep{
 			ID:     "existing_patient_filter",
-			Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
-				ColumnID: patientColumn.ColumnID, Operator: ConstructionFilterExists,
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: patientColumn.ColumnID, Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: []StageColumn{rootOutput},
+			Outputs: []ws.StageColumn{rootOutput},
 		}
-		filteredDocument.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{filter}}
+		filteredDocument.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filter}}
 		filteredFirst, filteredSecond := first, second
-		filteredFirst.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: filter.ID}}
-		filteredSecond.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: filteredFirst.ID}}
-		filteredCandidate := Construction{Version: ConstructionVersion, Steps: []ConstructionStep{filter, filteredFirst, filteredSecond}}
+		filteredFirst.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: filter.ID}}
+		filteredSecond.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: filteredFirst.ID}}
+		filteredCandidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filter, filteredFirst, filteredSecond}}
 
 		result, impact, err := filteredDocument.AnalyzeConstructionCandidate(filteredCandidate, filteredSecond.ID, nil)
 		if err != nil {
@@ -807,7 +809,7 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 		if err != nil {
 			t.Fatal(err)
 		}
-		changedPrefix.Steps[0].Operation.Filter.Operator = ConstructionFilterMissing
+		changedPrefix.Steps[0].Operation.Filter.Operator = ws.ConstructionFilterMissing
 		if _, _, err := filteredDocument.AnalyzeConstructionCandidate(*changedPrefix, filteredSecond.ID, nil); err == nil {
 			t.Fatal("appended related-source candidate changed its existing filter prefix")
 		}
@@ -815,25 +817,25 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 
 	for _, test := range []struct {
 		name   string
-		mutate func(*Construction)
+		mutate func(*ws.Construction)
 	}{
 		{
 			name: "different route",
-			mutate: func(value *Construction) {
+			mutate: func(value *ws.Construction) {
 				value.Steps[1].Operation.RelatedSource.Route[0].EdgeID = "other-edge"
 			},
 		},
 		{
 			name: "broken step chain",
-			mutate: func(value *Construction) {
-				value.Steps[1].Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
+			mutate: func(value *ws.Construction) {
+				value.Steps[1].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}
 			},
 		},
 		{
 			name: "unrequested operation in suffix",
-			mutate: func(value *Construction) {
-				interleaved := ConstructionStep{ID: "unrequested-step", Operation: ConstructionOperation{Kind: ConstructionOperationFilter}}
-				value.Steps = append(value.Steps[:1], append([]ConstructionStep{interleaved}, value.Steps[1:]...)...)
+			mutate: func(value *ws.Construction) {
+				interleaved := ws.ConstructionStep{ID: "unrequested-step", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter}}
+				value.Steps = append(value.Steps[:1], append([]ws.ConstructionStep{interleaved}, value.Steps[1:]...)...)
 			},
 		},
 	} {
@@ -880,12 +882,12 @@ func TestAnalyzeConstructionCandidateRequiresExplicitRemovalsAndReportsMissingIn
 		t.Fatal(err)
 	}
 	changed.Steps[0].Operation.Pivot.Categories[0].OutputColumnID = "pivot_a_replaced"
-	changed.Steps[0].Outputs[1] = StageColumn{ID: "pivot_a_replaced", Name: "amount_a_new", Label: "Amount A new", Type: "integer"}
+	changed.Steps[0].Outputs[1] = ws.StageColumn{ID: "pivot_a_replaced", Name: "amount_a_new", Label: "Amount A new", Type: "integer"}
 	invalid, missing, err := accepted.AnalyzeConstructionCandidate(*changed, "pivot_step", nil)
 	if err != nil {
 		t.Fatalf("edit with dependent issue: %v", err)
 	}
-	wantMissing := []ConstructionDependencyIssue{
+	wantMissing := []ws.ConstructionDependencyIssue{
 		{StepID: "derive_step", ColumnID: "pivot_a"},
 		{StepID: "unpivot_step", ColumnID: "pivot_a"},
 	}
@@ -932,22 +934,22 @@ func TestProposeStepRemovalRequiresExplicitDependentRemovalAndKeepsUnrelatedStep
 	if err := repaired.Validate(); err != nil {
 		t.Fatalf("repaired construction is invalid: %v", err)
 	}
-	if repaired.Construction.Steps[0].Inputs[0].Kind != ConstructionInputSourceProjection {
+	if repaired.Construction.Steps[0].Inputs[0].Kind != ws.ConstructionInputSourceProjection {
 		t.Fatalf("retained step input was not rewired to source: %#v", repaired.Construction.Steps[0].Inputs)
 	}
 }
 
 func TestConstructionInputRequiresPinnedTableRevision(t *testing.T) {
-	valid := ConstructionInputRef{Kind: ConstructionInputTableRevision, TableID: "source_table", RevisionID: "rev_7", OutputID: "result"}
+	valid := ws.ConstructionInputRef{Kind: ws.ConstructionInputTableRevision, TableID: "source_table", RevisionID: "rev_7", OutputID: "result"}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("pinned table input rejected: %v", err)
 	}
-	if err := (ConstructionInputRef{Kind: ConstructionInputTableRevision, TableID: "source_table", OutputID: "result"}).Validate(); err == nil || !strings.Contains(err.Error(), "revisionId") {
+	if err := (ws.ConstructionInputRef{Kind: ws.ConstructionInputTableRevision, TableID: "source_table", OutputID: "result"}).Validate(); err == nil || !strings.Contains(err.Error(), "revisionId") {
 		t.Fatalf("floating table input error = %v", err)
 	}
 }
 
-func legacyPivotDocument() Document {
+func legacyPivotDocument() ws.Document {
 	document := stagedConstructionDocument()
 	for i := range document.Columns {
 		document.Columns[i].ColumnID = ""
@@ -957,21 +959,21 @@ func legacyPivotDocument() Document {
 		Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 			ConstructionID: "legacy_pivot", GroupKeys: []string{"group_id"}, CategoryColumn: "category", ValueColumn: "value",
 			Categories: []storedPivotCategory{
-				{Key: stringScalar("A"), Output: ColumnOutput{Column: "amount_a", Label: "Amount A"}},
-				{Key: stringScalar("B"), Output: ColumnOutput{Column: "amount_b", Label: "Amount B"}},
+				{Key: stringScalar("A"), Output: ws.ColumnOutput{Column: "amount_a", Label: "Amount A"}},
+				{Key: stringScalar("B"), Output: ws.ColumnOutput{Column: "amount_b", Label: "Amount B"}},
 			},
 			DuplicatePolicy: "MAX", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 		}},
 		Derived: []storedDerivedConstruction{
 			{
-				ConstructionID: "legacy_ratio", Output: ColumnOutput{Column: "ratio", Label: "Ratio"}, Operation: "ADD",
+				ConstructionID: "legacy_ratio", Output: ws.ColumnOutput{Column: "ratio", Label: "Ratio"}, Operation: "ADD",
 				Left: storedArithmeticOperand{Kind: "COLUMN", Column: "twice_a"}, Right: storedArithmeticOperand{Kind: "COLUMN", Column: "amount_b"},
 				MissingInputPolicy: "PROPAGATE_NULL",
 			},
 			{
-				ConstructionID: "legacy_twice", Output: ColumnOutput{Column: "twice_a", Label: "Twice A"}, Operation: "MULTIPLY",
+				ConstructionID: "legacy_twice", Output: ws.ColumnOutput{Column: "twice_a", Label: "Twice A"}, Operation: "MULTIPLY",
 				Left:               storedArithmeticOperand{Kind: "COLUMN", Column: "amount_a"},
-				Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(2)}},
+				Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &ws.TableScalar{Kind: ws.TableScalarInteger, Integer: int64Pointer(2)}},
 				MissingInputPolicy: "PROPAGATE_NULL",
 			},
 		},
@@ -979,44 +981,44 @@ func legacyPivotDocument() Document {
 	return document
 }
 
-func documentWithDependentSteps() Document {
+func documentWithDependentSteps() ws.Document {
 	document := workspaceDocument("patients")
-	document.Columns = []Column{
+	document.Columns = []ws.Column{
 		constructionSourceColumn("person_id", "person_id", "Person ID", "integer"),
 		constructionSourceColumn("age_id", "age", "Age", "integer"),
 	}
-	person := StageColumn{ID: "person_id", Name: "person_id", Label: "Person ID", Type: "integer"}
-	age := StageColumn{ID: "age_id", Name: "age", Label: "Age", Type: "integer"}
-	base := []StageColumn{person, age}
-	score := StageColumn{ID: "score_id", Name: "score", Label: "Score", Type: "integer"}
-	scoreStage := append(append([]StageColumn(nil), base...), score)
+	person := ws.StageColumn{ID: "person_id", Name: "person_id", Label: "Person ID", Type: "integer"}
+	age := ws.StageColumn{ID: "age_id", Name: "age", Label: "Age", Type: "integer"}
+	base := []ws.StageColumn{person, age}
+	score := ws.StageColumn{ID: "score_id", Name: "score", Label: "Score", Type: "integer"}
+	scoreStage := append(append([]ws.StageColumn(nil), base...), score)
 	threshold := int64(18)
-	bonus := StageColumn{ID: "bonus_id", Name: "bonus", Label: "Bonus", Type: "integer"}
-	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{
+	bonus := ws.StageColumn{ID: "bonus_id", Name: "bonus", Label: "Bonus", Type: "integer"}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
-			ID: "score_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationDerive, Derive: &ConstructionDerive{
-				ConstructionID: "score_step", OutputColumnID: "score_id", Operation: ConstructionDerivedAdd,
-				Left:               ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "age_id"},
-				Right:              ConstructionOperand{Kind: ConstructionLiteralOperand, Literal: &ConstructionLiteral{Kind: ConstructionNumericInteger, Integer: int64Pointer(1)}},
-				MissingInputPolicy: ConstructionMissingInputPropagateNull,
+			ID: "score_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+				ConstructionID: "score_step", OutputColumnID: "score_id", Operation: ws.ConstructionDerivedAdd,
+				Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "age_id"},
+				Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: int64Pointer(1)}},
+				MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 			}}, Outputs: scoreStage,
 		},
 		{
-			ID: "score_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "score_step"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
-				ColumnID: "score_id", Operator: ConstructionFilterGreaterEq,
-				Values: []FilterValue{{Kind: ConstructionFilterInteger, Integer: &threshold}},
-			}}, Outputs: append([]StageColumn(nil), scoreStage...),
+			ID: "score_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "score_step"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "score_id", Operator: ws.ConstructionFilterGreaterEq,
+				Values: []ws.FilterValue{{Kind: ws.ConstructionFilterInteger, Integer: &threshold}},
+			}}, Outputs: append([]ws.StageColumn(nil), scoreStage...),
 		},
 		{
-			ID: "bonus_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "score_filter"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationDerive, Derive: &ConstructionDerive{
-				ConstructionID: "bonus_step", OutputColumnID: "bonus_id", Operation: ConstructionDerivedAdd,
-				Left:               ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "age_id"},
-				Right:              ConstructionOperand{Kind: ConstructionLiteralOperand, Literal: &ConstructionLiteral{Kind: ConstructionNumericInteger, Integer: int64Pointer(2)}},
-				MissingInputPolicy: ConstructionMissingInputPropagateNull,
-			}}, Outputs: append(append([]StageColumn(nil), scoreStage...), bonus),
+			ID: "bonus_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "score_filter"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+				ConstructionID: "bonus_step", OutputColumnID: "bonus_id", Operation: ws.ConstructionDerivedAdd,
+				Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "age_id"},
+				Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: int64Pointer(2)}},
+				MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
+			}}, Outputs: append(append([]ws.StageColumn(nil), scoreStage...), bonus),
 		},
 	}}
 	return document
@@ -1034,7 +1036,7 @@ func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t
 		StepID:   "bonus_step",
 		ColumnID: "score_id",
 		Label:    "Patient score",
-		Table:    &TablePresentation{Visible: &visible, Order: &order},
+		Table:    &ws.TablePresentation{Visible: &visible, Order: &order},
 	}}}})
 	if err != nil {
 		t.Fatalf("update construction output presentation: %v", err)
@@ -1061,7 +1063,7 @@ func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t
 	if err != nil {
 		t.Fatalf("serialize updated construction presentation: %v", err)
 	}
-	reloaded, err := DecodeWorkspace(encoded)
+	reloaded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatalf("reload updated construction presentation: %v", err)
 	}
@@ -1079,8 +1081,8 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 	}
 	catalog := commandCatalog()
 	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", []Command{
-		{Type: CommandAddColumn, OutputID: "patients", Title: "Added catalog ID", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}},
-		{Type: CommandAddColumnSource, OutputID: "patients", Title: "Added source ID", Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+		{Type: CommandAddColumn, OutputID: "patients", Title: "Added catalog ID", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "patient-id"}},
+		{Type: CommandAddColumnSource, OutputID: "patients", Title: "Added source ID", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 	})
 	if err != nil {
 		t.Fatalf("add source columns to staged document: %v", err)
@@ -1088,7 +1090,7 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 	if len(updated.Documents[0].Columns) != len(oldIDs)+2 {
 		t.Fatalf("source column count = %d, want %d", len(updated.Documents[0].Columns), len(oldIDs)+2)
 	}
-	added := make([]Column, 0, 2)
+	added := make([]ws.Column, 0, 2)
 	for _, column := range updated.Documents[0].Columns {
 		if _, existed := oldIDs[column.Column]; existed {
 			if oldIDs[column.Column] != column.ColumnID {
@@ -1117,7 +1119,7 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := DecodeWorkspace(encoded)
+	reloaded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatalf("reload staged sources: %v", err)
 	}
@@ -1139,9 +1141,9 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 
 func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(t *testing.T) {
 	catalog := testCatalog()
-	catalog.Nodes = []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
+	catalog.Nodes = []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
 	catalog.Edges = nil
-	catalog.Candidates = []CatalogCandidate{{
+	catalog.Candidates = []ws.CatalogCandidate{{
 		ID: "observation-status", NodeID: "observation", FieldPath: "status",
 		Cardinality: "optional_one", Label: "Status", LogicalType: "string", ProjectionModes: []string{"VALUE"},
 		DefaultProjectionMode: "VALUE",
@@ -1150,29 +1152,29 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 	document := workspaceDocument("observations")
 	document.RootResourceType = "Observation"
 	document.Route.ResourceType = "Observation"
-	document.Columns = []Column{{
+	document.Columns = []ws.Column{{
 		ColumnID: "observation-id", Column: "observation_id", Label: "Observation ID", LogicalType: "string",
-		OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 	}}
-	rootID := StageColumn{ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string"}
-	relatedID := StageColumn{ID: "related-medadmin-id", Name: "related_medicationadministration_id", Label: "MedicationAdministration ID", Type: "string", Nullable: true}
-	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{{
-		ID: "expand_medicationadministrations", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationRelatedExpand, RelatedExpand: &ConstructionRelatedExpand{
+	rootID := ws.StageColumn{ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string"}
+	relatedID := ws.StageColumn{ID: "related-medadmin-id", Name: "related_medicationadministration_id", Label: "MedicationAdministration ID", Type: "string", Nullable: true}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "expand_medicationadministrations", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{
 			AnchorColumnID: "_key", ChoiceID: "related-route-choice", TargetNodeID: "medicationadministration",
 			TargetResourceType: "MedicationAdministration", Route: []capability.ConstructionRouteStep{
 				{EdgeID: "observation-patient", FromNodeID: "observation", ToNodeID: "patient", FromResourceType: "Observation", ToResourceType: "Patient", Relationship: "subject_Patient", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL"},
 				{EdgeID: "patient-medicationadministration", FromNodeID: "patient", ToNodeID: "medicationadministration", FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
 			},
-			ContributorRule: ConstructionRelatedContributorRule{Policy: ConstructionRelatedAllMatches},
-			EmptyPolicy:     ConstructionExpandEmptyPreserveParent, RelatedRecordColumnID: relatedID.ID,
-		}}, Outputs: []StageColumn{rootID, relatedID},
+			ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+			EmptyPolicy:     ws.ConstructionExpandEmptyPreserveParent, RelatedRecordColumnID: relatedID.ID,
+		}}, Outputs: []ws.StageColumn{rootID, relatedID},
 	}}}
 	workspace := constructionWorkspace(document)
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate RELATED_EXPAND source workspace: %v", err)
 	}
-	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}})
+	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}})
 	if err != nil {
 		t.Fatalf("ADD_COLUMN_SOURCE after RELATED_EXPAND: %v", err)
 	}
@@ -1180,7 +1182,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 		t.Fatalf("ADD_COLUMN_SOURCE result = %#v", results)
 	}
 	updatedDocument := updated.Documents[0]
-	var added Column
+	var added ws.Column
 	for _, column := range updatedDocument.Columns {
 		if column.ColumnID != rootID.ID {
 			added = column
@@ -1191,7 +1193,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 	}
 	expand := updatedDocument.Construction.Steps[0]
 	if len(updatedDocument.Construction.Steps) != 1 || len(expand.RowValues) != 0 ||
-		expand.Operation.RelatedExpand == nil || expand.Operation.RelatedExpand.EmptyPolicy != ConstructionExpandEmptyPreserveParent {
+		expand.Operation.RelatedExpand == nil || expand.Operation.RelatedExpand.EmptyPolicy != ws.ConstructionExpandEmptyPreserveParent {
 		t.Fatalf("adding a root scalar changed expansion policy or grain: %#v", updatedDocument.Construction)
 	}
 	if got, found := findStageColumnByID(expand.Outputs, relatedID.ID); !found || !got.Nullable {
@@ -1205,35 +1207,35 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := DecodeWorkspace(encoded)
+	reloaded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatalf("reload expanded source field: %v", err)
 	}
 	groupedDocument := reloaded.Documents[0]
-	groupStep := ConstructionStep{
-		ID: "group_by_observation_status", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: expand.ID}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
-			ConstructionID: "group_by_observation_status", MissingKeyPolicy: ConstructionGroupMissingKeyGroup,
-			Keys:       []ConstructionGroupKey{{InputColumnID: added.ColumnID, OutputColumnID: "status_key"}},
-			Aggregates: []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+	groupStep := ws.ConstructionStep{
+		ID: "group_by_observation_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: expand.ID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group_by_observation_status", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys:       []ws.ConstructionGroupKey{{InputColumnID: added.ColumnID, OutputColumnID: "status_key"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "record_count"}},
 		}},
-		Outputs: []StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "status_key", Name: "status", Label: "Status", Type: "string"},
 			{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
 		},
 	}
 	candidate := *groupedDocument.Construction
-	candidate.Steps = append(append([]ConstructionStep(nil), candidate.Steps...), groupStep)
+	candidate.Steps = append(append([]ws.ConstructionStep(nil), candidate.Steps...), groupStep)
 	if _, _, err := groupedDocument.AnalyzeConstructionCandidate(candidate, groupStep.ID, nil); err != nil {
 		t.Fatalf("GROUP could not consume the added public field at the expanded stage: %v", err)
 	}
 }
 
 func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
-	if err := (FilterValue{Kind: ConstructionFilterDecimal, Decimal: float64Pointer(math.NaN())}).Validate(); err == nil {
+	if err := (ws.FilterValue{Kind: ws.ConstructionFilterDecimal, Decimal: float64Pointer(math.NaN())}).Validate(); err == nil {
 		t.Fatal("NaN filter literal was accepted")
 	}
-	if err := validateConstructionLiteral(ConstructionLiteral{Kind: ConstructionNumericDecimal, Decimal: float64Pointer(math.Inf(1))}); err == nil {
+	if err := validateConstructionLiteral(ws.ConstructionLiteral{Kind: ws.ConstructionNumericDecimal, Decimal: float64Pointer(math.Inf(1))}); err == nil {
 		t.Fatal("infinite calculation literal was accepted")
 	}
 }
@@ -1241,16 +1243,16 @@ func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
 func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.RootResourceType = "Patient"
-	document.Columns = []Column{{
+	document.Columns = []ws.Column{{
 		ColumnID: "patient-id", Column: "patient_id", Label: "Patient ID", LogicalType: "string",
-		OccurrenceID: RootOccurrenceID,
-		Source:       ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 	}}
 	raw := `{"version":1,"steps":[
 		{"id":"keep_patients","inputs":[{"kind":"SOURCE_PROJECTION"}],"operation":{"kind":"FILTER","filter":{"columnId":"patient-id","operator":"EXISTS"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"}]},
 		{"id":"add_observation_status","inputs":[{"kind":"STEP_OUTPUT","stepId":"keep_patients"}],"operation":{"kind":"RELATED_SOURCE","relatedSource":{"anchorColumnId":"_key","choiceId":"choice-token","sourceOccurrenceId":"observation-node","source":{"kind":"FIELD","candidateId":"observation-status","nodeId":"observation-node","resourceType":"Observation","path":"status","cardinality":"optional_one","logicalType":"string"},"route":[{"edgeId":"patient-observation","fromNodeId":"patient-node","toNodeId":"observation-node","fromResourceType":"Patient","toResourceType":"Observation","relationship":"subject_Patient","storageDirection":"INBOUND","matchMode":"OPTIONAL"}],"contributorRule":{"policy":"ALL_MATCHES","predicate":{"candidateId":"observation-status","operator":"EQUALS","value":{"kind":"STRING","string":"registered"}}},"form":"ALL","rowValuePolicy":"ONE","outputColumnId":"observation-status"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"},{"id":"observation-status","name":"observation_status","label":"Observation statuses","type":"string"}]}
 	]}`
-	var candidate Construction
+	var candidate ws.Construction
 	if err := json.Unmarshal([]byte(raw), &candidate); err != nil {
 		t.Fatalf("decode stage-local related source: %v", err)
 	}
@@ -1260,18 +1262,18 @@ func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(
 	if got := len(candidate.Steps[0].Outputs); got != 1 || candidate.Steps[0].Outputs[0].ID != "patient-id" {
 		t.Fatalf("source projection changed to %#v; related output must be stage-local", candidate.Steps[0].Outputs)
 	}
-	if got := candidate.Steps[1].Inputs; len(got) != 1 || got[0].Kind != ConstructionInputStepOutput || got[0].StepID != "keep_patients" {
+	if got := candidate.Steps[1].Inputs; len(got) != 1 || got[0].Kind != ws.ConstructionInputStepOutput || got[0].StepID != "keep_patients" {
 		t.Fatalf("related source input = %#v, want exact preceding stage output", got)
 	}
 	if got := candidate.Steps[1].Operation.RelatedSource.OutputColumnID; got != "observation-status" {
 		t.Fatalf("related source stable output ID = %q", got)
 	}
 	if candidate.Steps[1].Operation.RelatedSource.Form != capability.ConstructionChoiceAll ||
-		candidate.Steps[1].Operation.RelatedSource.RowValuePolicy != ConstructionRowValueOne {
+		candidate.Steps[1].Operation.RelatedSource.RowValuePolicy != ws.ConstructionRowValueOne {
 		t.Fatalf("related source ALL plus ONE row policy did not round-trip: %#v", candidate.Steps[1].Operation.RelatedSource)
 	}
 	predicate := candidate.Steps[1].Operation.RelatedSource.ContributorRule.Predicate
-	if predicate == nil || predicate.CandidateID != "observation-status" || predicate.Operator != ContributorEquals || predicate.Value == nil || predicate.Value.Kind != ContributorString || predicate.Value.String == nil || *predicate.Value.String != "registered" {
+	if predicate == nil || predicate.CandidateID != "observation-status" || predicate.Operator != ws.ContributorEquals || predicate.Value == nil || predicate.Value.Kind != ws.ContributorString || predicate.Value.String == nil || *predicate.Value.String != "registered" {
 		t.Fatalf("related source scalar contributor predicate did not round trip: %#v", predicate)
 	}
 	if len(document.Columns) != 1 || document.Columns[0].ColumnID != "patient-id" {
@@ -1279,15 +1281,15 @@ func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(
 	}
 	for _, test := range []struct {
 		name   string
-		policy ConstructionRowValuePolicy
+		policy ws.ConstructionRowValuePolicy
 		form   capability.ConstructionChoiceForm
 	}{
-		{name: "unsupported policy", policy: ConstructionRowValuePolicy("SOME"), form: capability.ConstructionChoiceAll},
-		{name: "ONE with count form", policy: ConstructionRowValueOne, form: capability.ConstructionChoiceCount},
+		{name: "unsupported policy", policy: ws.ConstructionRowValuePolicy("SOME"), form: capability.ConstructionChoiceAll},
+		{name: "ONE with count form", policy: ws.ConstructionRowValueOne, form: capability.ConstructionChoiceCount},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			invalid := candidate
-			invalid.Steps = append([]ConstructionStep(nil), candidate.Steps...)
+			invalid.Steps = append([]ws.ConstructionStep(nil), candidate.Steps...)
 			related := *candidate.Steps[1].Operation.RelatedSource
 			related.RowValuePolicy, related.Form = test.policy, test.form
 			invalid.Steps[1] = candidate.Steps[1]
@@ -1318,7 +1320,7 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	for index := range document.Columns {
 		if document.Columns[index].ColumnID == "group_id" {
 			document.Columns[index].Label = "Specimen ID"
-			document.Columns[index].Table = &TablePresentation{Order: &zero}
+			document.Columns[index].Table = &ws.TablePresentation{Order: &zero}
 		}
 	}
 	visible := true
@@ -1327,14 +1329,14 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 		switch output.ID {
 		case "group_id":
 			output.Name, output.Type = "stale_group", "boolean"
-			output.Table = &TablePresentation{Visible: &visible, Order: &zero}
+			output.Table = &ws.TablePresentation{Visible: &visible, Order: &zero}
 		case "pivot_a":
 			output.Name, output.Label = "d", "d"
-			output.Table = &TablePresentation{Order: &zero}
+			output.Table = &ws.TablePresentation{Order: &zero}
 		}
 	}
 	beforeOperation := document.Construction.Steps[0].Operation
-	var beforeSource ColumnSource
+	var beforeSource ws.ColumnSource
 	for _, column := range document.Columns {
 		if column.ColumnID == "group_id" {
 			beforeSource = column.Source
@@ -1345,10 +1347,10 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	one := 1
 
 	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", []Command{
-		{Type: CommandUpdateColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "group_id", ColumnValue: &Column{Label: "Specimen ID", Table: &TablePresentation{Order: &one}}}},
+		{Type: CommandUpdateColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "group_id", ColumnValue: &ws.Column{Label: "Specimen ID", Table: &ws.TablePresentation{Order: &one}}}},
 		{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
 			StepID: "pivot_step", ColumnID: "group_id", Label: "Group",
-			Table: &TablePresentation{Order: &one},
+			Table: &ws.TablePresentation{Order: &one},
 		}}},
 	})
 	if err != nil {
@@ -1356,7 +1358,7 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	}
 
 	updatedDocument := updated.Documents[0]
-	var source Column
+	var source ws.Column
 	for _, column := range updatedDocument.Columns {
 		if column.ColumnID == "group_id" {
 			source = column
@@ -1390,7 +1392,7 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalize updated workspace: %v", err)
 	}
-	reloaded, err := DecodeWorkspace(canonical)
+	reloaded, err := ws.DecodeWorkspace(canonical)
 	if err != nil {
 		t.Fatalf("reload updated workspace: %v", err)
 	}
@@ -1411,17 +1413,17 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 
 func TestPivotRebuildPreservesConstructedGroupKeyPresentation(t *testing.T) {
 	zero, one := 0, 1
-	step := ConstructionStep{
-		Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+	step := ws.ConstructionStep{
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			GroupKeyIDs: []string{"constructed_key"},
-			Categories:  []ConstructionPivotCategory{{OutputColumnID: "d"}},
+			Categories:  []ws.ConstructionPivotCategory{{OutputColumnID: "d"}},
 		}},
-		Outputs: []StageColumn{
-			{ID: "constructed_key", Name: "stale_name", Label: "Terminal label", Type: "boolean", Table: &TablePresentation{Order: &one}},
-			{ID: "d", Name: "d", Label: "d", Type: "integer", Table: &TablePresentation{Order: &zero}},
+		Outputs: []ws.StageColumn{
+			{ID: "constructed_key", Name: "stale_name", Label: "Terminal label", Type: "boolean", Table: &ws.TablePresentation{Order: &one}},
+			{ID: "d", Name: "d", Label: "d", Type: "integer", Table: &ws.TablePresentation{Order: &zero}},
 		},
 	}
-	input := []StageColumn{{ID: "constructed_key", Name: "derived_key", Label: "Upstream label", Type: "string"}}
+	input := []ws.StageColumn{{ID: "constructed_key", Name: "derived_key", Label: "Upstream label", Type: "string"}}
 	outputs, err := rebuildStageColumns(step, input, map[string]struct{}{})
 	if err != nil {
 		t.Fatalf("rebuild Pivot with a constructed group key: %v", err)

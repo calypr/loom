@@ -2,14 +2,15 @@ package resolver
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -119,7 +120,7 @@ func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
 	if statusBySystem["urn:study:A"] != "SUPPORTED" || statusBySystem["urn:study:B"] != "SUPPORTED" || statusBySystem[""] != "UNRESOLVED_SYSTEM" {
 		t.Fatalf("concept statuses = %#v", statusBySystem)
 	}
-	authoring := authoringv2.CatalogFromCapability(snapshot, "observations")
+	authoring := ws.CatalogFromCapability(snapshot, "observations")
 	if len(authoring.Candidates) != 1 || len(authoring.Candidates[0].ConceptCandidates) != 3 {
 		t.Fatalf("authoring catalog concepts = %#v", authoring.Candidates)
 	}

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
@@ -20,7 +22,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
@@ -34,7 +35,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
+	workspace, err := ws.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatalf("decode locked acceptance workspace: %v", err)
 	}
@@ -54,9 +55,9 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	}
 
 	snapshot := acceptanceObservationSnapshot()
-	catalog := authoringv2.CatalogFromCapability(snapshot, "acceptance")
-	workspace.Documents = []authoringv2.Document{document}
-	migrated, err := authoringv2.MigrateLegacyContributors(workspace, catalog)
+	catalog := ws.CatalogFromCapability(snapshot, "acceptance")
+	workspace.Documents = []ws.Document{document}
+	migrated, err := ws.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
 		t.Fatalf("migrate locked fixture contributor predicates: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 		if !selected {
 			continue
 		}
-		if predicate == nil || predicate.Operator != authoringv2.ContributorEquals || predicate.Quantifier != authoringv2.ContributorAny || predicate.Value == nil || predicate.Value.Code == nil || predicate.Value.Code.Code != wantCode {
+		if predicate == nil || predicate.Operator != ws.ContributorEquals || predicate.Quantifier != ws.ContributorAny || predicate.Value == nil || predicate.Value.Code == nil || predicate.Value.Code.Code != wantCode {
 			t.Fatalf("fixture column %q migrated contributor = %#v, want ANY CODE EQUALS %q", column.Column, predicate, wantCode)
 		}
 	}

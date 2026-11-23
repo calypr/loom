@@ -6,8 +6,10 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 func TestArchivedReceiptRetainsLegacyImmediateInputMetadata(t *testing.T) {
@@ -21,8 +23,8 @@ func TestArchivedReceiptRetainsLegacyImmediateInputMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := explorer.CompilationReceipt{Project: "project-a", ExplorerID: "historical", Bundle: bundle, RecipeDigest: digest, EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", ConstructionID: "add_one", PublicColumn: "doubled_patient_count", InputColumns: []string{"scaled_patient_count"}, AuthoredColumns: []string{"patient_count"}}}}
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt := receiptmodel.CompilationReceipt{Project: "project-a", ExplorerID: "historical", Bundle: bundle, RecipeDigest: digest, EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", ConstructionID: "add_one", PublicColumn: "doubled_patient_count", InputColumns: []string{"scaled_patient_count"}, AuthoredColumns: []string{"patient_count"}}}}
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +33,7 @@ func TestArchivedReceiptRetainsLegacyImmediateInputMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored explorer.CompilationReceipt
+	var stored receiptmodel.CompilationReceipt
 	if err = json.Unmarshal(before, &stored); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,7 @@ func TestArchivedReceiptRetainsLegacyImmediateInputMetadata(t *testing.T) {
 	if !bytes.Equal(before, after) || stored.ID != originalID {
 		t.Fatal("archive authentication changed immutable receipt metadata/identity")
 	}
-	if explorer.ReceiptContractSupportedForExecution(stored) {
+	if receiptmodel.ReceiptContractSupportedForExecution(stored) {
 		t.Fatal("historical address-only receipt became executable")
 	}
 }

@@ -9,9 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/arango/db"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -37,11 +40,11 @@ func reviewLargeArchive(t *testing.T) ([]byte, string) {
 		t.Fatal(err)
 	}
 	raw = []byte(strings.Replace(string(raw), `"integer":10`, `"integer":9007199254740993`, 1))
-	w, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
+	w, err := ws.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical, err := authoringv2.CanonicalStoredWorkspaceForMigration(w)
+	canonical, err := ws.CanonicalStoredWorkspaceForMigration(w)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,8 +54,8 @@ func TestReviewStoredReceiptLargeIntegerRemainsVerifiableOnRead(t *testing.T) {
 	raw, digest := reviewLargeArchive(t)
 	receipt := testCompilationReceipt(t, digest)
 	receipt.NormalizedBundle = raw
-	receipt.CompilationKey, _ = explorer.CompilationKey(receipt)
-	receipt.ID, _ = explorer.ReceiptID(receipt)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(receipt)
 	if err := receipt.Validate(); err != nil {
 		t.Fatalf("typed original invalid: %v", err)
 	}
@@ -152,7 +155,7 @@ func TestStoredJSONReaderRetainsLegacyNumericTimestampAndRawInteger(t *testing.T
 
 func TestReviewCurrentOwnerLargeIntegerReadIdentity(t *testing.T) {
 	raw, _ := reviewLargeArchive(t)
-	migrated, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +169,7 @@ func TestReviewCurrentOwnerLargeIntegerReadIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(stored.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(stored.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -24,7 +28,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -59,34 +62,34 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		return result
 	}
 	routeA, routeB := route(0), route(1, 2, 3)
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputs := []authoringv2.StageColumn{}
+	outputs := []ws.StageColumn{}
 	for _, column := range document.Columns {
-		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		outputs = append(outputs, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	outputs = append(outputs, authoringv2.StageColumn{ID: "observation_id", Name: "observation_id", Label: "Observation FHIR resource ID", Type: "string"})
-	construction := func(path []capability.ConstructionRouteStep) authoringv2.Construction {
+	outputs = append(outputs, ws.StageColumn{ID: "observation_id", Name: "observation_id", Label: "Observation FHIR resource ID", Type: "string"})
+	construction := func(path []capability.ConstructionRouteStep) ws.Construction {
 		choice, err := capability.NewConstructionRelatedResourceRouteChoiceFromAnchor(snapshot.Token, "source_projection", "_key", "root", "n_patient", "Patient", "n_observation", "Observation", path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{ID: "expand_observations", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &authoringv2.ConstructionRelatedExpand{AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, TargetNodeID: "n_observation", TargetResourceType: "Observation", Route: path, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches}, EmptyPolicy: authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id"}}, Outputs: outputs}}}
+		return ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{ID: "expand_observations", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, TargetNodeID: "n_observation", TargetResourceType: "Observation", Route: path, ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches}, EmptyPolicy: ws.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id"}}, Outputs: outputs}}}
 	}
 	initial := construction(routeA)
 	document.Construction = &initial
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "route-roundtrip"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "route-roundtrip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "route-roundtrip")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "route-roundtrip")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,17 +138,17 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, r ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	}, Catalog: ws.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, r ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		result, err := receiptapi.Compile(ctx, r, nil, engine, service, nil, nil)
 		if err == nil {
 			compiled++
 		}
 		return result, err
-	}, PreviewReceipt: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	}, PreviewReceipt: func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient", "observation_id"}, RowCount: 0, Complete: true}, nil
 	}}
 	if rowClient != nil {
-		config.PreviewReceipt = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, err := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PreviewSummary{}, err
@@ -157,10 +160,10 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	base := "/api/v1/projects/project-a/explorers/route-roundtrip/authoring/v2"
 	type saved struct {
-		Workspace *authoringv2.Workspace `json:"workspace"`
-		Version   int64                  `json:"draftVersion"`
-		Digest    string                 `json:"draftDigest"`
-		Previous  string                 `json:"previousDraftRevisionId"`
+		Workspace *ws.Workspace `json:"workspace"`
+		Version   int64         `json:"draftVersion"`
+		Digest    string        `json:"draftDigest"`
+		Previous  string        `json:"previousDraftRevisionId"`
 	}
 	load := func() saved {
 		t.Helper()
@@ -266,7 +269,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		t.Fatal("unapplied proposal changed saved draft")
 	}
 	command := func(id string, version int64, expected string, commands string) string {
-		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":%s}`, id, authoringv2.CurrentSemanticsVersion, snapshot.Token, version, expected, commands)
+		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":%s}`, id, ws.CurrentSemanticsVersion, snapshot.Token, version, expected, commands)
 	}
 	apply := fmt.Sprintf(`[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]`, *proposed.ProposalId)
 	rejected := requestJSON(t, app, http.MethodPost, base+"/commands", command("stale-route-apply", 2, digest, apply))
@@ -329,7 +332,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		persistedWorkspace, err := authoringv2.DecodeWorkspace(persisted.DraftConfig)
+		persistedWorkspace, err := ws.DecodeWorkspace(persisted.DraftConfig)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,7 +347,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		priorWorkspace, err := authoringv2.DecodeWorkspace(prior.DraftConfig)
+		priorWorkspace, err := ws.DecodeWorkspace(prior.DraftConfig)
 		if err != nil {
 			t.Fatal(err)
 		}

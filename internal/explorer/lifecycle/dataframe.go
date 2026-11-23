@@ -5,10 +5,13 @@ import (
 	"errors"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -17,26 +20,26 @@ const DefaultDataframeID = "dataframe-default"
 
 const defaultDataframeTitle = "Default dataframe"
 
-func (s *Service) defaultDataframeWorkspace(ctx context.Context, project string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
+func (s *Service) defaultDataframeWorkspace(ctx context.Context, project string, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (ws.Workspace, error) {
 	if s.config.DefaultDataframeWorkspace == nil {
-		return authoringv2.Workspace{}, support.Unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace is not configured", nil)
+		return ws.Workspace{}, support.Unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace is not configured", nil)
 	}
 	workspace, err := s.config.DefaultDataframeWorkspace(ctx, project, snapshot.Clone(), catalog)
 	if err != nil {
-		return authoringv2.Workspace{}, support.Unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace could not be imported", err)
+		return ws.Workspace{}, support.Unavailable("default-dataframe", "DEFAULT_DATAFRAME_UNAVAILABLE", "default dataframe workspace could not be imported", err)
 	}
 	canonical, err := workspace.CanonicalJSON()
 	if err != nil {
-		return authoringv2.Workspace{}, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return ws.Workspace{}, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
-	workspace, err = authoringv2.DecodeWorkspace(canonical)
+	workspace, err = ws.DecodeWorkspace(canonical)
 	if err != nil {
-		return authoringv2.Workspace{}, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+		return ws.Workspace{}, support.Conflict("default-dataframe", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
 	}
 	return workspace, nil
 }
 
-func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.Explorer, error) {
+func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project string, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (*explorer.Explorer, error) {
 	workspace, err := s.defaultDataframeWorkspace(ctx, project, snapshot, catalog)
 	if err != nil {
 		return nil, err
@@ -55,7 +58,7 @@ func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project stri
 	}
 	return &explorer.Explorer{
 		Project: projectid.Legacy(project), ExplorerID: DefaultDataframeID,
-		Title: title, ManagementMode: explorer.ManagementInteractive,
+		Title: title, ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest, DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation, DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 	}, nil
 }
@@ -81,7 +84,7 @@ func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*ex
 	return s.virtualDefaultDataframeOwner(ctx, project, snapshot, s.config.Capability.Catalog(snapshot, explorerID))
 }
 
-func (s *Service) getOwnerWithSnapshot(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.Explorer, error) {
+func (s *Service) getOwnerWithSnapshot(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (*explorer.Explorer, error) {
 	owner, err := s.store.Get(ctx, project, explorerID)
 	if err != nil && !errors.Is(err, explorer.ErrNotFound) {
 		return nil, support.PersistenceFailure("explorer", "the Explorer state could not be loaded", err)

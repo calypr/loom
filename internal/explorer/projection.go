@@ -1,14 +1,14 @@
 package explorer
 
 import (
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
-)
-
-import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
 	"io"
 	"sort"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 )
 
 var ErrViewerProjectionIntegrity = errors.New("viewer projection integrity failure")
@@ -50,11 +51,11 @@ func viewerProjectionIntegrity(component string, cause error) error {
 	return &ViewerProjectionIntegrityError{Component: component, Cause: cause}
 }
 
-func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
+func BuildViewerProjection(revision *Revision) (*viewer.ExplorerRuntimeV1, error) {
 	return buildViewerProjection(revision, nil)
 }
 
-func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerRuntimeV1, error) {
+func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConfig) (*viewer.ExplorerRuntimeV1, error) {
 	if revision == nil {
 		return nil, nil
 	}
@@ -85,19 +86,19 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 	contractColumns := inputs.contractColumns
 	contractOrder := inputs.contractOrder
 
-	status := firstNonEmptyString(revision.Publication.State, string(revision.Status), ExplorerRuntimeV1NotPublished)
+	status := firstNonEmptyString(revision.Publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
 	publicationState := revision.Publication
 	publicationState.State = firstNonEmptyString(publicationState.State, status)
-	runtime := &ExplorerRuntimeV1{
+	runtime := &viewer.ExplorerRuntimeV1{
 		Status:         status,
 		Generation:     firstNonEmptyString(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
 		Publication:    publicationState,
-		Schema:         ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: explorerconfig.ConfigV2APIVersion},
-		Outputs:        []ExplorerRuntimeOutputV1{},
-		SharedFilters:  map[string][]ExplorerRuntimeBindingV1{},
+		Schema:         viewer.ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: explorerconfig.ConfigV2APIVersion},
+		Outputs:        []viewer.ExplorerRuntimeOutputV1{},
+		SharedFilters:  map[string][]viewer.ExplorerRuntimeBindingV1{},
 		FileActions:    config.FileActions,
 		QualityReports: publication.CloneQualityReports(revision.QualityReports),
-		Diagnostics:    append([]Diagnostic(nil), revision.Diagnostics...),
+		Diagnostics:    append([]viewer.Diagnostic(nil), revision.Diagnostics...),
 	}
 
 	views := config.Views
@@ -118,27 +119,27 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 			continue
 		}
 
-		columnsByName := map[string]ExplorerRuntimeColumnV1{}
-		ensureColumn := func(name string) (ExplorerRuntimeColumnV1, bool) {
+		columnsByName := map[string]viewer.ExplorerRuntimeColumnV1{}
+		ensureColumn := func(name string) (viewer.ExplorerRuntimeColumnV1, bool) {
 			if existing, ok := columnsByName[name]; ok {
 				return existing, true
 			}
 			published, ok := physicalColumns[view.Output][name]
 			if !ok {
-				return ExplorerRuntimeColumnV1{}, false
+				return viewer.ExplorerRuntimeColumnV1{}, false
 			}
 			emission := emitted[view.Output][name]
 
 			if emission.PublicColumn == "" || strings.TrimSpace(emission.EmissionID) == "" {
-				return ExplorerRuntimeColumnV1{}, false
+				return viewer.ExplorerRuntimeColumnV1{}, false
 			}
 			filterable, chartable := emission.Filterable, emission.Chartable
 			public := contractColumns[view.Output][name]
 			label := public.Label
 			if strings.TrimSpace(label) == "" {
-				return ExplorerRuntimeColumnV1{}, false
+				return viewer.ExplorerRuntimeColumnV1{}, false
 			}
-			column := ExplorerRuntimeColumnV1{
+			column := viewer.ExplorerRuntimeColumnV1{
 				Column:       name,
 				EmissionID:   name,
 				Name:         name,
@@ -187,7 +188,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 			appendColumn(name)
 		}
 
-		table := ExplorerRuntimeTableV1{Columns: []ExplorerRuntimeTableColumnV1{}}
+		table := viewer.ExplorerRuntimeTableV1{Columns: []viewer.ExplorerRuntimeTableColumnV1{}}
 		configuredBindings := make(map[string]explorerconfig.ConfigColumn, len(view.Table.Columns))
 		for _, binding := range view.Table.Columns {
 			configuredBindings[binding.Column] = binding
@@ -207,7 +208,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 				}
 				column.Visible, column.Order = visible, index
 				columnsByName[name] = column
-				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: name, EmissionID: name, Visible: visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
+				table.Columns = append(table.Columns, viewer.ExplorerRuntimeTableColumnV1{Column: name, EmissionID: name, Visible: visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
 			}
 		} else {
 			for index, binding := range view.Table.Columns {
@@ -218,32 +219,32 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 				column.Label = firstNonEmptyString(binding.Label, column.Label)
 				column.Visible, column.Order = binding.Visible, index
 				columnsByName[binding.Column] = column
-				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: binding.Visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
+				table.Columns = append(table.Columns, viewer.ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: binding.Visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
 			}
 		}
-		columns := make([]ExplorerRuntimeColumnV1, 0, len(ordered))
+		columns := make([]viewer.ExplorerRuntimeColumnV1, 0, len(ordered))
 		for index, name := range ordered {
 			column := columnsByName[name]
 			if !hasPublicContract && saved == nil && len(view.Table.Columns) == 0 && !runtimeColumnIsInternal(name) {
 				column.Visible, column.Order = true, index
-				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: true})
+				table.Columns = append(table.Columns, viewer.ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: true})
 			}
 			columns = append(columns, column)
 		}
 
-		bindings := func(values []explorerconfig.ConfigFilter) []ExplorerRuntimeBindingV1 {
-			result := []ExplorerRuntimeBindingV1{}
+		bindings := func(values []explorerconfig.ConfigFilter) []viewer.ExplorerRuntimeBindingV1 {
+			result := []viewer.ExplorerRuntimeBindingV1{}
 			for _, binding := range values {
 				if column, ok := ensureColumn(binding.Column); ok {
-					result = append(result, ExplorerRuntimeBindingV1{Column: column.Column, EmissionID: column.Column, OutputID: view.Output, Label: firstNonEmptyString(binding.Label, column.Label)})
+					result = append(result, viewer.ExplorerRuntimeBindingV1{Column: column.Column, EmissionID: column.Column, OutputID: view.Output, Label: firstNonEmptyString(binding.Label, column.Label)})
 				}
 			}
 			return result
 		}
-		charts := []ExplorerRuntimeBindingV1{}
+		charts := []viewer.ExplorerRuntimeBindingV1{}
 		for _, chart := range view.Charts {
 			if column, ok := ensureColumn(chart.Column); ok {
-				charts = append(charts, ExplorerRuntimeBindingV1{Column: column.Column, EmissionID: column.Column, OutputID: view.Output, Type: chart.Type, Title: chart.Title})
+				charts = append(charts, viewer.ExplorerRuntimeBindingV1{Column: column.Column, EmissionID: column.Column, OutputID: view.Output, Type: chart.Type, Title: chart.Title})
 			}
 		}
 		fixed := map[string][]string{}
@@ -252,7 +253,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 				fixed[column.Column] = append([]string(nil), values...)
 			}
 		}
-		output := ExplorerRuntimeOutputV1{
+		output := viewer.ExplorerRuntimeOutputV1{
 			OutputID:     view.Output,
 			Name:         firstNonEmptyString(view.ID, view.Output),
 			Title:        firstNonEmptyString(view.Title, view.Output),
@@ -276,7 +277,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 		for _, filter := range filters {
 			if _, ok := emitted[filter.Output][filter.Column]; ok {
 				if _, published := physicalColumns[filter.Output][filter.Column]; published {
-					runtime.SharedFilters[name] = append(runtime.SharedFilters[name], ExplorerRuntimeBindingV1{Column: filter.Column, EmissionID: filter.Column, OutputID: filter.Output})
+					runtime.SharedFilters[name] = append(runtime.SharedFilters[name], viewer.ExplorerRuntimeBindingV1{Column: filter.Column, EmissionID: filter.Column, OutputID: filter.Output})
 				}
 			}
 		}
@@ -287,12 +288,12 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 
 type viewerProjectionInputs struct {
 	bundle           recipe.ArchivedMetadata
-	datasetOutputs   map[string]DatasetOutput
+	datasetOutputs   map[string]viewer.DatasetOutput
 	physicalColumns  map[string]map[string]publication.PhysicalColumn
-	materializations map[string]Materialization
-	emitted          map[string]map[string]EmittedColumn
+	materializations map[string]viewer.Materialization
+	emitted          map[string]map[string]viewer.EmittedColumn
 	emittedOrder     map[string][]string
-	contractColumns  map[string]map[string]PublicOutputColumn
+	contractColumns  map[string]map[string]receiptmodel.PublicOutputColumn
 	contractOrder    map[string][]string
 }
 
@@ -312,7 +313,7 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 		return viewerProjectionInputs{bundle: bundle}, nil
 	}
 
-	datasetOutputs := make(map[string]DatasetOutput, len(revision.Dataset.Outputs))
+	datasetOutputs := make(map[string]viewer.DatasetOutput, len(revision.Dataset.Outputs))
 	physicalColumns := make(map[string]map[string]publication.PhysicalColumn, len(revision.Dataset.Outputs))
 	for _, output := range revision.Dataset.Outputs {
 		datasetOutputs[output.Name] = output
@@ -322,7 +323,7 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 		}
 	}
 
-	materializations := make(map[string]Materialization, len(revision.Materializations))
+	materializations := make(map[string]viewer.Materialization, len(revision.Materializations))
 	for _, materialization := range revision.Materializations {
 		outputID := firstNonEmptyString(materialization.OutputID, materialization.Output)
 		if outputID == "" {
@@ -341,14 +342,14 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 		authoritativeColumns[outputID] = len(columns) > 0
 	}
 
-	emitted := make(map[string]map[string]EmittedColumn)
+	emitted := make(map[string]map[string]viewer.EmittedColumn)
 	emittedOrder := make(map[string][]string)
 	for _, column := range revision.EmittedColumns {
 		if column.OutputID == "" || column.PublicColumn == "" {
 			continue
 		}
 		if emitted[column.OutputID] == nil {
-			emitted[column.OutputID] = map[string]EmittedColumn{}
+			emitted[column.OutputID] = map[string]viewer.EmittedColumn{}
 		}
 		if _, exists := emitted[column.OutputID][column.PublicColumn]; !exists {
 			emittedOrder[column.OutputID] = append(emittedOrder[column.OutputID], column.PublicColumn)
@@ -369,10 +370,10 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 		}
 	}
 
-	contractColumns := map[string]map[string]PublicOutputColumn{}
+	contractColumns := map[string]map[string]receiptmodel.PublicOutputColumn{}
 	contractOrder := map[string][]string{}
 	if len(revision.PublicOutputContract) > 0 {
-		contracts, contractErr := DecodePublicOutputContracts(revision.PublicOutputContract)
+		contracts, contractErr := receiptmodel.DecodePublicOutputContracts(revision.PublicOutputContract)
 		if contractErr != nil {
 			return viewerProjectionInputs{}, viewerProjectionIntegrity("publicOutputContract", contractErr)
 		}
@@ -380,7 +381,7 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 			return viewerProjectionInputs{}, viewerProjectionIntegrity("publicOutputContract", contractErr)
 		}
 		for _, output := range contracts.Outputs {
-			contractColumns[output.OutputID] = map[string]PublicOutputColumn{}
+			contractColumns[output.OutputID] = map[string]receiptmodel.PublicOutputColumn{}
 			for _, column := range output.Columns {
 				contractColumns[output.OutputID][column.Column] = column
 				contractOrder[output.OutputID] = append(contractOrder[output.OutputID], column.Column)
@@ -395,7 +396,7 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 	}, nil
 }
 
-func projectConfigUnavailableViewIDs(diagnostics []Diagnostic) map[string]struct{} {
+func projectConfigUnavailableViewIDs(diagnostics []viewer.Diagnostic) map[string]struct{} {
 	ids := make(map[string]struct{})
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Code != "VIEW_BINDING_UNAVAILABLE" || diagnostic.Details == nil {
@@ -439,7 +440,7 @@ func defaultProjectionViews(bundle recipe.ArchivedMetadata) []explorerconfig.Con
 	return views
 }
 
-func projectionSelector(output string, datasetOutputs map[string]DatasetOutput, materializations map[string]Materialization, bundle recipe.ArchivedMetadata) (dataset.DataframeSelector, bool) {
+func projectionSelector(output string, datasetOutputs map[string]viewer.DatasetOutput, materializations map[string]viewer.Materialization, bundle recipe.ArchivedMetadata) (dataset.DataframeSelector, bool) {
 	if value := datasetOutputs[output].Selector; value != nil && value.Validate() == nil {
 		return *value, true
 	}

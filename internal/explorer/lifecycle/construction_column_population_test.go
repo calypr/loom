@@ -5,17 +5,19 @@ import (
 	"errors"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestConstructionColumnPopulationValidatesExactStageAndCachesOnlyConclusiveResults(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,7 @@ func TestConstructionColumnPopulationValidatesExactStageAndCachesOnlyConclusiveR
 
 	calls := 0
 	fail := true
-	service.config.ScanColumnPopulation = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
+	service.config.ScanColumnPopulation = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
 		calls++
 		if receipt == nil || receipt.ID == "" || bindings.SelectionProject != store.created.Project || scan.Output != request.OutputID || scan.StageID != request.StageID || len(scan.ColumnIDs) != 2 {
 			t.Fatalf("scanner was not bound to the exact request: receipt=%#v bindings=%#v request=%#v", receipt, bindings, scan)

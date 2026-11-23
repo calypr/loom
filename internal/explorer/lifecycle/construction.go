@@ -3,9 +3,11 @@ package lifecycle
 import (
 	"context"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -15,11 +17,11 @@ func constructionChoicesMatchSnapshot(identities []capability.ConstructionChoice
 	return construction.ConstructionChoicesMatchSnapshot(identities, snapshotToken)
 }
 
-func checkConstructionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+func checkConstructionProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {
 	return construction.CheckConstructionProposalResult(workspace, receipt)
 }
 
-func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
+func constructionCapabilitiesWorkspace(workspace ws.Workspace, targetOutputID string) (ws.Workspace, error) {
 	return construction.ConstructionCapabilitiesWorkspace(workspace, targetOutputID)
 }
 
@@ -35,11 +37,11 @@ func constructionCompilerScope(authorized ports.AuthorizedCapability) facade.Sco
 	return construction.ConstructionCompilerScope(authorized)
 }
 
-func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {
+func constructionDocumentIndex(workspace ws.Workspace, outputID string) int {
 	return construction.ConstructionDocumentIndex(workspace, outputID)
 }
 
-func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot authoringv2.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
+func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot ws.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
 	return construction.ConstructionRouteForOccurrence(snapshot, rootResourceType, targetNodeID, authoredRoot, occurrenceID)
 }
 

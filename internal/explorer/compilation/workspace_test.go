@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Five outputs"}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Five outputs"}, Documents: []ws.Document{}, Tabs: []ws.Tab{}, SemanticsVersion: ws.CurrentSemanticsVersion}
 	visible := true
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("output_%d", i)
-		workspace.Documents = append(workspace.Documents, authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind, Output: authoringv2.Output{ID: id, Title: id}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}})
-		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: fmt.Sprintf("tab-%d", i), Title: id, OutputID: id, Order: i, Visible: true})
+		workspace.Documents = append(workspace.Documents, ws.Document{Rows: ws.RecordsRowDefinition(), Kind: ws.Kind, Output: ws.Output{ID: id, Title: id}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}}}})
+		workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: fmt.Sprintf("tab-%d", i), Title: id, OutputID: id, Order: i, Visible: true})
 	}
 	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
 	if err != nil {
@@ -36,37 +36,37 @@ func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
 
 func TestCompileWorkspacePreservesForwardWorkspaceOutputReference(t *testing.T) {
 	visible := true
-	combined := authoringv2.Document{
-		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-		Output: authoringv2.Output{ID: "combined", Title: "Combined"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-			ID: "append", Inputs: []authoringv2.ConstructionInputRef{
-				{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "base"},
-				{Kind: authoringv2.ConstructionInputTableRevision, TableID: "project:1:archive", RevisionID: "archive-r1", OutputID: "archive"},
+	combined := ws.Document{
+		Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+		Output: ws.Output{ID: "combined", Title: "Combined"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+			ID: "append", Inputs: []ws.ConstructionInputRef{
+				{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "base"},
+				{Kind: ws.ConstructionInputTableRevision, TableID: "project:1:archive", RevisionID: "archive-r1", OutputID: "archive"},
 			},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-				Kind: authoringv2.ConstructionCombineAppend,
-				Projections: []authoringv2.ConstructionCombineProjection{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+				Kind: ws.ConstructionCombineAppend,
+				Projections: []ws.ConstructionCombineProjection{
 					{OutputColumnID: "person", InputIndex: 0, InputColumnID: "person_id"},
 					{OutputColumnID: "person", InputIndex: 1, InputColumnID: "archive_person_id"},
 				},
 			}},
-			Outputs: []authoringv2.StageColumn{{ID: "person", Name: "person_id", Label: "Person", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "person", Name: "person_id", Label: "Person", Type: "string"}},
 		}}},
 	}
-	base := authoringv2.Document{
-		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-		Output: authoringv2.Output{ID: "base", Title: "Base"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-			Table:  &authoringv2.TablePresentation{Visible: &visible}}},
+	base := ws.Document{
+		Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+		Output: ws.Output{ID: "base", Title: "Base"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			Table:  &ws.TablePresentation{Visible: &visible}}},
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Sibling output"}, Documents: []authoringv2.Document{combined, base},
-		Tabs: []authoringv2.Tab{{ID: "combined", Title: "Combined", OutputID: "combined", Order: 0, Visible: true}, {ID: "base", Title: "Base", OutputID: "base", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer: ws.ExplorerMetadata{Title: "Sibling output"}, Documents: []ws.Document{combined, base},
+		Tabs: []ws.Tab{{ID: "combined", Title: "Combined", OutputID: "combined", Order: 0, Visible: true}, {ID: "base", Title: "Base", OutputID: "base", Order: 1, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
 	if err != nil {
@@ -83,23 +83,23 @@ func TestCompileWorkspacePreservesForwardWorkspaceOutputReference(t *testing.T) 
 
 func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) {
 	visible := true
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion,
-		Kind:       authoringv2.WorkspaceKind,
-		Explorer:   authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Rows:             authoringv2.RecordsRowDefinition(),
-			Kind:             authoringv2.Kind,
-			Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion,
+		Kind:       ws.WorkspaceKind,
+		Explorer:   ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Rows:             ws.RecordsRowDefinition(),
+			Kind:             ws.Kind,
+			Output:           ws.Output{ID: "patient_output", Title: "Patients"},
 			RootResourceType: "Patient",
-			Route:            authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
-			Columns: []authoringv2.Column{{
+			Route:            ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
+			Columns: []ws.Column{{
 				Column: "project_id", Label: "Project", LogicalType: "string", OccurrenceID: "base",
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
-				Table:  &authoringv2.TablePresentation{Visible: &visible},
+				Source: ws.ColumnSource{Kind: ws.SourceProjectID},
+				Table:  &ws.TablePresentation{Visible: &visible},
 			}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patient_output", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patient_output", Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	snapshot := fixtureSnapshotForProject("HTAN_INT/BForePC")
 
@@ -125,34 +125,34 @@ func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) 
 
 func TestCompileWorkspaceAllowsEmptyConstructionTargetBesideSiblingSources(t *testing.T) {
 	visible := true
-	emptyTarget := authoringv2.Document{
-		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-		Output:           authoringv2.Output{ID: "empty_target", Title: "Empty target"},
+	emptyTarget := ws.Document{
+		Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+		Output:           ws.Output{ID: "empty_target", Title: "Empty target"},
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Construction:     &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}},
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Construction:     &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}},
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer:  authoringv2.ExplorerMetadata{Title: "Sparse target with sibling inputs"},
-		Documents: []authoringv2.Document{emptyTarget},
-		Tabs:      []authoringv2.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer:  ws.ExplorerMetadata{Title: "Sparse target with sibling inputs"},
+		Documents: []ws.Document{emptyTarget},
+		Tabs:      []ws.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	for index := 1; index <= 3; index++ {
 		outputID := fmt.Sprintf("source_%d", index)
 		columnID := fmt.Sprintf("stable-source-column-%d", index)
-		workspace.Documents = append(workspace.Documents, authoringv2.Document{
-			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-			Output: authoringv2.Output{ID: outputID, Title: outputID}, RootResourceType: "Patient",
-			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []authoringv2.Column{{
+		workspace.Documents = append(workspace.Documents, ws.Document{
+			Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+			Output: ws.Output{ID: outputID, Title: outputID}, RootResourceType: "Patient",
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{{
 				ColumnID: columnID, Column: fmt.Sprintf("patient_id_%d", index), Label: fmt.Sprintf("Patient ID %d", index),
-				OccurrenceID: authoringv2.RootOccurrenceID,
-				Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-				Table:        &authoringv2.TablePresentation{Visible: &visible},
+				OccurrenceID: ws.RootOccurrenceID,
+				Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				Table:        &ws.TablePresentation{Visible: &visible},
 			}},
 		})
-		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "tab_" + outputID, Title: outputID, OutputID: outputID, Order: index, Visible: true})
+		workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: "tab_" + outputID, Title: outputID, OutputID: outputID, Order: index, Visible: true})
 	}
 
 	compiled, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
@@ -181,20 +181,20 @@ func TestCompileWorkspaceAllowsEmptyConstructionTargetBesideSiblingSources(t *te
 
 func TestCompileWorkspaceRejectsNegativePresentationOrderBeforeNormalization(t *testing.T) {
 	visible, negativeOrder := true, -1
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Negative order"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-			Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []authoringv2.Column{{
-				Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-				Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &negativeOrder},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Negative order"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+			Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{{
+				Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				Table:  &ws.TablePresentation{Visible: &visible, Order: &negativeOrder},
 			}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	_, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
 	compileErr, ok := err.(*Error)

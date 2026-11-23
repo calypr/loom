@@ -8,6 +8,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -74,21 +79,21 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := workspace.Documents[0]
 	document.RootResourceType = "Specimen"
-	document.Route = authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Specimen"}
-	document.Columns = []authoringv2.Column{}
-	document.Population = &authoringv2.Population{SelectionRevisionID: "selection-zero-column"}
+	document.Route = ws.RouteNode{OccurrenceID: "base", ResourceType: "Specimen"}
+	document.Columns = []ws.Column{}
+	document.Population = &ws.Population{SelectionRevisionID: "selection-zero-column"}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate base population workspace: %v", err)
 	}
@@ -138,11 +143,11 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceStage := explorer.ReceiptConstructionStage{
+	sourceStage := receiptmodel.ReceiptConstructionStage{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-		Columns:      []explorer.ReceiptConstructionStageColumn{},
-		Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}},
-		RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{{
+		Columns:      []receiptmodel.ReceiptConstructionStageColumn{},
+		Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}},
+		RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{{
 			AnchorColumnID: "_key", Kind: "root", ResourceType: "Specimen", Label: "Original Specimen",
 		}},
 	}
@@ -153,15 +158,15 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
 			ForExecution:   func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
-			Catalog:        authoringv2.CatalogFromCapability,
+			Catalog:        ws.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(context.Context, ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(context.Context, ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return sourceStage, nil
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
 			if receipt == nil || receipt.ID != proposalID || receipt.ConstructionProposal == nil ||
 				len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" ||
@@ -187,14 +192,14 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "expand_medications", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &authoringv2.ConstructionRelatedExpand{
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "expand_medications", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{
 			AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, TargetNodeID: choice.TargetNodeID, TargetResourceType: choice.TargetResource,
-			Route: route, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
-			EmptyPolicy: authoringv2.ConstructionExpandEmptyPreserveParent, RelatedRecordColumnID: "medication-id",
+			Route: route, ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+			EmptyPolicy: ws.ConstructionExpandEmptyPreserveParent, RelatedRecordColumnID: "medication-id",
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "medication-id", Name: "related_medication_id", Label: "Medication FHIR resource ID", Type: "string", Nullable: true}},
+		Outputs: []ws.StageColumn{{ID: "medication-id", Name: "related_medication_id", Label: "Medication FHIR resource ID", Type: "string", Nullable: true}},
 	}}}
 	response, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
@@ -226,7 +231,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	proposalID = response.ProposalID
 	preview, err := service.Preview(context.Background(), lifecycle.PreviewRequest{
 		Project: "project-a", ExplorerID: "custom", ReceiptID: response.ProposalID, OutputID: "patients", Limit: 25,
-		SinkFactory: func(_ *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(_ *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	})
@@ -237,7 +242,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		t.Fatalf("proposal preview = %#v; calls = %d, want the candidate output with the stub's zero rows", preview, previewCalls)
 	}
 	applyRequest := authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-zero-column-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-zero-column-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: response.ProposalID}}},
 	}
@@ -264,7 +269,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 	if len(apply.Workspace.Documents) != 1 || apply.Workspace.Documents[0].Construction == nil ||
 		len(apply.Workspace.Documents[0].Construction.Steps) != 1 ||
-		apply.Workspace.Documents[0].Construction.Steps[0].Operation.Kind != authoringv2.ConstructionOperationRelatedExpand {
+		apply.Workspace.Documents[0].Construction.Steps[0].Operation.Kind != ws.ConstructionOperationRelatedExpand {
 		t.Fatalf("applied zero-column source construction = %#v", apply.Workspace.Documents)
 	}
 }

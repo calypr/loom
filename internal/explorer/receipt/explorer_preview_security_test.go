@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -26,25 +29,25 @@ func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T
 		t.Fatal(err)
 	}
 	wrongOrder := *receipt
-	wrongOrder.EmittedColumns = append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
+	wrongOrder.EmittedColumns = append([]viewer.EmittedColumn(nil), receipt.EmittedColumns...)
 	wrongOrder.EmittedColumns[0], wrongOrder.EmittedColumns[1] = wrongOrder.EmittedColumns[1], wrongOrder.EmittedColumns[0]
 	if err := ValidateEnginePublicColumns(&wrongOrder, resolved); err != nil {
 		t.Fatalf("presentation order must not change execution compatibility: %v", err)
 	}
 	hidden := *receipt
-	hidden.EmittedColumns = append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
+	hidden.EmittedColumns = append([]viewer.EmittedColumn(nil), receipt.EmittedColumns...)
 	hidden.EmittedColumns[0].PublicColumn = "__loom_row_id"
 	if err := ValidateEnginePublicColumns(&hidden, resolved); !errors.Is(err, explorer.ErrReceiptExecutionContract) {
 		t.Fatalf("hidden-column error=%v, want contract mismatch", err)
 	}
 	duplicate := *receipt
-	duplicate.EmittedColumns = append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
+	duplicate.EmittedColumns = append([]viewer.EmittedColumn(nil), receipt.EmittedColumns...)
 	duplicate.EmittedColumns[1].PublicColumn = "id"
 	if err := ValidateEnginePublicColumns(&duplicate, resolved); !errors.Is(err, explorer.ErrReceiptExecutionContract) {
 		t.Fatalf("duplicate-column error=%v, want contract mismatch", err)
 	}
 	extra := *receipt
-	extra.EmittedColumns = append(append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...), explorer.EmittedColumn{OutputID: "patients", PublicColumn: "extra"})
+	extra.EmittedColumns = append(append([]viewer.EmittedColumn(nil), receipt.EmittedColumns...), viewer.EmittedColumn{OutputID: "patients", PublicColumn: "extra"})
 	if err := ValidateEnginePublicColumns(&extra, resolved); !errors.Is(err, explorer.ErrReceiptExecutionContract) {
 		t.Fatalf("extra-column error=%v, want contract mismatch", err)
 	}
@@ -83,9 +86,9 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		Bundle: bundle, OutputFingerprints: fingerprints,
-		EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "id"}},
+		EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", PublicColumn: "id"}},
 	}
 	if err := ValidateEnginePublicColumns(receipt, resolved); err != nil {
 		t.Fatalf("grouped row schema rejected despite stable explicit-group contract: %v", err)
@@ -113,18 +116,18 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	}
 }
 
-func testSecurityReceipt(t *testing.T, snapshot capability.Snapshot, output string, columns []string) *explorer.CompilationReceipt {
+func testSecurityReceipt(t *testing.T, snapshot capability.Snapshot, output string, columns []string) *receiptmodel.CompilationReceipt {
 	t.Helper()
 	fields := make([]recipe.Field, 0, len(columns))
-	emitted := make([]explorer.EmittedColumn, 0, len(columns))
-	contractColumns := make([]explorer.PublicOutputColumn, 0, len(columns))
+	emitted := make([]viewer.EmittedColumn, 0, len(columns))
+	contractColumns := make([]receiptmodel.PublicOutputColumn, 0, len(columns))
 	for _, column := range columns {
 		fields = append(fields, recipe.Field{Name: column, Expr: recipe.Expression{Select: "root." + column}})
-		emitted = append(emitted, explorer.EmittedColumn{EmissionID: "em_" + column, OutputID: output, CandidateID: "c_" + column, OccurrenceID: "base", ProjectionMode: "VALUE", PublicColumn: column, Label: column, LogicalType: "string"})
-		contractColumns = append(contractColumns, explorer.PublicOutputColumn{Column: column, Label: column, LogicalType: "string"})
+		emitted = append(emitted, viewer.EmittedColumn{EmissionID: "em_" + column, OutputID: output, CandidateID: "c_" + column, OccurrenceID: "base", ProjectionMode: "VALUE", PublicColumn: column, Label: column, LogicalType: "string"})
+		contractColumns = append(contractColumns, receiptmodel.PublicOutputColumn{Column: column, Label: column, LogicalType: "string"})
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "security", TranslationVersion: "test", Outputs: []recipe.Output{{Name: output, RootResourceType: "Patient", RowGrain: "resource", Fields: fields}}}
-	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{{OutputID: output, Columns: contractColumns}}})
+	contract, err := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{{OutputID: output, Columns: contractColumns}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +135,7 @@ func testSecurityReceipt(t *testing.T, snapshot capability.Snapshot, output stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		Project: snapshot.Identity.Project, ExplorerID: "explorer-a", SnapshotToken: snapshot.Token,
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest,
 		SourceGeneration: snapshot.Identity.Generation, Bundle: bundle, PublicOutputContract: contract,

@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -26,15 +27,15 @@ func TestSchemaRowChoiceResolverListsEveryAuthoredOccurrenceAndPinsItsRoute(t *t
 		t.Fatal(err)
 	}
 	snapshot := rowChoiceCapabilitySnapshot()
-	route := authoringv2.RouteNode{
-		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "SignalPacket",
-		Children: []authoringv2.RouteNode{{
+	route := ws.RouteNode{
+		OccurrenceID: ws.RootOccurrenceID, ResourceType: "SignalPacket",
+		Children: []ws.RouteNode{{
 			OccurrenceID: "record-occurrence", ResourceType: "SignalRecord", CatalogEdgeID: "edge-one",
-			Relationship: "contains", MatchMode: authoringv2.RouteMatchOptional,
+			Relationship: "contains", MatchMode: ws.RouteMatchOptional,
 		}},
 	}
-	choices, err := resolver.ListRowChoices(context.Background(), snapshot, authoringv2.Document{
-		RootResourceType: "SignalPacket", Route: route, Rows: authoringv2.RecordsRowDefinition(),
+	choices, err := resolver.ListRowChoices(context.Background(), snapshot, ws.Document{
+		RootResourceType: "SignalPacket", Route: route, Rows: ws.RecordsRowDefinition(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +59,7 @@ func TestSchemaRowChoiceResolverListsEveryAuthoredOccurrenceAndPinsItsRoute(t *t
 		t.Fatalf("resolved=%#v err=%v", resolved, err)
 	}
 	substitutedRoute := route
-	substitutedRoute.Children = append([]authoringv2.RouteNode(nil), route.Children...)
+	substitutedRoute.Children = append([]ws.RouteNode(nil), route.Children...)
 	substitutedRoute.Children[0].CatalogEdgeID = "edge-two"
 	if _, err := resolver.ResolveRowChoiceID(context.Background(), RowChoiceResolveRequest{
 		Snapshot: snapshot, Route: substitutedRoute, RowChoiceID: childChoice.ChoiceID, ExpectedKind: RowChoiceExpanded,
@@ -98,20 +99,20 @@ func TestSchemaRowChoiceResolverUsesAuthorizedRepeatedBoundaries(t *testing.T) {
 			RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "component[]", MaxItems: 3}},
 		}}, nil,
 	)
-	route := authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}
-	document := authoringv2.Document{RootResourceType: "Observation", Route: route, Rows: authoringv2.RecordsRowDefinition()}
+	route := ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}
+	document := ws.Document{RootResourceType: "Observation", Route: route, Rows: ws.RecordsRowDefinition()}
 
 	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(choices) != 1 || choices[0].Kind != capability.RowChoiceExpandedScope || choices[0].Path != "component[]" || choices[0].OccurrenceID != authoringv2.RootOccurrenceID {
+	if len(choices) != 1 || choices[0].Kind != capability.RowChoiceExpandedScope || choices[0].Path != "component[]" || choices[0].OccurrenceID != ws.RootOccurrenceID {
 		t.Fatalf("choices=%#v, want the authorized component[] expansion at base", choices)
 	}
 	resolved, err := resolver.ResolveRowChoiceID(context.Background(), RowChoiceResolveRequest{
 		Snapshot: snapshot, Route: route, RowChoiceID: choices[0].ChoiceID, ExpectedKind: RowChoiceExpanded,
 	})
-	if err != nil || resolved.OccurrenceID != authoringv2.RootOccurrenceID || resolved.ScopePath != "component[]" {
+	if err != nil || resolved.OccurrenceID != ws.RootOccurrenceID || resolved.ScopePath != "component[]" {
 		t.Fatalf("resolved=%#v err=%v, want the exact component[] scope", resolved, err)
 	}
 

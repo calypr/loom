@@ -6,40 +6,42 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
-func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, error) {
+func ViewBuilderCatalogFromRevision(revision Revision) (viewer.ViewBuilderCatalog, error) {
 	switch revision.Status {
 	case RevisionReady, RevisionActive, RevisionSuperseded:
 	default:
-		return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q is not ready", revision.ID)
+		return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q is not ready", revision.ID)
 	}
 	if strings.TrimSpace(revision.ID) == "" || strings.TrimSpace(revision.Project) == "" ||
 		strings.TrimSpace(revision.Recipe.Name) == "" || strings.TrimSpace(revision.RecipeDigest) == "" ||
 		strings.TrimSpace(revision.SourceGeneration) == "" || strings.TrimSpace(revision.Publication.ExecutionID) == "" ||
 		revision.Publication.Generation != revision.SourceGeneration || revision.Dataset.Generation != revision.SourceGeneration ||
 		strings.TrimSpace(revision.Dataset.SchemaDigest) == "" {
-		return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has incomplete publication identity", revision.ID)
+		return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has incomplete publication identity", revision.ID)
 	}
-	contracts, err := DecodePublicOutputContracts(revision.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(revision.PublicOutputContract)
 	if err != nil {
-		return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an invalid public output contract: %v", revision.ID, err)
+		return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an invalid public output contract: %v", revision.ID, err)
 	}
 	if err := contracts.ValidateAgainst(revision.Recipe, revision.EmittedColumns); err != nil {
-		return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q does not match its compiler output contract: %v", revision.ID, err)
+		return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q does not match its compiler output contract: %v", revision.ID, err)
 	}
 	if len(revision.Dataset.Outputs) != len(revision.Recipe.Outputs) || len(revision.Materializations) != len(revision.Recipe.Outputs) {
-		return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q does not contain every recipe output", revision.ID)
+		return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q does not contain every recipe output", revision.ID)
 	}
 
-	datasetByOutput := make(map[string]DatasetOutput, len(revision.Dataset.Outputs))
+	datasetByOutput := make(map[string]viewer.DatasetOutput, len(revision.Dataset.Outputs))
 	physicalByOutput := make(map[string]map[string]publication.PhysicalColumn, len(revision.Recipe.Outputs))
 	for _, output := range revision.Dataset.Outputs {
 		if output.Name == "" {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an unnamed dataset output", revision.ID)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an unnamed dataset output", revision.ID)
 		}
 		if _, duplicate := datasetByOutput[output.Name]; duplicate {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q duplicates dataset output %q", revision.ID, output.Name)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q duplicates dataset output %q", revision.ID, output.Name)
 		}
 		datasetByOutput[output.Name] = output
 		for _, column := range output.Columns {
@@ -47,20 +49,20 @@ func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, erro
 				physicalByOutput[output.Name] = make(map[string]publication.PhysicalColumn)
 			}
 			if _, duplicate := physicalByOutput[output.Name][column.Name]; duplicate {
-				return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q duplicates physical column %q", output.Name, column.Name)
+				return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q duplicates physical column %q", output.Name, column.Name)
 			}
 			physicalByOutput[output.Name][column.Name] = column
 		}
 	}
 
-	materializedByOutput := make(map[string]Materialization, len(revision.Materializations))
+	materializedByOutput := make(map[string]viewer.Materialization, len(revision.Materializations))
 	for _, materialization := range revision.Materializations {
 		outputID := firstNonEmptyString(materialization.OutputID, materialization.Output)
 		if outputID == "" {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an unnamed materialization", revision.ID)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an unnamed materialization", revision.ID)
 		}
 		if _, duplicate := materializedByOutput[outputID]; duplicate {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q duplicates materialization for %q", revision.ID, outputID)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q duplicates materialization for %q", revision.ID, outputID)
 		}
 		materializedByOutput[outputID] = materialization
 		for _, column := range materialization.Columns {
@@ -68,30 +70,30 @@ func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, erro
 				physicalByOutput[outputID] = make(map[string]publication.PhysicalColumn)
 			}
 			if existing, ok := physicalByOutput[outputID][column.Name]; ok && existing != column {
-				return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q has conflicting physical column %q", outputID, column.Name)
+				return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q has conflicting physical column %q", outputID, column.Name)
 			}
 			physicalByOutput[outputID][column.Name] = column
 		}
 	}
 
-	emittedByOutput := make(map[string]map[string]EmittedColumn, len(revision.Recipe.Outputs))
+	emittedByOutput := make(map[string]map[string]viewer.EmittedColumn, len(revision.Recipe.Outputs))
 	for _, emitted := range revision.EmittedColumns {
 		if emitted.OutputID == "" || emitted.PublicColumn == "" || strings.TrimSpace(emitted.EmissionID) == "" {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an incomplete compiler emission", revision.ID)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an incomplete compiler emission", revision.ID)
 		}
 		if emittedByOutput[emitted.OutputID] == nil {
-			emittedByOutput[emitted.OutputID] = make(map[string]EmittedColumn)
+			emittedByOutput[emitted.OutputID] = make(map[string]viewer.EmittedColumn)
 		}
 		if _, duplicate := emittedByOutput[emitted.OutputID][emitted.PublicColumn]; duplicate {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q duplicates emitted column %q", emitted.OutputID, emitted.PublicColumn)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q duplicates emitted column %q", emitted.OutputID, emitted.PublicColumn)
 		}
 		emittedByOutput[emitted.OutputID][emitted.PublicColumn] = emitted
 	}
 
-	catalog := ViewBuilderCatalog{
+	catalog := viewer.ViewBuilderCatalog{
 		RecipeName: revision.Recipe.Name, RevisionID: revision.ID,
 		ExecutionID: revision.Publication.ExecutionID, Generation: revision.SourceGeneration,
-		Frames: make([]ViewBuilderFrame, 0, len(revision.Recipe.Outputs)),
+		Frames: make([]viewer.ViewBuilderFrame, 0, len(revision.Recipe.Outputs)),
 	}
 	for _, recipeOutput := range revision.Recipe.Outputs {
 		selector := dataset.DataframeSelector{
@@ -99,34 +101,34 @@ func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, erro
 			Output: recipeOutput.Name,
 		}
 		if err := selector.Validate(); err != nil {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q has an invalid selector: %v", recipeOutput.Name, err)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q has an invalid selector: %v", recipeOutput.Name, err)
 		}
 		output, ok := datasetByOutput[recipeOutput.Name]
 		if !ok || output.Selector == nil || *output.Selector != selector || !output.Queryable {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q is not active and queryable", recipeOutput.Name)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q is not active and queryable", recipeOutput.Name)
 		}
 		materialization, ok := materializedByOutput[recipeOutput.Name]
 		if !ok || materialization.MaterializationID != revision.Publication.ExecutionID || materialization.Selector == nil || *materialization.Selector != selector {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q is not bound to execution %q", recipeOutput.Name, revision.Publication.ExecutionID)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q is not bound to execution %q", recipeOutput.Name, revision.Publication.ExecutionID)
 		}
 		contract, ok := contracts.Output(recipeOutput.Name)
 		if !ok {
-			return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q has no public contract", recipeOutput.Name)
+			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q has no public contract", recipeOutput.Name)
 		}
-		frame := ViewBuilderFrame{ID: recipeOutput.Name, Title: recipeOutput.Name, Columns: make([]ViewBuilderColumn, 0, len(contract.Columns))}
+		frame := viewer.ViewBuilderFrame{ID: recipeOutput.Name, Title: recipeOutput.Name, Columns: make([]viewer.ViewBuilderColumn, 0, len(contract.Columns))}
 		for _, column := range contract.Columns {
 			if runtimeColumnIsInternal(column.Column) {
 				continue
 			}
 			if _, ok := emittedByOutput[recipeOutput.Name][column.Column]; !ok {
-				return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q column %q has no compiler emission", recipeOutput.Name, column.Column)
+				return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q column %q has no compiler emission", recipeOutput.Name, column.Column)
 			}
 			if _, ok := physicalByOutput[recipeOutput.Name][column.Column]; !ok {
 
 				continue
 			}
 			emission := emittedByOutput[recipeOutput.Name][column.Column]
-			frame.Columns = append(frame.Columns, ViewBuilderColumn{
+			frame.Columns = append(frame.Columns, viewer.ViewBuilderColumn{
 				Name: column.Column, Label: column.Label,
 				LogicalType: column.LogicalType, Cardinality: column.Cardinality,
 				Filterable: emission.Filterable, Chartable: emission.Chartable,
@@ -138,5 +140,5 @@ func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, erro
 }
 
 func invalidViewBuilder(format string, args ...any) error {
-	return fmt.Errorf("%w: %s", ErrInvalidViewBuilder, fmt.Sprintf(format, args...))
+	return fmt.Errorf("%w: %s", viewer.ErrInvalidViewBuilder, fmt.Sprintf(format, args...))
 }

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
@@ -36,7 +38,7 @@ type unifiedAuthoringFixture struct {
 	digest     string
 	resolver   Sources
 	authorized ports.AuthorizedCapability
-	workspace  authoringv2.Workspace
+	workspace  ws.Workspace
 }
 
 func findUnifiedRecipeOutput(bundle recipe.Bundle, name string) (recipe.Output, bool) {
@@ -48,7 +50,7 @@ func findUnifiedRecipeOutput(bundle recipe.Bundle, name string) (recipe.Output, 
 	return recipe.Output{}, false
 }
 
-func unifiedColumnIDs(columns []authoringv2.Column) []string {
+func unifiedColumnIDs(columns []ws.Column) []string {
 	ids := make([]string, 0, len(columns))
 	for _, column := range columns {
 		ids = append(ids, column.ColumnID)
@@ -121,11 +123,11 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 			schemas[output.Name] = append(schemas[output.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatalf("import checked-in recipe into Builder document: %v", err)
 	}
-	var selected *authoringv2.Document
+	var selected *ws.Document
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == importedOutputID {
 			selected = &workspace.Documents[index]
@@ -135,13 +137,13 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	if selected == nil {
 		t.Fatalf("imported workspace has no %q document", importedOutputID)
 	}
-	var selectedTab []authoringv2.Tab
+	var selectedTab []ws.Tab
 	for _, tab := range workspace.Tabs {
 		if tab.OutputID == importedOutputID {
 			selectedTab = append(selectedTab, tab)
 		}
 	}
-	workspace.Documents = []authoringv2.Document{*selected}
+	workspace.Documents = []ws.Document{*selected}
 	workspace.Tabs = selectedTab
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("selected imported output workspace is invalid: %v", err)
@@ -149,20 +151,20 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	return unifiedAuthoringFixture{bundle: bundle, digest: digest, resolver: resolver, authorized: authorized, workspace: workspace}
 }
 
-func addUnifiedAuthoringColumns(t *testing.T, document authoringv2.Document) authoringv2.Document {
+func addUnifiedAuthoringColumns(t *testing.T, document ws.Document) ws.Document {
 	t.Helper()
 	visible := true
 	document.Columns = append(document.Columns,
-		authoringv2.Column{
+		ws.Column{
 			ColumnID: doseUnitColumnID, Column: "dose_unit", Label: "Dose unit", LogicalType: "string",
-			OccurrenceID: authoringv2.RootOccurrenceID,
-			Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "dosage.dose.unit", ProjectionMode: "VALUE"}},
-			Table:        &authoringv2.TablePresentation{Visible: &visible},
+			OccurrenceID: ws.RootOccurrenceID,
+			Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "dosage.dose.unit", ProjectionMode: "VALUE"}},
+			Table:        &ws.TablePresentation{Visible: &visible},
 		},
-		authoringv2.Column{
+		ws.Column{
 			ColumnID: medCategoryColumnID, Column: "medication_category", Label: "Medication category", LogicalType: "string",
-			OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+			OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 				Binding: &fhirbinding.CorrelatedBinding{
 					OwnerPath: "category[]", KeyPath: "category[].coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 					SelectionScope: fhirbinding.CorrelatedSelectionScopeExact,
@@ -171,7 +173,7 @@ func addUnifiedAuthoringColumns(t *testing.T, document authoringv2.Document) aut
 				},
 				Key: &fhirbinding.CorrelatedKey{System: "urn:example:medication-administration-category", Code: "inpatient"},
 			}},
-			Table: &authoringv2.TablePresentation{Visible: &visible},
+			Table: &ws.TablePresentation{Visible: &visible},
 		},
 	)
 	if err := document.Validate(); err != nil {
@@ -195,14 +197,14 @@ func TestImportedSourceEditRetainsBuilderAddedColumns(t *testing.T) {
 	if !reflect.DeepEqual(updated.ImportedRecipe, document.ImportedRecipe) {
 		t.Fatal("source edit changed the immutable imported recipe pin")
 	}
-	wantColumns := append([]authoringv2.Column(nil), document.Columns...)
+	wantColumns := append([]ws.Column(nil), document.Columns...)
 	wantColumns[0].Label = params.FieldGroup.Fields[0].Label
 	if !reflect.DeepEqual(updated.Columns, wantColumns) {
 		t.Fatalf("source edit changed the authored column sequence or dropped Builder additions: got ids %v, want ids %v", unifiedColumnIDs(updated.Columns), unifiedColumnIDs(wantColumns))
 	}
 
 	workspace := fixture.workspace
-	workspace.Documents = []authoringv2.Document{updated}
+	workspace.Documents = []ws.Document{updated}
 	resolved, err := fixture.resolver.Resolve(context.Background(), "project-a", workspace, fixture.authorized)
 	if err != nil {
 		t.Fatalf("resolve edited imported recipe: %v", err)

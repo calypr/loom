@@ -6,12 +6,15 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -20,18 +23,18 @@ func configureSnapshotConstructionCompilation(service *Service, store *fakeStore
 	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope.Clone()}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		*calls++
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
-		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
 		var err error
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +94,7 @@ func TestConstructionBaseCacheSeparatesDraftVersionAndDigest(t *testing.T) {
 		t.Fatalf("compile calls after draft version change = %d, want 2", calls)
 	}
 
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +175,7 @@ func TestConstructionBaseCacheDoesNotCacheErrors(t *testing.T) {
 	calls := 0
 	configureSnapshotConstructionCompilation(service, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	success := service.config.CompileReceipt
-	service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		return nil, errors.New("temporary compile failure")
 	}
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")

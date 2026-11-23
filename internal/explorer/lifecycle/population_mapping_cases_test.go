@@ -10,6 +10,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -102,7 +104,7 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 	}
 	config := testConfig(authorized)
 	calls := 0
-	config.PopulationMapping = func(_ context.Context, _ *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, ids []string, _ string, _ int) (dataframeexecution.PopulationMappingResult, error) {
+	config.PopulationMapping = func(_ context.Context, _ *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, output string, ids []string, _ string, _ int) (dataframeexecution.PopulationMappingResult, error) {
 		calls++
 		sort.Strings(ids)
 		if output != "patients" || !reflect.DeepEqual(ids, []string{"file-001", "file-002", "file-004"}) || projectid.Canonical(bindings.SelectionProject) != project {

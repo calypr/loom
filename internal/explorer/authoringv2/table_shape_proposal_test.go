@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestRetiredTableShapeProposalCannotBeValidated(t *testing.T) {
@@ -19,13 +21,13 @@ func TestRetiredTableShapeProposalCannotBeValidated(t *testing.T) {
 			}
 		}
 	}
-	request := ApplyCommandsRequest{CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft", Commands: []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}}}
+	request := ApplyCommandsRequest{CommandID: "command-1", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft", Commands: []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}}}
 	if err := request.Validate(); err == nil {
 		t.Fatal("retired command validated")
 	}
 }
 func TestRetiredTableShapeProposalCannotMutateCurrentWorkspace(t *testing.T) {
-	workspace := rowDefinitionTestWorkspace(RecordsRowDefinition())
+	workspace := rowDefinitionTestWorkspace(ws.RecordsRowDefinition())
 	before, err := cloneWorkspace(workspace)
 	if err != nil {
 		t.Fatal(err)

@@ -8,11 +8,13 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/projectid"
@@ -134,7 +136,7 @@ func compareRowDefinitionPreviewRows(base, candidate rowDefinitionPreviewRows) R
 	return comparison
 }
 
-func (s *Service) CompareRowDefinitionReceipts(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int) (RowDefinitionComparison, error) {
+func (s *Service) CompareRowDefinitionReceipts(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, base, candidate *receiptmodel.CompilationReceipt, limit int) (RowDefinitionComparison, error) {
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
 		return RowDefinitionComparison{}, support.Unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
 	}
@@ -181,7 +183,7 @@ func (s *Service) CompareRowDefinitionReceipts(ctx context.Context, request RowD
 			return RowDefinitionComparison{}, ctxErr
 		}
 		if request.Selection.Kind == RowDefinitionSelectionExpanded &&
-			request.Selection.Expanded.EmptyCollectionPolicy == authoringv2.EmptyCollectionError &&
+			request.Selection.Expanded.EmptyCollectionPolicy == ws.EmptyCollectionError &&
 			isEmptyCollectionExpansionError(err) {
 			return RowDefinitionComparison{}, support.Unprocessable(
 				"row-definition-proposal", "EMPTY_COLLECTION_ERROR",
@@ -189,7 +191,7 @@ func (s *Service) CompareRowDefinitionReceipts(ctx context.Context, request RowD
 			)
 		}
 		if request.Selection.Kind == RowDefinitionSelectionExplicitGroup &&
-			request.Selection.ExplicitGroup.UnassignedMemberPolicy == authoringv2.UnassignedMemberError &&
+			request.Selection.ExplicitGroup.UnassignedMemberPolicy == ws.UnassignedMemberError &&
 			isUnassignedExplicitGroupError(err) {
 			return RowDefinitionComparison{}, support.Unprocessable(
 				"row-definition-proposal", "EXPLICIT_GROUP_UNASSIGNED_MEMBER",
@@ -204,7 +206,7 @@ func (s *Service) CompareRowDefinitionReceipts(ctx context.Context, request RowD
 	return compareRowDefinitionPreviewRows(baseRows, candidateRows), nil
 }
 
-func (s *Service) previewReceiptRows(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, limit int) (rowDefinitionPreviewRows, error) {
+func (s *Service) previewReceiptRows(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, limit int) (rowDefinitionPreviewRows, error) {
 	preview := rowDefinitionPreviewRows{Rows: make(map[string]map[string]any, limit)}
 	summary, err := s.config.PreviewReceipt(ctx, receipt, bindings, func(row map[string]any) error {
 		identity, ok := row["__loom_row_id"]

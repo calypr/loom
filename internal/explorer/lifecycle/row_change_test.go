@@ -9,6 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/explorer/rowdef"
@@ -61,42 +66,42 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
 		})
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{
 			{
-				Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "consumer", Title: "Consumer"},
-				RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-					ID: "copy_source", Inputs: []authoringv2.ConstructionInputRef{
-						{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "patients"},
-						{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "other"},
+				Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "consumer", Title: "Consumer"},
+				RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+				Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+					ID: "copy_source", Inputs: []ws.ConstructionInputRef{
+						{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "patients"},
+						{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "other"},
 					},
-					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-						Kind: authoringv2.ConstructionCombineAppend,
-						Projections: []authoringv2.ConstructionCombineProjection{
+					Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+						Kind: ws.ConstructionCombineAppend,
+						Projections: []ws.ConstructionCombineProjection{
 							{OutputColumnID: "copied", InputIndex: 0, InputColumnID: "patient-id-column"},
 							{OutputColumnID: "copied", InputIndex: 1, InputColumnID: "other-id-column"},
 						},
-					}}, Outputs: []authoringv2.StageColumn{{ID: "copied", Name: "copied", Label: "Copied patient ID", Type: "string", Nullable: true}},
+					}}, Outputs: []ws.StageColumn{{ID: "copied", Name: "copied", Label: "Copied patient ID", Type: "string", Nullable: true}},
 				}}},
 			},
 			{
-				Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-				Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-				Columns: []authoringv2.Column{{ColumnID: "patient-id-column", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-					Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+				Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+				Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+				Columns: []ws.Column{{ColumnID: "patient-id-column", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+					Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 			},
 			{
-				Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "other", Title: "Other"}, RootResourceType: "Patient",
-				Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-				Columns: []authoringv2.Column{{ColumnID: "other-id-column", Column: "other_id", Label: "Other ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-					Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+				Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "other", Title: "Other"}, RootResourceType: "Patient",
+				Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+				Columns: []ws.Column{{ColumnID: "other-id-column", Column: "other_id", Label: "Other ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+					Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 			},
 		},
-		Tabs: []authoringv2.Tab{{ID: "consumer-tab", Title: "Consumer", OutputID: "consumer", Order: 0, Visible: true}, {ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 1, Visible: true}, {ID: "other-tab", Title: "Other", OutputID: "other", Order: 2, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "consumer-tab", Title: "Consumer", OutputID: "consumer", Order: 0, Visible: true}, {ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 1, Visible: true}, {ID: "other-tab", Title: "Other", OutputID: "other", Order: 2, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
-	compile := func(ws authoringv2.Workspace) (explorercompilation.WorkspaceResult, error) {
+	compile := func(ws ws.Workspace) (explorercompilation.WorkspaceResult, error) {
 		compiled, err := explorercompilation.CompileWorkspace(context.Background(), "project-a", "patients", ws, snapshot, explorercompilation.ResolvedInputs{})
 		if err != nil {
 			return explorercompilation.WorkspaceResult{}, err
@@ -121,7 +126,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonicalWorkspace, err := authoringv2.DecodeWorkspace(draft)
+	canonicalWorkspace, err := ws.DecodeWorkspace(draft)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,20 +147,20 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		}
 		return resolveForCompilation(ctx, project, token)
 	}
-	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Columns: []string{"id"}, RowCount: 1, Complete: true}, nil
 	}
-	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-		catalog := authoringv2.CatalogSnapshot{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: explorerID,
+	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+		catalog := ws.CatalogSnapshot{
+			APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: explorerID,
 			SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, ResolvedSchemaDigest: got.Identity.SchemaDigest,
-			SnapshotToken: got.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-			Nodes: []authoringv2.CatalogNode{
+			SnapshotToken: got.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+			Nodes: []ws.CatalogNode{
 				{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
 				{ID: "research-study", ResourceType: "ResearchStudy", RowRootEligible: true},
 				{ID: "diagnostic-report", ResourceType: "DiagnosticReport", RowRootEligible: true},
 			},
-			Edges: []authoringv2.CatalogEdge{
+			Edges: []ws.CatalogEdge{
 				{ID: "study-result-report", FromNodeID: "research-study", ToNodeID: "diagnostic-report", Label: "result_DiagnosticReport", StorageDirection: "OUTBOUND", Populated: true},
 				{ID: "report-study-result", FromNodeID: "diagnostic-report", ToNodeID: "research-study", Label: "result_DiagnosticReport", StorageDirection: "INBOUND", Populated: true},
 			},
@@ -165,15 +170,15 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 			if choiceErr != nil {
 				t.Fatal(choiceErr)
 			}
-			catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
 				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
 				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
 			})
 		}
 		return catalog
 	}
-	var compiledWorkspaces []authoringv2.Workspace
-	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var compiledWorkspaces []ws.Workspace
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compiledWorkspaces = append(compiledWorkspaces, request.Workspace)
 		compiled, compileErr := compile(request.Workspace)
 		if compileErr != nil {
@@ -194,23 +199,23 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		receipt.EmittedColumns = compiled.EmittedColumns
 		receipt.CompiledOutputSchemas = testCompiledOutputSchemas(request.Workspace)
 		receipt.OutputColumnProvenance = testOutputColumnProvenance(request.Workspace)
-		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
-		contracts, marshalErr := json.Marshal(explorer.PublicOutputContracts{Outputs: compiled.OutputContracts})
+		contracts, marshalErr := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: compiled.OutputContracts})
 		if marshalErr != nil {
 			return nil, marshalErr
 		}
 		receipt.PublicOutputContract = contracts
-		receipt.OutputContractDigest, compileErr = explorer.CompilationArtifactDigest(contracts)
+		receipt.OutputContractDigest, compileErr = receiptmodel.CompilationArtifactDigest(contracts)
 		if compileErr != nil {
 			return nil, compileErr
 		}
-		receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, compileErr = receiptmodel.CompilationKey(*receipt)
 		if compileErr != nil {
 			return nil, compileErr
 		}
-		receipt.ID, compileErr = explorer.ReceiptID(*receipt)
+		receipt.ID, compileErr = receiptmodel.ReceiptID(*receipt)
 		if compileErr != nil {
 			return nil, compileErr
 		}
@@ -236,7 +241,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	}
 
 	result, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "replace-root-with-consumer", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "replace-root-with-consumer", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: "patients", Payload: &authoringv2.RowPayload{RowChange: replacement.Assessment.Proposal}}},
 	}, "alice")
@@ -270,7 +275,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	if len(store.receipt.Bundle.Outputs) != 2 {
 		t.Fatalf("PRESERVE receipt contains the downstream consumer: %#v", store.receipt.Bundle.Outputs)
 	}
-	storedAfterPreserve, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	storedAfterPreserve, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +316,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	}
 	if _, err := service.Preview(context.Background(), PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: selectedReconcile.Receipt.ID, OutputID: "patients",
-		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	}); err != nil {
@@ -340,7 +345,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	}
 
 	repaired := result.Workspace
-	repaired.Documents = append([]authoringv2.Document(nil), result.Workspace.Documents...)
+	repaired.Documents = append([]ws.Document(nil), result.Workspace.Documents...)
 	repaired.Documents[0] = canonicalWorkspace.Documents[0]
 	step := repaired.Documents[0].Construction.Steps[0]
 	selectedCompiled, err := explorercompilation.CompileWorkspace(context.Background(), "project-a", "patients", result.Workspace, snapshot, explorercompilation.ResolvedInputs{})
@@ -389,7 +394,7 @@ func schemaIndexResolve(resourceType, path string) (schema.RowPathFacts, error) 
 	return index.ResolveRowPath(schema.DefinitionName(resourceType), path)
 }
 
-func compiledOutputIDs(workspace authoringv2.Workspace) []string {
+func compiledOutputIDs(workspace ws.Workspace) []string {
 	outputIDs := make([]string, 0, len(workspace.Documents))
 	for _, document := range workspace.Documents {
 		outputIDs = append(outputIDs, document.Output.ID)
@@ -397,12 +402,12 @@ func compiledOutputIDs(workspace authoringv2.Workspace) []string {
 	return outputIDs
 }
 
-func testCompiledOutputSchemas(workspace authoringv2.Workspace) map[string][]explorer.ReceiptCompiledOutputColumn {
-	schemas := make(map[string][]explorer.ReceiptCompiledOutputColumn, len(workspace.Documents))
+func testCompiledOutputSchemas(workspace ws.Workspace) map[string][]receiptmodel.ReceiptCompiledOutputColumn {
+	schemas := make(map[string][]receiptmodel.ReceiptCompiledOutputColumn, len(workspace.Documents))
 	for _, document := range workspace.Documents {
-		columns := make([]explorer.ReceiptCompiledOutputColumn, 0, len(document.Columns))
+		columns := make([]receiptmodel.ReceiptCompiledOutputColumn, 0, len(document.Columns))
 		for _, column := range document.Columns {
-			columns = append(columns, explorer.ReceiptCompiledOutputColumn{
+			columns = append(columns, receiptmodel.ReceiptCompiledOutputColumn{
 				ID: column.ColumnID, Name: column.Column, Label: column.Label,
 				LogicalType: column.LogicalType, Cardinality: "optional_one",
 			})
@@ -412,7 +417,7 @@ func testCompiledOutputSchemas(workspace authoringv2.Workspace) map[string][]exp
 	return schemas
 }
 
-func testOutputColumnProvenance(workspace authoringv2.Workspace) map[string]map[string]string {
+func testOutputColumnProvenance(workspace ws.Workspace) map[string]map[string]string {
 	provenance := make(map[string]map[string]string, len(workspace.Documents))
 	for _, document := range workspace.Documents {
 		columns := make(map[string]string, len(document.Columns))
@@ -425,29 +430,29 @@ func testOutputColumnProvenance(workspace authoringv2.Workspace) map[string]map[
 }
 
 func TestWorkspaceOutputClosureIncludesTransitiveInputsButExcludesConsumers(t *testing.T) {
-	document := func(outputID string, inputs ...string) authoringv2.Document {
-		value := authoringv2.Document{Output: authoringv2.Output{ID: outputID, Title: outputID}, Rows: authoringv2.RecordsRowDefinition()}
+	document := func(outputID string, inputs ...string) ws.Document {
+		value := ws.Document{Output: ws.Output{ID: outputID, Title: outputID}, Rows: ws.RecordsRowDefinition()}
 		if len(inputs) == 0 {
 			return value
 		}
-		refs := make([]authoringv2.ConstructionInputRef, 0, len(inputs))
+		refs := make([]ws.ConstructionInputRef, 0, len(inputs))
 		for _, input := range inputs {
-			refs = append(refs, authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: input})
+			refs = append(refs, ws.ConstructionInputRef{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: input})
 		}
-		value.Construction = &authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{Inputs: refs}}}
+		value.Construction = &ws.Construction{Steps: []ws.ConstructionStep{{Inputs: refs}}}
 		return value
 	}
-	workspace := authoringv2.Workspace{
-		Documents: []authoringv2.Document{
+	workspace := ws.Workspace{
+		Documents: []ws.Document{
 			document("target", "upstream"), document("consumer", "target"), document("source"), document("upstream", "source"),
 		},
-		Tabs: []authoringv2.Tab{
+		Tabs: []ws.Tab{
 			{ID: "target", OutputID: "target", Order: 0}, {ID: "consumer", OutputID: "consumer", Order: 1},
 			{ID: "source", OutputID: "source", Order: 2}, {ID: "upstream", OutputID: "upstream", Order: 3},
 		},
-		SharedFilters: map[string][]authoringv2.SharedFilterBinding{
+		SharedFilters: map[string][]ws.SharedFilterBinding{
 			"status": {{OutputID: "target", Column: "status"}, {OutputID: "consumer", Column: "status"}, {OutputID: "source", Column: "status"}},
-		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	projected, err := workspaceOutputClosure(workspace, "target")
 	if err != nil {
@@ -470,27 +475,27 @@ func TestWorkspaceOutputClosureIncludesTransitiveInputsButExcludesConsumers(t *t
 
 func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	base := func(id string) authoringv2.Document {
-		return authoringv2.Document{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: id, Title: id}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}}
+	base := func(id string) ws.Document {
+		return ws.Document{Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: id, Title: id}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}}
 	}
-	combine := func(dependency string) *authoringv2.Construction {
-		return &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-			ID: "append", Inputs: []authoringv2.ConstructionInputRef{
-				{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: dependency},
-				{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "source"},
+	combine := func(dependency string) *ws.Construction {
+		return &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+			ID: "append", Inputs: []ws.ConstructionInputRef{
+				{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: dependency},
+				{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "source"},
 			},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-				Kind:        authoringv2.ConstructionCombineAppend,
-				Projections: []authoringv2.ConstructionCombineProjection{{OutputColumnID: "id", InputIndex: 0, InputColumnID: "id"}, {OutputColumnID: "id", InputIndex: 1, InputColumnID: "id"}},
-			}}, Outputs: []authoringv2.StageColumn{{ID: "id", Name: "id", Label: "ID", Type: "string", Nullable: true}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+				Kind:        ws.ConstructionCombineAppend,
+				Projections: []ws.ConstructionCombineProjection{{OutputColumnID: "id", InputIndex: 0, InputColumnID: "id"}, {OutputColumnID: "id", InputIndex: 1, InputColumnID: "id"}},
+			}}, Outputs: []ws.StageColumn{{ID: "id", Name: "id", Label: "ID", Type: "string", Nullable: true}},
 		}}}
 	}
 	a, b, source := base("a"), base("b"), base("source")
 	a.Construction, b.Construction = combine("b"), combine("a")
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Cycle"},
-		Documents: []authoringv2.Document{a, b, source},
-		Tabs:      []authoringv2.Tab{{ID: "a", Title: "a", OutputID: "a", Order: 0}, {ID: "b", Title: "b", OutputID: "b", Order: 1}, {ID: "source", Title: "source", OutputID: "source", Order: 2}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Cycle"},
+		Documents: []ws.Document{a, b, source},
+		Tabs:      []ws.Tab{{ID: "a", Title: "a", OutputID: "a", Order: 0}, {ID: "b", Title: "b", OutputID: "b", Order: 1}, {ID: "source", Title: "source", OutputID: "source", Order: 2}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	if err := workspace.Validate(); err == nil || !strings.Contains(err.Error(), "WORKSPACE_OUTPUT_CYCLE") {
 		t.Fatalf("full workspace validation error = %v, want WORKSPACE_OUTPUT_CYCLE", err)
@@ -506,7 +511,7 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 2, DraftDigest: digest}}
 	config := testConfig(snapshot)
 	compileCalls := 0
-	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		return nil, errors.New("compile must not run for invalid full state")
 	}
@@ -533,7 +538,7 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 
 func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,12 +549,12 @@ func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing
 	if digest != store.created.DraftDigest {
 		t.Fatalf("stored draft digest = %q, workspace digest = %q", store.created.DraftDigest, digest)
 	}
-	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
-		return authoringv2.CatalogSnapshot{}
+	service.config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot {
+		return ws.CatalogSnapshot{}
 	}
 	compileCalls := 0
 	compile := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		return compile(ctx, request)
 	}
@@ -568,16 +573,16 @@ func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing
 
 func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion,
-		Kind:       authoringv2.WorkspaceKind,
-		Explorer:   authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}, Rows: authoringv2.RecordsRowDefinition(),
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion,
+		Kind:       ws.WorkspaceKind,
+		Explorer:   ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+			Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}, Rows: ws.RecordsRowDefinition(),
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -592,15 +597,15 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	var compileCalls int
 	var previewCalls int
 	var previewReceiptID string
-	var compiledWorkspace authoringv2.Workspace
-	config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	var compiledWorkspace ws.Workspace
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if receipt.ID != previewReceiptID {
 			t.Fatalf("preview receipt ID=%q, want %q", receipt.ID, previewReceiptID)
 		}
 		return dataframeexecution.PreviewSummary{Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		compiledWorkspace = request.Workspace
 		receipt := nativeReceipt(snapshot)
@@ -613,11 +618,11 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		if receiptErr != nil {
 			t.Fatal(receiptErr)
 		}
-		receipt.CompilationKey, receiptErr = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, receiptErr = receiptmodel.CompilationKey(*receipt)
 		if receiptErr != nil {
 			t.Fatal(receiptErr)
 		}
-		receipt.ID, receiptErr = explorer.ReceiptID(*receipt)
+		receipt.ID, receiptErr = receiptmodel.ReceiptID(*receipt)
 		if receiptErr != nil {
 			t.Fatal(receiptErr)
 		}
@@ -627,22 +632,22 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		store.receipt = receipt
 		return receipt, nil
 	}
-	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
-		return authoringv2.CatalogSnapshot{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients",
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot {
+		return ws.CatalogSnapshot{
+			APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "patients",
 			SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true,
-			RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-			Nodes: []authoringv2.CatalogNode{
+			RoutePolicy: ws.RoutePolicy{Unbounded: true},
+			Nodes: []ws.CatalogNode{
 				{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
 				{ID: "encounter", ResourceType: "Encounter", RowRootEligible: true},
 				{ID: "report", ResourceType: "DiagnosticReport", RowRootEligible: true},
 			},
-			Candidates: []authoringv2.CatalogCandidate{{
+			Candidates: []ws.CatalogCandidate{{
 				ID: "report-id", NodeID: "report", FieldPath: "id", Cardinality: "optional_one", Label: "Report ID", LogicalType: "string",
 				ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE",
 				ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "report-id", "report", "DiagnosticReport", "id", "optional_one", capability.ProjectionScalar),
 			}},
-			Edges: []authoringv2.CatalogEdge{
+			Edges: []ws.CatalogEdge{
 				{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"},
 				{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"},
 			},
@@ -662,7 +667,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if result.CandidateDocument == nil || result.CandidateNetwork == nil || result.CandidateRowIdentity == nil || result.CandidateDocument.RootResourceType != "Encounter" || result.CandidateDocument.Columns[0].OccurrenceID != "encounter" || result.CandidateNetwork.OutputID != "patients" || result.CandidateNetwork.Owner != "DOCUMENT" || len(result.CandidateNetwork.Bindings) != 0 || result.CandidateDocument.Columns[0].ColumnID != "" || result.CandidateRowIdentity.Stages[0].Identity.ResourceType != "Encounter" {
 		t.Fatalf("READY root change did not expose its exact receipt candidate: %#v", result)
 	}
-	verifiedRoot, decodeErr := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	verifiedRoot, decodeErr := ws.DecodeWorkspace(store.receipt.NormalizedBundle)
 	if decodeErr != nil || !reflect.DeepEqual(*result.CandidateDocument, verifiedRoot.Documents[0]) {
 		t.Fatal("root projection differs from the preview receipt document")
 	}
@@ -672,7 +677,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	}
 	preview, err := service.Preview(context.Background(), PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: result.CandidateReceiptID, OutputID: "patients",
-		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	})
@@ -687,7 +692,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	}
 	blocked, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
-		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []authoringv2.RouteRebaseChoice{{OccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "missing-edge"}},
+		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []authoringv2.RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "missing-edge"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -731,7 +736,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	previewReceiptID = replacement.CandidateReceiptID
 	if _, err := service.Preview(context.Background(), PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: replacement.CandidateReceiptID, OutputID: "patients",
-		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	}); err != nil {
@@ -741,7 +746,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("assess/preview applied replacement before confirmation: %#v", store.created)
 	}
 	apply, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-replacement", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "apply-replacement", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 7, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: "patients", Payload: &authoringv2.RowPayload{RowChange: replacement.Assessment.Proposal}}},
 	}, "alice")
@@ -754,7 +759,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("replacement changed table identity or retained old setup: %#v", apply.Workspace)
 	}
 	seed := replaced.Columns[0]
-	if seed.OccurrenceID != authoringv2.RootOccurrenceID || seed.Source.Kind != authoringv2.SourceField || seed.Source.Field == nil ||
+	if seed.OccurrenceID != ws.RootOccurrenceID || seed.Source.Kind != ws.SourceField || seed.Source.Field == nil ||
 		seed.Source.Field.Path != "id" || seed.Source.Field.ProjectionMode != "VALUE" || seed.Table == nil ||
 		seed.Table.Visible == nil || !*seed.Table.Visible || seed.Table.Order == nil || *seed.Table.Order != 0 {
 		t.Fatalf("replacement ID seed is not a visible root VALUE column at order zero: %#v", seed)
@@ -797,39 +802,39 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootColumn := authoringv2.Column{
+	rootColumn := ws.Column{
 		ColumnID: "condition-id-column", Column: "condition_id", Label: "Condition ID", LogicalType: "string",
-		OccurrenceID: authoringv2.RootOccurrenceID,
-		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 	}
-	related := authoringv2.ConstructionRelatedSource{
+	related := ws.ConstructionRelatedSource{
 		AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, SourceOccurrenceID: "patient",
-		Source: authoringv2.ConstructionRelatedFieldSource{
+		Source: ws.ConstructionRelatedFieldSource{
 			Kind: capability.ConstructionChoiceSourceField, CandidateID: candidateSet[1].ID,
 			NodeID: candidateSet[1].NodeID, ResourceType: candidateSet[1].ResourceType,
 			Path: candidateSet[1].FieldPath, Cardinality: candidateSet[1].Cardinality,
 			LogicalType: candidateSet[1].LogicalType,
 		},
-		Route: relatedRoute, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
-		Form: capability.ConstructionChoiceAll, RowValuePolicy: authoringv2.ConstructionRowValueOne,
+		Route: relatedRoute, ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+		Form: capability.ConstructionChoiceAll, RowValuePolicy: ws.ConstructionRowValueOne,
 		OutputColumnID: "related-patient-id",
 	}
-	rootStageColumn := authoringv2.StageColumn{ID: rootColumn.ColumnID, Name: rootColumn.Column, Label: rootColumn.Label, Type: rootColumn.LogicalType}
-	relatedStageColumn := authoringv2.StageColumn{ID: related.OutputColumnID, Name: "related_patient_id", Label: "Related Patient ID", Type: "string"}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Conditions"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Conditions"},
-			RootResourceType: "Condition", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
-			Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{rootColumn},
-			Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-				ID: "related-patient-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related},
-				Outputs:   []authoringv2.StageColumn{rootStageColumn, relatedStageColumn},
+	rootStageColumn := ws.StageColumn{ID: rootColumn.ColumnID, Name: rootColumn.Column, Label: rootColumn.Label, Type: rootColumn.LogicalType}
+	relatedStageColumn := ws.StageColumn{ID: related.OutputColumnID, Name: "related_patient_id", Label: "Related Patient ID", Type: "string"}
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Conditions"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Conditions"},
+			RootResourceType: "Condition", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Condition"},
+			Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{rootColumn},
+			Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+				ID: "related-patient-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedSource, RelatedSource: &related},
+				Outputs:   []ws.StageColumn{rootStageColumn, relatedStageColumn},
 			}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Conditions", OutputID: "patients", Order: 0, Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Conditions", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate related-source source workspace: %v", err)
@@ -846,23 +851,23 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		Project: "project-a", ExplorerID: "conditions", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
 	}, copyGet: true}
 	config := testConfig(snapshot)
-	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Columns: []string{"condition_id", "related_patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-		catalog := authoringv2.CatalogSnapshot{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
+	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+		catalog := ws.CatalogSnapshot{
+			APIVersion: ws.APIVersion, Kind: ws.CatalogKind,
 			Project: "project-a", ExplorerID: explorerID, SourceGeneration: got.Identity.Generation,
 			AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token,
-			Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+			Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
 		}
 		for _, node := range got.Nodes {
-			catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{
+			catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{
 				ID: node.ID, ResourceType: node.ResourceType, RowRootEligible: node.RowRootEligible, Populated: node.Populated,
 			})
 		}
 		for _, edge := range got.Edges {
-			catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{
+			catalog.Edges = append(catalog.Edges, ws.CatalogEdge{
 				ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,
 				Label: edge.Label, StorageDirection: edge.StorageDirection,
 			})
@@ -889,7 +894,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 					projectionModes = append(projectionModes, string(mode))
 				}
 			}
-			catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
 				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
 				Label: candidate.Label, LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
 				ProjectionModes: projectionModes, DefaultProjectionMode: "VALUE", ConstructionChoice: &candidateChoice,
@@ -897,7 +902,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		}
 		return catalog
 	}
-	compileCandidate := func(candidateWorkspace authoringv2.Workspace) (explorercompilation.WorkspaceResult, error) {
+	compileCandidate := func(candidateWorkspace ws.Workspace) (explorercompilation.WorkspaceResult, error) {
 		compiled, compileErr := explorercompilation.CompileWorkspace(context.Background(), "project-a", "conditions", candidateWorkspace, snapshot, explorercompilation.ResolvedInputs{})
 		if compileErr != nil {
 			return explorercompilation.WorkspaceResult{}, compileErr
@@ -915,8 +920,8 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		}
 		return compiled, nil
 	}
-	var compiledWorkspace authoringv2.Workspace
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var compiledWorkspace ws.Workspace
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compiledWorkspace = request.Workspace
 		compiled, compileErr := compileCandidate(request.Workspace)
 		if compileErr != nil {
@@ -940,20 +945,20 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		receipt.EmittedColumns = compiled.EmittedColumns
 		receipt.CompiledOutputSchemas = testCompiledOutputSchemas(request.Workspace)
 		receipt.OutputColumnProvenance = testOutputColumnProvenance(request.Workspace)
-		contracts, marshalErr := json.Marshal(explorer.PublicOutputContracts{Outputs: compiled.OutputContracts})
+		contracts, marshalErr := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: compiled.OutputContracts})
 		if marshalErr != nil {
 			return nil, marshalErr
 		}
 		receipt.PublicOutputContract = contracts
-		receipt.OutputContractDigest, compileErr = explorer.CompilationArtifactDigest(contracts)
+		receipt.OutputContractDigest, compileErr = receiptmodel.CompilationArtifactDigest(contracts)
 		if compileErr != nil {
 			return nil, compileErr
 		}
-		receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, compileErr = receiptmodel.CompilationKey(*receipt)
 		if compileErr != nil {
 			return nil, compileErr
 		}
-		receipt.ID, compileErr = explorer.ReceiptID(*receipt)
+		receipt.ID, compileErr = receiptmodel.ReceiptID(*receipt)
 		if compileErr != nil {
 			return nil, compileErr
 		}
@@ -1033,8 +1038,8 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 	snapshot.Nodes = []capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, Populated: true}, {ID: "study", ResourceType: "ResearchStudy", RowRootEligible: true, Populated: true}}
 	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{ID: "study-id", NodeID: "study", ResourceType: "ResearchStudy", FieldPath: "id", Label: "Study ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true})
 
-	pin := authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Pinned patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Pinned patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), ImportedRecipe: &pin}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}}}
+	pin := ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Pinned patients"}, Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Pinned patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(), ImportedRecipe: &pin}}, Tabs: []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}}}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -1042,13 +1047,13 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 	digest, _ := workspace.Digest()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config := testConfig(snapshot)
-	config.Capability.Catalog = func(snapshot capability.Snapshot, id string) authoringv2.CatalogSnapshot {
+	config.Capability.Catalog = func(snapshot capability.Snapshot, id string) ws.CatalogSnapshot {
 		c := lifecycleInterpretationCatalog(snapshot, id)
-		c.Nodes = append(c.Nodes, authoringv2.CatalogNode{ID: "study", ResourceType: "ResearchStudy", RowRootEligible: true})
-		c.Candidates = append(c.Candidates, authoringv2.CatalogCandidate{ID: "study-id", NodeID: "study", FieldPath: "id", Cardinality: "optional_one", Label: "Study ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "study-id", "study", "ResearchStudy", "id", "optional_one", capability.ProjectionScalar)})
+		c.Nodes = append(c.Nodes, ws.CatalogNode{ID: "study", ResourceType: "ResearchStudy", RowRootEligible: true})
+		c.Candidates = append(c.Candidates, ws.CatalogCandidate{ID: "study-id", NodeID: "study", FieldPath: "id", Cardinality: "optional_one", Label: "Study ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "study-id", "study", "ResearchStudy", "id", "optional_one", capability.ProjectionScalar)})
 		return c
 	}
-	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt, err := compileTraceReceipt(ctx, request, snapshot, config.Capability.Catalog(snapshot, request.ExplorerID))
 		if err != nil {
 			return nil, err
@@ -1056,7 +1061,7 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 		store.receipt = receipt
 		return receipt, nil
 	}
-	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Complete: true}, nil
 	}
 	service := newTestService(t, store, config)

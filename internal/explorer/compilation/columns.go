@@ -6,30 +6,33 @@ import (
 	"slices"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 type semanticColumnCompiler struct {
 	project               string
 	explorerID            string
-	document              authoringv2.Document
+	document              ws.Document
 	snapshot              capability.Snapshot
 	occurrences           map[string]semanticOccurrence
 	nodes                 map[string]*semanticRecipeNode
 	expansion             *recipe.Expansion
 	columnTransformations []recipe.ColumnTransformation
-	emitted               []explorer.EmittedColumn
-	mappings              []explorer.IdentityMapping
+	emitted               []viewer.EmittedColumn
+	mappings              []receiptmodel.IdentityMapping
 	presentation          PresentationConfig
-	contract              explorer.PublicOutputContract
+	contract              receiptmodel.PublicOutputContract
 	countEmissions        map[string]int
 	presentationOrder     int
 }
 
-func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Column) error {
+func (columns *semanticColumnCompiler) compile(index int, column ws.Column) error {
 	project := columns.project
 	document, snapshot := columns.document, columns.snapshot
 	occurrences, nodes, expansion := columns.occurrences, columns.nodes, columns.expansion
@@ -50,7 +53,7 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 	if column.ValueTransformation != nil && projectionMode == "INDEXED" {
 		return fail("capability", "UNSUPPORTED_VALUE_TRANSFORMATION_SHAPE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "exact category recoding requires one scalar public projection, not an indexed expansion", map[string]any{"shape": "indexed_columns"}, nil)
 	}
-	if column.Source.Kind == authoringv2.SourceOwnerRecords {
+	if column.Source.Kind == ws.SourceOwnerRecords {
 		projectionMode = string(capability.ConstructionChoiceOwnerRecords)
 	}
 	sourcePath := column.Source.FieldPath()
@@ -62,7 +65,7 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 	mlReady := false
 
 	switch column.Source.Kind {
-	case authoringv2.SourceField:
+	case ws.SourceField:
 		candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, sourcePath)
 		if !found {
 			return fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.field.path", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": sourcePath}, nil)
@@ -70,7 +73,7 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 		capabilityMode, supported := capabilityProjectionMode(projectionMode)
 		advertised := supported && slices.Contains(candidate.ProjectionModes, capabilityMode)
 		relatedScalarAll := projectionMode == string(capability.ConstructionChoiceAll) &&
-			column.OccurrenceID != authoringv2.RootOccurrenceID &&
+			column.OccurrenceID != ws.RootOccurrenceID &&
 			!capability.IsRepeatedCardinality(candidate.Cardinality) &&
 			slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar)
 		if !advertised && !relatedScalarAll {
@@ -111,12 +114,12 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 				var lossReasons []string
 				structuralSuitability := "scalar"
 				lossless := true
-				if column.OccurrenceID != authoringv2.RootOccurrenceID {
+				if column.OccurrenceID != ws.RootOccurrenceID {
 					lossless = false
 					lossReasons = append(lossReasons, "RELATED_RESOURCE_FIRST_LOSSY")
 					structuralSuitability = "requires-review"
 				}
-				emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: indexedLabel(column.Label, item.Coordinates), LogicalType: logicalType, Nullable: true, Shape: "indexed_scalar", StructuralSuitability: structuralSuitability, LossReasons: lossReasons, SourceResourceType: occurrence.graph.ResourceType, SourcePath: path, ChoiceArm: choiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), item.Coordinates...), Lossless: lossless, MLReady: false, Filterable: filterable, Chartable: chartable}
+				emission := viewer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: indexedLabel(column.Label, item.Coordinates), LogicalType: logicalType, Nullable: true, Shape: "indexed_scalar", StructuralSuitability: structuralSuitability, LossReasons: lossReasons, SourceResourceType: occurrence.graph.ResourceType, SourcePath: path, ChoiceArm: choiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), item.Coordinates...), Lossless: lossless, MLReady: false, Filterable: filterable, Chartable: chartable}
 				columns.emitted = append(columns.emitted, emission)
 				mergeContractQuality(&columns.contract, emission)
 				columns.contract.Columns = append(columns.contract.Columns, publicColumnContract(emission))
@@ -136,12 +139,12 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 				nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: count.Leaf, FieldRef: count.Selector, Expr: recipe.Expression{Call: "length", Args: []recipe.Expression{{Select: alias + "." + count.Selector}}}, ValueMode: recipe.ValueModeAuto})
 				lossReasons := []string(nil)
 				structuralSuitability := "scalar"
-				lossless := column.OccurrenceID == authoringv2.RootOccurrenceID
-				if column.OccurrenceID != authoringv2.RootOccurrenceID {
+				lossless := column.OccurrenceID == ws.RootOccurrenceID
+				if column.OccurrenceID != ws.RootOccurrenceID {
 					lossReasons = append(lossReasons, "RELATED_RESOURCE_FIRST_LOSSY")
 					structuralSuitability = "requires-review"
 				}
-				emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: "boundary_" + shortHash(key), CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: "COUNT", AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: count.Leaf, LogicalType: "integer", Nullable: false, Shape: "repeated_count", StructuralSuitability: structuralSuitability, LossReasons: lossReasons, SourceResourceType: occurrence.graph.ResourceType, SourcePath: count.Selector, Coordinates: append([]capability.RepeatedCoordinate(nil), count.Coordinates...), Lossless: lossless, MLReady: false}
+				emission := viewer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: "boundary_" + shortHash(key), CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: "COUNT", AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: count.Leaf, LogicalType: "integer", Nullable: false, Shape: "repeated_count", StructuralSuitability: structuralSuitability, LossReasons: lossReasons, SourceResourceType: occurrence.graph.ResourceType, SourcePath: count.Selector, Coordinates: append([]capability.RepeatedCoordinate(nil), count.Coordinates...), Lossless: lossless, MLReady: false}
 				columns.emitted = append(columns.emitted, emission)
 				mergeContractQuality(&columns.contract, emission)
 				columns.contract.Columns = append(columns.contract.Columns, publicColumnContract(emission))
@@ -150,27 +153,27 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 				columns.countEmissions[key] = len(columns.emitted) - 1
 				emissionIDs = append(emissionIDs, emission.EmissionID)
 			}
-			columns.mappings = append(columns.mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: emissionIDs})
+			columns.mappings = append(columns.mappings, receiptmodel.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: emissionIDs})
 			return nil
 		}
 		selector := alias + "." + path
-		if document.Rows.Kind == authoringv2.RowDefinitionExpanded && document.Rows.Expanded != nil {
+		if document.Rows.Kind == ws.RowDefinitionExpanded && document.Rows.Expanded != nil {
 			if suffix, rebased := expandedItemFieldSuffix(document.Rows.Expanded, column.OccurrenceID, sourcePath); rebased && expansion != nil {
 				selector = expansion.As + "." + suffix
 			}
 		}
 		nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, ColumnID: column.ColumnID, Label: column.Label, FieldRef: sourcePath, Expr: recipe.Expression{Select: selector}, ValueMode: projectionValueMode(projectionMode)})
-	case authoringv2.SourceProjectID:
+	case ws.SourceProjectID:
 		logicalType = "string"
 		literal, _ := json.Marshal(project)
 		nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, ColumnID: column.ColumnID, Label: column.Label, FieldRef: "project.id", Expr: recipe.Expression{Literal: literal}, ValueMode: recipe.ValueModeFirst})
-	case authoringv2.SourceCodedValue:
+	case ws.SourceCodedValue:
 		pivot, pivotErr := semanticCodedValuePivot(column, leaf)
 		if pivotErr != nil {
 			return fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 		}
 		nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
-	case authoringv2.SourceOwnerRecords:
+	case ws.SourceOwnerRecords:
 		if column.Source.OwnerRecords == nil {
 			return fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), "owner-record source is missing its typed payload", nil, nil)
 		}
@@ -180,7 +183,7 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 		})
 		logicalType = "object"
 		choiceArm = choiceArmForPath(ownerRecords.Binding.ValuePath)
-	case authoringv2.SourceExtensionByURL:
+	case ws.SourceExtensionByURL:
 		if column.Source.Lookup == nil || column.Source.Lookup.Extension == nil {
 
 			dynamic, dynamicErr := semanticFixedLookup(column, occurrence.graph.ResourceType, alias, leaf, logicalType)
@@ -195,7 +198,7 @@ func (columns *semanticColumnCompiler) compile(index int, column authoringv2.Col
 			return fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 		}
 		nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
-	case authoringv2.SourceAggregate:
+	case ws.SourceAggregate:
 		aggregateType, err := columns.compileAggregate(index, column, occurrence, alias)
 		if err != nil {
 			return err
@@ -239,7 +242,7 @@ type semanticColumnState struct {
 	mlReady               bool
 }
 
-func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.Column, document authoringv2.Document, state semanticColumnState) error {
+func (columns *semanticColumnCompiler) emitColumn(index int, column ws.Column, document ws.Document, state semanticColumnState) error {
 	occurrence := state.occurrence
 	projectionMode := state.projectionMode
 	sourcePath := state.sourcePath
@@ -269,7 +272,7 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.
 	}
 	emissionID := column.Column
 	shape := "scalar"
-	if column.Source.Kind == authoringv2.SourceOwnerRecords {
+	if column.Source.Kind == ws.SourceOwnerRecords {
 		shape = "record_list"
 		structuralSuitability = "array"
 		lossless = true
@@ -279,7 +282,7 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.
 		shape = "array"
 		structuralSuitability = "array"
 	}
-	if column.Source.Kind == authoringv2.SourceAggregate && column.Source.Aggregate != nil {
+	if column.Source.Kind == ws.SourceAggregate && column.Source.Aggregate != nil {
 		switch strings.ToUpper(strings.TrimSpace(column.Source.Aggregate.Operation)) {
 		case "COLLECT", "DISTINCT_VALUES":
 			shape = "array"
@@ -287,7 +290,7 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.
 		}
 	}
 	if column.ValueTransformation != nil {
-		if column.Source.Kind == authoringv2.SourceCodedValue {
+		if column.Source.Kind == ws.SourceCodedValue {
 			return fail("capability", "CODED_VALUE_RECODE_UNAVAILABLE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "coded value recoding is unavailable because the scalar transformation cannot preserve both Coding.system and Coding.code", map[string]any{"sourceKind": column.Source.Kind}, nil)
 		}
 		if !strings.EqualFold(strings.TrimSpace(logicalType), "string") {
@@ -301,13 +304,13 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.
 			Column: column.Column, Transformation: transformation,
 		})
 	}
-	if column.Source.Kind == authoringv2.SourceField {
-		if column.OccurrenceID != authoringv2.RootOccurrenceID && column.Source.Field != nil && (projectionMode == "VALUE" || projectionMode == "FIRST" || projectionMode == "INDEXED") {
+	if column.Source.Kind == ws.SourceField {
+		if column.OccurrenceID != ws.RootOccurrenceID && column.Source.Field != nil && (projectionMode == "VALUE" || projectionMode == "FIRST" || projectionMode == "INDEXED") {
 			lossless = false
 			lossReasons = append(lossReasons, "RELATED_RESOURCE_FIRST_LOSSY")
 			structuralSuitability = "requires-review"
 		}
-		if column.OccurrenceID != authoringv2.RootOccurrenceID && (projectionMode == "ALL" || projectionMode == "DISTINCT") {
+		if column.OccurrenceID != ws.RootOccurrenceID && (projectionMode == "ALL" || projectionMode == "DISTINCT") {
 			lossless = false
 			lossReasons = append(lossReasons, "RELATED_RESOURCE_ALL_LOSSY")
 			structuralSuitability = "requires-review"
@@ -321,7 +324,7 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.
 			lossReasons = append(lossReasons, "FIELD_FIRST_REDUCTION")
 			structuralSuitability = "requires-review"
 		}
-	} else if column.Source.Kind == authoringv2.SourceAggregate {
+	} else if column.Source.Kind == ws.SourceAggregate {
 		lossless = false
 		lossReasons = append(lossReasons, "AGGREGATE_REDUCTION")
 		if column.Source.Aggregate != nil && strings.EqualFold(column.Source.Aggregate.Operation, "FIRST_ORDERED") {
@@ -342,19 +345,19 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column authoringv2.
 			lossless = true
 			lossReasons = nil
 		}
-	} else if column.Source.Kind != authoringv2.SourceProjectID && column.Source.Kind != authoringv2.SourceOwnerRecords {
+	} else if column.Source.Kind != ws.SourceProjectID && column.Source.Kind != ws.SourceOwnerRecords {
 		lossless = false
 		lossReasons = append(lossReasons, "RELATED_LOOKUP_REDUCTION")
 		structuralSuitability = "requires-review"
 	}
-	var unitNormalization *explorer.PublicUnitNormalization
-	if column.Source.Kind == authoringv2.SourceAggregate && column.Source.Aggregate != nil {
+	var unitNormalization *viewer.PublicUnitNormalization
+	if column.Source.Kind == ws.SourceAggregate && column.Source.Aggregate != nil {
 		unitNormalization = publicUnitNormalization(column.Source.Aggregate.UnitNormalization)
 	}
-	emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: sourcePath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, StructuralSuitability: structuralSuitability, LossReasons: append([]string(nil), lossReasons...), Filterable: filterable, Chartable: chartable, UnitNormalization: unitNormalization}
+	emission := viewer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: sourcePath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, StructuralSuitability: structuralSuitability, LossReasons: append([]string(nil), lossReasons...), Filterable: filterable, Chartable: chartable, UnitNormalization: unitNormalization}
 	columns.emitted = append(columns.emitted, emission)
 	mergeContractQuality(&columns.contract, emission)
-	columns.mappings = append(columns.mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
+	columns.mappings = append(columns.mappings, receiptmodel.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
 	presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, PhysicalOrder: columns.presentationOrder, Pinned: pinned}
 	if column.Filter != nil {
 		presented.FilterLabel = firstNonEmpty(column.Filter.Label, column.Label)

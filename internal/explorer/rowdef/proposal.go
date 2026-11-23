@@ -10,6 +10,10 @@ import (
 	"reflect"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -27,7 +31,7 @@ func unsupportedFieldGroupRowDefinition() error {
 	)
 }
 
-func ValidateResolvedRowChoice(route authoringv2.RouteNode, resolved ResolvedRowChoice, expected RowChoiceKind) error {
+func ValidateResolvedRowChoice(route ws.RouteNode, resolved ResolvedRowChoice, expected RowChoiceKind) error {
 	if resolved.Kind != expected || support.RequireExactIdentity(resolved.OccurrenceID, "resolved occurrenceId") != nil || !routeContainsOccurrence(route, resolved.OccurrenceID) {
 		return fmt.Errorf("row choice does not identify an authored route occurrence")
 	}
@@ -46,7 +50,7 @@ func ValidateResolvedRowChoice(route authoringv2.RouteNode, resolved ResolvedRow
 	return nil
 }
 
-func routeContainsOccurrence(route authoringv2.RouteNode, occurrenceID string) bool {
+func routeContainsOccurrence(route ws.RouteNode, occurrenceID string) bool {
 	if route.OccurrenceID == occurrenceID {
 		return true
 	}
@@ -75,7 +79,7 @@ func validateExplicitGroupRevisionProof(proof explicitgroup.ExplicitGroupRevisio
 	return nil
 }
 
-func CheckRowDefinitionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+func CheckRowDefinitionProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {
 	if receipt == nil {
 		return support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt was not prepared", nil, nil)
 	}
@@ -89,11 +93,11 @@ func CheckRowDefinitionProposalResult(workspace authoringv2.Workspace, receipt *
 	return nil
 }
 
-func rowDefinitionWorkspaceChange(base, candidate authoringv2.Workspace, outputID string) (authoringv2.Document, error) {
+func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string) (ws.Document, error) {
 	baseWithoutRows := base
 	candidateWithoutRows := candidate
-	baseWithoutRows.Documents = append([]authoringv2.Document(nil), base.Documents...)
-	candidateWithoutRows.Documents = append([]authoringv2.Document(nil), candidate.Documents...)
+	baseWithoutRows.Documents = append([]ws.Document(nil), base.Documents...)
+	candidateWithoutRows.Documents = append([]ws.Document(nil), candidate.Documents...)
 	baseDocument, candidateDocument := -1, -1
 	for index := range base.Documents {
 		if base.Documents[index].Output.ID == outputID {
@@ -106,25 +110,25 @@ func rowDefinitionWorkspaceChange(base, candidate authoringv2.Workspace, outputI
 		}
 	}
 	if baseDocument < 0 || candidateDocument < 0 || baseDocument != candidateDocument {
-		return authoringv2.Document{}, fmt.Errorf("output %q is missing or moved in the candidate workspace", outputID)
+		return ws.Document{}, fmt.Errorf("output %q is missing or moved in the candidate workspace", outputID)
 	}
 	if reflect.DeepEqual(base.Documents[baseDocument].Rows, candidate.Documents[candidateDocument].Rows) {
-		return authoringv2.Document{}, fmt.Errorf("candidate row definition does not change output %q", outputID)
+		return ws.Document{}, fmt.Errorf("candidate row definition does not change output %q", outputID)
 	}
 	for index := range base.Documents {
 		if index != baseDocument && !reflect.DeepEqual(base.Documents[index].Rows, candidate.Documents[index].Rows) {
-			return authoringv2.Document{}, fmt.Errorf("candidate changes rows for output %q outside the requested output", base.Documents[index].Output.ID)
+			return ws.Document{}, fmt.Errorf("candidate changes rows for output %q outside the requested output", base.Documents[index].Output.ID)
 		}
-		baseWithoutRows.Documents[index].Rows = authoringv2.RowDefinition{}
-		candidateWithoutRows.Documents[index].Rows = authoringv2.RowDefinition{}
+		baseWithoutRows.Documents[index].Rows = ws.RowDefinition{}
+		candidateWithoutRows.Documents[index].Rows = ws.RowDefinition{}
 	}
 	if !reflect.DeepEqual(baseWithoutRows, candidateWithoutRows) {
-		return authoringv2.Document{}, fmt.Errorf("candidate changes authoring fields outside Document.Rows")
+		return ws.Document{}, fmt.Errorf("candidate changes authoring fields outside Document.Rows")
 	}
 	return candidate.Documents[candidateDocument], nil
 }
 
-func ProposalDocument(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+func ProposalDocument(workspace ws.Workspace, outputID string) *ws.Document {
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == outputID {
 			return &workspace.Documents[index]
@@ -133,7 +137,7 @@ func ProposalDocument(workspace authoringv2.Workspace, outputID string) *authori
 	return nil
 }
 
-func DocumentDigest(document authoringv2.Document) (string, error) {
+func DocumentDigest(document ws.Document) (string, error) {
 	raw, err := json.Marshal(document)
 	if err != nil {
 		return "", fmt.Errorf("encode authoring document digest: %w", err)
@@ -235,7 +239,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err := s.validateExplicitGroupReceipt(ctx, baseGroupProof, baseReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	binding := &explorer.RowDefinitionProposalBinding{
+	binding := &receiptmodel.RowDefinitionProposalBinding{
 		DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken,
@@ -260,7 +264,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if candidateDocument == nil {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
 	}
-	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	candidateNetwork, err := ws.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
@@ -278,12 +282,12 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	}, nil
 }
 
-func (s *Service) ResolveRowDefinitionSelection(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, document authoringv2.Document) (authoringv2.RowDefinition, *explicitgroup.ExplicitGroupRevisionProof, error) {
+func (s *Service) ResolveRowDefinitionSelection(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, document ws.Document) (ws.RowDefinition, *explicitgroup.ExplicitGroupRevisionProof, error) {
 	switch request.Selection.Kind {
 	case RowDefinitionSelectionRecords:
-		return authoringv2.RecordsRowDefinition(), nil, nil
+		return ws.RecordsRowDefinition(), nil, nil
 	case RowDefinitionSelectionFieldGroup:
-		return authoringv2.RowDefinition{}, nil, unsupportedFieldGroupRowDefinition()
+		return ws.RowDefinition{}, nil, unsupportedFieldGroupRowDefinition()
 	case RowDefinitionSelectionExplicitGroup:
 		policy := request.Selection.ExplicitGroup
 		proof, err := s.resolveExplicitGroupRevision(ctx, explicitgroup.ExplicitGroupRevisionResolveRequest{
@@ -291,43 +295,43 @@ func (s *Service) ResolveRowDefinitionSelection(ctx context.Context, request Row
 			Snapshot: snapshot.Clone(), RevisionID: policy.RevisionID, RootResourceType: document.RootResourceType,
 		})
 		if err != nil {
-			return authoringv2.RowDefinition{}, nil, err
+			return ws.RowDefinition{}, nil, err
 		}
-		groups := &authoringv2.GroupedRows{
-			Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{
+		groups := &ws.GroupedRows{
+			Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
 				RevisionID: proof.RevisionID, UnassignedMemberPolicy: policy.UnassignedMemberPolicy,
 			}},
 		}
-		if existing := document.Rows.Groups; existing != nil && document.Rows.Kind == authoringv2.RowDefinitionGroups && existing.Source.Kind == authoringv2.GroupSourceExplicit {
+		if existing := document.Rows.Groups; existing != nil && document.Rows.Kind == ws.RowDefinitionGroups && existing.Source.Kind == ws.GroupSourceExplicit {
 			groups.AfterStepID = existing.AfterStepID
-			groups.RowValues = append([]authoringv2.ExplicitGroupRowValue(nil), existing.RowValues...)
+			groups.RowValues = append([]ws.ExplicitGroupRowValue(nil), existing.RowValues...)
 		} else if document.Construction != nil && len(document.Construction.Steps) > 0 {
 			groups.AfterStepID = document.Construction.Steps[len(document.Construction.Steps)-1].ID
 		}
-		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: groups}, &proof, nil
+		return ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: groups}, &proof, nil
 	case RowDefinitionSelectionExpanded:
 		if s.config.RowChoiceResolver == nil {
-			return authoringv2.RowDefinition{}, nil, support.Unavailable("row-definition-proposal", "ROW_CHOICE_UNAVAILABLE", "row choice resolution is not configured", nil)
+			return ws.RowDefinition{}, nil, support.Unavailable("row-definition-proposal", "ROW_CHOICE_UNAVAILABLE", "row choice resolution is not configured", nil)
 		}
 		resolved, err := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 			Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 			Snapshot: snapshot.Clone(), Route: document.Route, RowChoiceID: request.Selection.Expanded.RowChoiceID, ExpectedKind: RowChoiceExpanded,
 		})
 		if err != nil || ValidateResolvedRowChoice(document.Route, resolved, RowChoiceExpanded) != nil {
-			return authoringv2.RowDefinition{}, nil, support.Conflict("row-definition-proposal", "STALE_ROW_CHOICE", "the selected expansion choice is stale or unavailable", nil, err)
+			return ws.RowDefinition{}, nil, support.Conflict("row-definition-proposal", "STALE_ROW_CHOICE", "the selected expansion choice is stale or unavailable", nil, err)
 		}
-		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
+		return ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{
 			OccurrenceID: resolved.OccurrenceID, ScopePath: resolved.ScopePath,
 			EmptyCollectionPolicy: request.Selection.Expanded.EmptyCollectionPolicy,
 		}}, nil, nil
 	default:
-		return authoringv2.RowDefinition{}, nil, support.Malformed("row-definition-proposal", "row selection kind is unsupported", nil)
+		return ws.RowDefinition{}, nil, support.Malformed("row-definition-proposal", "row selection kind is unsupported", nil)
 	}
 }
 
-func (s *Service) resolveExplicitGroupForDocument(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document authoringv2.Document, receipt *explorer.CompilationReceipt) (*explicitgroup.ExplicitGroupRevisionProof, error) {
+func (s *Service) resolveExplicitGroupForDocument(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document ws.Document, receipt *receiptmodel.CompilationReceipt) (*explicitgroup.ExplicitGroupRevisionProof, error) {
 	rows := document.Rows
-	if rows.Kind != authoringv2.RowDefinitionGroups || rows.Groups == nil || rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || rows.Groups.Source.Explicit == nil {
+	if rows.Kind != ws.RowDefinitionGroups || rows.Groups == nil || rows.Groups.Source.Kind != ws.GroupSourceExplicit || rows.Groups.Source.Explicit == nil {
 		return nil, nil
 	}
 	return s.resolveExplicitGroupRevisionForRows(ctx, project, explorerID, outputID, snapshot, document, rows, receipt)
@@ -351,8 +355,8 @@ func (s *Service) resolveExplicitGroupRevision(ctx context.Context, request expl
 	return proof, nil
 }
 
-func (s *Service) resolveExplicitGroupRevisionForRows(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document authoringv2.Document, rows authoringv2.RowDefinition, receipt *explorer.CompilationReceipt) (*explicitgroup.ExplicitGroupRevisionProof, error) {
-	if rows.Kind != authoringv2.RowDefinitionGroups || rows.Groups == nil || rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || rows.Groups.Source.Explicit == nil {
+func (s *Service) resolveExplicitGroupRevisionForRows(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document ws.Document, rows ws.RowDefinition, receipt *receiptmodel.CompilationReceipt) (*explicitgroup.ExplicitGroupRevisionProof, error) {
+	if rows.Kind != ws.RowDefinitionGroups || rows.Groups == nil || rows.Groups.Source.Kind != ws.GroupSourceExplicit || rows.Groups.Source.Explicit == nil {
 		return nil, nil
 	}
 	request := explicitgroup.ExplicitGroupRevisionResolveRequest{
@@ -371,7 +375,7 @@ func (s *Service) resolveExplicitGroupRevisionForRows(ctx context.Context, proje
 	return &proof, nil
 }
 
-func (s *Service) validateExplicitGroupReceipt(ctx context.Context, proof *explicitgroup.ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+func (s *Service) validateExplicitGroupReceipt(ctx context.Context, proof *explicitgroup.ExplicitGroupRevisionProof, receipt *receiptmodel.CompilationReceipt) error {
 	if proof == nil {
 		return nil
 	}
@@ -384,11 +388,11 @@ func (s *Service) validateExplicitGroupReceipt(ctx context.Context, proof *expli
 	return nil
 }
 
-func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
+func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
 	return s.config.VerifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
-func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
+func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyRowDefinitionProposal {
 		return nil, nil, support.Malformed("commands", "APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request", nil)
 	}
@@ -440,7 +444,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if err != nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be canonicalized for the proposal", nil, err)
 	}
-	comparisonBase, err = authoringv2.DecodeWorkspace(canonicalBase)
+	comparisonBase, err = ws.DecodeWorkspace(canonicalBase)
 	if err != nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be canonicalized for the proposal", nil, err)
 	}

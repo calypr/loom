@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestCompileMapsAuthoredConstructionDerivesIntoRecipeContract(t *testing.T) {
@@ -18,33 +19,33 @@ func TestCompileMapsAuthoredConstructionDerivesIntoRecipeContract(t *testing.T) 
 	document := exactRecodeDocument(nil)
 	document.Columns[0].ColumnID = "status_id"
 	document.Columns[1].ColumnID = "untouched_id"
-	source := []authoringv2.StageColumn{
+	source := []ws.StageColumn{
 		{ID: "status_id", Name: "status", Label: "Status", Type: "string"},
 		{ID: "untouched_id", Name: "untouched", Label: "Untouched", Type: "string"},
 	}
-	scaled := append(append([]authoringv2.StageColumn(nil), source...), authoringv2.StageColumn{ID: "scaled_status_id", Name: "scaled_status", Label: "Scaled status", Type: "decimal"})
-	final := append(append([]authoringv2.StageColumn(nil), scaled...), authoringv2.StageColumn{ID: "present_id", Name: "present", Label: "Present", Type: "decimal"})
-	document.Construction = &authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	scaled := append(append([]ws.StageColumn(nil), source...), ws.StageColumn{ID: "scaled_status_id", Name: "scaled_status", Label: "Scaled status", Type: "decimal"})
+	final := append(append([]ws.StageColumn(nil), scaled...), ws.StageColumn{ID: "present_id", Name: "present", Label: "Present", Type: "decimal"})
+	document.Construction = &ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 
 			{
 				ID:     "calc_scaled_status",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{
-					Kind: authoringv2.ConstructionOperationDerive,
-					Derive: &authoringv2.ConstructionDerive{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{
+					Kind: ws.ConstructionOperationDerive,
+					Derive: &ws.ConstructionDerive{
 
 						ConstructionID: "calc_scaled_status",
 						OutputColumnID: "scaled_status_id",
-						Operation:      authoringv2.ConstructionDerivedMultiply,
+						Operation:      ws.ConstructionDerivedMultiply,
 
-						Left: authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "status_id"},
-						Right: authoringv2.ConstructionOperand{
-							Kind:    authoringv2.ConstructionLiteralOperand,
-							Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericDecimal, Decimal: &decimal},
+						Left: ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "status_id"},
+						Right: ws.ConstructionOperand{
+							Kind:    ws.ConstructionLiteralOperand,
+							Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericDecimal, Decimal: &decimal},
 						},
-						MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+						MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 					},
 				},
 				Outputs: scaled,
@@ -52,22 +53,22 @@ func TestCompileMapsAuthoredConstructionDerivesIntoRecipeContract(t *testing.T) 
 
 			{
 				ID:     "calc_present",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "calc_scaled_status"}},
-				Operation: authoringv2.ConstructionOperation{
-					Kind: authoringv2.ConstructionOperationDerive,
-					Derive: &authoringv2.ConstructionDerive{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "calc_scaled_status"}},
+				Operation: ws.ConstructionOperation{
+					Kind: ws.ConstructionOperationDerive,
+					Derive: &ws.ConstructionDerive{
 
 						ConstructionID: "calc_present",
 						OutputColumnID: "present_id",
-						Operation:      authoringv2.ConstructionDerivedDivide,
+						Operation:      ws.ConstructionDerivedDivide,
 
-						Left: authoringv2.ConstructionOperand{
-							Kind:    authoringv2.ConstructionLiteralOperand,
-							Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &integer},
+						Left: ws.ConstructionOperand{
+							Kind:    ws.ConstructionLiteralOperand,
+							Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &integer},
 						},
-						Right:                authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "scaled_status_id"},
-						MissingInputPolicy:   authoringv2.ConstructionMissingInputError,
-						DivisionByZeroPolicy: authoringv2.ConstructionDivisionByZeroNull,
+						Right:                ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "scaled_status_id"},
+						MissingInputPolicy:   ws.ConstructionMissingInputError,
+						DivisionByZeroPolicy: ws.ConstructionDivisionByZeroNull,
 					},
 				},
 				Outputs: final,
@@ -131,30 +132,30 @@ func TestCompileRejectsNonNumericConstructionLiteral(t *testing.T) {
 	for i := range document.Columns {
 		document.Columns[i].ColumnID = document.Columns[i].Column
 	}
-	document.Construction = &authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	document.Construction = &ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			{
 				ID:     "calc_invalid",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{
-					Kind: authoringv2.ConstructionOperationDerive,
-					Derive: &authoringv2.ConstructionDerive{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{
+					Kind: ws.ConstructionOperationDerive,
+					Derive: &ws.ConstructionDerive{
 						ConstructionID: "calc_invalid",
 						OutputColumnID: "invalid",
-						Operation:      authoringv2.ConstructionDerivedAdd,
-						Left: authoringv2.ConstructionOperand{
-							Kind:    authoringv2.ConstructionLiteralOperand,
-							Literal: &authoringv2.ConstructionLiteral{Kind: "STRING"},
+						Operation:      ws.ConstructionDerivedAdd,
+						Left: ws.ConstructionOperand{
+							Kind:    ws.ConstructionLiteralOperand,
+							Literal: &ws.ConstructionLiteral{Kind: "STRING"},
 						},
-						Right: authoringv2.ConstructionOperand{
-							Kind:    authoringv2.ConstructionLiteralOperand,
-							Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: int64Pointer(1)},
+						Right: ws.ConstructionOperand{
+							Kind:    ws.ConstructionLiteralOperand,
+							Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: int64Pointer(1)},
 						},
-						MissingInputPolicy: authoringv2.ConstructionMissingInputError,
+						MissingInputPolicy: ws.ConstructionMissingInputError,
 					},
 				},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "status", Name: "status", Label: "Status", Type: "string"},
 					{ID: "untouched", Name: "untouched", Label: "Untouched", Type: "string"},
 					{ID: "invalid", Name: "invalid", Label: "Invalid", Type: "decimal"},

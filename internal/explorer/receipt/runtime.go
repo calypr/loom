@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -52,22 +54,22 @@ func NewRuntime(config RuntimeConfig) Runtime {
 	}
 }
 
-func (r Runtime) CompileReceipt(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+func (r Runtime) CompileReceipt(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 	return Compile(ctx, request, r.capabilities, r.engine, r.explorers, r.logger, r.combineInputSchemas, r.importedSources)
 }
 
-func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 	if r.constructionSourceStage == nil {
 		return CompileConstructionSourceStage(ctx, request, r.engine)
 	}
 	return CompileConstructionSourceStage(ctx, request, r.engine, r.constructionSourceStage)
 }
 
-func (r Runtime) ReceiptLookup(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+func (r Runtime) ReceiptLookup(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 	return r.explorers.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 }
 
-func (r Runtime) PreviewReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+func (r Runtime) PreviewReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 	if receipt == nil {
 		return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
 	}
@@ -87,7 +89,7 @@ func (r Runtime) PreviewReceipt(ctx context.Context, receipt *explorer.Compilati
 	return summary, previewErr
 }
 
-func (r Runtime) ValidateReceiptStream(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
+func (r Runtime) ValidateReceiptStream(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) error {
 	err := ValidateFullStream(ctx, r.engine, receipt, bindings)
 	if err != nil {
 		r.logger.Error("Explorer row-value policy full-stream validation failed", "receipt_id", receipt.ID, "error", err)
@@ -95,7 +97,7 @@ func (r Runtime) ValidateReceiptStream(ctx context.Context, receipt *explorer.Co
 	return err
 }
 
-func (r Runtime) ScanCategories(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+func (r Runtime) ScanCategories(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 	scanCtx, cancel := context.WithTimeout(ctx, executionarango.PivotCategoryScanTimeout)
 	defer cancel()
 	scanCtx = executionarango.WithPivotPreviewQueryBudget(scanCtx)
@@ -123,7 +125,7 @@ func (r Runtime) ScanCategories(ctx context.Context, receipt *explorer.Compilati
 	return result, err
 }
 
-func (r Runtime) ScanColumnPopulation(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
+func (r Runtime) ScanColumnPopulation(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
 	scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	started := time.Now()
@@ -150,7 +152,7 @@ func (r Runtime) ScanColumnPopulation(ctx context.Context, receipt *explorer.Com
 	return result, err
 }
 
-func (r Runtime) PopulationMapping(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
+func (r Runtime) PopulationMapping(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
 	if receipt == nil {
 		return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("compilation receipt is required")
 	}
@@ -170,7 +172,7 @@ func (r Runtime) PopulationMapping(ctx context.Context, receipt *explorer.Compil
 	return r.engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
 }
 
-func (r Runtime) CellTrace(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+func (r Runtime) CellTrace(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
 	if receipt == nil {
 		return dataframeexecution.CellTraceResult{}, fmt.Errorf("compilation receipt is required")
 	}
@@ -182,7 +184,7 @@ func (r Runtime) CellTrace(ctx context.Context, receipt *explorer.CompilationRec
 	return r.engine.CellTrace(ctx, resolved, request)
 }
 
-func (r Runtime) RowLineage(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
+func (r Runtime) RowLineage(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
 	if receipt == nil {
 		return dataframeexecution.RowLineageResult{}, fmt.Errorf("compilation receipt is required")
 	}
@@ -194,7 +196,7 @@ func (r Runtime) RowLineage(ctx context.Context, receipt *explorer.CompilationRe
 	return r.engine.RowLineage(ctx, resolved, request)
 }
 
-func (r Runtime) MaterializeReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
+func (r Runtime) MaterializeReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 	return r.materializer(ctx, receipt, bindings)
 }
 

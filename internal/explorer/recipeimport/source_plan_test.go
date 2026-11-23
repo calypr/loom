@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
@@ -73,13 +75,13 @@ func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.
 	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
 	key := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}
 	value := recipe.Expression{Select: "item.value"}
-	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+	parameters := &ws.ImportedSourceParameters{Dynamic: &ws.ImportedDynamicParameters{
 		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value,
-		Outputs: []authoringv2.ImportedDynamicOutput{{Key: "excluded", Enabled: false}},
+		Outputs: []ws.ImportedDynamicOutput{{Key: "excluded", Enabled: false}},
 	}}
-	addition := authoringv2.ImportedSourceRuleAddition{Kind: "DYNAMIC_COLUMN", StepID: "ruleAdditions[0]", Parameters: parameters}
+	addition := ws.ImportedSourceRuleAddition{Kind: "DYNAMIC_COLUMN", StepID: "ruleAdditions[0]", Parameters: parameters}
 	plan := SourcePlan(output)
-	plan.RuleAdditions = []authoringv2.ImportedSourceRuleAddition{addition}
+	plan.RuleAdditions = []ws.ImportedSourceRuleAddition{addition}
 	plan.Steps = append(plan.Steps, ruleAdditionStep(addition, ""))
 
 	effective, err := ApplySourcePlan(output, &plan)
@@ -116,10 +118,10 @@ func TestRootRuleWithQualifiedSelectorReloadsAndSavesRelative(t *testing.T) {
 	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
 	plan := SourcePlan(output)
 	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
-	params := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+	params := &ws.ImportedSourceParameters{Dynamic: &ws.ImportedDynamicParameters{
 		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value,
 	}}
-	addition := authoringv2.ImportedSourceRuleAddition{StepID: "ruleAdditions[0]", Kind: "DYNAMIC_COLUMN", Parameters: params}
+	addition := ws.ImportedSourceRuleAddition{StepID: "ruleAdditions[0]", Kind: "DYNAMIC_COLUMN", Parameters: params}
 	plan.RuleAdditions = append(plan.RuleAdditions, addition)
 	plan.Steps = append(plan.Steps, ruleAdditionStep(addition, ""))
 	hydrated, err := HydrateSourcePlan(output, &plan)
@@ -127,7 +129,7 @@ func TestRootRuleWithQualifiedSelectorReloadsAndSavesRelative(t *testing.T) {
 		t.Fatal(err)
 	}
 	change := authoringv2.ImportedSourceStepChange{StepID: addition.StepID, Parameters: params}
-	updated, err := EditPlan(output, hydrated, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	updated, err := EditPlan(output, hydrated, ws.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,10 +141,10 @@ func TestRootRuleWithQualifiedSelectorReloadsAndSavesRelative(t *testing.T) {
 func TestEditPlanDeletesRuleWithoutReusingItsIdentity(t *testing.T) {
 	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
 	original := SourcePlan(output)
-	catalog := authoringv2.CatalogSnapshot{}
+	catalog := ws.CatalogSnapshot{}
 	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
-	rule := authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: &authoringv2.ImportedSourceParameters{
-		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
+	rule := ws.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: &ws.ImportedSourceParameters{
+		Dynamic: &ws.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
 	}}
 	created, err := EditPlan(output, original, catalog, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
 	if err != nil {
@@ -153,8 +155,8 @@ func TestEditPlanDeletesRuleWithoutReusingItsIdentity(t *testing.T) {
 	}
 	id := created.RuleAdditions[0].StepID
 	other := rule
-	other.Parameters = &authoringv2.ImportedSourceParameters{
-		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "other_identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
+	other.Parameters = &ws.ImportedSourceParameters{
+		Dynamic: &ws.ImportedDynamicParameters{Name: "other_identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
 	}
 	createdBoth, err := EditPlan(output, created, catalog, PlanEdit{RuleCreate: &other}, PlanEditInput{})
 	if err != nil {
@@ -190,7 +192,7 @@ func TestEditPlanDeletesPinnedRuleFromSavedAndEffectiveRecipes(t *testing.T) {
 	plan := SourcePlan(output)
 	removedID := "dynamicColumns[0]"
 	survivorID := "dynamicColumns[1]"
-	edited, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{
+	edited, err := EditPlan(output, plan, ws.CatalogSnapshot{}, PlanEdit{
 		StepChanges: []authoringv2.ImportedSourceStepChange{{StepID: removedID, Remove: true}},
 	}, PlanEditInput{})
 	if err != nil {
@@ -222,10 +224,10 @@ func TestApplySourcePlanRejectsDisabledRuleOccurrence(t *testing.T) {
 	}
 	plan := SourcePlan(output)
 	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
-	rule := authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", OccurrenceID: "patient", Parameters: &authoringv2.ImportedSourceParameters{
-		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
+	rule := ws.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", OccurrenceID: "patient", Parameters: &ws.ImportedSourceParameters{
+		Dynamic: &ws.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
 	}}
-	created, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+	created, err := EditPlan(output, plan, ws.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,8 +239,8 @@ func TestApplySourcePlanRejectsDisabledRuleOccurrence(t *testing.T) {
 		t.Fatalf("name fallback produced %q", got)
 	}
 	change := authoringv2.ImportedSourceStepChange{StepID: "traversals[0]", Remove: true}
-	_, err = EditPlan(output, created, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
-	var unavailable *authoringv2.UnavailableSourceRuleOccurrence
+	_, err = EditPlan(output, created, ws.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	var unavailable *ws.UnavailableSourceRuleOccurrence
 	if !errors.As(err, &unavailable) || unavailable.OccurrenceID != "patient" {
 		t.Fatalf("disabled occurrence error = %v", err)
 	}
@@ -265,7 +267,7 @@ func TestApplySourcePlanAppliesNestedEnablementAndBoundedOverridesWithoutMutatin
 	if newMaxColumns < 1 {
 		newMaxColumns = 1
 	}
-	if err := updateSourcePlanStep(&plan, maxStep.ID, func(step *authoringv2.ImportedSourceStep) {
+	if err := updateSourcePlanStep(&plan, maxStep.ID, func(step *ws.ImportedSourceStep) {
 		step.MaxColumns = &newMaxColumns
 		step.ValueMode = "ALL"
 	}); err != nil {
@@ -315,49 +317,49 @@ func TestApplySourcePlanRejectsStepsAndOverridesOutsidePinnedSource(t *testing.T
 
 	tests := []struct {
 		name   string
-		mutate func(*testing.T, *authoringv2.ImportedSourcePlan)
+		mutate func(*testing.T, *ws.ImportedSourcePlan)
 	}{
 		{
 			name: "forged step id",
-			mutate: func(_ *testing.T, plan *authoringv2.ImportedSourcePlan) {
+			mutate: func(_ *testing.T, plan *ws.ImportedSourcePlan) {
 				plan.Steps[0].ID = "forged"
 			},
 		},
 		{
 			name: "forged title",
-			mutate: func(_ *testing.T, plan *authoringv2.ImportedSourcePlan) {
+			mutate: func(_ *testing.T, plan *ws.ImportedSourcePlan) {
 				plan.Steps[0].Title = "Invented recipe step"
 			},
 		},
 		{
 			name: "missing step",
-			mutate: func(_ *testing.T, plan *authoringv2.ImportedSourcePlan) {
+			mutate: func(_ *testing.T, plan *ws.ImportedSourcePlan) {
 				plan.Steps = plan.Steps[:len(plan.Steps)-1]
 			},
 		},
 		{
 			name: "maximum raised above pinned limit",
-			mutate: func(t *testing.T, plan *authoringv2.ImportedSourcePlan) {
+			mutate: func(t *testing.T, plan *ws.ImportedSourcePlan) {
 				step, _ := sourcePlanStep(*plan, "dynamicColumns[0]")
 				value := *step.MaxColumns + 1
-				if err := updateSourcePlanStep(plan, step.ID, func(step *authoringv2.ImportedSourceStep) { step.MaxColumns = &value }); err != nil {
+				if err := updateSourcePlanStep(plan, step.ID, func(step *ws.ImportedSourceStep) { step.MaxColumns = &value }); err != nil {
 					t.Fatal(err)
 				}
 			},
 		},
 		{
 			name: "settings added to field group",
-			mutate: func(t *testing.T, plan *authoringv2.ImportedSourcePlan) {
+			mutate: func(t *testing.T, plan *ws.ImportedSourcePlan) {
 				value := 1
-				if err := updateSourcePlanStep(plan, "fields", func(step *authoringv2.ImportedSourceStep) { step.MaxColumns = &value }); err != nil {
+				if err := updateSourcePlanStep(plan, "fields", func(step *ws.ImportedSourceStep) { step.MaxColumns = &value }); err != nil {
 					t.Fatal(err)
 				}
 			},
 		},
 		{
 			name: "invalid value mode",
-			mutate: func(t *testing.T, plan *authoringv2.ImportedSourcePlan) {
-				if err := updateSourcePlanStep(plan, "dynamicColumns[0]", func(step *authoringv2.ImportedSourceStep) { step.ValueMode = "ZIP" }); err != nil {
+			mutate: func(t *testing.T, plan *ws.ImportedSourcePlan) {
+				if err := updateSourcePlanStep(plan, "dynamicColumns[0]", func(step *ws.ImportedSourceStep) { step.ValueMode = "ZIP" }); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -382,7 +384,7 @@ func TestApplySourcePlanRejectsStepsAndOverridesOutsidePinnedSource(t *testing.T
 }
 
 func TestImportedSourcePlanValidationChecksHierarchyAndDocumentOwnership(t *testing.T) {
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{
+	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{
 		{ID: "traversals[0]", Kind: SourcePlanTraversal, Title: "Traversal", Summary: "A relationship.", Editable: true},
 		{ID: "traversals[0].fields", ParentID: "traversals[0]", Kind: SourcePlanFieldGroup, Title: "Fields", Summary: "Source fields.", Editable: true},
 	}}
@@ -394,10 +396,10 @@ func TestImportedSourcePlanValidationChecksHierarchyAndDocumentOwnership(t *test
 		t.Fatal("source plan with a missing parent was accepted")
 	}
 
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "source", Title: "Source"},
-		RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Rows: authoringv2.RecordsRowDefinition(), ImportedSource: &authoringv2.ImportedSourcePlan{},
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "source", Title: "Source"},
+		RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Rows: ws.RecordsRowDefinition(), ImportedSource: &ws.ImportedSourcePlan{},
 	}
 	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "requires an importedRecipe") {
 		t.Fatalf("source plan without pin validation error = %v", err)
@@ -418,7 +420,7 @@ func TestImportWorkspacePersistsGeneratedSourcePlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := authoringv2.DecodeWorkspace(canonical)
+	restored, err := ws.DecodeWorkspace(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +459,7 @@ func outputNamed(t *testing.T, bundle recipe.Bundle, name string) recipe.Output 
 	return recipe.Output{}
 }
 
-func sourcePlanHasKind(plan authoringv2.ImportedSourcePlan, kind string) bool {
+func sourcePlanHasKind(plan ws.ImportedSourcePlan, kind string) bool {
 	for _, step := range plan.Steps {
 		if step.Kind == kind {
 			return true
@@ -466,16 +468,16 @@ func sourcePlanHasKind(plan authoringv2.ImportedSourcePlan, kind string) bool {
 	return false
 }
 
-func sourcePlanStep(plan authoringv2.ImportedSourcePlan, id string) (authoringv2.ImportedSourceStep, bool) {
+func sourcePlanStep(plan ws.ImportedSourcePlan, id string) (ws.ImportedSourceStep, bool) {
 	for _, step := range plan.Steps {
 		if step.ID == id {
 			return step, true
 		}
 	}
-	return authoringv2.ImportedSourceStep{}, false
+	return ws.ImportedSourceStep{}, false
 }
 
-func removePinnedTestStep(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string) {
+func removePinnedTestStep(t *testing.T, plan *ws.ImportedSourcePlan, id string) {
 	t.Helper()
 	retained, err := retainedPinnedSteps(plan.Steps, []string{id})
 	if err != nil {
@@ -485,7 +487,7 @@ func removePinnedTestStep(t *testing.T, plan *authoringv2.ImportedSourcePlan, id
 	plan.RemovedStepIDs = append(plan.RemovedStepIDs, id)
 }
 
-func updateSourcePlanStep(plan *authoringv2.ImportedSourcePlan, id string, update func(*authoringv2.ImportedSourceStep)) error {
+func updateSourcePlanStep(plan *ws.ImportedSourcePlan, id string, update func(*ws.ImportedSourceStep)) error {
 	for index := range plan.Steps {
 		if plan.Steps[index].ID == id {
 			update(&plan.Steps[index])
@@ -495,8 +497,8 @@ func updateSourcePlanStep(plan *authoringv2.ImportedSourcePlan, id string, updat
 	return fmt.Errorf("source-plan step %q not found", id)
 }
 
-func cloneSourcePlan(plan authoringv2.ImportedSourcePlan) authoringv2.ImportedSourcePlan {
-	steps := make([]authoringv2.ImportedSourceStep, len(plan.Steps))
+func cloneSourcePlan(plan ws.ImportedSourcePlan) ws.ImportedSourcePlan {
+	steps := make([]ws.ImportedSourceStep, len(plan.Steps))
 	copy(steps, plan.Steps)
 	for index := range steps {
 		if steps[index].MaxColumns != nil {
@@ -504,5 +506,5 @@ func cloneSourcePlan(plan authoringv2.ImportedSourcePlan) authoringv2.ImportedSo
 			steps[index].MaxColumns = &value
 		}
 	}
-	return authoringv2.ImportedSourcePlan{Steps: steps}
+	return ws.ImportedSourcePlan{Steps: steps}
 }

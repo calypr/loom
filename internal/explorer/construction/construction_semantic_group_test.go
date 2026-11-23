@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
@@ -76,7 +79,7 @@ func TestConstructionSemanticGroupChoicesRequireDirectRootCodedCapability(t *tes
 	snapshot, base, stage, _ := semanticGroupChoicesTestSetup(t)
 	base.Snapshot = snapshot
 	calls := 0
-	stage.Capabilities = []explorer.ReceiptConstructionOperationChoice{
+	stage.Capabilities = []receiptmodel.ReceiptConstructionOperationChoice{
 		{Kind: "GROUP", Supported: true}, {Kind: "CODED_PIVOT", Supported: false},
 	}
 	service := &Service{config: Config{
@@ -145,7 +148,7 @@ func TestConstructionSemanticGroupChoicesClassifiesInventoryReadFailure(t *testi
 	}
 }
 
-func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, constructionBase, explorer.ReceiptConstructionStage, semantic.Family) {
+func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, constructionBase, receiptmodel.ReceiptConstructionStage, semantic.Family) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "semantic-group-snapshot", scope)
@@ -163,7 +166,7 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 	)
 	if !semanticGroupFamilyReady(family) {
 		entry := semanticInventoryEntryForFamily(family)
-		t.Fatalf("test family is not a ready semantic Group family: %#v plan=%#v", family, authoringv2.ResolveSemanticSelectionPlan(entry.Observation))
+		t.Fatalf("test family is not a ready semantic Group family: %#v plan=%#v", family, semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation))
 	}
 	if path, ok := constructionSemanticGroupCodingPath("Observation", family); !ok || path != "code.coding[]" {
 		t.Fatalf("test family coding path = %q, ok=%t", path, ok)
@@ -175,14 +178,14 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 		ExplorerID: "builder",
 		Snapshot:   snapshot,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		Document: authoringv2.Document{
+		Document: ws.Document{
 			RootResourceType: "Observation",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(),
 		},
 	}
-	stage := explorer.ReceiptConstructionStage{
+	stage := receiptmodel.ReceiptConstructionStage{
 		ID: "source_projection", RowIdentityColumn: "_key",
-		Capabilities: []explorer.ReceiptConstructionOperationChoice{
+		Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{
 			{Kind: "GROUP", Supported: true}, {Kind: "CODED_PIVOT", Supported: true},
 		},
 	}

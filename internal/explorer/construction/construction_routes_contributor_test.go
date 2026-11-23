@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -33,31 +34,31 @@ func TestReauthorizeRelatedExpandContributorRejectsTamperedRepeatedBoundaries(t 
 		t.Fatal(err)
 	}
 	contributorValue := "d"
-	related := authoringv2.ConstructionRelatedExpand{
+	related := ws.ConstructionRelatedExpand{
 		ChoiceID: rootChoice.ChoiceID, TargetNodeID: "observation", TargetResourceType: "Observation", Route: route,
 		ContributorChoiceID: contributorChoice.ChoiceID,
-		ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches, Predicate: &authoringv2.ContributorPredicate{
-			CandidateID: repeated.ID, Operator: authoringv2.ContributorEquals, Quantifier: authoringv2.ContributorAny,
-			Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &contributorValue},
+		ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches, Predicate: &ws.ContributorPredicate{
+			CandidateID: repeated.ID, Operator: ws.ContributorEquals, Quantifier: ws.ContributorAny,
+			Value: &ws.ContributorValue{Kind: ws.ContributorString, String: &contributorValue},
 		}},
 	}
-	related.ContributorSource = &authoringv2.ConstructionRelatedFieldSource{
+	related.ContributorSource = &ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: repeated.ID, NodeID: repeated.NodeID,
 		ResourceType: repeated.ResourceType, Path: repeated.FieldPath, Cardinality: repeated.Cardinality,
 		LogicalType: repeated.LogicalType, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), repeated.RepeatedBoundaries...),
 	}
-	catalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients",
+	catalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "patients",
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-		Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "observation", ResourceType: "Observation"}},
-		Edges: []authoringv2.CatalogEdge{{ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"}},
-		Candidates: []authoringv2.CatalogCandidate{
+		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+		Nodes: []ws.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "observation", ResourceType: "Observation"}},
+		Edges: []ws.CatalogEdge{{ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"}},
+		Candidates: []ws.CatalogCandidate{
 			{ID: status.ID, NodeID: status.NodeID, FieldPath: status.FieldPath, Label: status.Label, LogicalType: status.LogicalType, Cardinality: status.Cardinality, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &rootChoice},
 			{ID: repeated.ID, NodeID: repeated.NodeID, FieldPath: repeated.FieldPath, Label: repeated.Label, LogicalType: repeated.LogicalType, Cardinality: repeated.Cardinality, ProjectionModes: []string{"ARRAY"}, DefaultProjectionMode: "ARRAY", ConstructionChoice: &contributorChoice},
 		},
 	}
-	base := Base{Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, Catalog: catalog, Document: authoringv2.Document{RootResourceType: "Patient", Rows: authoringv2.RecordsRowDefinition()}}
+	base := Base{Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, Catalog: catalog, Document: ws.Document{RootResourceType: "Patient", Rows: ws.RecordsRowDefinition()}}
 	if err := reauthorizeRelatedExpandContributor(context.Background(), base, "Patient", related); err != nil {
 		t.Fatalf("repeated contributor signed choice reauthorization: %v", err)
 	}

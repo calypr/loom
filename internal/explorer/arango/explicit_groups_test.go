@@ -9,18 +9,18 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/explorer/arango/db"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
-	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestPutExplicitGroupDefinitionsUsesObjectRows(t *testing.T) {
 	ctx := context.Background()
-	revision := explorer.ExplicitGroupRevision{
-		ID: explorer.ExplicitGroupRevisionIDFor("project-a", "groups-a"), Project: "project-a",
+	revision := explorerselection.ExplicitGroupRevision{
+		ID: explorerselection.ExplicitGroupRevisionIDFor("project-a", "groups-a"), Project: "project-a",
 		Generation: "generation-a", ScopeDigest: "scope-a", ResourceType: "Patient",
 		SourceSelectionRevisionID: "selection-a", SourceMembershipDigest: "source-membership-a",
-		State: explorer.ExplicitGroupRevisionStaging, IdempotencyKey: "groups-a", CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+		State: explorerselection.ExplicitGroupRevisionStaging, IdempotencyKey: "groups-a", CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}
 	header, err := db.Document(revision, string(revision.ID))
 	if err != nil {
@@ -33,23 +33,23 @@ func TestPutExplicitGroupDefinitionsUsesObjectRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []explorer.ExplicitGroupDefinition{{ID: "group-empty", Label: "Empty group", Ordinal: 0}}
+	want := []explorerselection.ExplicitGroupDefinition{{ID: "group-empty", Label: "Empty group", Ordinal: 0}}
 	if err := repository.PutExplicitGroupDefinitions(ctx, revision.ID, "writer-a", want); err != nil {
 		t.Fatalf("put definitions: %v", err)
 	}
 	if !client.definitionWriteReturnedObject {
 		t.Fatal("definition UPSERT did not return a map-shaped row")
 	}
-	definitionDigest, err := explorer.ExplicitGroupDefinitionDigest(want)
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	membershipDigest, err := explorer.ExplicitGroupMembershipDigest(revision, want, nil)
+	membershipDigest, err := explorerselection.ExplicitGroupMembershipDigest(revision, want, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	completed := revision
-	completed.State = explorer.ExplicitGroupRevisionComplete
+	completed.State = explorerselection.ExplicitGroupRevisionComplete
 	completed.DefinitionDigest = definitionDigest
 	completed.MembershipDigest = membershipDigest
 	completed.GroupCount = 1

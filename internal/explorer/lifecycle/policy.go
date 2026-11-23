@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -38,7 +41,7 @@ func verifyQueryableOutputs(bundle recipe.Bundle, execution ports.Execution) err
 	return nil
 }
 
-func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution ports.Execution) error {
+func verifyActivationQuality(receipt *receiptmodel.CompilationReceipt, execution ports.Execution) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -64,23 +67,23 @@ func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution por
 	return nil
 }
 
-func materializations(bundle recipe.Bundle, execution ports.Execution) []explorer.Materialization {
-	out := make([]explorer.Materialization, 0, len(execution.Outputs))
+func materializations(bundle recipe.Bundle, execution ports.Execution) []viewer.Materialization {
+	out := make([]viewer.Materialization, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
 		selector := dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: output.Name}
-		out = append(out, explorer.Materialization{OutputID: output.Name, Output: output.Name, MaterializationID: execution.ID, Selector: &selector, Columns: output.Columns})
+		out = append(out, viewer.Materialization{OutputID: output.Name, Output: output.Name, MaterializationID: execution.ID, Selector: &selector, Columns: output.Columns})
 	}
 	return out
 }
 
-func datasetMetadataFromExecution(bundle recipe.Bundle, generation, schemaDigest string, execution ports.Execution) explorer.DatasetMetadata {
-	outputs := make([]explorer.DatasetOutput, 0, len(execution.Outputs))
+func datasetMetadataFromExecution(bundle recipe.Bundle, generation, schemaDigest string, execution ports.Execution) viewer.DatasetMetadata {
+	outputs := make([]viewer.DatasetOutput, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
 		state := strings.ToUpper(output.State)
 		selector := dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: output.Name}
-		outputs = append(outputs, explorer.DatasetOutput{Name: output.Name, State: state, Queryable: state == "PUBLISHED" || state == "READY" || state == "ACTIVE", Selector: &selector, Columns: output.Columns})
+		outputs = append(outputs, viewer.DatasetOutput{Name: output.Name, State: state, Queryable: state == "PUBLISHED" || state == "READY" || state == "ACTIVE", Selector: &selector, Columns: output.Columns})
 	}
-	return explorer.DatasetMetadata{Generation: generation, SchemaDigest: schemaDigest, Outputs: outputs}
+	return viewer.DatasetMetadata{Generation: generation, SchemaDigest: schemaDigest, Outputs: outputs}
 }
 
 func receiptHasOutput(bundle recipe.Bundle, id string) bool {
@@ -92,8 +95,8 @@ func receiptHasOutput(bundle recipe.Bundle, id string) bool {
 	return false
 }
 
-func emittedColumnsForOutput(receipt *explorer.CompilationReceipt, outputID string) []explorer.EmittedColumn {
-	columns := make([]explorer.EmittedColumn, 0)
+func emittedColumnsForOutput(receipt *receiptmodel.CompilationReceipt, outputID string) []viewer.EmittedColumn {
+	columns := make([]viewer.EmittedColumn, 0)
 	if receipt == nil {
 		return columns
 	}
@@ -105,9 +108,9 @@ func emittedColumnsForOutput(receipt *explorer.CompilationReceipt, outputID stri
 	return columns
 }
 
-func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 	var (
-		receipt *explorer.CompilationReceipt
+		receipt *receiptmodel.CompilationReceipt
 		err     error
 	)
 	if s.config.ReceiptLookup != nil {
@@ -121,7 +124,7 @@ func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receip
 	return receipt, nil
 }
 
-func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
+func (s *Service) validateReceiptRoute(receipt *receiptmodel.CompilationReceipt, project, explorerID string) error {
 	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
 		return support.NotFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
 	}
@@ -129,7 +132,7 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
 	}
 	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.PopulationMapping != nil || s.config.MaterializeReceipt != nil
-	if native && !explorer.ReceiptContractSupportedForExecution(*receipt) {
+	if native && !receiptmodel.ReceiptContractSupportedForExecution(*receipt) {
 		return support.Conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported compiler contract", nil, nil)
 	}
 	if native {
@@ -140,7 +143,7 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 	return nil
 }
 
-func (s *Service) validateArchivedReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
+func (s *Service) validateArchivedReceiptRoute(receipt *receiptmodel.CompilationReceipt, project, explorerID string) error {
 	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
 		return support.NotFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
 	}
@@ -156,7 +159,7 @@ func (s *Service) validateArchivedReceiptRoute(receipt *explorer.CompilationRece
 	return nil
 }
 
-func (s *Service) validateExecutableReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
+func (s *Service) validateExecutableReceiptRoute(receipt *receiptmodel.CompilationReceipt, project, explorerID string) error {
 	if err := s.validateReceiptRoute(receipt, project, explorerID); err != nil {
 		return err
 	}
@@ -169,7 +172,7 @@ func (s *Service) validateExecutableReceiptRoute(receipt *explorer.CompilationRe
 	return nil
 }
 
-func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {
+func validateReceiptCapability(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -185,7 +188,7 @@ func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot ca
 	return nil
 }
 
-func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
+func validateAuthorizedReceiptExecution(receipt *receiptmodel.CompilationReceipt, authorized ports.AuthorizedCapability) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")
 	}
@@ -211,7 +214,7 @@ func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, au
 	return support.ValidateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest)
 }
 
-func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputID string) error {
+func validateReceiptOutputContract(receipt *receiptmodel.CompilationReceipt, outputID string) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")
 	}
@@ -219,7 +222,7 @@ func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputI
 	if outputID == "" {
 		return fmt.Errorf("output is required")
 	}
-	contract, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contract, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		return fmt.Errorf("public output contract is invalid: %v", err)
 	}

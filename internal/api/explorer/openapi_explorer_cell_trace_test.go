@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -17,7 +21,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
@@ -31,7 +34,7 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 	if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "custom", "Custom", "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +45,7 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 			},
 		},
 		ReceiptLookup: service.CompilationReceiptForExplorer,
-		CellTrace: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		CellTrace: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
 			if receipt == nil || receipt.ID == "" || bindings.DatasetGeneration != snapshot.Identity.Generation {
 				t.Fatalf("trace was not receipt/generation bound: receipt=%#v bindings=%#v", receipt, bindings)
 			}

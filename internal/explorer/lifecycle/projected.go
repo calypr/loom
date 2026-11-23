@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -17,8 +19,8 @@ func (s *Service) prepareProjectedFieldRemoval(
 	explorerID string,
 	request authoringv2.ApplyCommandsRequest,
 	authorized ports.AuthorizedCapability,
-	workspace authoringv2.Workspace,
-	catalog authoringv2.CatalogSnapshot,
+	workspace ws.Workspace,
+	catalog ws.CatalogSnapshot,
 	commands []authoringv2.Command,
 ) ([]authoringv2.Command, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandRemoveProjectedField {
@@ -28,7 +30,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 	if s.config.AuthoringNetwork == nil {
 		return nil, support.Unavailable("commands", "AUTHORING_NETWORK_UNAVAILABLE", "projected field ownership is unavailable", nil)
 	}
-	var document *authoringv2.Document
+	var document *ws.Document
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == command.OutputID {
 			document = &workspace.Documents[index]
@@ -46,7 +48,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 		}
 		return nil, support.Unprocessable("commands", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
-	var projected *authoringv2.ProjectedField
+	var projected *ws.ProjectedField
 	for index := range network.ProjectedFields {
 		field := &network.ProjectedFields[index]
 		if field.ColumnID != command.ColumnID() {
@@ -60,21 +62,21 @@ func (s *Service) prepareProjectedFieldRemoval(
 	if projected == nil {
 		return nil, support.Unprocessable("commands", "PROJECTED_FIELD_NOT_FOUND", "columnId is unavailable in the saved output", nil)
 	}
-	if projected.Status != authoringv2.ProjectedFieldStatusExact {
+	if projected.Status != ws.ProjectedFieldStatusExact {
 		return nil, support.Unprocessable("commands", "PROJECTED_FIELD_UNAVAILABLE", "the saved field has no exact stable identity and owner", nil)
 	}
 	switch {
-	case projected.Owner == authoringv2.ProjectedFieldOwnerAuthored && projected.Removal == authoringv2.ProjectedFieldRemovalColumn:
+	case projected.Owner == ws.ProjectedFieldOwnerAuthored && projected.Removal == ws.ProjectedFieldRemovalColumn:
 		found := 0
 		for _, column := range document.Columns {
-			if column.ColumnID == projected.ColumnID && column.Source.Kind != authoringv2.SourceImported {
+			if column.ColumnID == projected.ColumnID && column.Source.Kind != ws.SourceImported {
 				found++
 			}
 		}
 		if found != 1 {
 			return nil, support.Unprocessable("commands", "PROJECTED_FIELD_UNAVAILABLE", "the authored field identity is unavailable or ambiguous", nil)
 		}
-	case projected.Owner == authoringv2.ProjectedFieldOwnerPinned && projected.Removal == authoringv2.ProjectedFieldRemovalDisablePinned:
+	case projected.Owner == ws.ProjectedFieldOwnerPinned && projected.Removal == ws.ProjectedFieldRemovalDisablePinned:
 		if document.ImportedRecipe == nil || projected.SourceStepID == "" || projected.SourceFieldID == "" || s.config.RemoveImportedField == nil {
 			return nil, support.Unavailable("commands", "IMPORTED_FIELD_REMOVAL_UNAVAILABLE", "the pinned field cannot be removed safely", nil)
 		}
@@ -89,7 +91,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 		if err := command.ResolveProjectedFieldRemovalDocument(updated); err != nil {
 			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_FIELD_REMOVAL", err.Error(), err)
 		}
-	case projected.Owner == authoringv2.ProjectedFieldOwnerPinned && projected.Removal == authoringv2.ProjectedFieldRemovalDisablePinnedOutput:
+	case projected.Owner == ws.ProjectedFieldOwnerPinned && projected.Removal == ws.ProjectedFieldRemovalDisablePinnedOutput:
 		if document.ImportedRecipe == nil || projected.SourceStepID == "" || projected.SourceOutputKey == "" || s.config.RemoveImportedOutput == nil {
 			return nil, support.Unavailable("commands", "IMPORTED_OUTPUT_REMOVAL_UNAVAILABLE", "the pinned output cannot be removed safely", nil)
 		}

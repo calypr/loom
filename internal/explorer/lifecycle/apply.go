@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -12,7 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 )
 
-func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, proposed authoringv2.Workspace, snapshot capability.Snapshot) error {
+func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, proposed ws.Workspace, snapshot capability.Snapshot) error {
 	candidateCount := 0
 	for _, command := range request.Commands {
 		if command.Type != authoringv2.CommandApplyInterpretationCandidate {

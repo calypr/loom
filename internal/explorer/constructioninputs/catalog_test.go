@@ -9,6 +9,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
@@ -19,7 +24,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -110,19 +114,19 @@ func TestConstructionInputsCatalogUsesExactImmutablePublicationLabelsOncePerRevi
 		reader.Values[key] = materialization
 	}
 
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace.Explorer.Title = "Published clinical tables"
 	document := workspace.Documents[0]
-	document.Output = authoringv2.Output{ID: selector.Output, Title: "Observation measurements"}
+	document.Output = ws.Output{ID: selector.Output, Title: "Observation measurements"}
 	document.RootResourceType = "Observation"
 	document.Route.ResourceType = "Observation"
-	workspace.Documents = []authoringv2.Document{document, document}
-	workspace.Documents[1].Output = authoringv2.Output{ID: secondSelector.Output, Title: "Diagnosis records"}
+	workspace.Documents = []ws.Document{document, document}
+	workspace.Documents[1].Output = ws.Output{ID: secondSelector.Output, Title: "Diagnosis records"}
 	workspace.Documents[1].Output.Title = ""
-	workspace.Tabs = []authoringv2.Tab{
+	workspace.Tabs = []ws.Tab{
 		{ID: "observations", Title: "Observation measurements", OutputID: selector.Output, Order: 0, Visible: true},
 		{ID: "diagnoses", Title: "Diagnosis records", OutputID: secondSelector.Output, Order: 1, Visible: true},
 	}
@@ -130,13 +134,13 @@ func TestConstructionInputsCatalogUsesExactImmutablePublicationLabelsOncePerRevi
 	if err != nil {
 		t.Fatal(err)
 	}
-	emitted := []explorer.EmittedColumn{
+	emitted := []viewer.EmittedColumn{
 		{OutputID: selector.Output, PublicColumn: "col_opaque_observation", Label: "Observed value", LogicalType: "string"},
 		{OutputID: secondSelector.Output, PublicColumn: "col_opaque_diagnosis", Label: "Diagnosis code", LogicalType: "string"},
 	}
-	contracts := explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{
-		{OutputID: selector.Output, RootResourceType: "Observation", RowGrain: "resource", Columns: []explorer.PublicOutputColumn{{Column: "col_opaque_observation", Label: "Observed value", LogicalType: "string"}}},
-		{OutputID: secondSelector.Output, RootResourceType: "Observation", RowGrain: "resource", Columns: []explorer.PublicOutputColumn{{Column: "col_opaque_diagnosis", Label: "Diagnosis code", LogicalType: "string"}}},
+	contracts := receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{
+		{OutputID: selector.Output, RootResourceType: "Observation", RowGrain: "resource", Columns: []receiptmodel.PublicOutputColumn{{Column: "col_opaque_observation", Label: "Observed value", LogicalType: "string"}}},
+		{OutputID: secondSelector.Output, RootResourceType: "Observation", RowGrain: "resource", Columns: []receiptmodel.PublicOutputColumn{{Column: "col_opaque_diagnosis", Label: "Diagnosis code", LogicalType: "string"}}},
 	}}
 	contractJSON, err := json.Marshal(contracts)
 	if err != nil {
@@ -151,7 +155,7 @@ func TestConstructionInputsCatalogUsesExactImmutablePublicationLabelsOncePerRevi
 			{Name: secondSelector.Output, RootResourceType: "Observation", RowGrain: "resource"},
 		}},
 		EmittedColumns: emitted, SourceGeneration: "generation-a",
-		Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: "generation-a", ExecutionID: execution.ID},
+		Publication: viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: "generation-a", ExecutionID: execution.ID},
 		Status:      explorer.RevisionReady,
 	}
 	if _, err := service.constructionInputPublicationMetadata(context.Background(), execution, "project-a"); err != nil {

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 
@@ -72,7 +74,7 @@ func TestInsertCompilationReceiptReturnsWinnerFromConcurrentIdenticalWriters(t *
 	}
 
 	type result struct {
-		receipt *explorer.CompilationReceipt
+		receipt *receiptmodel.CompilationReceipt
 		err     error
 	}
 	results := make(chan result, 2)
@@ -332,12 +334,12 @@ func receiptConflictError() error {
 	return shared.ArangoError{HasError: true, Code: 409, ErrorNum: shared.ErrArangoConflict, ErrorMessage: "write-write conflict"}
 }
 
-func testCompilationReceipt(t *testing.T, intent string) explorer.CompilationReceipt {
+func testCompilationReceipt(t *testing.T, intent string) receiptmodel.CompilationReceipt {
 	t.Helper()
 	bundle := testReceiptBundle()
-	receipt := explorer.CompilationReceipt{
-		ReceiptFormatVersion:    explorer.CurrentReceiptFormatVersion,
-		CompilerContractVersion: explorer.CurrentCompilerContractVersion,
+	receipt := receiptmodel.CompilationReceipt{
+		ReceiptFormatVersion:    receiptmodel.CurrentReceiptFormatVersion,
+		CompilerContractVersion: receiptmodel.CurrentCompilerContractVersion,
 		Project:                 "project-a", ExplorerID: "explorer-a", IntentDigest: intent, SnapshotToken: "snapshot",
 		AuthorizationScopeDigest: "scope", CapabilitySchemaDigest: "schema", ShapeDigest: "shape",
 		SourceGeneration: "generation", RecipeDigest: "recipe", ResolvedSchemaDigest: "resolved-schema",
@@ -349,15 +351,15 @@ func testCompilationReceipt(t *testing.T, intent string) explorer.CompilationRec
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.OutputContractDigest, err = explorer.CompilationArtifactDigest(receipt.PublicOutputContract)
+	receipt.OutputContractDigest, err = receiptmodel.CompilationArtifactDigest(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

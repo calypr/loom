@@ -16,7 +16,6 @@ import (
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
-	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -26,13 +25,13 @@ const (
 	explicitGroupPageSize     = 1000
 )
 
-var _ explorer.ExplicitGroupRepository = (*Store)(nil)
+var _ explorerselection.ExplicitGroupRepository = (*Store)(nil)
 
-func explicitGroupDefinitionKey(revisionID explorer.ExplicitGroupRevisionID, groupID explorer.ExplicitGroupID) string {
+func explicitGroupDefinitionKey(revisionID explorerselection.ExplicitGroupRevisionID, groupID explorerselection.ExplicitGroupID) string {
 	return "groupdef_" + explicitGroupStorageKey(string(revisionID), string(groupID))
 }
 
-func explicitGroupMembershipKey(revisionID explorer.ExplicitGroupRevisionID, membership explorer.ExplicitGroupMembership) string {
+func explicitGroupMembershipKey(revisionID explorerselection.ExplicitGroupRevisionID, membership explorerselection.ExplicitGroupMembership) string {
 	membership = membership.Canonical()
 	return "groupmember_" + explicitGroupStorageKey(string(revisionID), string(membership.GroupID), membership.Ref.Project, membership.Ref.Generation, membership.Ref.ResourceType, membership.Ref.ID)
 }
@@ -48,11 +47,11 @@ func explicitGroupStorageKey(parts ...string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, revision explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision, writerToken string) (*explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, revision explorerselection.ExplicitGroupRevision, source explorerselection.SelectionRevision, writerToken string) (*explorerselection.ExplicitGroupRevision, error) {
 	revision = revision.Canonical()
 	writerToken = strings.TrimSpace(writerToken)
 	if writerToken == "" {
-		return nil, explorer.ErrExplicitGroupRevisionConflict
+		return nil, explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	if err := revision.Validate(); err != nil {
 		return nil, err
@@ -62,12 +61,12 @@ func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, rev
 	}
 	storedSource, err := s.selections.GetSelection(ctx, revision.Project, revision.SourceSelectionRevisionID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: source selection unavailable: %w", explorer.ErrExplicitGroupRevisionStaleSource, err)
+		return nil, fmt.Errorf("%w: source selection unavailable: %w", explorerselection.ErrExplicitGroupRevisionStaleSource, err)
 	}
 	if err := revision.ValidateSourceSelection(*storedSource); err != nil {
 		return nil, err
 	}
-	if revision.State != explorer.ExplicitGroupRevisionStaging {
+	if revision.State != explorerselection.ExplicitGroupRevisionStaging {
 		return nil, fmt.Errorf("explicit group revision must begin in staging state")
 	}
 	if err := s.CleanupExplicitGroupStaging(ctx, time.Now().UTC(), explicitGroupCleanupLimit); err != nil {
@@ -81,7 +80,7 @@ func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, rev
 	doc["writerExpiresAt"] = time.Now().UTC().Add(explicitGroupWriterLease).UnixMilli()
 	if err := s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
-			return nil, explorer.ErrExplicitGroupRevisionConflict
+			return nil, explorerselection.ErrExplicitGroupRevisionConflict
 		}
 		return nil, err
 	}
@@ -90,42 +89,42 @@ func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, rev
 		return nil, err
 	}
 	if !sameExplicitGroupRevisionIntent(*stored, revision) {
-		return nil, explorer.ErrExplicitGroupRevisionConflict
+		return nil, explorerselection.ErrExplicitGroupRevisionConflict
 	}
-	if stored.State == explorer.ExplicitGroupRevisionStaging {
+	if stored.State == explorerselection.ExplicitGroupRevisionStaging {
 		storedWriterToken, _ := row["writerToken"].(string)
 		if strings.TrimSpace(storedWriterToken) != writerToken {
-			return nil, explorer.ErrExplicitGroupRevisionConflict
+			return nil, explorerselection.ErrExplicitGroupRevisionConflict
 		}
 		var renewed bool
 		if err := s.client.QueryRows(ctx, `FOR d IN @@c
 FILTER d._key == @key AND d.state == @state AND d.writerToken == @writerToken
 UPDATE d WITH {writerExpiresAt: @expiresAt} IN @@c
-RETURN {renewed: true}`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revision.ID), "state": explorer.ExplicitGroupRevisionStaging, "writerToken": writerToken, "expiresAt": time.Now().UTC().Add(explicitGroupWriterLease).UnixMilli()}, func(map[string]any) error {
+RETURN {renewed: true}`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revision.ID), "state": explorerselection.ExplicitGroupRevisionStaging, "writerToken": writerToken, "expiresAt": time.Now().UTC().Add(explicitGroupWriterLease).UnixMilli()}, func(map[string]any) error {
 			renewed = true
 			return nil
 		}); err != nil {
 			return nil, err
 		}
 		if !renewed {
-			return nil, explorer.ErrExplicitGroupRevisionConflict
+			return nil, explorerselection.ErrExplicitGroupRevisionConflict
 		}
 	}
 	return stored, nil
 }
 
-func sameExplicitGroupRevisionIntent(left, right explorer.ExplicitGroupRevision) bool {
+func sameExplicitGroupRevisionIntent(left, right explorerselection.ExplicitGroupRevision) bool {
 	left, right = left.Canonical(), right.Canonical()
 	return left.ID == right.ID && left.Project == right.Project && left.Generation == right.Generation && left.ScopeDigest == right.ScopeDigest && left.ResourceType == right.ResourceType && left.SourceSelectionRevisionID == right.SourceSelectionRevisionID && left.SourceMembershipDigest == right.SourceMembershipDigest && left.IdempotencyKey == right.IdempotencyKey
 }
 
-func (s *ExplicitGroupStore) PutExplicitGroupDefinitions(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string, groups []explorer.ExplicitGroupDefinition) error {
-	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
+func (s *ExplicitGroupStore) PutExplicitGroupDefinitions(ctx context.Context, revisionID explorerselection.ExplicitGroupRevisionID, writerToken string, groups []explorerselection.ExplicitGroupDefinition) error {
+	revisionID = explorerselection.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	if revisionID == "" || writerToken == "" {
-		return explorer.ErrExplicitGroupRevisionConflict
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
-	canonical, err := explorer.CanonicalExplicitGroupDefinitions(groups)
+	canonical, err := explorerselection.CanonicalExplicitGroupDefinitions(groups)
 	if err != nil {
 		return err
 	}
@@ -143,7 +142,7 @@ func (s *ExplicitGroupStore) PutExplicitGroupDefinitions(ctx context.Context, re
 		}
 		if len(stored) > 0 {
 			if !reflect.DeepEqual(stored, canonical) {
-				return explorer.ErrExplicitGroupRevisionConflict
+				return explorerselection.ErrExplicitGroupRevisionConflict
 			}
 			return renewExplicitGroupWriter(txCtx, tx, revisionID, writerToken)
 		}
@@ -165,7 +164,7 @@ UPDATE {}
 IN @@c
 RETURN {key: NEW._key}`, len(docs), map[string]any{"@c": ExplicitGroupDefinitionsCollection, "docs": docs}, func(row map[string]any) error {
 			if _, ok := row["key"].(string); !ok {
-				return explorer.ErrCorruptExplicitGroupRevision
+				return explorerselection.ErrCorruptExplicitGroupRevision
 			}
 			return nil
 		}); err != nil {
@@ -176,22 +175,22 @@ RETURN {key: NEW._key}`, len(docs), map[string]any{"@c": ExplicitGroupDefinition
 			return err
 		}
 		if !reflect.DeepEqual(stored, canonical) {
-			return explorer.ErrExplicitGroupRevisionConflict
+			return explorerselection.ErrExplicitGroupRevisionConflict
 		}
 		return renewExplicitGroupWriter(txCtx, tx, revisionID, writerToken)
 	})
 }
 
-func (s *ExplicitGroupStore) AppendExplicitGroupMemberships(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string, memberships []explorer.ExplicitGroupMembership) ([]explorer.ExplicitGroupMembership, error) {
-	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
+func (s *ExplicitGroupStore) AppendExplicitGroupMemberships(ctx context.Context, revisionID explorerselection.ExplicitGroupRevisionID, writerToken string, memberships []explorerselection.ExplicitGroupMembership) ([]explorerselection.ExplicitGroupMembership, error) {
+	revisionID = explorerselection.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	if revisionID == "" || writerToken == "" {
-		return nil, explorer.ErrExplicitGroupRevisionConflict
+		return nil, explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	if len(memberships) == 0 {
 		return nil, nil
 	}
-	inserted := make([]explorer.ExplicitGroupMembership, 0, len(memberships))
+	inserted := make([]explorerselection.ExplicitGroupMembership, 0, len(memberships))
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{SelectionsCollection, SelectionMembersCollection},
 		Write: []string{ExplicitGroupRevisionsCollection, ExplicitGroupMembershipsCollection},
@@ -207,7 +206,7 @@ func (s *ExplicitGroupStore) AppendExplicitGroupMemberships(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		canonical, err := explorer.CanonicalExplicitGroupMemberships(*header, groups, memberships)
+		canonical, err := explorerselection.CanonicalExplicitGroupMemberships(*header, groups, memberships)
 		if err != nil {
 			return err
 		}
@@ -219,7 +218,7 @@ func (s *ExplicitGroupStore) AppendExplicitGroupMemberships(ctx context.Context,
 			return err
 		}
 		docs := make([]map[string]any, 0, len(canonical))
-		byKey := make(map[string]explorer.ExplicitGroupMembership, len(canonical))
+		byKey := make(map[string]explorerselection.ExplicitGroupMembership, len(canonical))
 		for _, membership := range canonical {
 			memberKey := explicitGroupMembershipKey(revisionID, membership)
 			doc, err := db.Document(membership, memberKey)
@@ -253,9 +252,9 @@ RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": 
 		for memberKey := range byKey {
 			keys = append(keys, memberKey)
 		}
-		stored := make(map[string]explorer.ExplicitGroupMembership, len(keys))
+		stored := make(map[string]explorerselection.ExplicitGroupMembership, len(keys))
 		if err := tx.QueryRows(txCtx, `FOR m IN @@c FILTER m._key IN @keys RETURN m`, len(keys), map[string]any{"@c": ExplicitGroupMembershipsCollection, "keys": keys}, func(row map[string]any) error {
-			membership, err := db.Decode[explorer.ExplicitGroupMembership](row)
+			membership, err := db.Decode[explorerselection.ExplicitGroupMembership](row)
 			if err != nil {
 				return err
 			}
@@ -270,7 +269,7 @@ RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": 
 		}
 		for memberKey, membership := range byKey {
 			if storedMembership, ok := stored[memberKey]; !ok || storedMembership != membership {
-				return explorer.ErrExplicitGroupRevisionConflict
+				return explorerselection.ErrExplicitGroupRevisionConflict
 			}
 		}
 		for _, membership := range canonical {
@@ -286,58 +285,58 @@ RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": 
 	return inserted, err
 }
 
-func explicitGroupWriter(header *explorer.ExplicitGroupRevision, row map[string]any, writerToken string) error {
+func explicitGroupWriter(header *explorerselection.ExplicitGroupRevision, row map[string]any, writerToken string) error {
 	if header == nil {
-		return explorer.ErrExplicitGroupRevisionNotFound
+		return explorerselection.ErrExplicitGroupRevisionNotFound
 	}
-	if header.State != explorer.ExplicitGroupRevisionStaging {
-		return explorer.ErrExplicitGroupRevisionConflict
+	if header.State != explorerselection.ExplicitGroupRevisionStaging {
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	storedWriterToken, _ := row["writerToken"].(string)
 	if strings.TrimSpace(storedWriterToken) != writerToken {
-		return explorer.ErrExplicitGroupRevisionConflict
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	return nil
 }
 
-func renewExplicitGroupWriter(ctx context.Context, tx store.RowQueryer, revisionID explorer.ExplicitGroupRevisionID, writerToken string) error {
+func renewExplicitGroupWriter(ctx context.Context, tx store.RowQueryer, revisionID explorerselection.ExplicitGroupRevisionID, writerToken string) error {
 	var renewed bool
 	if err := tx.QueryRows(ctx, `FOR d IN @@c
 FILTER d._key == @key AND d.state == @state AND d.writerToken == @writerToken
 UPDATE d WITH {writerExpiresAt: @expiresAt} IN @@c
-RETURN {renewed: true}`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revisionID), "state": explorer.ExplicitGroupRevisionStaging, "writerToken": writerToken, "expiresAt": time.Now().UTC().Add(explicitGroupWriterLease).UnixMilli()}, func(map[string]any) error {
+RETURN {renewed: true}`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revisionID), "state": explorerselection.ExplicitGroupRevisionStaging, "writerToken": writerToken, "expiresAt": time.Now().UTC().Add(explicitGroupWriterLease).UnixMilli()}, func(map[string]any) error {
 		renewed = true
 		return nil
 	}); err != nil {
 		return err
 	}
 	if !renewed {
-		return explorer.ErrExplicitGroupRevisionConflict
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	return nil
 }
 
-func (s *ExplicitGroupStore) DigestExplicitGroupRevision(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) (string, string, int64, int64, error) {
+func (s *ExplicitGroupStore) DigestExplicitGroupRevision(ctx context.Context, project string, revisionID explorerselection.ExplicitGroupRevisionID) (string, string, int64, int64, error) {
 	header, _, err := s.readExplicitGroupRevision(ctx, s.client, revisionID, project)
 	if err != nil {
 		return "", "", 0, 0, err
 	}
-	if header.State == explorer.ExplicitGroupRevisionComplete {
+	if header.State == explorerselection.ExplicitGroupRevisionComplete {
 		return header.DefinitionDigest, header.MembershipDigest, header.GroupCount, header.MemberCount, nil
 	}
 	return digestExplicitGroupChildren(ctx, s.client, *header)
 }
 
-func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision) (string, string, int64, int64, error) {
+func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, header explorerselection.ExplicitGroupRevision) (string, string, int64, int64, error) {
 	groups, err := listExplicitGroupDefinitions(ctx, queryer, header)
 	if err != nil {
 		return "", "", 0, 0, err
 	}
-	definitionDigest, err := explorer.ExplicitGroupDefinitionDigest(groups)
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(groups)
 	if err != nil {
 		return "", "", 0, 0, err
 	}
-	groupIDs := make(map[explorer.ExplicitGroupID]struct{}, len(groups))
+	groupIDs := make(map[explorerselection.ExplicitGroupID]struct{}, len(groups))
 	for _, group := range groups {
 		groupIDs[group.ID] = struct{}{}
 	}
@@ -346,10 +345,10 @@ func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, 
 		return "", "", 0, 0, err
 	}
 	hash := sha256.New()
-	explorer.StartExplicitGroupMembershipDigest(hash)
+	explorerselection.StartExplicitGroupMembershipDigest(hash)
 	var memberCount int64
-	batch := make([]explorer.ExplicitGroupMembership, 0, explicitGroupPageSize)
-	err = readStagedExplicitGroupMemberships(ctx, queryer, header, groupIDs, func(membership explorer.ExplicitGroupMembership) error {
+	batch := make([]explorerselection.ExplicitGroupMembership, 0, explicitGroupPageSize)
+	err = readStagedExplicitGroupMemberships(ctx, queryer, header, groupIDs, func(membership explorerselection.ExplicitGroupMembership) error {
 		batch = append(batch, membership)
 		if len(batch) >= explicitGroupPageSize {
 			if err := validateExplicitGroupSourceMemberships(ctx, queryer, header, *source, batch); err != nil {
@@ -357,7 +356,7 @@ func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, 
 			}
 			batch = batch[:0]
 		}
-		explorer.WriteExplicitGroupMembershipFrame(hash, membership)
+		explorerselection.WriteExplicitGroupMembershipFrame(hash, membership)
 		memberCount++
 		return nil
 	})
@@ -372,17 +371,17 @@ func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, 
 	return definitionDigest, hex.EncodeToString(hash.Sum(nil)), int64(len(groups)), memberCount, nil
 }
 
-func (s *ExplicitGroupStore) CompleteExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken, definitionDigest, membershipDigest string, groupCount, memberCount int64, completedAt time.Time) (*explorer.ExplicitGroupRevision, error) {
-	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
+func (s *ExplicitGroupStore) CompleteExplicitGroupRevision(ctx context.Context, revisionID explorerselection.ExplicitGroupRevisionID, writerToken, definitionDigest, membershipDigest string, groupCount, memberCount int64, completedAt time.Time) (*explorerselection.ExplicitGroupRevision, error) {
+	revisionID = explorerselection.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	definitionDigest, membershipDigest = strings.TrimSpace(definitionDigest), strings.TrimSpace(membershipDigest)
 	if revisionID == "" || writerToken == "" || definitionDigest == "" || membershipDigest == "" || groupCount <= 0 || memberCount < 0 {
-		return nil, explorer.ErrExplicitGroupRevisionIncomplete
+		return nil, explorerselection.ErrExplicitGroupRevisionIncomplete
 	}
 	if completedAt.IsZero() {
 		completedAt = time.Now().UTC()
 	}
-	var result *explorer.ExplicitGroupRevision
+	var result *explorerselection.ExplicitGroupRevision
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{SelectionsCollection, SelectionMembersCollection, ExplicitGroupDefinitionsCollection, ExplicitGroupMembershipsCollection},
 		Write: []string{ExplicitGroupRevisionsCollection},
@@ -391,9 +390,9 @@ func (s *ExplicitGroupStore) CompleteExplicitGroupRevision(ctx context.Context, 
 		if err != nil {
 			return err
 		}
-		if header.State == explorer.ExplicitGroupRevisionComplete {
+		if header.State == explorerselection.ExplicitGroupRevisionComplete {
 			if header.DefinitionDigest != definitionDigest || header.MembershipDigest != membershipDigest || header.GroupCount != groupCount || header.MemberCount != memberCount {
-				return explorer.ErrExplicitGroupRevisionConflict
+				return explorerselection.ErrExplicitGroupRevisionConflict
 			}
 			result = header
 			return nil
@@ -406,15 +405,15 @@ func (s *ExplicitGroupStore) CompleteExplicitGroupRevision(ctx context.Context, 
 			return err
 		}
 		if actualDefinition != definitionDigest || actualMembership != membershipDigest || actualGroups != groupCount || actualMembers != memberCount {
-			return explorer.ErrExplicitGroupRevisionConflict
+			return explorerselection.ErrExplicitGroupRevisionConflict
 		}
 		var changed bool
 		query := `FOR d IN @@c
 FILTER d._key == @key AND d.state == @staging AND d.writerToken == @writerToken
 UPDATE d WITH {state: @complete, definitionDigest: @definitionDigest, membershipDigest: @membershipDigest, groupCount: @groupCount, memberCount: @memberCount, completedAt: @completedAt} IN @@c
 RETURN NEW`
-		if err := tx.QueryRows(txCtx, query, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revisionID), "staging": explorer.ExplicitGroupRevisionStaging, "complete": explorer.ExplicitGroupRevisionComplete, "writerToken": writerToken, "definitionDigest": definitionDigest, "membershipDigest": membershipDigest, "groupCount": groupCount, "memberCount": memberCount, "completedAt": completedAt.UTC()}, func(row map[string]any) error {
-			value, err := db.Decode[explorer.ExplicitGroupRevision](row)
+		if err := tx.QueryRows(txCtx, query, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revisionID), "staging": explorerselection.ExplicitGroupRevisionStaging, "complete": explorerselection.ExplicitGroupRevisionComplete, "writerToken": writerToken, "definitionDigest": definitionDigest, "membershipDigest": membershipDigest, "groupCount": groupCount, "memberCount": memberCount, "completedAt": completedAt.UTC()}, func(row map[string]any) error {
+			value, err := db.Decode[explorerselection.ExplicitGroupRevision](row)
 			if err != nil {
 				return err
 			}
@@ -427,14 +426,14 @@ RETURN NEW`
 			return err
 		}
 		if !changed {
-			return explorer.ErrExplicitGroupRevisionConflict
+			return explorerselection.ErrExplicitGroupRevisionConflict
 		}
 		return nil
 	})
 	return result, err
 }
 
-func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision) (*explorerselection.SelectionRevision, error) {
+func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQueryer, header explorerselection.ExplicitGroupRevision) (*explorerselection.SelectionRevision, error) {
 	var source *explorerselection.SelectionRevision
 	err := queryer.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, 1, map[string]any{
 		"@c": SelectionsCollection, "key": header.SourceSelectionRevisionID, "project": header.Project,
@@ -450,7 +449,7 @@ func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQuer
 		return nil, err
 	}
 	if source == nil {
-		return nil, explorer.ErrExplicitGroupRevisionStaleSource
+		return nil, explorerselection.ErrExplicitGroupRevisionStaleSource
 	}
 	if err := header.ValidateSourceSelection(*source); err != nil {
 		return nil, err
@@ -458,7 +457,7 @@ func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQuer
 	return source, nil
 }
 
-func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision, memberships []explorer.ExplicitGroupMembership) error {
+func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.RowQueryer, header explorerselection.ExplicitGroupRevision, source explorerselection.SelectionRevision, memberships []explorerselection.ExplicitGroupMembership) error {
 	if err := header.ValidateSourceSelection(source); err != nil {
 		return err
 	}
@@ -489,7 +488,7 @@ RETURN m`, len(keys), map[string]any{
 			key, _ := row["_key"].(string)
 			ref, ok := want[key]
 			if !ok || member.Ref.Canonical() != ref || member.MemberKey != key {
-				return explorer.ErrCorruptExplicitGroupRevision
+				return explorerselection.ErrCorruptExplicitGroupRevision
 			}
 			if err := member.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
 				return err
@@ -502,25 +501,25 @@ RETURN m`, len(keys), map[string]any{
 		}
 		for key := range want {
 			if !found[key] {
-				return explorer.ErrExplicitGroupMemberNotInSelection
+				return explorerselection.ErrExplicitGroupMemberNotInSelection
 			}
 		}
 	}
 	return nil
 }
 
-func (s *ExplicitGroupStore) AbortExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string) error {
-	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
+func (s *ExplicitGroupStore) AbortExplicitGroupRevision(ctx context.Context, revisionID explorerselection.ExplicitGroupRevisionID, writerToken string) error {
+	revisionID = explorerselection.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	if revisionID == "" {
 		return nil
 	}
 	if writerToken == "" {
-		return explorer.ErrExplicitGroupRevisionConflict
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	return s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{ExplicitGroupRevisionsCollection, ExplicitGroupDefinitionsCollection, ExplicitGroupMembershipsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
 		header, row, err := s.readExplicitGroupRevision(txCtx, tx, revisionID, "")
-		if errors.Is(err, explorer.ErrExplicitGroupRevisionNotFound) {
+		if errors.Is(err, explorerselection.ErrExplicitGroupRevisionNotFound) {
 			return nil
 		}
 		if err != nil {
@@ -548,10 +547,10 @@ LET removedHeaders = (
     RETURN 1
 )
 RETURN {removed: LENGTH(removedHeaders) > 0}`
-		return tx.QueryRows(txCtx, query, 1, map[string]any{"@headers": ExplicitGroupRevisionsCollection, "@definitions": ExplicitGroupDefinitionsCollection, "@memberships": ExplicitGroupMembershipsCollection, "revisionId": string(revisionID), "state": explorer.ExplicitGroupRevisionStaging, "writerToken": writerToken}, func(row map[string]any) error {
+		return tx.QueryRows(txCtx, query, 1, map[string]any{"@headers": ExplicitGroupRevisionsCollection, "@definitions": ExplicitGroupDefinitionsCollection, "@memberships": ExplicitGroupMembershipsCollection, "revisionId": string(revisionID), "state": explorerselection.ExplicitGroupRevisionStaging, "writerToken": writerToken}, func(row map[string]any) error {
 			removed, _ := row["removed"].(bool)
 			if !removed {
-				return explorer.ErrExplicitGroupRevisionConflict
+				return explorerselection.ErrExplicitGroupRevisionConflict
 			}
 			return nil
 		})
@@ -581,25 +580,25 @@ LET removedDefinitions = (
 )
 REMOVE d IN @@revisions
 RETURN {removed: true}`
-	return s.client.QueryRows(ctx, query, limit, map[string]any{"@revisions": ExplicitGroupRevisionsCollection, "@definitions": ExplicitGroupDefinitionsCollection, "@memberships": ExplicitGroupMembershipsCollection, "state": explorer.ExplicitGroupRevisionStaging, "before": before.UTC(), "now": time.Now().UTC().UnixMilli(), "limit": limit}, func(map[string]any) error { return nil })
+	return s.client.QueryRows(ctx, query, limit, map[string]any{"@revisions": ExplicitGroupRevisionsCollection, "@definitions": ExplicitGroupDefinitionsCollection, "@memberships": ExplicitGroupMembershipsCollection, "state": explorerselection.ExplicitGroupRevisionStaging, "before": before.UTC(), "now": time.Now().UTC().UnixMilli(), "limit": limit}, func(map[string]any) error { return nil })
 }
 
-func (s *ExplicitGroupStore) GetExplicitGroupRevision(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) (*explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) GetExplicitGroupRevision(ctx context.Context, project string, revisionID explorerselection.ExplicitGroupRevisionID) (*explorerselection.ExplicitGroupRevision, error) {
 	header, _, err := s.readExplicitGroupRevision(ctx, s.client, revisionID, project)
 	if err != nil {
 		return nil, err
 	}
-	if header.State != explorer.ExplicitGroupRevisionComplete {
-		return nil, explorer.ErrExplicitGroupRevisionIncomplete
+	if header.State != explorerselection.ExplicitGroupRevisionComplete {
+		return nil, explorerselection.ErrExplicitGroupRevisionIncomplete
 	}
 	return header, nil
 }
 
-func (s *ExplicitGroupStore) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorerselection.ExplicitGroupRevision, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	revisions := make([]explorer.ExplicitGroupRevision, 0)
+	revisions := make([]explorerselection.ExplicitGroupRevision, 0)
 	err := s.client.QueryRows(ctx, `FOR d IN @@c
 FILTER d.project == @project
 AND d.generation == @generation
@@ -611,14 +610,14 @@ LIMIT @limit
 RETURN d`, limit, map[string]any{
 		"@c": ExplicitGroupRevisionsCollection, "project": project, "generation": generation,
 		"scopeDigest": scopeDigest, "resourceType": resourceType,
-		"state": explorer.ExplicitGroupRevisionComplete, "limit": limit,
+		"state": explorerselection.ExplicitGroupRevisionComplete, "limit": limit,
 	}, func(row map[string]any) error {
-		revision, err := db.Decode[explorer.ExplicitGroupRevision](row)
+		revision, err := db.Decode[explorerselection.ExplicitGroupRevision](row)
 		if err != nil {
 			return err
 		}
 		if err := revision.Validate(); err != nil {
-			return fmt.Errorf("%w: %v", explorer.ErrCorruptExplicitGroupRevision, err)
+			return fmt.Errorf("%w: %v", explorerselection.ErrCorruptExplicitGroupRevision, err)
 		}
 		revisions = append(revisions, revision)
 		return nil
@@ -626,9 +625,9 @@ RETURN d`, limit, map[string]any{
 	return revisions, err
 }
 
-func (s *ExplicitGroupStore) readExplicitGroupRevision(ctx context.Context, queryer store.RowQueryer, revisionID explorer.ExplicitGroupRevisionID, project string) (*explorer.ExplicitGroupRevision, map[string]any, error) {
+func (s *ExplicitGroupStore) readExplicitGroupRevision(ctx context.Context, queryer store.RowQueryer, revisionID explorerselection.ExplicitGroupRevisionID, project string) (*explorerselection.ExplicitGroupRevision, map[string]any, error) {
 	if strings.TrimSpace(string(revisionID)) == "" {
-		return nil, nil, explorer.ErrExplicitGroupRevisionNotFound
+		return nil, nil, explorerselection.ErrExplicitGroupRevisionNotFound
 	}
 	query := `FOR d IN @@c FILTER d._key == @key`
 	binds := map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revisionID)}
@@ -637,18 +636,18 @@ func (s *ExplicitGroupStore) readExplicitGroupRevision(ctx context.Context, quer
 		binds["project"] = strings.TrimSpace(project)
 	}
 	query += ` RETURN d`
-	var result *explorer.ExplicitGroupRevision
+	var result *explorerselection.ExplicitGroupRevision
 	var found map[string]any
 	err := queryer.QueryRows(ctx, query, 1, binds, func(row map[string]any) error {
-		value, err := db.Decode[explorer.ExplicitGroupRevision](row)
+		value, err := db.Decode[explorerselection.ExplicitGroupRevision](row)
 		if err != nil {
 			return err
 		}
 		if string(value.ID) != string(revisionID) {
-			return explorer.ErrCorruptExplicitGroupRevision
+			return explorerselection.ErrCorruptExplicitGroupRevision
 		}
 		if err := value.Validate(); err != nil {
-			return fmt.Errorf("%w: %v", explorer.ErrCorruptExplicitGroupRevision, err)
+			return fmt.Errorf("%w: %v", explorerselection.ErrCorruptExplicitGroupRevision, err)
 		}
 		result = &value
 		found = row
@@ -658,24 +657,24 @@ func (s *ExplicitGroupStore) readExplicitGroupRevision(ctx context.Context, quer
 		return nil, nil, err
 	}
 	if result == nil {
-		return nil, nil, explorer.ErrExplicitGroupRevisionNotFound
+		return nil, nil, explorerselection.ErrExplicitGroupRevisionNotFound
 	}
 	return result, found, nil
 }
 
-func listExplicitGroupDefinitions(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision) ([]explorer.ExplicitGroupDefinition, error) {
-	groups := make([]explorer.ExplicitGroupDefinition, 0)
+func listExplicitGroupDefinitions(ctx context.Context, queryer store.RowQueryer, header explorerselection.ExplicitGroupRevision) ([]explorerselection.ExplicitGroupDefinition, error) {
+	groups := make([]explorerselection.ExplicitGroupDefinition, 0)
 	var afterOrdinal any
 	afterGroupID := ""
 	for {
-		page := make([]explorer.ExplicitGroupDefinition, 0, explicitGroupPageSize)
+		page := make([]explorerselection.ExplicitGroupDefinition, 0, explicitGroupPageSize)
 		err := queryer.QueryRows(ctx, `FOR g IN @@c
 FILTER g.revisionId == @revisionId
 AND (@afterOrdinal == null OR g.ordinal > @afterOrdinal OR (g.ordinal == @afterOrdinal AND g.groupId > @afterGroupId))
 SORT g.ordinal ASC, g.groupId ASC
 LIMIT @limit
 RETURN g`, explicitGroupPageSize, map[string]any{"@c": ExplicitGroupDefinitionsCollection, "revisionId": string(header.ID), "afterOrdinal": afterOrdinal, "afterGroupId": afterGroupID, "limit": explicitGroupPageSize}, func(row map[string]any) error {
-			group, err := db.Decode[explorer.ExplicitGroupDefinition](row)
+			group, err := db.Decode[explorerselection.ExplicitGroupDefinition](row)
 			if err != nil {
 				return err
 			}
@@ -684,7 +683,7 @@ RETURN g`, explicitGroupPageSize, map[string]any{"@c": ExplicitGroupDefinitionsC
 			revisionID, _ := row["revisionId"].(string)
 			project, _ := row["project"].(string)
 			if groupID != string(group.ID) || revisionID != string(header.ID) || project != header.Project || row["_key"] != explicitGroupDefinitionKey(header.ID, group.ID) {
-				return explorer.ErrCorruptExplicitGroupRevision
+				return explorerselection.ErrCorruptExplicitGroupRevision
 			}
 			page = append(page, group)
 			return nil
@@ -699,26 +698,26 @@ RETURN g`, explicitGroupPageSize, map[string]any{"@c": ExplicitGroupDefinitionsC
 		last := page[len(page)-1]
 		afterOrdinal, afterGroupID = last.Ordinal, string(last.ID)
 	}
-	if len(groups) == 0 && header.State == explorer.ExplicitGroupRevisionStaging {
+	if len(groups) == 0 && header.State == explorerselection.ExplicitGroupRevisionStaging {
 		return groups, nil
 	}
-	canonical, err := explorer.CanonicalExplicitGroupDefinitions(groups)
+	canonical, err := explorerselection.CanonicalExplicitGroupDefinitions(groups)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", explorer.ErrCorruptExplicitGroupRevision, err)
+		return nil, fmt.Errorf("%w: %v", explorerselection.ErrCorruptExplicitGroupRevision, err)
 	}
 	if !reflect.DeepEqual(canonical, groups) {
-		return nil, explorer.ErrCorruptExplicitGroupRevision
+		return nil, explorerselection.ErrCorruptExplicitGroupRevision
 	}
-	if header.State == explorer.ExplicitGroupRevisionComplete {
-		digest, err := explorer.ExplicitGroupDefinitionDigest(groups)
+	if header.State == explorerselection.ExplicitGroupRevisionComplete {
+		digest, err := explorerselection.ExplicitGroupDefinitionDigest(groups)
 		if err != nil || int64(len(groups)) != header.GroupCount || digest != header.DefinitionDigest {
-			return nil, explorer.ErrCorruptExplicitGroupRevision
+			return nil, explorerselection.ErrCorruptExplicitGroupRevision
 		}
 	}
 	return groups, nil
 }
 
-func validateExplicitGroupMembershipRow(row map[string]any, membership explorer.ExplicitGroupMembership, header explorer.ExplicitGroupRevision) error {
+func validateExplicitGroupMembershipRow(row map[string]any, membership explorerselection.ExplicitGroupMembership, header explorerselection.ExplicitGroupRevision) error {
 	membership = membership.Canonical()
 	groupID, _ := row["groupId"].(string)
 	revisionID, _ := row["revisionId"].(string)
@@ -727,15 +726,15 @@ func validateExplicitGroupMembershipRow(row map[string]any, membership explorer.
 	resourceType, _ := row["resourceType"].(string)
 	resourceID, _ := row["id"].(string)
 	if groupID != string(membership.GroupID) || revisionID != string(header.ID) || project != membership.Ref.Project || generation != membership.Ref.Generation || resourceType != membership.Ref.ResourceType || resourceID != membership.Ref.ID || row["_key"] != explicitGroupMembershipKey(header.ID, membership) {
-		return explorer.ErrCorruptExplicitGroupRevision
+		return explorerselection.ErrCorruptExplicitGroupRevision
 	}
 	if err := membership.Ref.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
-		return fmt.Errorf("%w: %v", explorer.ErrCorruptExplicitGroupRevision, err)
+		return fmt.Errorf("%w: %v", explorerselection.ErrCorruptExplicitGroupRevision, err)
 	}
 	return nil
 }
 
-func (s *ExplicitGroupStore) ListExplicitGroupDefinitions(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) ([]explorer.ExplicitGroupDefinition, error) {
+func (s *ExplicitGroupStore) ListExplicitGroupDefinitions(ctx context.Context, project string, revisionID explorerselection.ExplicitGroupRevisionID) ([]explorerselection.ExplicitGroupDefinition, error) {
 	header, err := s.GetExplicitGroupRevision(ctx, project, revisionID)
 	if err != nil {
 		return nil, err
@@ -743,7 +742,7 @@ func (s *ExplicitGroupStore) ListExplicitGroupDefinitions(ctx context.Context, p
 	return listExplicitGroupDefinitions(ctx, s.client, *header)
 }
 
-func (s *ExplicitGroupStore) VisitExplicitGroupMemberships(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID, after explorer.ExplicitGroupMembershipCursor, pageSize int, visit func(explorer.ExplicitGroupMembership) error) (explorer.ExplicitGroupMembershipCursor, error) {
+func (s *ExplicitGroupStore) VisitExplicitGroupMemberships(ctx context.Context, project string, revisionID explorerselection.ExplicitGroupRevisionID, after explorerselection.ExplicitGroupMembershipCursor, pageSize int, visit func(explorerselection.ExplicitGroupMembership) error) (explorerselection.ExplicitGroupMembershipCursor, error) {
 	if visit == nil {
 		return after, fmt.Errorf("explicit group membership visitor is required")
 	}
@@ -755,21 +754,21 @@ func (s *ExplicitGroupStore) VisitExplicitGroupMemberships(ctx context.Context, 
 	if err != nil {
 		return after, err
 	}
-	groupIDs := make(map[explorer.ExplicitGroupID]struct{}, len(groups))
+	groupIDs := make(map[explorerselection.ExplicitGroupID]struct{}, len(groups))
 	for _, group := range groups {
 		groupIDs[group.ID] = struct{}{}
 	}
 	if pageSize <= 0 {
 		pageSize = explicitGroupPageSize
 	}
-	page := make([]explorer.ExplicitGroupMembership, 0, pageSize)
+	page := make([]explorerselection.ExplicitGroupMembership, 0, pageSize)
 	err = s.client.QueryRows(ctx, `FOR m IN @@c
 FILTER m.revisionId == @revisionId
 AND (m.groupId > @afterGroupId OR (m.groupId == @afterGroupId AND m.id > @afterResourceId))
 SORT m.groupId ASC, m.id ASC
 LIMIT @limit
 RETURN m`, pageSize, map[string]any{"@c": ExplicitGroupMembershipsCollection, "revisionId": string(revisionID), "afterGroupId": string(after.GroupID), "afterResourceId": after.ResourceID, "limit": pageSize}, func(row map[string]any) error {
-		membership, err := db.Decode[explorer.ExplicitGroupMembership](row)
+		membership, err := db.Decode[explorerselection.ExplicitGroupMembership](row)
 		if err != nil {
 			return err
 		}
@@ -777,7 +776,7 @@ RETURN m`, pageSize, map[string]any{"@c": ExplicitGroupMembershipsCollection, "r
 			return err
 		}
 		if _, ok := groupIDs[membership.GroupID]; !ok {
-			return explorer.ErrCorruptExplicitGroupRevision
+			return explorerselection.ErrCorruptExplicitGroupRevision
 		}
 		page = append(page, membership.Canonical())
 		return nil
@@ -789,22 +788,22 @@ RETURN m`, pageSize, map[string]any{"@c": ExplicitGroupMembershipsCollection, "r
 		if err := visit(membership); err != nil {
 			return after, err
 		}
-		after = explorer.ExplicitGroupMembershipCursor{GroupID: membership.GroupID, ResourceID: membership.Ref.ID}
+		after = explorerselection.ExplicitGroupMembershipCursor{GroupID: membership.GroupID, ResourceID: membership.Ref.ID}
 	}
 	return after, nil
 }
 
-func readStagedExplicitGroupMemberships(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision, groupIDs map[explorer.ExplicitGroupID]struct{}, visit func(explorer.ExplicitGroupMembership) error) error {
-	cursor := explorer.ExplicitGroupMembershipCursor{}
+func readStagedExplicitGroupMemberships(ctx context.Context, queryer store.RowQueryer, header explorerselection.ExplicitGroupRevision, groupIDs map[explorerselection.ExplicitGroupID]struct{}, visit func(explorerselection.ExplicitGroupMembership) error) error {
+	cursor := explorerselection.ExplicitGroupMembershipCursor{}
 	for {
-		page := make([]explorer.ExplicitGroupMembership, 0, explicitGroupPageSize)
+		page := make([]explorerselection.ExplicitGroupMembership, 0, explicitGroupPageSize)
 		err := queryer.QueryRows(ctx, `FOR m IN @@c
 FILTER m.revisionId == @revisionId
 AND (m.groupId > @afterGroupId OR (m.groupId == @afterGroupId AND m.id > @afterResourceId))
 SORT m.groupId ASC, m.id ASC
 LIMIT @limit
 RETURN m`, explicitGroupPageSize, map[string]any{"@c": ExplicitGroupMembershipsCollection, "revisionId": string(header.ID), "afterGroupId": string(cursor.GroupID), "afterResourceId": cursor.ResourceID, "limit": explicitGroupPageSize}, func(row map[string]any) error {
-			membership, err := db.Decode[explorer.ExplicitGroupMembership](row)
+			membership, err := db.Decode[explorerselection.ExplicitGroupMembership](row)
 			if err != nil {
 				return err
 			}
@@ -812,7 +811,7 @@ RETURN m`, explicitGroupPageSize, map[string]any{"@c": ExplicitGroupMembershipsC
 				return err
 			}
 			if _, ok := groupIDs[membership.GroupID]; !ok {
-				return explorer.ErrCorruptExplicitGroupRevision
+				return explorerselection.ErrCorruptExplicitGroupRevision
 			}
 			page = append(page, membership.Canonical())
 			return nil
@@ -824,7 +823,7 @@ RETURN m`, explicitGroupPageSize, map[string]any{"@c": ExplicitGroupMembershipsC
 			if err := visit(membership); err != nil {
 				return err
 			}
-			cursor = explorer.ExplicitGroupMembershipCursor{GroupID: membership.GroupID, ResourceID: membership.Ref.ID}
+			cursor = explorerselection.ExplicitGroupMembershipCursor{GroupID: membership.GroupID, ResourceID: membership.Ref.ID}
 		}
 		if len(page) < explicitGroupPageSize {
 			return nil

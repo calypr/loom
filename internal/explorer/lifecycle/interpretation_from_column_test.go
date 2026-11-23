@@ -5,8 +5,11 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
@@ -24,7 +27,7 @@ func TestCreateInterpretationRevisionFromColumnDerivesServerOwnedRule(t *testing
 	before := *owner
 	before.DraftConfig = append([]byte(nil), owner.DraftConfig...)
 	store := &fakeStore{created: owner, copyGet: true}
-	repository := &libraryRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{}}
+	repository := &libraryRepository{revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{}}
 	snapshot, scope := interpretationContextSnapshot()
 	service := newTestService(t, store, Config{
 		InterpretationRepository: repository,
@@ -45,7 +48,7 @@ func TestCreateInterpretationRevisionFromColumnDerivesServerOwnedRule(t *testing
 	if repository.createSeen == nil || created.ID == "" || created.ID != repository.createSeen.ID {
 		t.Fatalf("created revision = %#v; repository saw %#v", created, repository.createSeen)
 	}
-	wantApplicability := explorer.InterpretationApplicability{ResourceTypes: []string{"Patient"}, LogicalTypes: []string{"string"}, Cardinalities: []string{"optional_one"}}
+	wantApplicability := interpretation.InterpretationApplicability{ResourceTypes: []string{"Patient"}, LogicalTypes: []string{"string"}, Cardinalities: []string{"optional_one"}}
 	if !reflect.DeepEqual(created.Applicability, wantApplicability) {
 		t.Fatalf("applicability = %#v, want %#v", created.Applicability, wantApplicability)
 	}
@@ -70,13 +73,13 @@ func TestCreateInterpretationRevisionFromColumnRejectsPinnedAndUnavailableSource
 
 	tests := []struct {
 		name      string
-		workspace authoringv2.Workspace
+		workspace ws.Workspace
 		wantCode  string
 	}{
 		{name: "pinned", workspace: lifecycleInterpretationWorkspace(string(revision.ID), false), wantCode: "INTERPRETATION_ALREADY_PINNED"},
-		{name: "unsupported", workspace: func() authoringv2.Workspace {
+		{name: "unsupported", workspace: func() ws.Workspace {
 			workspace := lifecycleInterpretationWorkspace("", true)
-			workspace.Documents[0].Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}
+			workspace.Documents[0].Columns[0].Source = ws.ColumnSource{Kind: ws.SourceProjectID}
 			return workspace
 		}(), wantCode: "INTERPRETATION_SOURCE_UNAVAILABLE"},
 	}
@@ -90,7 +93,7 @@ func TestCreateInterpretationRevisionFromColumnRejectsPinnedAndUnavailableSource
 			if err != nil {
 				t.Fatal(err)
 			}
-			repository := &libraryRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision}}
+			repository := &libraryRepository{revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision}}
 			service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 				InterpretationRepository: repository,
 				Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {

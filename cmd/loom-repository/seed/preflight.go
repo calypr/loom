@@ -14,7 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -119,7 +120,7 @@ func Prepare(options Options) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("read CONFIG: %w", err)
 	}
-	decodedWorkspace, err := authoringv2.DecodeWorkspace(workspace)
+	decodedWorkspace, err := ws.DecodeWorkspace(workspace)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("CONFIG %s is not a valid native Loom V2 workspace: %w", filepath.Base(configPath), err)
 	}

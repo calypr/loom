@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -110,17 +112,17 @@ func TestPlainTableAuthoredColumnIDReachesCompiledAndPublishedSchema(t *testing.
 		t.Fatalf("build signed field choice for catalog: %v", err)
 	}
 
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"}, Documents: []ws.Document{}, Tabs: []ws.Tab{},
 	}
-	authoringCatalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
+	authoringCatalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind,
 		Project: "project-a", ExplorerID: "explorer-a", SourceGeneration: "generation-a", AuthorizationScopeDigest: "scope-a",
 		ResolvedSchemaDigest: "schema-a", SnapshotToken: snapshot.Token, Complete: true,
-		RoutePolicy: authoringv2.RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
-		Nodes:       []authoringv2.CatalogNode{{ID: "patient-node", ResourceType: "Patient", RowRootEligible: true}},
-		Candidates: []authoringv2.CatalogCandidate{{
+		RoutePolicy: ws.RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
+		Nodes:       []ws.CatalogNode{{ID: "patient-node", ResourceType: "Patient", RowRootEligible: true}},
+		Candidates: []ws.CatalogCandidate{{
 			ID: "patient-id", NodeID: "patient-node", FieldPath: "id", Label: "Patient ID", LogicalType: "string",
 			Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
 		}},
@@ -129,7 +131,7 @@ func TestPlainTableAuthoredColumnIDReachesCompiledAndPublishedSchema(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = authoringv2.ApplyCommands(workspace, authoringCatalog, "add-patient-id", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: authoringv2.RootOccurrenceID, CandidateID: "patient-id"}}})
+	workspace, _, err = authoringv2.ApplyCommands(workspace, authoringCatalog, "add-patient-id", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "patient-id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

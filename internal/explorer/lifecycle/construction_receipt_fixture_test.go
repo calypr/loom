@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
@@ -19,7 +22,7 @@ type lifecycleConstructionColumn struct {
 	construction         string
 }
 
-func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace authoringv2.Workspace) *explorer.CompilationReceipt {
+func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace ws.Workspace) *receiptmodel.CompilationReceipt {
 	receipt := nativeReceipt(snapshot)
 	receipt.IntentDigest, _ = workspace.Digest()
 	receipt.NormalizedBundle, _ = workspace.CanonicalJSON()
@@ -33,29 +36,29 @@ func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace author
 		{name: "text_value", label: "Text value", logical: "string"},
 		{name: "overflow", label: "Overflow category", logical: "string"},
 	}
-	public := explorer.PublicOutputContract{OutputID: "patients", Columns: make([]explorer.PublicOutputColumn, 0, len(columns))}
-	receipt.EmittedColumns = make([]explorer.EmittedColumn, 0, len(columns))
+	public := receiptmodel.PublicOutputContract{OutputID: "patients", Columns: make([]receiptmodel.PublicOutputColumn, 0, len(columns))}
+	receipt.EmittedColumns = make([]viewer.EmittedColumn, 0, len(columns))
 	provenance := make(map[string]string, len(columns))
 	for index, column := range columns {
 		constructionID := column.construction
-		public.Columns = append(public.Columns, explorer.PublicOutputColumn{
+		public.Columns = append(public.Columns, receiptmodel.PublicOutputColumn{
 			Column: column.name, ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
 			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
 		})
-		receipt.EmittedColumns = append(receipt.EmittedColumns, explorer.EmittedColumn{
+		receipt.EmittedColumns = append(receipt.EmittedColumns, viewer.EmittedColumn{
 			EmissionID: fmt.Sprintf("em_%02d", index), OutputID: "patients", PublicColumn: column.name,
 			ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
 			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
 		})
 		provenance[column.name] = "EXPLICIT"
 	}
-	contract, _ := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{public}})
+	contract, _ := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{public}})
 	receipt.PublicOutputContract = contract
-	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(contract)
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
 	receipt.OutputFingerprints = map[string]string{"patients": "fingerprint-" + receipt.IntentDigest}
 	receipt.OutputColumnProvenance = map[string]map[string]string{"patients": provenance}
-	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
-	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 	return receipt
 }
 
@@ -72,8 +75,8 @@ func proposalErrorIs(err error, class ports.ErrorClass, code string) bool {
 	return errors.As(err, &lifecycleErr) && lifecycleErr.Class == class && lifecycleErr.Code == code
 }
 
-func lifecycleTestStringScalar(value string) authoringv2.TableScalar {
-	return authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &value}
+func lifecycleTestStringScalar(value string) ws.TableScalar {
+	return ws.TableScalar{Kind: ws.TableScalarString, String: &value}
 }
 
 func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {

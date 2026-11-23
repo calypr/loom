@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/artifactformat"
 )
 
@@ -92,14 +94,14 @@ type ArtifactStore interface {
 	Open(context.Context, string) (io.ReadCloser, *ArtifactRecord, error)
 }
 
-func RevisionWorkspaceArtifact(revision Revision) WorkspaceArtifact {
-	return WorkspaceArtifact{Kind: "revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
+func RevisionWorkspaceArtifact(revision Revision) workspacepkg.Artifact {
+	return workspacepkg.Artifact{Kind: "revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
 		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.AuthoringWorkspaceBytes()), IntentDigest: revision.IntentDigest,
 		Generation: revision.SourceGeneration, ReceiptID: revision.CompilationReceiptID}
 }
 
-func DraftWorkspaceArtifact(revision DraftRevision) WorkspaceArtifact {
-	return WorkspaceArtifact{Kind: "draft-revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
+func DraftWorkspaceArtifact(revision DraftRevision) workspacepkg.Artifact {
+	return workspacepkg.Artifact{Kind: "draft-revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
 		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.DraftConfig), IntentDigest: revision.DraftDigest,
 		SnapshotToken: revision.SnapshotToken, Generation: revision.SourceGeneration,
 		ScopeDigest: revision.AuthorizationScopeDigest, DraftVersion: revision.DraftVersion}

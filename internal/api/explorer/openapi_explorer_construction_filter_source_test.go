@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -19,7 +23,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -35,32 +38,32 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		SupportedOperations: []capability.Operation{capability.OperationSelect},
 		Observed:            true, Populated: true, ObservedDocumentCount: 135,
 	})
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	document.Construction.Steps = []authoringv2.ConstructionStep{{
-		ID: "only_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind:   authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+	document.Construction.Steps = []ws.ConstructionStep{{
+		ID: "only_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind:   ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterExists},
 		},
 		Outputs: columns,
 	}}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate staged filter-source workspace: %v", err)
 	}
@@ -107,17 +110,17 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("unexpected filter-source candidate preview receipt/bindings: %#v / %#v", receipt, bindings)
 			}
@@ -190,18 +193,18 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 	choiceID := *choice.ChoiceID
 
 	projectionColumnID := "filter_source_active_patient"
-	candidateConstruction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	candidateConstruction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 		ID:     "only_step",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind: authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{
-				ColumnID: projectionColumnID, Operator: authoringv2.ConstructionFilterEquals,
-				Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceHTTPBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind: ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{
+				ColumnID: projectionColumnID, Operator: ws.ConstructionFilterEquals,
+				Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceHTTPBool(true)}},
 			},
 		},
-		Outputs: append(append([]authoringv2.StageColumn(nil), columns...), authoringv2.StageColumn{
-			ID: projectionColumnID, Name: authoringv2.ConstructionSourceProjectionName(projectionColumnID), Label: "Active", Type: "boolean",
+		Outputs: append(append([]ws.StageColumn(nil), columns...), ws.StageColumn{
+			ID: projectionColumnID, Name: ws.ConstructionSourceProjectionName(projectionColumnID), Label: "Active", Type: "boolean",
 		}),
 	}}}
 	candidateJSON, err := json.Marshal(candidateConstruction)

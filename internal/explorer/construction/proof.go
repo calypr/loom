@@ -6,10 +6,11 @@ import (
 	"reflect"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -102,9 +103,9 @@ func constructionChoiceIdentityMatches(choice capability.ConstructionChoice, sub
 	return identity.Version == "construction-choice/v1" && len(identity.Route) == 0 && reflect.DeepEqual(choice.Source, identity.Source)
 }
 
-func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot authoringv2.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
+func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot ws.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
 	path, found := routePathToOccurrence(authoredRoot, occurrenceID)
-	if !found || len(path) == 0 || path[0].OccurrenceID != authoringv2.RootOccurrenceID || path[0].ResourceType != rootResourceType {
+	if !found || len(path) == 0 || path[0].OccurrenceID != ws.RootOccurrenceID || path[0].ResourceType != rootResourceType {
 		return nil, fmt.Errorf("occurrence is not in this output's saved route")
 	}
 	var root capability.Node

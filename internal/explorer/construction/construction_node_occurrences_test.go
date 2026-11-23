@@ -7,38 +7,39 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestConstructionNodeOccurrencesKeepsRootAndOmitsAmbiguousNodes(t *testing.T) {
-	route := authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
-		{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters", CatalogEdgeID: "edge-p-e", Children: []authoringv2.RouteNode{
+	route := ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{
+		{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters", CatalogEdgeID: "edge-p-e", Children: []ws.RouteNode{
 			{OccurrenceID: "patient_again", ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "edge-e-p"},
 			{OccurrenceID: "specimen_a", ResourceType: "Specimen", Relationship: "specimens", CatalogEdgeID: "edge-e-s"},
 		}},
-		{OccurrenceID: "condition", ResourceType: "Condition", Relationship: "conditions", CatalogEdgeID: "edge-p-c", Children: []authoringv2.RouteNode{
+		{OccurrenceID: "condition", ResourceType: "Condition", Relationship: "conditions", CatalogEdgeID: "edge-p-c", Children: []ws.RouteNode{
 			{OccurrenceID: "specimen_b", ResourceType: "Specimen", Relationship: "specimens", CatalogEdgeID: "edge-c-s"},
 		}},
-		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "observations", CatalogEdgeID: "edge-p-o", Children: []authoringv2.RouteNode{
+		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "observations", CatalogEdgeID: "edge-p-o", Children: []ws.RouteNode{
 			{OccurrenceID: "specimen_c", ResourceType: "Specimen", Relationship: "specimens", CatalogEdgeID: "edge-o-s"},
 		}},
 	}}
-	doc := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-		RootResourceType: "Patient", Route: route, Rows: authoringv2.RecordsRowDefinition(),
+	doc := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient", Route: route, Rows: ws.RecordsRowDefinition(),
 	}
 	if err := doc.Validate(); err != nil {
 		t.Fatalf("authored route is invalid: %v", err)
 	}
-	nodes := []authoringv2.CatalogNode{
+	nodes := []ws.CatalogNode{
 		{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true},
 		{ID: "n_encounter", ResourceType: "Encounter"},
 		{ID: "n_condition", ResourceType: "Condition"},
 		{ID: "n_observation", ResourceType: "Observation"},
 		{ID: "n_specimen", ResourceType: "Specimen"},
 	}
-	edges := []authoringv2.CatalogEdge{
+	edges := []ws.CatalogEdge{
 		{ID: "edge-p-e", FromNodeID: "n_patient", ToNodeID: "n_encounter", Label: "encounters"},
 		{ID: "edge-e-p", FromNodeID: "n_encounter", ToNodeID: "n_patient", Label: "subject_Patient"},
 		{ID: "edge-e-s", FromNodeID: "n_encounter", ToNodeID: "n_specimen", Label: "specimens"},
@@ -47,8 +48,8 @@ func TestConstructionNodeOccurrencesKeepsRootAndOmitsAmbiguousNodes(t *testing.T
 		{ID: "edge-p-o", FromNodeID: "n_patient", ToNodeID: "n_observation", Label: "observations"},
 		{ID: "edge-o-s", FromNodeID: "n_observation", ToNodeID: "n_specimen", Label: "specimens"},
 	}
-	catalog := authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Nodes: nodes, Edges: edges}
-	if _, err := authoringv2.NetworkForDocument(doc, catalog); err != nil {
+	catalog := ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Nodes: nodes, Edges: edges}
+	if _, err := ws.NetworkForDocument(doc, catalog); err != nil {
 		t.Fatalf("authored route does not resolve against its catalog: %v", err)
 	}
 	snapshotNodes := make([]capability.Node, 0, len(nodes))

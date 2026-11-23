@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testing.T) {
@@ -49,11 +51,11 @@ func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := explorer.CompilationReceipt{Bundle: resolved.Bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: digest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, ConstructionStages: stages}
+	receipt := receiptmodel.CompilationReceipt{Bundle: resolved.Bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: digest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, ConstructionStages: stages}
 	for _, output := range resolved.Compiled.Outputs {
 		for _, column := range output.OutputSchema {
 			if !column.Internal && !column.Identity {
-				receipt.EmittedColumns = append(receipt.EmittedColumns, explorer.EmittedColumn{OutputID: output.Name, PublicColumn: column.Name})
+				receipt.EmittedColumns = append(receipt.EmittedColumns, viewer.EmittedColumn{OutputID: output.Name, PublicColumn: column.Name})
 			}
 		}
 	}
@@ -61,7 +63,7 @@ func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored explorer.CompilationReceipt
+	var stored receiptmodel.CompilationReceipt
 	if err = json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}

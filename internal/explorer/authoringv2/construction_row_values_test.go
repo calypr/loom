@@ -5,28 +5,30 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 )
 
-func rowValueGroupedDocument() Document {
+func rowValueGroupedDocument() ws.Document {
 	document := workspaceDocument("patients")
-	document.Columns = []Column{constructionSourceColumn("status", "status", "Status", "string")}
-	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{{
-		ID: "group_status", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
-			ConstructionID: "group_status", Keys: []ConstructionGroupKey{{InputColumnID: "status", OutputColumnID: "status_group"}},
-			Aggregates: []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "records"}},
-		}}, Outputs: []StageColumn{{ID: "status_group", Name: "status_group", Label: "Status", Type: "string"}, {ID: "records", Name: "records", Label: "Records", Type: "integer"}},
+	document.Columns = []ws.Column{constructionSourceColumn("status", "status", "Status", "string")}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "group_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group_status", Keys: []ws.ConstructionGroupKey{{InputColumnID: "status", OutputColumnID: "status_group"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "records"}},
+		}}, Outputs: []ws.StageColumn{{ID: "status_group", Name: "status_group", Label: "Status", Type: "string"}, {ID: "records", Name: "records", Label: "Records", Type: "integer"}},
 	}}}
 	return document
 }
 
 func TestPopulateGroupedRowsPreservesIdentityReloadAndRemoval(t *testing.T) {
 	document := rowValueGroupedDocument()
-	keys := append([]ConstructionGroupKey(nil), document.Construction.Steps[0].Operation.Group.Keys...)
+	keys := append([]ws.ConstructionGroupKey(nil), document.Construction.Steps[0].Operation.Group.Keys...)
 	column := constructionSourceColumn("gender_source", "gender", "Gender", "string")
 	document.Columns = append(document.Columns, column)
-	if err := populateConstructionColumn(&document, column, ConstructionRowValueAll); err != nil {
+	if err := populateConstructionColumn(&document, column, ws.ConstructionRowValueAll); err != nil {
 		t.Fatal(err)
 	}
 	if err := document.Validate(); err != nil {
@@ -40,7 +42,7 @@ func TestPopulateGroupedRowsPreservesIdentityReloadAndRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := DecodeWorkspace(raw)
+	reloaded, err := ws.DecodeWorkspace(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +63,7 @@ func TestRemoveProjectedFieldUsesStableIDAndExistingDownstreamCleanup(t *testing
 	document := rowValueGroupedDocument()
 	column := constructionSourceColumn("gender_source", "gender", "Gender", "string")
 	document.Columns = append(document.Columns, column)
-	if err := populateConstructionColumn(&document, column, ConstructionRowValueAll); err != nil {
+	if err := populateConstructionColumn(&document, column, ws.ConstructionRowValueAll); err != nil {
 		t.Fatal(err)
 	}
 	workspace := constructionWorkspace(document)
@@ -93,14 +95,14 @@ func TestPopulatePivotRowsCarriesValuesThroughFollowingFilter(t *testing.T) {
 	document.Construction.Steps = document.Construction.Steps[:3]
 	column := constructionSourceColumn("extra", "extra", "Extra", "string")
 	document.Columns = append(document.Columns, column)
-	if err := populateConstructionColumn(&document, column, ConstructionRowValueOne); err != nil {
+	if err := populateConstructionColumn(&document, column, ws.ConstructionRowValueOne); err != nil {
 		t.Fatal(err)
 	}
 	if err := document.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	rowValue := document.Construction.Steps[0].RowValues[0]
-	if rowValue.Policy != ConstructionRowValueOne {
+	if rowValue.Policy != ws.ConstructionRowValueOne {
 		t.Fatal("ONE policy was not saved")
 	}
 	for _, step := range document.Construction.Steps {
@@ -112,28 +114,28 @@ func TestPopulatePivotRowsCarriesValuesThroughFollowingFilter(t *testing.T) {
 
 func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 	document := rowValueGroupedDocument()
-	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
-		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
-			RevisionID: "group-revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
+			RevisionID: "group-revision", UnassignedMemberPolicy: ws.UnassignedMemberExclude,
 		}},
 		AfterStepID: "filter_status",
 	}}
-	filterSource := ConstructionStep{
-		ID: "filter_status", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "status", Operator: ConstructionFilterExists}},
-		Outputs:   []StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
+	filterSource := ws.ConstructionStep{
+		ID: "filter_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
+		Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
 	}
-	filterCohorts := ConstructionStep{
-		ID: "filter_cohorts", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "group_id", Operator: ConstructionFilterExists}},
-		Outputs: []StageColumn{
+	filterCohorts := ws.ConstructionStep{
+		ID: "filter_cohorts", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_id", Operator: ws.ConstructionFilterExists}},
+		Outputs: []ws.StageColumn{
 			{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
 			{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
 			{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
 			{ID: "members", Name: "members", Label: "Members", Type: "array"},
 		},
 	}
-	document.Construction.Steps = []ConstructionStep{filterSource, filterCohorts}
+	document.Construction.Steps = []ws.ConstructionStep{filterSource, filterCohorts}
 	if err := document.Validate(); err != nil {
 		t.Fatalf("valid source → cohort → authored filter sequence: %v", err)
 	}
@@ -142,7 +144,7 @@ func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 		t.Fatalf("remove the persisted cohort anchor: %v", err)
 	}
 	if removed.Rows.Groups.AfterStepID != "" || len(removed.Construction.Steps) != 1 ||
-		removed.Construction.Steps[0].Inputs[0] != (ConstructionInputRef{Kind: ConstructionInputStepOutput, StepID: "group_rows"}) {
+		removed.Construction.Steps[0].Inputs[0] != (ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}) {
 		t.Fatalf("anchor removal did not move the virtual stage to source projection: %#v", removed)
 	}
 	if document.Rows.Groups.AfterStepID != "filter_status" {
@@ -155,7 +157,7 @@ func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicitly remove the post-cohort dependent stage: %v", err)
 	}
-	withoutCohortSuffix.Rows = RecordsRowDefinition()
+	withoutCohortSuffix.Rows = ws.RecordsRowDefinition()
 	if err := withoutCohortSuffix.Validate(); err != nil {
 		t.Fatalf("return to records after removing the virtual-stage dependent: %v", err)
 	}
@@ -164,8 +166,8 @@ func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 	}
 
 	wrongBoundary := document
-	wrongBoundary.Construction = &Construction{Version: ConstructionVersion, Steps: append([]ConstructionStep(nil), document.Construction.Steps...)}
-	wrongBoundary.Construction.Steps[1].Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "filter_status"}}
+	wrongBoundary.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: append([]ws.ConstructionStep(nil), document.Construction.Steps...)}
+	wrongBoundary.Construction.Steps[1].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "filter_status"}}
 	if err := wrongBoundary.Validate(); err == nil {
 		t.Fatal("post-cohort operation accepted the pre-cohort authored step as its input")
 	}
@@ -173,25 +175,25 @@ func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 
 func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 	document := rowValueGroupedDocument()
-	document.Columns[0].Source = ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}
-	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
-		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
-			RevisionID: "group-revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
+			RevisionID: "group-revision", UnassignedMemberPolicy: ws.UnassignedMemberExclude,
 		}},
 		AfterStepID: "filter_status",
-		RowValues:   []ExplicitGroupRowValue{{ColumnID: "status", Policy: ConstructionRowValueAll}},
+		RowValues:   []ws.ExplicitGroupRowValue{{ColumnID: "status", Policy: ws.ConstructionRowValueAll}},
 	}}
-	document.Construction.Steps = []ConstructionStep{
+	document.Construction.Steps = []ws.ConstructionStep{
 		{
-			ID: "filter_status", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "status", Operator: ConstructionFilterExists}},
-			Outputs:   []StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
+			ID: "filter_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
+			Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
 		},
 		{
-			ID: "filter_cohorts", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "group_label", Operator: ConstructionFilterExists}},
+			ID: "filter_cohorts", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_label", Operator: ws.ConstructionFilterExists}},
 
-			Outputs: []StageColumn{
+			Outputs: []ws.StageColumn{
 				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
 				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
 				{ID: "members", Name: "members", Label: "Members", Type: "array"},
@@ -225,17 +227,17 @@ func TestExplicitGroupStageAcceptsExactRecodedRootStringRowValue(t *testing.T) {
 		},
 	}
 	column := constructionSourceColumn("status-id", "status", "Status", "string")
-	column.Source = ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}
+	column.Source = ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}
 	column.ValueTransformation = &transformation
 	document := workspaceDocument("patients")
-	document.Columns = []Column{column}
-	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
-		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
-			RevisionID: "group-revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+	document.Columns = []ws.Column{column}
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
+			RevisionID: "group-revision", UnassignedMemberPolicy: ws.UnassignedMemberExclude,
 		}},
-		RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueOne}},
+		RowValues: []ws.ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ws.ConstructionRowValueOne}},
 	}}
-	document.Construction = &Construction{Version: ConstructionVersion}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion}
 	if err := document.Validate(); err != nil {
 		t.Fatalf("validate transformed exact-category group row value: %v", err)
 	}
@@ -245,16 +247,16 @@ func TestCompoundSourceGroupingOwnsAndPrunesItsInputs(t *testing.T) {
 	document := rowValueGroupedDocument()
 	document.Columns = nil
 	group := document.Construction.Steps[0].Operation.Group
-	group.Keys = []ConstructionGroupKey{{InputColumnID: "active_source", OutputColumnID: "active_group"}, {InputColumnID: "gender_source", OutputColumnID: "gender_group"}}
-	document.Construction.SourceProjections = []ConstructionSourceProjection{
-		{ColumnID: "active_source", OwnerStepID: "group_status", OccurrenceID: RootOccurrenceID, FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Active"},
-		{ColumnID: "gender_source", OwnerStepID: "group_status", OccurrenceID: RootOccurrenceID, FieldPath: "gender", FHIRType: "code", LogicalType: "string", Label: "Gender"},
+	group.Keys = []ws.ConstructionGroupKey{{InputColumnID: "active_source", OutputColumnID: "active_group"}, {InputColumnID: "gender_source", OutputColumnID: "gender_group"}}
+	document.Construction.SourceProjections = []ws.ConstructionSourceProjection{
+		{ColumnID: "active_source", OwnerStepID: "group_status", OccurrenceID: ws.RootOccurrenceID, FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Active"},
+		{ColumnID: "gender_source", OwnerStepID: "group_status", OccurrenceID: ws.RootOccurrenceID, FieldPath: "gender", FHIRType: "code", LogicalType: "string", Label: "Gender"},
 	}
-	document.Construction.Steps[0].Outputs = []StageColumn{{ID: "active_group", Name: "active", Label: "Active", Type: "boolean"}, {ID: "gender_group", Name: "gender", Label: "Gender", Type: "string"}, {ID: "records", Name: "records", Label: "Records", Type: "integer"}}
+	document.Construction.Steps[0].Outputs = []ws.StageColumn{{ID: "active_group", Name: "active", Label: "Active", Type: "boolean"}, {ID: "gender_group", Name: "gender", Label: "Gender", Type: "string"}, {ID: "records", Name: "records", Label: "Records", Type: "integer"}}
 	if err := document.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	removed, _, err := document.AnalyzeConstructionCandidate(Construction{Version: ConstructionVersion}, "", []string{"group_status"})
+	removed, _, err := document.AnalyzeConstructionCandidate(ws.Construction{Version: ws.ConstructionVersion}, "", []string{"group_status"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +271,7 @@ func TestNextTableOrderIncludesGeneratedGroupColumns(t *testing.T) {
 		t.Fatalf("new field order = %d, want 2 after the group key and count", got)
 	}
 	order := 7
-	document.Construction.Steps[0].Outputs[1].Table = &TablePresentation{Order: &order}
+	document.Construction.Steps[0].Outputs[1].Table = &ws.TablePresentation{Order: &order}
 	if got := nextTableOrder(document); got != 8 {
 		t.Fatalf("new field order = %d, want 8 after the explicitly ordered count", got)
 	}

@@ -7,23 +7,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestScopedSourcePlanMigrationAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-		RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Rows: authoringv2.RecordsRowDefinition(), ImportedRecipe: &authoringv2.ImportedRecipeRef{Name: "pin", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"},
-		ImportedSource: &authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Rows: ws.RecordsRowDefinition(), ImportedRecipe: &ws.ImportedRecipeRef{Name: "pin", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"},
+		ImportedSource: &ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{
 			{ID: "output", Kind: "ROOT", Title: "Output", Summary: "Output"},
 			{ID: "dynamicColumns[0]", Kind: "DYNAMIC_COLUMNS", Title: "Identifiers", Summary: "Identifiers", Editable: true},
 		}},
 	}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Legacy source"}, Documents: []authoringv2.Document{document},
-		Tabs: []authoringv2.Tab{{ID: "patients", OutputID: "patients", Title: "Patients", Visible: true}},
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Legacy source"}, Documents: []ws.Document{document},
+		Tabs: []ws.Tab{{ID: "patients", OutputID: "patients", Title: "Patients", Visible: true}},
 	}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -56,7 +56,7 @@ func TestScopedSourcePlanMigrationAgainstArango(t *testing.T) {
 	if err != nil || history.DraftDigest != digest {
 		t.Fatalf("original draft history unavailable: %v", err)
 	}
-	if _, changed, err := authoringv2.ConvertStoredSourcePlan(history.DraftConfig, history.DraftDigest); err != nil || !changed {
+	if _, changed, err := ws.ConvertStoredSourcePlan(history.DraftConfig, history.DraftDigest); err != nil || !changed {
 		t.Fatalf("original draft history failed digest verification: %v", err)
 	}
 	if untouched, err := adapter.Get(ctx, other.Project, other.ExplorerID); err != nil || untouched.DraftVersion != other.DraftVersion || untouched.DraftDigest != digest {

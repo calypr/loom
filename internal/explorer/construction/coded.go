@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"reflect"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/calypr/loom/internal/semantic"
@@ -22,7 +24,7 @@ func frameIdentityCandidateID(identity capability.ConstructionChoiceIdentity) st
 	return source.CandidateID
 }
 
-func constructionStageSupportsCodedPivot(stage explorer.ReceiptConstructionStage) bool {
+func constructionStageSupportsCodedPivot(stage receiptmodel.ReceiptConstructionStage) bool {
 	if stage.ID != recipe.ConstructionSourceProjectionID {
 		return false
 	}
@@ -34,14 +36,14 @@ func constructionStageSupportsCodedPivot(stage explorer.ReceiptConstructionStage
 	return false
 }
 
-func codedPivotSourceMatchesPinnedPrior(current, pinned *authoringv2.ConstructionCodedPivotSource, observation semantic.Observation) bool {
+func codedPivotSourceMatchesPinnedPrior(current, pinned *ws.ConstructionCodedPivotSource, observation semantic.Observation) bool {
 	return current != nil && pinned != nil &&
 		semanticFrameFamilyMatchesPinnedPrior(current.Family, pinned.Family, observation) &&
 		current.CandidateID == pinned.CandidateID && current.NodeID == pinned.NodeID &&
 		current.FieldPath == pinned.FieldPath && reflect.DeepEqual(current.Route, pinned.Route)
 }
 
-func constructionSourceStage(stages []explorer.ReceiptConstructionStage) *explorer.ReceiptConstructionStage {
+func constructionSourceStage(stages []receiptmodel.ReceiptConstructionStage) *receiptmodel.ReceiptConstructionStage {
 	for index := range stages {
 		if stages[index].ID == recipe.ConstructionSourceProjectionID {
 			return &stages[index]
@@ -54,25 +56,25 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, map[string]bool, error) {
+	candidate ws.Construction,
+) (ws.Construction, map[string]bool, error) {
 	verified := make(map[string]bool)
-	priorByStep := make(map[string]authoringv2.ConstructionCodedPivot)
+	priorByStep := make(map[string]ws.ConstructionCodedPivot)
 	for _, step := range base.Construction.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationCodedPivot && step.Operation.CodedPivot != nil {
+		if step.Operation.Kind == ws.ConstructionOperationCodedPivot && step.Operation.CodedPivot != nil {
 			priorByStep[step.ID] = *step.Operation.CodedPivot
 		}
 	}
 	for stepIndex := range candidate.Steps {
 		step := &candidate.Steps[stepIndex]
-		if step.Operation.Kind != authoringv2.ConstructionOperationCodedPivot || step.Operation.CodedPivot == nil {
+		if step.Operation.Kind != ws.ConstructionOperationCodedPivot || step.Operation.CodedPivot == nil {
 			continue
 		}
 		coded := step.Operation.CodedPivot
 		if coded.SourceChoiceID == "" {
 			continue
 		}
-		if len(step.Inputs) != 1 || step.Inputs[0].Kind != authoringv2.ConstructionInputSourceProjection || step.Inputs[0].StepID != "" {
+		if len(step.Inputs) != 1 || step.Inputs[0].Kind != ws.ConstructionInputSourceProjection || step.Inputs[0].StepID != "" {
 			return candidate, nil, unprocessable("construction-proposal", "DIRECT_SOURCE_STAGE_REQUIRED", "coded Pivot currently requires the direct source projection stage", nil)
 		}
 		inputStage := constructionSourceStage(base.Stages)
@@ -94,7 +96,7 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 		if !ok {
 			return candidate, nil, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "sourceChoiceId does not identify a semantic coded family", nil)
 		}
-		durableSource := &authoringv2.ConstructionCodedPivotSource{
+		durableSource := &ws.ConstructionCodedPivotSource{
 			Family: family.Family, CandidateID: family.Candidate.ID,
 			NodeID: family.Candidate.NodeID, FieldPath: family.Candidate.FieldPath,
 			Route: append([]capability.ConstructionRouteStep{}, route...),
@@ -111,7 +113,7 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 		for _, category := range prior.Categories {
 			priorKeys[category.System+"\x00"+category.Code] = true
 		}
-		resolvedCategories := make([]authoringv2.ConstructionCodedPivotCategory, 0, len(coded.Categories))
+		resolvedCategories := make([]ws.ConstructionCodedPivotCategory, 0, len(coded.Categories))
 		seenKeys, seenOutputs := map[string]bool{}, map[string]bool{}
 		for categoryIndex, category := range coded.Categories {
 			if category.ChoiceID != "" {

@@ -4,17 +4,18 @@ import (
 	"errors"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 type constructionOutputStep struct {
-	document          authoringv2.Document
-	step              authoringv2.ConstructionStep
+	document          ws.Document
+	step              ws.ConstructionStep
 	stepIndex         int
 	compiledOutput    facade.CompiledRecipeOutput
 	resolvedInputs    map[int]facade.ResolvedClickHouseTable
@@ -27,31 +28,31 @@ type constructionOutputStep struct {
 
 func (stage constructionOutputStep) reconcile() error {
 	switch stage.step.Operation.Kind {
-	case authoringv2.ConstructionOperationGroup:
+	case ws.ConstructionOperationGroup:
 		return stage.reconcileGroup()
-	case authoringv2.ConstructionOperationCodedGroup:
+	case ws.ConstructionOperationCodedGroup:
 		return stage.reconcileCodedGroup()
-	case authoringv2.ConstructionOperationExpand:
+	case ws.ConstructionOperationExpand:
 		return stage.reconcileExpand()
-	case authoringv2.ConstructionOperationDerive:
+	case ws.ConstructionOperationDerive:
 		return stage.reconcileDerive()
-	case authoringv2.ConstructionOperationPivot:
+	case ws.ConstructionOperationPivot:
 		return stage.reconcilePivot()
-	case authoringv2.ConstructionOperationCodedPivot:
+	case ws.ConstructionOperationCodedPivot:
 		return stage.reconcileCodedPivot()
-	case authoringv2.ConstructionOperationUnpivot:
+	case ws.ConstructionOperationUnpivot:
 		return stage.reconcileUnpivot()
-	case authoringv2.ConstructionOperationFilter:
+	case ws.ConstructionOperationFilter:
 		return stage.reconcileFilter()
-	case authoringv2.ConstructionOperationCombine:
+	case ws.ConstructionOperationCombine:
 		return stage.reconcileCombine()
-	case authoringv2.ConstructionOperationRelatedSource:
+	case ws.ConstructionOperationRelatedSource:
 		return stage.reconcileRelatedSource()
-	case authoringv2.ConstructionOperationRelatedExpand:
+	case ws.ConstructionOperationRelatedExpand:
 		return stage.reconcileRelatedExpand()
-	case authoringv2.ConstructionOperationRelatedEligibility:
+	case ws.ConstructionOperationRelatedEligibility:
 		return stage.reconcileRelatedEligibility()
-	case authoringv2.ConstructionOperationRelatedField:
+	case ws.ConstructionOperationRelatedField:
 		return stage.reconcileRelatedField()
 	default:
 		return fmt.Errorf("step %q has unsupported operation kind %q", stage.step.ID, stage.step.Operation.Kind)
@@ -69,7 +70,7 @@ func (stage constructionOutputStep) addOutput(outputColumnID, constructionID str
 	if strings.TrimSpace(constructionID) == "" {
 		return fmt.Errorf("steps[%d] has no construction identity", stepIndex)
 	}
-	var output authoringv2.StageColumn
+	var output ws.StageColumn
 	found := false
 	for _, candidate := range step.Outputs {
 		if candidate.ID == outputColumnID {

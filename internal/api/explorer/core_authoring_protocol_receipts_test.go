@@ -8,6 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 
@@ -20,7 +25,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -39,7 +43,7 @@ type coreProtocolReceiptsFixture struct {
 	store         *testExplorerStore
 	capabilities  *capabilityfixtures.Store
 	snapshot      capability.Snapshot
-	workspace     authoringv2.Workspace
+	workspace     ws.Workspace
 	initialDigest string
 	basePath      string
 	headVersion   int64
@@ -49,11 +53,11 @@ type coreProtocolReceiptsFixture struct {
 func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer:  authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: c1011OutputID, Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{ColumnID: "id", Column: c1011PublicColumn, Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
-		Tabs:      []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: c1011OutputID, Order: 0, Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:  ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: c1011OutputID, Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{ColumnID: "id", Column: c1011PublicColumn, Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
+		Tabs:      []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: c1011OutputID, Order: 0, Visible: true}},
 	}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -66,7 +70,7 @@ func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 	ctx := context.Background()
 	store := newTestExplorerStore()
 	if _, err := store.Create(ctx, explorer.Explorer{
-		Project: c1011Project, ExplorerID: c1011ExplorerID, Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: c1011Project, ExplorerID: c1011ExplorerID, Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -105,15 +109,15 @@ func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 				}
 				return ports.AuthorizedCapability{Snapshot: *stored, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -138,7 +142,7 @@ func (f *coreProtocolReceiptsFixture) saveLabel(commandID, label string) (testHT
 		f.t.Fatal(err)
 	}
 	body := fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"UPDATE_COLUMN","outputId":%q,"column":%q,"columnValue":%s}]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, f.snapshot.Token, f.headVersion, f.headDigest, c1011OutputID, c1011PublicColumn, columnValue)
+		commandID, ws.CurrentSemanticsVersion, f.snapshot.Token, f.headVersion, f.headDigest, c1011OutputID, c1011PublicColumn, columnValue)
 	response := coreProtocolRequest(f.t, f.app, http.MethodPost, f.basePath+"/commands", body, "builder-command-"+commandID)
 	var ack loomapi.ApplyCommandsResponse
 	if err := json.Unmarshal([]byte(response.Body), &ack); err != nil {
@@ -151,7 +155,7 @@ func (f *coreProtocolReceiptsFixture) saveLabel(commandID, label string) (testHT
 	return response, ack
 }
 
-func (f *coreProtocolReceiptsFixture) compileAtHead(requestID string) (loomapi.CompileResponse, explorer.CompilationReceipt) {
+func (f *coreProtocolReceiptsFixture) compileAtHead(requestID string) (loomapi.CompileResponse, receiptmodel.CompilationReceipt) {
 	f.t.Helper()
 	body := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":%d,"draftDigest":%q}`, f.snapshot.Token, f.headVersion, f.headDigest)
 	response := coreProtocolRequest(f.t, f.app, http.MethodPost, f.basePath+"/reconcile", body, requestID)
@@ -172,7 +176,7 @@ func (f *coreProtocolReceiptsFixture) compileAtHead(requestID string) (loomapi.C
 	return compiled, receipt
 }
 
-func (f *coreProtocolReceiptsFixture) compileFresh(commandID, label string) (loomapi.CompileResponse, explorer.CompilationReceipt) {
+func (f *coreProtocolReceiptsFixture) compileFresh(commandID, label string) (loomapi.CompileResponse, receiptmodel.CompilationReceipt) {
 	f.t.Helper()
 	saved, ack := f.saveLabel(commandID, label)
 	if saved.StatusCode != http.StatusOK {
@@ -210,7 +214,7 @@ func (f *coreProtocolReceiptsFixture) receiptEmittedLabel(t *testing.T, receiptI
 	return ""
 }
 
-func (f *coreProtocolReceiptsFixture) insertReceipt(receipt explorer.CompilationReceipt) explorer.CompilationReceipt {
+func (f *coreProtocolReceiptsFixture) insertReceipt(receipt receiptmodel.CompilationReceipt) receiptmodel.CompilationReceipt {
 	f.t.Helper()
 	stored, err := f.store.InsertCompilationReceipt(context.Background(), receipt)
 	if err != nil {
@@ -330,18 +334,18 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 
 	for _, binding := range []struct {
 		name   string
-		tamper func(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot)
+		tamper func(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot)
 	}{
-		{name: "snapshot-token", tamper: func(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) {
+		{name: "snapshot-token", tamper: func(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) {
 			receipt.SnapshotToken = snapshot.Token + "-unretained"
 		}},
-		{name: "source-generation", tamper: func(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) {
+		{name: "source-generation", tamper: func(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) {
 			receipt.SourceGeneration = snapshot.Identity.Generation + "-b"
 		}},
-		{name: "capability-schema", tamper: func(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) {
+		{name: "capability-schema", tamper: func(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) {
 			receipt.CapabilitySchemaDigest = strings.Repeat("f", 64)
 		}},
-		{name: "authorization-scope", tamper: func(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) {
+		{name: "authorization-scope", tamper: func(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) {
 			receipt.AuthorizationScopeDigest = strings.Repeat("e", 64)
 		}},
 	} {
@@ -369,14 +373,14 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 	for _, binding := range []struct {
 		name    string
 		keepKey bool
-		tamper  func(receipt *explorer.CompilationReceipt)
+		tamper  func(receipt *receiptmodel.CompilationReceipt)
 		cause   string
 	}{
-		{name: "output-contract-digest", keepKey: true, cause: "output contract digest mismatch", tamper: func(receipt *explorer.CompilationReceipt) {
+		{name: "output-contract-digest", keepKey: true, cause: "output contract digest mismatch", tamper: func(receipt *receiptmodel.CompilationReceipt) {
 			receipt.OutputContractDigest = "sha256:" + strings.Repeat("0", 64)
 		}},
-		{name: "emitted-column-label", keepKey: true, cause: "does not match emittedColumns", tamper: func(receipt *explorer.CompilationReceipt) {
-			emitted := append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
+		{name: "emitted-column-label", keepKey: true, cause: "does not match emittedColumns", tamper: func(receipt *receiptmodel.CompilationReceipt) {
+			emitted := append([]viewer.EmittedColumn(nil), receipt.EmittedColumns...)
 			for index := range emitted {
 				if emitted[index].OutputID == c1011OutputID {
 					emitted[index].Label = "Tampered Frozen Label"
@@ -384,7 +388,7 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 			}
 			receipt.EmittedColumns = emitted
 		}},
-		{name: "shape-digest", keepKey: false, cause: "compilation key mismatch", tamper: func(receipt *explorer.CompilationReceipt) {
+		{name: "shape-digest", keepKey: false, cause: "compilation key mismatch", tamper: func(receipt *receiptmodel.CompilationReceipt) {
 			receipt.ShapeDigest = strings.Repeat("d", 64)
 		}},
 	} {
@@ -414,16 +418,16 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 	}
 }
 
-func recomputeReceiptIdentity(t *testing.T, receipt *explorer.CompilationReceipt, keepKey bool) {
+func recomputeReceiptIdentity(t *testing.T, receipt *receiptmodel.CompilationReceipt, keepKey bool) {
 	t.Helper()
-	key, err := explorer.CompilationKey(*receipt)
+	key, err := receiptmodel.CompilationKey(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if keepKey {
 		receipt.CompilationKey = key
 	}
-	id, err := explorer.ReceiptID(*receipt)
+	id, err := receiptmodel.ReceiptID(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

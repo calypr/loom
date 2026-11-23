@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
@@ -61,8 +63,8 @@ func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) 
 }
 
 func TestProjectConfigsForSourcePublicationPreservesStoredDefinitions(t *testing.T) {
-	saved := explorer.ProjectConfig{
-		ID: "my-view", Title: "My view", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "metadata-v1"},
+	saved := explorerconfig.ProjectConfig{
+		ID: "my-view", Title: "My view", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: "metadata-v1"},
 		SharedFilters: map[string][]explorerconfig.SharedFilter{
 			"status": {{Output: "Metadata", Column: "status"}},
 		},
@@ -78,9 +80,9 @@ func TestProjectConfigsForSourcePublicationPreservesStoredDefinitions(t *testing
 		},
 	}
 	owners := []explorer.Explorer{
-		{Project: "project-a", ExplorerID: "my-view", ActiveRevisionID: "revision-7", ManagementMode: explorer.ManagementRepository, ProjectConfig: &saved},
-		{Project: "project-a", ExplorerID: "unrelated", ActiveRevisionID: "revision-3", ManagementMode: explorer.ManagementRepository,
-			ProjectConfig: &explorer.ProjectConfig{ID: "unrelated", Title: "Other", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other-recipe"}}},
+		{Project: "project-a", ExplorerID: "my-view", ActiveRevisionID: "revision-7", ManagementMode: viewer.ManagementRepository, ProjectConfig: &saved},
+		{Project: "project-a", ExplorerID: "unrelated", ActiveRevisionID: "revision-3", ManagementMode: viewer.ManagementRepository,
+			ProjectConfig: &explorerconfig.ProjectConfig{ID: "unrelated", Title: "Other", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: "other-recipe"}}},
 	}
 	snapshot := explorer.Revision{Project: "project-a", Recipe: recipe.Bundle{Name: "metadata-v1", Outputs: []recipe.Output{{Name: "Metadata"}, {Name: "Files"}}}}
 	configs, expected, err := ProjectConfigsForSourcePublication(owners, "metadata-v1", false, snapshot)

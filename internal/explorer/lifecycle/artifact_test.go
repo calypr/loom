@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -134,14 +137,14 @@ func (r *fakeArtifactReader) StreamExactExport(_ context.Context, request datafr
 	return dataframepublished.ExactExportResult{ExecutionID: request.ExecutionID, OutputID: request.OutputID, ReaderID: request.ReaderID, Materialization: r.materialization, Rows: int64(len(r.rows))}, nil
 }
 
-func artifactTestFixture(t *testing.T) (*artifactBackend, *memoryArtifactStore, *fakeArtifactReader, capability.Snapshot, *explorer.CompilationReceipt) {
+func artifactTestFixture(t *testing.T) (*artifactBackend, *memoryArtifactStore, *fakeArtifactReader, capability.Snapshot, *receiptmodel.CompilationReceipt) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token-a", scope)
 	receipt := nativeReceipt(snapshot)
 	receipt.SnapshotToken = snapshot.Token
 	report := publication.QualityReport{ID: "quality-patients", ReceiptID: receipt.ID, Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, ScopeDigest: receipt.AuthorizationScopeDigest, Output: "patients", PolicyVersion: publication.DefaultQualityPolicyVersion, Completeness: publication.QualityComplete, Verdict: publication.QualityPassed}
-	revision := &explorer.Revision{ID: "revision-a", Project: receipt.Project, ExplorerID: receipt.ExplorerID, CompilationReceiptID: receipt.ID, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: "execution-a"}, QualityReports: []publication.QualityReport{report}, Status: explorer.RevisionReady}
+	revision := &explorer.Revision{ID: "revision-a", Project: receipt.Project, ExplorerID: receipt.ExplorerID, CompilationReceiptID: receipt.ID, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Publication: viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: "execution-a"}, QualityReports: []publication.QualityReport{report}, Status: explorer.RevisionReady}
 	backend := &artifactBackend{fakeStore: &fakeStore{receipt: receipt}, revision: revision}
 	materialization := dataframepublished.Materialization{Revision: "execution-a", ReceiptID: receipt.ID, SchemaDigest: "schema-a", Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, Name: "Patient", State: dataframepublished.StateReady, ScopeUnrestricted: true, Columns: []dataframepublished.Column{{Name: "patient_id", LogicalType: "string"}, {Name: "project_id", LogicalType: "string", LoomOwned: true}, {Name: "auth_resource_path", LogicalType: "string", LoomOwned: true}}, SourceRow: &publication.SourceRowMetadata{ResourceType: "Patient", IDColumn: "patient_id"}}
 	reader := &fakeArtifactReader{materialization: materialization, rows: []map[string]any{{"patient_id": "p1", "project_id": receipt.Project, "auth_resource_path": "private"}}}
@@ -227,7 +230,7 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 }
 
 func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *testing.T) {
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		ReceiptFormatVersion: 2, CompilerContractVersion: "test", SourceGeneration: "generation-a",
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: "contract-digest",
 		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"groups","rowGrain":"groups","rowMultiplication":"none","columns":[{"column":"patient_id","label":"Root ID","logicalType":"string"},{"column":"group_mean_weight","label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}}]}]}`),
@@ -322,11 +325,11 @@ func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *test
 }
 
 func TestArtifactDescriptorCarriesResultUnitIntoZipManifest(t *testing.T) {
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		ReceiptFormatVersion: 2, CompilerContractVersion: "test", SourceGeneration: "generation-a",
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: "contract-digest",
 		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"patients","rowGrain":"patient","rowMultiplication":"none","columns":[{"column":"mean_weight","authoredColumns":["weight"],"label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}},{"column":"bmi","label":"BMI","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg/m2"}},{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":false,"chartable":false}]}]}`),
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 			{OutputID: "patients", EmissionID: "emit-mean-weight", PublicColumn: "mean_weight"},
 			{OutputID: "patients", EmissionID: "emit-bmi", PublicColumn: "bmi"},
 			{OutputID: "patients", EmissionID: "emit-patient-id", PublicColumn: "patient_id"},
@@ -434,7 +437,7 @@ func TestCanonicalGroupArtifactIdentityPreservesTypedCompilerFields(t *testing.T
 }
 
 func TestArtifactQualityAcceptsLegacyStorageProjectIdentity(t *testing.T) {
-	receipt := explorer.CompilationReceipt{ID: "receipt", Project: "study_program/project", SourceGeneration: "generation", AuthorizationScopeDigest: "scope"}
+	receipt := receiptmodel.CompilationReceipt{ID: "receipt", Project: "study_program/project", SourceGeneration: "generation", AuthorizationScopeDigest: "scope"}
 	revision := explorer.Revision{QualityReports: []publication.QualityReport{{
 		ReceiptID: "receipt", Project: "study_program-project", DatasetGeneration: "generation", ScopeDigest: "scope", Output: "patients",
 		PolicyVersion: publication.DefaultQualityPolicyVersion, Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,

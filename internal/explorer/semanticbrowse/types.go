@@ -4,7 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -116,25 +117,25 @@ const (
 )
 
 type SemanticInventoryItem struct {
-	ConceptID              string                                 `json:"conceptId"`
-	BindingID              string                                 `json:"bindingId"`
-	SelectionMode          string                                 `json:"selectionMode,omitempty"`
-	FamilyID               string                                 `json:"familyId,omitempty"`
-	ResourceType           string                                 `json:"resourceType"`
-	SourcePath             string                                 `json:"sourcePath"`
-	System                 string                                 `json:"system"`
-	Code                   string                                 `json:"code"`
-	CodingVersion          string                                 `json:"codingVersion"`
-	Display                string                                 `json:"display"`
-	ValueSelector          string                                 `json:"valueSelector"`
-	ValueType              string                                 `json:"valueType"`
-	OwningScope            string                                 `json:"owningScope"`
-	Occurrences            int64                                  `json:"occurrences"`
-	Examples               []string                               `json:"examples,omitempty"`
-	ExamplesTruncated      bool                                   `json:"examplesTruncated"`
-	ObservedUnits          []string                               `json:"observedUnits,omitempty"`
-	ObservedUnitsTruncated bool                                   `json:"observedUnitsTruncated"`
-	Completeness           semantic.Completeness                  `json:"completeness,omitempty"`
-	Readiness              authoringv2.SemanticSelectionReadiness `json:"readiness"`
-	ConstructionChoice     *capability.ConstructionChoice         `json:"constructionChoice,omitempty"`
+	ConceptID              string                                       `json:"conceptId"`
+	BindingID              string                                       `json:"bindingId"`
+	SelectionMode          string                                       `json:"selectionMode,omitempty"`
+	FamilyID               string                                       `json:"familyId,omitempty"`
+	ResourceType           string                                       `json:"resourceType"`
+	SourcePath             string                                       `json:"sourcePath"`
+	System                 string                                       `json:"system"`
+	Code                   string                                       `json:"code"`
+	CodingVersion          string                                       `json:"codingVersion"`
+	Display                string                                       `json:"display"`
+	ValueSelector          string                                       `json:"valueSelector"`
+	ValueType              string                                       `json:"valueType"`
+	OwningScope            string                                       `json:"owningScope"`
+	Occurrences            int64                                        `json:"occurrences"`
+	Examples               []string                                     `json:"examples,omitempty"`
+	ExamplesTruncated      bool                                         `json:"examplesTruncated"`
+	ObservedUnits          []string                                     `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool                                         `json:"observedUnitsTruncated"`
+	Completeness           semantic.Completeness                        `json:"completeness,omitempty"`
+	Readiness              semanticauthoring.SemanticSelectionReadiness `json:"readiness"`
+	ConstructionChoice     *capability.ConstructionChoice               `json:"constructionChoice,omitempty"`
 }

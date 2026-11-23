@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -24,7 +26,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit"
@@ -399,10 +400,10 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 		}
 	})
 	t.Run("independent-branches-cannot-become-an-implicit-row-product", func(t *testing.T) {
-		makeStep := func(id, target, edge string) authoringv2.ConstructionStep {
-			return authoringv2.ConstructionStep{ID: id, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &authoringv2.ConstructionRelatedExpand{AnchorColumnID: "_key", Route: []capability.ConstructionRouteStep{{EdgeID: edge, FromNodeID: "subject", ToNodeID: target, StorageDirection: "OUTBOUND"}}}}}
+		makeStep := func(id, target, edge string) ws.ConstructionStep {
+			return ws.ConstructionStep{ID: id, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{AnchorColumnID: "_key", Route: []capability.ConstructionRouteStep{{EdgeID: edge, FromNodeID: "subject", ToNodeID: target, StorageDirection: "OUTBOUND"}}}}}
 		}
-		plan := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{makeStep("two-observations", "observations", "subject-observations"), makeStep("three-conditions", "conditions", "subject-conditions")}}
+		plan := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{makeStep("two-observations", "observations", "subject-observations"), makeStep("three-conditions", "conditions", "subject-conditions")}}
 		if err := plan.Validate(nil); err == nil || !strings.Contains(err.Error(), "INDEPENDENT_RELATED_EXPANSIONS_UNSUPPORTED") {
 			t.Fatalf("unsupported product accepted: %v", err)
 		}

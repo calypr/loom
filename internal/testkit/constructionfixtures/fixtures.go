@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/published"
@@ -12,7 +14,6 @@ import (
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -94,7 +95,7 @@ type Fixture struct {
 
 func New(scope authscope.ReadScope) (Fixture, error) {
 	snapshot := capabilityfixtures.AuthorizedCapabilitySnapshot("generation-a", resolver.ScopeDigest(scope))
-	workspace, err := authoringv2.DecodeWorkspace(BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(BaselineExplorerWorkspace())
 	if err != nil {
 		return Fixture{}, err
 	}

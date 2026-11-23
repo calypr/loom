@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestPrepareWorkspaceForCompilationNormalizesCurrentWithoutMutatingInput(t *testing.T) {
-	workspace := compilationPreparationWorkspace(CurrentSemanticsVersion)
+	workspace := compilationPreparationWorkspace(ws.CurrentSemanticsVersion)
 	inputTableOrder := 7
 	workspace.Documents[0].Columns[0].Table.Order = &inputTableOrder
 
@@ -20,12 +22,12 @@ func TestPrepareWorkspaceForCompilationNormalizesCurrentWithoutMutatingInput(t *
 		t.Fatal(err)
 	}
 
-	prepared, err := PrepareWorkspaceForCompilation(workspace, CatalogSnapshot{})
+	prepared, err := ws.PrepareWorkspaceForCompilation(workspace, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("prepared semanticsVersion = %d, want %d", prepared.SemanticsVersion, CurrentSemanticsVersion)
+	if prepared.SemanticsVersion != ws.CurrentSemanticsVersion {
+		t.Fatalf("prepared semanticsVersion = %d, want %d", prepared.SemanticsVersion, ws.CurrentSemanticsVersion)
 	}
 	if got := *prepared.Documents[0].Columns[0].Table.Order; got != 0 {
 		t.Fatalf("prepared table order = %d, want normalized order 0", got)
@@ -52,32 +54,32 @@ func TestPrepareWorkspaceForCompilationNormalizesCurrentWithoutMutatingInput(t *
 
 func TestPrepareWorkspaceForCompilationRejectsLegacySemantics(t *testing.T) {
 	legacy := compilationPreparationWorkspace(tableShapeSemanticsVersion)
-	if _, err := PrepareWorkspaceForCompilation(legacy, CatalogSnapshot{}); err == nil {
+	if _, err := ws.PrepareWorkspaceForCompilation(legacy, ws.CatalogSnapshot{}); err == nil {
 		t.Fatal("runtime compilation preparation accepted a v9 workspace")
 	}
 	raw, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := MigrateStoredWorkspace(raw, CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migrated.Workspace.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("offline migration semanticsVersion=%d, want %d", migrated.Workspace.SemanticsVersion, CurrentSemanticsVersion)
+	if migrated.Workspace.SemanticsVersion != ws.CurrentSemanticsVersion {
+		t.Fatalf("offline migration semanticsVersion=%d, want %d", migrated.Workspace.SemanticsVersion, ws.CurrentSemanticsVersion)
 	}
 }
 
 func TestPrepareWorkspaceForCompilationIsDeterministicAndIdempotent(t *testing.T) {
-	workspace := compilationPreparationWorkspace(CurrentSemanticsVersion)
+	workspace := compilationPreparationWorkspace(ws.CurrentSemanticsVersion)
 	order := 9
 	workspace.Documents[0].Columns[0].Table.Order = &order
 
-	first, err := PrepareWorkspaceForCompilation(workspace, CatalogSnapshot{})
+	first, err := ws.PrepareWorkspaceForCompilation(workspace, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := PrepareWorkspaceForCompilation(workspace, CatalogSnapshot{})
+	second, err := ws.PrepareWorkspaceForCompilation(workspace, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestPrepareWorkspaceForCompilationIsDeterministicAndIdempotent(t *testing.T
 		t.Fatalf("same input produced different prepared canonical bytes:\nfirst=%s\nsecond=%s", firstCanonical, secondCanonical)
 	}
 
-	again, err := PrepareWorkspaceForCompilation(first, CatalogSnapshot{})
+	again, err := ws.PrepareWorkspaceForCompilation(first, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,15 +109,15 @@ func TestPrepareWorkspaceForCompilationIsDeterministicAndIdempotent(t *testing.T
 }
 
 func TestPrepareWorkspaceForCompilationDigestIncludesUnrelatedFieldEdits(t *testing.T) {
-	original := compilationPreparationWorkspace(CurrentSemanticsVersion)
-	changed := compilationPreparationWorkspace(CurrentSemanticsVersion)
+	original := compilationPreparationWorkspace(ws.CurrentSemanticsVersion)
+	changed := compilationPreparationWorkspace(ws.CurrentSemanticsVersion)
 	changed.Explorer.Description = "Updated workspace description"
 
-	preparedOriginal, err := PrepareWorkspaceForCompilation(original, CatalogSnapshot{})
+	preparedOriginal, err := ws.PrepareWorkspaceForCompilation(original, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	preparedChanged, err := PrepareWorkspaceForCompilation(changed, CatalogSnapshot{})
+	preparedChanged, err := ws.PrepareWorkspaceForCompilation(changed, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,21 +135,21 @@ func TestPrepareWorkspaceForCompilationDigestIncludesUnrelatedFieldEdits(t *test
 }
 
 func TestPrepareWorkspaceForCompilationPreservesV3ContributorDefaultsWithPinnedCatalog(t *testing.T) {
-	legacy := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: 3,
-		Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{{
-			Kind: Kind, Output: Output{ID: "patients", Title: "Patients"},
+	legacy := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: 3,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
 			RootResourceType: "Patient",
-			Route:            RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []Column{{
-				Column: "patient_count", Label: "Patients", OccurrenceID: RootOccurrenceID,
-				Source: ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{
-					Operation: "COUNT", Where: &SourceWhere{Path: "id", Equals: ""},
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{{
+				Column: "patient_count", Label: "Patients", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{
+					Operation: "COUNT", Where: &ws.SourceWhere{Path: "id", Equals: ""},
 				}},
 			}},
 		}},
-		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
 	catalog := commandCatalog()
 
@@ -165,7 +167,7 @@ func TestPrepareWorkspaceForCompilationPreservesV3ContributorDefaultsWithPinnedC
 	if err != nil {
 		t.Fatal(err)
 	}
-	migration, err := MigrateStoredWorkspace(raw, catalog)
+	migration, err := ws.MigrateStoredWorkspace(raw, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,18 +175,18 @@ func TestPrepareWorkspaceForCompilationPreservesV3ContributorDefaultsWithPinnedC
 	if !migration.DigestChanged || migration.MigratedCanonicalDigest == "" {
 		t.Fatalf("offline legacy migration omitted digest invalidation evidence: %#v", migration)
 	}
-	if prepared.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("prepared semanticsVersion = %d, want %d", prepared.SemanticsVersion, CurrentSemanticsVersion)
+	if prepared.SemanticsVersion != ws.CurrentSemanticsVersion {
+		t.Fatalf("prepared semanticsVersion = %d, want %d", prepared.SemanticsVersion, ws.CurrentSemanticsVersion)
 	}
 	document := prepared.Documents[0]
-	if document.Rows.Kind != RowDefinitionRecords {
+	if document.Rows.Kind != ws.RowDefinitionRecords {
 		t.Fatalf("prepared v3 default rows = %#v, want root-record rows", document.Rows)
 	}
 	column := document.Columns[0]
 	if column.Source.Aggregate.Where != nil {
 		t.Fatalf("legacy aggregate where remains after preparation: %#v", column.Source.Aggregate.Where)
 	}
-	if column.Contributor == nil || column.Contributor.CandidateID != "patient-id" || column.Contributor.Operator != ContributorExists || column.Contributor.Value != nil {
+	if column.Contributor == nil || column.Contributor.CandidateID != "patient-id" || column.Contributor.Operator != ws.ContributorExists || column.Contributor.Value != nil {
 		t.Fatalf("v3 empty-equals contributor did not retain catalog-bound EXISTS default: %#v", column.Contributor)
 	}
 	if len(prepared.MigrationDecisions) != 1 || prepared.MigrationDecisions[0] != "semantics-v4:aggregate-where-to-contributor:patients:patient_count:patient-id" {
@@ -195,22 +197,22 @@ func TestPrepareWorkspaceForCompilationPreservesV3ContributorDefaultsWithPinnedC
 	}
 }
 
-func compilationPreparationWorkspace(version int) Workspace {
+func compilationPreparationWorkspace(version int) ws.Workspace {
 	visible := true
-	return Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: version,
-		Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{{
-			Kind: Kind, Output: Output{ID: "patients", Title: "Patients"},
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: version,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
 			RootResourceType: "Patient",
-			Route:            RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
-			Rows:             RecordsRowDefinition(),
-			Columns: []Column{{
-				Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID,
-				Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-				Table:  &TablePresentation{Visible: &visible},
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Rows:             ws.RecordsRowDefinition(),
+			Columns: []ws.Column{{
+				Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				Table:  &ws.TablePresentation{Visible: &visible},
 			}},
 		}},
-		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
 }

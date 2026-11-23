@@ -5,14 +5,15 @@ import (
 	"errors"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 type importedSourceChoicePlanner struct{ calls int }
 
-func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	planner.calls++
 	return nil, errors.New("generic FHIR route planner must not run for imported source choices")
 }
@@ -44,9 +45,9 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			planner := &importedSourceChoicePlanner{}
 			service := &Service{config: Config{RowChoicePlanner: planner}}
-			base := constructionBase{Document: authoringv2.Document{ImportedRecipe: &authoringv2.ImportedRecipeRef{
+			base := constructionBase{Document: ws.Document{ImportedRecipe: &ws.ImportedRecipeRef{
 				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
-			}, Rows: authoringv2.RecordsRowDefinition(),
+			}, Rows: ws.RecordsRowDefinition(),
 			}}
 			supported, code, reason, choices, err := test.call(service, base)
 			if err != nil {

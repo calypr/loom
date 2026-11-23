@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -338,8 +340,8 @@ func TestCreateSelectionAbortsInterruptedPublishedStreamWithoutCompletion(t *tes
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{revision: &explorer.Revision{
 		Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema",
-		Publication: explorer.PublicationMetadata{ExecutionID: "execution"},
-		Dataset:     explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "files"}}},
+		Publication: viewer.PublicationMetadata{ExecutionID: "execution"},
+		Dataset:     viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{Name: "files"}}},
 	}}
 	persistence, _ := explorer.NewService(store)
 	streamErr := errors.New("source stream interrupted")
@@ -491,7 +493,7 @@ func TestCreateSelectionRejectsBothSourceVariants(t *testing.T) {
 
 func TestCreateSelectionBindsRequestedRevisionSeparatelyFromExecution(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	store := &selectionLifecycleStore{revision: &explorer.Revision{Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema", Publication: explorer.PublicationMetadata{ExecutionID: "execution-a"}, Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "files"}}}}}
+	store := &selectionLifecycleStore{revision: &explorer.Revision{Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema", Publication: viewer.PublicationMetadata{ExecutionID: "execution-a"}, Dataset: viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{Name: "files"}}}}}
 	persistence, _ := explorer.NewService(store)
 	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "final-physical-schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: published.DataframeSelector{Recipe: "recipe", Output: "files"}}}
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {

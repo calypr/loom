@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -120,7 +121,7 @@ func (s constructionScanFlow) getConstructionColumnPopulation(ctx context.Contex
 	if base.Receipt == nil {
 		return ConstructionColumnPopulationResponse{}, conflict("construction-column-population", "STAGE_SCAN_UNAVAILABLE", "the exact compiled output is not available for column population", nil, nil)
 	}
-	var stage *explorer.ReceiptConstructionStage
+	var stage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == request.StageID {
 			stage = &base.Stages[index]

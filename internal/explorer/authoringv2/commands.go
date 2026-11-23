@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/semantic"
@@ -130,10 +132,10 @@ type RowPayload struct {
 func (*RowPayload) commandPayload() {}
 
 type RoutePayload struct {
-	ParentOccurrenceID string         `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID       string         `json:"occurrenceId,omitempty"`
-	EdgeID             string         `json:"edgeId,omitempty"`
-	MatchMode          RouteMatchMode `json:"matchMode,omitempty"`
+	ParentOccurrenceID string            `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID       string            `json:"occurrenceId,omitempty"`
+	EdgeID             string            `json:"edgeId,omitempty"`
+	MatchMode          ws.RouteMatchMode `json:"matchMode,omitempty"`
 }
 
 func (*RoutePayload) commandPayload() {}
@@ -144,12 +146,12 @@ type ColumnPayload struct {
 	ProjectionMode          string                          `json:"projectionMode,omitempty"`
 	Column                  string                          `json:"column,omitempty"`
 	ColumnID                string                          `json:"columnId,omitempty"`
-	RowValuePolicy          ConstructionRowValuePolicy      `json:"rowValuePolicy,omitempty"`
-	ColumnValue             *Column                         `json:"columnValue,omitempty"`
+	RowValuePolicy          ws.ConstructionRowValuePolicy   `json:"rowValuePolicy,omitempty"`
+	ColumnValue             *ws.Column                      `json:"columnValue,omitempty"`
 	ConstructionOutput      *ConstructionOutputPresentation `json:"constructionOutput,omitempty"`
 	TransformationChange    *ColumnTransformationChange     `json:"transformationChange,omitempty"`
-	Contributor             *ContributorPredicate           `json:"contributor,omitempty"`
-	Source                  *ColumnSource                   `json:"source,omitempty"`
+	Contributor             *ws.ContributorPredicate        `json:"contributor,omitempty"`
+	Source                  *ws.ColumnSource                `json:"source,omitempty"`
 	InterpretationCandidate *ApplyInterpretationCandidate   `json:"interpretationCandidate,omitempty"`
 }
 
@@ -199,17 +201,17 @@ type Command struct {
 	Payload             CommandPayload `json:"-"`
 
 	ResolvedChoice           *ResolvedConstructionChoice `json:"-"`
-	resolvedFrame            *FrameDefinition
-	ResolvedPopulationRoute  []PopulationRouteStep `json:"-"`
+	resolvedFrame            *ws.FrameDefinition
+	ResolvedPopulationRoute  []ws.PopulationRouteStep `json:"-"`
 	resolvedColumnPolicy     *resolvedColumnPolicy
-	resolvedImportedDocument *Document
-	resolvedRowDefinition    *RowDefinition
-	resolvedConstruction     *Construction
+	resolvedImportedDocument *ws.Document
+	resolvedRowDefinition    *ws.RowDefinition
+	resolvedConstruction     *ws.Construction
 	resolvedConstructionSet  bool
-	resolvedConstructionRows *RowDefinition
-	resolvedPopulation       *Population
+	resolvedConstructionRows *ws.RowDefinition
+	resolvedPopulation       *ws.Population
 	resolvedPopulationSet    bool
-	resolvedDraftRevision    *Workspace
+	resolvedDraftRevision    *ws.Workspace
 }
 
 type commandWire struct {
@@ -224,18 +226,18 @@ type commandWire struct {
 	ParentOccurrenceID      string                            `json:"parentOccurrenceId,omitempty"`
 	OccurrenceID            string                            `json:"occurrenceId,omitempty"`
 	EdgeID                  string                            `json:"edgeId,omitempty"`
-	MatchMode               RouteMatchMode                    `json:"matchMode,omitempty"`
+	MatchMode               ws.RouteMatchMode                 `json:"matchMode,omitempty"`
 	CandidateID             string                            `json:"candidateId,omitempty"`
 	ProjectionMode          string                            `json:"projectionMode,omitempty"`
 	InitialPresentation     string                            `json:"initialPresentation,omitempty"`
 	Column                  string                            `json:"column,omitempty"`
 	ColumnID                string                            `json:"columnId,omitempty"`
-	RowValuePolicy          ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
-	ColumnValue             *Column                           `json:"columnValue,omitempty"`
+	RowValuePolicy          ws.ConstructionRowValuePolicy     `json:"rowValuePolicy,omitempty"`
+	ColumnValue             *ws.Column                        `json:"columnValue,omitempty"`
 	ConstructionOutput      *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
 	TransformationChange    *ColumnTransformationChange       `json:"transformationChange,omitempty"`
-	Contributor             *ContributorPredicate             `json:"contributor,omitempty"`
-	Source                  *ColumnSource                     `json:"source,omitempty"`
+	Contributor             *ws.ContributorPredicate          `json:"contributor,omitempty"`
+	Source                  *ws.ColumnSource                  `json:"source,omitempty"`
 	RowChange               *RowChangeProposal                `json:"rowChange,omitempty"`
 	InterpretationCandidate *ApplyInterpretationCandidate     `json:"interpretationCandidate,omitempty"`
 	ProposalID              string                            `json:"proposalId,omitempty"`
@@ -394,7 +396,7 @@ func (c Command) EdgeID() string {
 	}
 	return ""
 }
-func (c Command) MatchMode() RouteMatchMode {
+func (c Command) MatchMode() ws.RouteMatchMode {
 	if p := c.routePayload(); p != nil {
 		return p.MatchMode
 	}
@@ -424,13 +426,13 @@ func (c Command) ColumnID() string {
 	}
 	return ""
 }
-func (c Command) RowValuePolicy() ConstructionRowValuePolicy {
+func (c Command) RowValuePolicy() ws.ConstructionRowValuePolicy {
 	if p := c.columnPayload(); p != nil {
 		return p.RowValuePolicy
 	}
 	return ""
 }
-func (c Command) ColumnValue() *Column {
+func (c Command) ColumnValue() *ws.Column {
 	if p := c.columnPayload(); p != nil {
 		return p.ColumnValue
 	}
@@ -448,13 +450,13 @@ func (c Command) TransformationChange() *ColumnTransformationChange {
 	}
 	return nil
 }
-func (c Command) Contributor() *ContributorPredicate {
+func (c Command) Contributor() *ws.ContributorPredicate {
 	if p := c.columnPayload(); p != nil {
 		return p.Contributor
 	}
 	return nil
 }
-func (c Command) Source() *ColumnSource {
+func (c Command) Source() *ws.ColumnSource {
 	if p := c.columnPayload(); p != nil {
 		return p.Source
 	}
@@ -525,10 +527,10 @@ func (c Command) SourceStep() *ImportedSourceStepChange {
 }
 
 type ConstructionOutputPresentation struct {
-	StepID   string             `json:"stepId"`
-	ColumnID string             `json:"columnId"`
-	Label    string             `json:"label"`
-	Table    *TablePresentation `json:"table,omitempty"`
+	StepID   string                `json:"stepId"`
+	ColumnID string                `json:"columnId"`
+	Label    string                `json:"label"`
+	Table    *ws.TablePresentation `json:"table,omitempty"`
 }
 
 func (p ConstructionOutputPresentation) Validate() error {
@@ -548,7 +550,7 @@ func (p ConstructionOutputPresentation) Validate() error {
 	return nil
 }
 
-func (c *Command) ResolveDraftRevision(workspace Workspace) error {
+func (c *Command) ResolveDraftRevision(workspace ws.Workspace) error {
 	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID()) == "" || c.DraftRevisionID() != strings.TrimSpace(c.DraftRevisionID()) {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
 	}
@@ -583,7 +585,7 @@ func (c ColumnTransformationChange) Validate() error {
 }
 
 type ConstructionChoiceSelection struct {
-	RowValuePolicy ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
+	RowValuePolicy ws.ConstructionRowValuePolicy     `json:"rowValuePolicy,omitempty"`
 	ChoiceID       string                            `json:"choiceId"`
 	Form           capability.ConstructionChoiceForm `json:"form"`
 	FrameID        string                            `json:"frameId,omitempty"`
@@ -607,7 +609,7 @@ func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
 }
 
 func (s ConstructionChoiceSelection) validate() error {
-	if s.RowValuePolicy != "" && s.RowValuePolicy != ConstructionRowValueAll && s.RowValuePolicy != ConstructionRowValueOne {
+	if s.RowValuePolicy != "" && s.RowValuePolicy != ws.ConstructionRowValueAll && s.RowValuePolicy != ws.ConstructionRowValueOne {
 		return fmt.Errorf("constructionChoice.rowValuePolicy must be ALL or ONE")
 	}
 
@@ -629,7 +631,7 @@ func (s ConstructionChoiceSelection) validate() error {
 
 type ResolvedConstructionChoice struct {
 	CandidateID string
-	Source      ColumnSource
+	Source      ws.ColumnSource
 	LogicalType string
 	Route       []capability.ConstructionRouteStep
 	FrameID     string
@@ -776,7 +778,7 @@ func rejectUnknownProposalCommandFields(raw []byte, commandType string) error {
 	return nil
 }
 
-func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
+func (c *Command) ResolveRowDefinitionProposal(rows ws.RowDefinition) error {
 	if c == nil || c.Type != CommandApplyRowDefinitionProposal {
 		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
 	}
@@ -795,7 +797,7 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	return nil
 }
 
-func (c *Command) ResolveConstructionProposal(candidate *Document) error {
+func (c *Command) ResolveConstructionProposal(candidate *ws.Document) error {
 	if c == nil || c.Type != CommandApplyConstructionProposal {
 		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
 	}
@@ -823,14 +825,14 @@ func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	return nil
 }
 
-func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []PopulationRouteStep) error {
+func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []ws.PopulationRouteStep) error {
 	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
 		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
 	}
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) || strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
 		return fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL requires outputId and proposalId")
 	}
-	population := Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: clonePopulationRouteSteps(route)}
+	population := ws.Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: clonePopulationRouteSteps(route)}
 	if err := population.Validate(); err != nil {
 		return fmt.Errorf("resolved population is invalid: %w", err)
 	}
@@ -859,7 +861,7 @@ type SemanticSelectionResult struct {
 
 type ApplyCommandsResponse struct {
 	CommandID               string          `json:"commandId"`
-	Workspace               Workspace       `json:"workspace"`
+	Workspace               ws.Workspace    `json:"workspace"`
 	DraftVersion            int64           `json:"draftVersion"`
 	DraftDigest             string          `json:"draftDigest"`
 	PreviousDraftRevisionID string          `json:"previousDraftRevisionId,omitempty"`
@@ -868,7 +870,7 @@ type ApplyCommandsResponse struct {
 }
 
 func (r ApplyCommandsRequest) Validate() error {
-	if r.SemanticsVersion != CurrentSemanticsVersion {
+	if r.SemanticsVersion != ws.CurrentSemanticsVersion {
 		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", r.SemanticsVersion)
 	}
 	if emptyID(r.CommandID) || strings.TrimSpace(r.SnapshotToken) == "" {
@@ -1045,30 +1047,30 @@ func commandFieldsPresent(values ...string) bool {
 	return true
 }
 
-func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID string, commands []Command) (Workspace, []CommandResult, error) {
-	working, err := CloneCurrentWorkspace(workspace)
+func ApplyCommands(workspace ws.Workspace, catalog ws.CatalogSnapshot, commandID string, commands []Command) (ws.Workspace, []CommandResult, error) {
+	working, err := ws.CloneCurrentWorkspace(workspace)
 	if err != nil {
-		return Workspace{}, nil, err
+		return ws.Workspace{}, nil, err
 	}
 	results := make([]CommandResult, 0, len(commands))
 	for index, command := range commands {
 		result, applyErr := applyCommand(&working, catalog, commandID, index, command)
 		if applyErr != nil {
-			return Workspace{}, nil, fmt.Errorf("commands[%d]: %w", index, applyErr)
+			return ws.Workspace{}, nil, fmt.Errorf("commands[%d]: %w", index, applyErr)
 		}
 		results = append(results, result)
 	}
 	working = working.NormalizePresentationOrders()
 	if err := validateWorkspaceContributors(working, catalog); err != nil {
-		return Workspace{}, nil, err
+		return ws.Workspace{}, nil, err
 	}
-	if err := (BuilderState{APIVersion: APIVersion, Kind: StateKind, LifecycleState: LifecycleReady, Workspace: &working, Catalog: catalog}).Validate(); err != nil {
-		return Workspace{}, nil, err
+	if err := (ws.BuilderState{APIVersion: ws.APIVersion, Kind: ws.StateKind, LifecycleState: ws.LifecycleReady, Workspace: &working, Catalog: catalog}).Validate(); err != nil {
+		return ws.Workspace{}, nil, err
 	}
 	return working, results, nil
 }
 
-func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if command.Type != CommandUpdateColumnRowValuePolicy && command.RowValuePolicy() != "" {
 		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
@@ -1177,17 +1179,17 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
 }
 
-func authoredColumns(columns []Column) []Column {
-	result := make([]Column, 0, len(columns))
+func authoredColumns(columns []ws.Column) []ws.Column {
+	result := make([]ws.Column, 0, len(columns))
 	for _, column := range columns {
-		if column.Source.Kind != SourceImported {
+		if column.Source.Kind != ws.SourceImported {
 			result = append(result, column)
 		}
 	}
 	return result
 }
 
-func removeDocumentColumnByID(workspace *Workspace, documentPos int, columnID string) error {
+func removeDocumentColumnByID(workspace *ws.Workspace, documentPos int, columnID string) error {
 	if columnID == "" {
 		return fmt.Errorf("columnId is required")
 	}
@@ -1206,7 +1208,7 @@ func removeDocumentColumnByID(workspace *Workspace, documentPos int, columnID st
 		return fmt.Errorf("columnId %q was not found", columnID)
 	}
 	column := document.Columns[columnIndex]
-	if column.Source.Kind == SourceImported {
+	if column.Source.Kind == ws.SourceImported {
 		return fmt.Errorf("pinned imported fields require a lifecycle-resolved source edit")
 	}
 	document.Columns = append(document.Columns[:columnIndex], document.Columns[columnIndex+1:]...)
@@ -1217,7 +1219,7 @@ func removeDocumentColumnByID(workspace *Workspace, documentPos int, columnID st
 	return nil
 }
 
-func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID string) error {
+func initializeEmptyConstructionBeforeSourceAdd(workspace *ws.Workspace, outputID string) error {
 	documentPos := documentIndex(workspace, outputID)
 	if documentPos < 0 {
 		return nil
@@ -1226,7 +1228,7 @@ func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID s
 	if len(document.Columns) != 0 || document.Construction != nil || document.ArchiveRetiredShape != nil {
 		return nil
 	}
-	upgraded, err := StartDocumentConstruction(document)
+	upgraded, err := ws.StartDocumentConstruction(document)
 	if err != nil {
 		return fmt.Errorf("initialize empty source construction: %w", err)
 	}
@@ -1234,42 +1236,42 @@ func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID s
 	return nil
 }
 
-func clonePopulationRouteSteps(route []PopulationRouteStep) []PopulationRouteStep {
+func clonePopulationRouteSteps(route []ws.PopulationRouteStep) []ws.PopulationRouteStep {
 	if route == nil {
 		return nil
 	}
-	cloned := make([]PopulationRouteStep, len(route))
+	cloned := make([]ws.PopulationRouteStep, len(route))
 	copy(cloned, route)
 	return cloned
 }
 
-func setPopulationRoute(document *Document, selectionRevisionID string, route []PopulationRouteStep) {
-	steps := make([]PopulationRouteStep, len(route))
+func setPopulationRoute(document *ws.Document, selectionRevisionID string, route []ws.PopulationRouteStep) {
+	steps := make([]ws.PopulationRouteStep, len(route))
 	copy(steps, route)
-	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
+	document.Population = &ws.Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 }
 
-func editableSource(occurrenceID string, source ColumnSource) ColumnSource {
+func editableSource(occurrenceID string, source ws.ColumnSource) ws.ColumnSource {
 	source = source.Normalized()
 	mode := strings.ToUpper(strings.TrimSpace(source.ProjectionMode()))
-	if occurrenceID != RootOccurrenceID && source.Kind == SourceField && source.Field != nil && source.Field.RelatedSelection == nil && (mode == "VALUE" || mode == "FIRST" || mode == "INDEXED") {
-		source.Field.RelatedSelection = &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: false}
+	if occurrenceID != ws.RootOccurrenceID && source.Kind == ws.SourceField && source.Field != nil && source.Field.RelatedSelection == nil && (mode == "VALUE" || mode == "FIRST" || mode == "INDEXED") {
+		source.Field.RelatedSelection = &ws.RelatedSelection{Kind: "first-by-resource-key", Acknowledged: false}
 	}
 	return source
 }
 
-func documentHasConfiguredMeaning(document Document) bool {
+func documentHasConfiguredMeaning(document ws.Document) bool {
 	return len(document.Route.Children) != 0 || len(document.Columns) != 0 || len(document.FixedFilters) != 0 || len(document.Actions) != 0 || document.Population != nil
 }
 
-func setPopulation(document *Document, catalog CatalogSnapshot, selectionRevisionID string, edgeIDs []string) error {
-	if document == nil || strings.TrimSpace(document.RootResourceType) == "" || document.Route.OccurrenceID != RootOccurrenceID {
+func setPopulation(document *ws.Document, catalog ws.CatalogSnapshot, selectionRevisionID string, edgeIDs []string) error {
+	if document == nil || strings.TrimSpace(document.RootResourceType) == "" || document.Route.OccurrenceID != ws.RootOccurrenceID {
 		return fmt.Errorf("table root is required before attaching a population")
 	}
 	if catalog.RoutePolicy.MaxHops != nil && len(edgeIDs) > *catalog.RoutePolicy.MaxHops {
 		return fmt.Errorf("ROUTE_TOO_LONG: population route exceeds capability route policy (maxHops=%d, hops=%d)", *catalog.RoutePolicy.MaxHops, len(edgeIDs))
 	}
-	steps := make([]PopulationRouteStep, 0, len(edgeIDs))
+	steps := make([]ws.PopulationRouteStep, 0, len(edgeIDs))
 	current, found := catalogNodeForConstructionRoot(catalog, document.RootResourceType)
 	if !found {
 		return fmt.Errorf("table root is not uniquely available in the capability catalog")
@@ -1291,31 +1293,31 @@ func setPopulation(document *Document, catalog CatalogSnapshot, selectionRevisio
 		if from.ResourceType == to.ResourceType && !catalog.RoutePolicy.AllowSelfLoops {
 			return fmt.Errorf("population edge %q is a self-loop but self-loops are not allowed", edgeID)
 		}
-		steps = append(steps, PopulationRouteStep{
+		steps = append(steps, ws.PopulationRouteStep{
 			ResourceType: to.ResourceType, Relationship: edge.Label,
 			CatalogEdgeID: edge.ID, StorageDirection: edge.StorageDirection,
 		})
 		seenEdges[edge.ID] = true
 		current = to
 	}
-	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
+	document.Population = &ws.Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 	return nil
 }
 
-func sourceEqual(left, right ColumnSource) bool {
+func sourceEqual(left, right ws.ColumnSource) bool {
 	left, right = left.Normalized(), right.Normalized()
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
 
-func contributorEqual(left, right *ContributorPredicate) bool {
+func contributorEqual(left, right *ws.ContributorPredicate) bool {
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
 
-func documentIndex(workspace *Workspace, outputID string) int {
+func documentIndex(workspace *ws.Workspace, outputID string) int {
 	for i := range workspace.Documents {
 		if workspace.Documents[i].Output.ID == outputID {
 			return i
@@ -1324,16 +1326,16 @@ func documentIndex(workspace *Workspace, outputID string) int {
 	return -1
 }
 
-func catalogCandidate(catalog CatalogSnapshot, id string) (CatalogCandidate, bool) {
+func catalogCandidate(catalog ws.CatalogSnapshot, id string) (ws.CatalogCandidate, bool) {
 	for _, value := range catalog.Candidates {
 		if value.ID == id {
 			return value, true
 		}
 	}
-	return CatalogCandidate{}, false
+	return ws.CatalogCandidate{}, false
 }
 
-func validateWorkspaceContributors(workspace Workspace, catalog CatalogSnapshot) error {
+func validateWorkspaceContributors(workspace ws.Workspace, catalog ws.CatalogSnapshot) error {
 	for documentIndex := range workspace.Documents {
 		document := workspace.Documents[documentIndex]
 		for columnIndex := range document.Columns {
@@ -1358,7 +1360,7 @@ func contains(values []string, want string) bool {
 	return false
 }
 
-func findRouteWithParent(route *RouteNode, occurrenceID string) (*RouteNode, *RouteNode) {
+func findRouteWithParent(route *ws.RouteNode, occurrenceID string) (*ws.RouteNode, *ws.RouteNode) {
 	for i := range route.Children {
 		if route.Children[i].OccurrenceID == occurrenceID {
 			return route, &route.Children[i]
@@ -1370,9 +1372,9 @@ func findRouteWithParent(route *RouteNode, occurrenceID string) (*RouteNode, *Ro
 	return nil, nil
 }
 
-func routeDepth(route *RouteNode, occurrenceID string) (int, bool) {
-	var walk func(*RouteNode, int) (int, bool)
-	walk = func(node *RouteNode, depth int) (int, bool) {
+func routeDepth(route *ws.RouteNode, occurrenceID string) (int, bool) {
+	var walk func(*ws.RouteNode, int) (int, bool)
+	walk = func(node *ws.RouteNode, depth int) (int, bool) {
 		if node.OccurrenceID == occurrenceID {
 			return depth, true
 		}
@@ -1386,7 +1388,7 @@ func routeDepth(route *RouteNode, occurrenceID string) (int, bool) {
 	return walk(route, 0)
 }
 
-func removeRoute(route *RouteNode, occurrenceID string, removed map[string]bool) bool {
+func removeRoute(route *ws.RouteNode, occurrenceID string, removed map[string]bool) bool {
 	for i := range route.Children {
 		if route.Children[i].OccurrenceID == occurrenceID {
 			collectOccurrences(route.Children[i], removed)
@@ -1400,14 +1402,14 @@ func removeRoute(route *RouteNode, occurrenceID string, removed map[string]bool)
 	return false
 }
 
-func collectOccurrences(route RouteNode, values map[string]bool) {
+func collectOccurrences(route ws.RouteNode, values map[string]bool) {
 	values[route.OccurrenceID] = true
 	for _, child := range route.Children {
 		collectOccurrences(child, values)
 	}
 }
 
-func removeOutputTab(tabs []Tab, outputID string) []Tab {
+func removeOutputTab(tabs []ws.Tab, outputID string) []ws.Tab {
 	result := tabs[:0]
 	for _, tab := range tabs {
 		if tab.OutputID != outputID {
@@ -1420,7 +1422,7 @@ func removeOutputTab(tabs []Tab, outputID string) []Tab {
 	return result
 }
 
-func cleanupDocumentReferences(document *Document) {
+func cleanupDocumentReferences(document *ws.Document) {
 	columns := map[string]bool{}
 	for _, column := range document.Columns {
 		columns[column.Column] = true
@@ -1443,7 +1445,7 @@ func cleanupDocumentReferences(document *Document) {
 	}
 }
 
-func cleanupWorkspaceBindings(workspace *Workspace) {
+func cleanupWorkspaceBindings(workspace *ws.Workspace) {
 	available := map[string]map[string]bool{}
 	for i := range workspace.Documents {
 		cleanupDocumentReferences(&workspace.Documents[i])
@@ -1467,21 +1469,21 @@ func cleanupWorkspaceBindings(workspace *Workspace) {
 	}
 }
 
-func applyInitialPresentation(column *Column, presentation string, tableOrder int) {
+func applyInitialPresentation(column *ws.Column, presentation string, tableOrder int) {
 	switch presentation {
 	case InitialPresentationFilter:
 		if column.Filter == nil {
-			column.Filter = &FilterPresentation{Label: column.Label}
+			column.Filter = &ws.FilterPresentation{Label: column.Label}
 		}
 	case InitialPresentationChart:
 		if column.Chart == nil {
-			column.Chart = &ChartPresentation{Type: "bar", Title: column.Label}
+			column.Chart = &ws.ChartPresentation{Type: "bar", Title: column.Label}
 		}
 	default:
 		visible := true
 		if column.Table == nil {
 			order := tableOrder
-			column.Table = &TablePresentation{Visible: &visible, Order: &order}
+			column.Table = &ws.TablePresentation{Visible: &visible, Order: &order}
 			return
 		}
 		column.Table.Visible = &visible
@@ -1492,9 +1494,9 @@ func applyInitialPresentation(column *Column, presentation string, tableOrder in
 	}
 }
 
-func nextTableOrder(document Document) int {
+func nextTableOrder(document ws.Document) int {
 	result := 0
-	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
+	if document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == ws.GroupSourceExplicit {
 
 		result = 3 + len(document.Rows.Groups.RowValues)
 	}

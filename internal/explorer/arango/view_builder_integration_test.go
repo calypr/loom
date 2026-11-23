@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -79,8 +81,8 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("source retry changed settings: %+v, %v", retriedSettings, err)
 	}
 
-	if err := explorers.SaveViewBuilderDefaults(ctx, project, explorer.ViewBuilderDefaultsRequest{
-		ExpectedVersion: settings.Version, DefaultConfigID: "default", DefaultFrameID: explorer.ViewBuilderFrameID("recipe-a", "output"),
+	if err := explorers.SaveViewBuilderDefaults(ctx, project, viewer.ViewBuilderDefaultsRequest{
+		ExpectedVersion: settings.Version, DefaultConfigID: "default", DefaultFrameID: viewer.ViewBuilderFrameID("recipe-a", "output"),
 	}); err != nil {
 		t.Fatalf("save explicit project default: %v", err)
 	}
@@ -177,8 +179,8 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("deleting the current default error = %v, want ErrDraftConflict", err)
 	}
 
-	if err := explorers.SaveViewBuilderDefaults(ctx, project, explorer.ViewBuilderDefaultsRequest{
-		ExpectedVersion: settings.Version, DefaultConfigID: "files", DefaultFrameID: explorer.ViewBuilderFrameID("recipe-a", "output"),
+	if err := explorers.SaveViewBuilderDefaults(ctx, project, viewer.ViewBuilderDefaultsRequest{
+		ExpectedVersion: settings.Version, DefaultConfigID: "files", DefaultFrameID: viewer.ViewBuilderFrameID("recipe-a", "output"),
 	}); err != nil {
 		t.Fatalf("move default to second saved config: %v", err)
 	}

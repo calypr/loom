@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -26,53 +27,53 @@ func expandCompileSnapshot(uriLogicalType string) capability.Snapshot {
 		}, nil)
 }
 
-func expandCompileDocument(projection authoringv2.ConstructionSourceProjection, payload *authoringv2.ConstructionExpandedFieldSource, steps []authoringv2.ConstructionStep) authoringv2.Document {
-	return authoringv2.Document{
-		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
-		Output: authoringv2.Output{ID: "procedures", Title: "Procedures"}, RootResourceType: "Procedure",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Procedure"},
-		Columns: []authoringv2.Column{{
+func expandCompileDocument(projection ws.ConstructionSourceProjection, payload *ws.ConstructionExpandedFieldSource, steps []ws.ConstructionStep) ws.Document {
+	return ws.Document{
+		Rows: ws.RecordsRowDefinition(), Kind: ws.Kind,
+		Output: ws.Output{ID: "procedures", Title: "Procedures"}, RootResourceType: "Procedure",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Procedure"},
+		Columns: []ws.Column{{
 			ColumnID: "procedure-id", Column: "procedure_id", Label: "Procedure ID",
-			LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 		}},
-		Construction: &authoringv2.Construction{
-			Version:           authoringv2.ConstructionVersion,
-			SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+		Construction: &ws.Construction{
+			Version:           ws.ConstructionVersion,
+			SourceProjections: []ws.ConstructionSourceProjection{projection},
 			Steps:             steps,
 		},
 	}
 }
 
-func expandCompileSignedProjection() authoringv2.ConstructionSourceProjection {
-	return authoringv2.ConstructionSourceProjection{
-		ColumnID: "uri_column", OwnerStepID: "expand_uri", OccurrenceID: authoringv2.RootOccurrenceID,
+func expandCompileSignedProjection() ws.ConstructionSourceProjection {
+	return ws.ConstructionSourceProjection{
+		ColumnID: "uri_column", OwnerStepID: "expand_uri", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "instantiatesUri[]", FHIRType: "string", LogicalType: "string", Label: "Instantiates uri",
 	}
 }
 
-func expandCompileSignedPayload() *authoringv2.ConstructionExpandedFieldSource {
-	return &authoringv2.ConstructionExpandedFieldSource{Path: "instantiatesUri[]", Cardinality: authoringv2.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "string"}
+func expandCompileSignedPayload() *ws.ConstructionExpandedFieldSource {
+	return &ws.ConstructionExpandedFieldSource{Path: "instantiatesUri[]", Cardinality: ws.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "string"}
 }
 
-func expandCompileStep(payload *authoringv2.ConstructionExpandedFieldSource) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func expandCompileStep(payload *ws.ConstructionExpandedFieldSource) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     "expand_uri",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationExpand, Expand: &authoringv2.ConstructionExpand{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationExpand, Expand: &ws.ConstructionExpand{
 			ConstructionID: "expand_uri", InputColumnID: "uri_column", OutputColumnID: "uri_item",
-			EmptyPolicy:   authoringv2.ConstructionExpandEmptyExclude,
+			EmptyPolicy:   ws.ConstructionExpandEmptyExclude,
 			ExpandedField: payload,
 		}},
 
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "procedure-id", Name: "procedure_id", Label: "Procedure ID", Type: "string"},
 			{ID: "uri_item", Name: "uri_item", Label: "Uri item", Type: "string"},
 		},
 	}
 }
 
-func expandCompileLower(t *testing.T, document authoringv2.Document, snapshot capability.Snapshot) facade.CompiledRecipe {
+func expandCompileLower(t *testing.T, document ws.Document, snapshot capability.Snapshot) facade.CompiledRecipe {
 	t.Helper()
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
 	if err != nil {
@@ -104,13 +105,13 @@ func expandCompileError(err error) string {
 func TestCompileConstructionExpandSignedArrayProjectionCompilesWithManyCardinality(t *testing.T) {
 	lowered := expandCompileLower(t,
 		expandCompileDocument(expandCompileSignedProjection(), expandCompileSignedPayload(),
-			[]authoringv2.ConstructionStep{expandCompileStep(expandCompileSignedPayload())}),
+			[]ws.ConstructionStep{expandCompileStep(expandCompileSignedPayload())}),
 		expandCompileSnapshot("string"))
 	if len(lowered.Outputs) != 1 {
 		t.Fatalf("lowered outputs = %d, want one", len(lowered.Outputs))
 	}
 	output := lowered.Outputs[0]
-	slotName := authoringv2.ConstructionSourceProjectionName("uri_column")
+	slotName := ws.ConstructionSourceProjectionName("uri_column")
 	var sourceCardinality string
 	for _, stage := range output.Stages {
 		if stage.ID == recipe.ConstructionSourceProjectionID {
@@ -139,7 +140,7 @@ func TestCompileConstructionExpandProjectionWithoutOwnerIsRefused(t *testing.T) 
 	projection := expandCompileSignedProjection()
 	projection.OwnerStepID = ""
 	document := expandCompileDocument(projection, expandCompileSignedPayload(),
-		[]authoringv2.ConstructionStep{expandCompileStep(expandCompileSignedPayload())})
+		[]ws.ConstructionStep{expandCompileStep(expandCompileSignedPayload())})
 	_, err := Compile(context.Background(), "project-a", "explorer-a", document, expandCompileSnapshot("string"))
 	if err == nil || expandCompileError(err) != "INVALID_DOCUMENT" {
 		t.Fatalf("unowned expand projection error = %v, want INVALID_DOCUMENT from the authoring owner-consumption wall", err)
@@ -154,11 +155,11 @@ func TestCompileConstructionExpandPayloadClaimingScalarAsManyIsRefused(t *testin
 	projection.FieldPath = "status"
 	projection.FHIRType = "string"
 	projection.LogicalType = "code"
-	payload := &authoringv2.ConstructionExpandedFieldSource{Path: "status", Cardinality: authoringv2.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "code"}
+	payload := &ws.ConstructionExpandedFieldSource{Path: "status", Cardinality: ws.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "code"}
 	step := expandCompileStep(payload)
 	step.Outputs[1].Type = "code"
 	_, err := Compile(context.Background(), "project-a", "explorer-a",
-		expandCompileDocument(projection, payload, []authoringv2.ConstructionStep{step}),
+		expandCompileDocument(projection, payload, []ws.ConstructionStep{step}),
 		expandCompileSnapshotWithStatus("string"))
 	if err == nil || expandCompileError(err) != "STALE_CONSTRUCTION_SOURCE_FIELD" {
 		t.Fatalf("scalar-as-many forged payload error = %v, want the signed-array candidate-class refusal (snapshot backing is a scalar VALUE candidate)", err)
@@ -174,7 +175,7 @@ func TestCompileConstructionExpandSnapshotForgedArrayBackingIsRefused(t *testing
 	projection.FieldPath = "status"
 	projection.FHIRType = "string"
 	projection.LogicalType = "code"
-	payload := &authoringv2.ConstructionExpandedFieldSource{Path: "status", Cardinality: authoringv2.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "code"}
+	payload := &ws.ConstructionExpandedFieldSource{Path: "status", Cardinality: ws.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "code"}
 	step := expandCompileStep(payload)
 	step.Outputs[1].Type = "code"
 	snapshot := expandCompileSnapshotWithStatus("string")
@@ -186,7 +187,7 @@ func TestCompileConstructionExpandSnapshotForgedArrayBackingIsRefused(t *testing
 		}
 	}
 	_, err := Compile(context.Background(), "project-a", "explorer-a",
-		expandCompileDocument(projection, payload, []authoringv2.ConstructionStep{step}),
+		expandCompileDocument(projection, payload, []ws.ConstructionStep{step}),
 		snapshot)
 	if err == nil || expandCompileError(err) != "STALE_EXPANDED_SOURCE_SCHEMA" {
 		t.Fatalf("snapshot-forged array backing error = %v, want STALE_EXPANDED_SOURCE_SCHEMA from the generated-schema verifier", err)
@@ -206,10 +207,10 @@ func expandCompileSnapshotWithStatus(uriLogicalType string) capability.Snapshot 
 func TestCompileConstructionExpandObjectKindItemsAreRefused(t *testing.T) {
 	projection := expandCompileSignedProjection()
 	projection.LogicalType = "object"
-	payload := &authoringv2.ConstructionExpandedFieldSource{Path: "instantiatesUri[]", Cardinality: authoringv2.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "object"}
+	payload := &ws.ConstructionExpandedFieldSource{Path: "instantiatesUri[]", Cardinality: ws.ConstructionExpandedFieldCardinalityMany, FHIRType: "string", LogicalType: "object"}
 	step := expandCompileStep(payload)
 	_, err := Compile(context.Background(), "project-a", "explorer-a",
-		expandCompileDocument(projection, payload, []authoringv2.ConstructionStep{step}),
+		expandCompileDocument(projection, payload, []ws.ConstructionStep{step}),
 		expandCompileSnapshot("object"))
 	if err == nil || expandCompileError(err) != "UNSUPPORTED_EXPANDED_SOURCE_KIND" {
 		t.Fatalf("BUG-002: object-kind items error = %v, want UNSUPPORTED_EXPANDED_SOURCE_KIND", err)
@@ -217,36 +218,36 @@ func TestCompileConstructionExpandObjectKindItemsAreRefused(t *testing.T) {
 }
 
 func TestCompileConstructionExpandStyledWrongOwnerProjectionRefused(t *testing.T) {
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: "uri_column", OwnerStepID: "derive_uri_copy", OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: "uri_column", OwnerStepID: "derive_uri_copy", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "instantiatesUri[]", FHIRType: "string", LogicalType: "string", Label: "Instantiates uri",
 	}
-	derive := authoringv2.ConstructionStep{
+	derive := ws.ConstructionStep{
 		ID:     "derive_uri_copy",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
 
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-			ConstructionID: "derive_uri_copy", OutputColumnID: "uri_copy", Operation: authoringv2.ConstructionDerivedAdd,
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "uri_column"},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: expandCompileInt(1)}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+			ConstructionID: "derive_uri_copy", OutputColumnID: "uri_copy", Operation: ws.ConstructionDerivedAdd,
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "uri_column"},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: expandCompileInt(1)}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "procedure-id", Name: "procedure_id", Label: "Procedure ID", Type: "string"},
-			{ID: "uri_column", Name: authoringv2.ConstructionSourceProjectionName("uri_column"), Label: "Instantiates uri", Type: "string"},
+			{ID: "uri_column", Name: ws.ConstructionSourceProjectionName("uri_column"), Label: "Instantiates uri", Type: "string"},
 			{ID: "uri_copy", Name: "uri_copy", Label: "Uri copy", Type: "string"},
 		},
 	}
 	trailingExpand := expandCompileStep(expandCompileSignedPayload())
-	trailingExpand.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive_uri_copy"}}
-	trailingExpand.Outputs = []authoringv2.StageColumn{
+	trailingExpand.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive_uri_copy"}}
+	trailingExpand.Outputs = []ws.StageColumn{
 		{ID: "procedure-id", Name: "procedure_id", Label: "Procedure ID", Type: "string"},
 		{ID: "uri_copy", Name: "uri_copy", Label: "Uri copy", Type: "string"},
 		{ID: "uri_item", Name: "uri_item", Label: "Uri item", Type: "string"},
 	}
 	_, err := Compile(context.Background(), "project-a", "explorer-a",
 		expandCompileDocument(projection, expandCompileSignedPayload(),
-			[]authoringv2.ConstructionStep{derive, trailingExpand}),
+			[]ws.ConstructionStep{derive, trailingExpand}),
 		expandCompileSnapshot("string"))
 	if err == nil || expandCompileError(err) != "STALE_CONSTRUCTION_SOURCE_FIELD" {
 		t.Fatalf("wrong-owner expand-styled projection error = %v, want the scalar-lane VALUE-backing candidate refusal (proves non-credit)", err)

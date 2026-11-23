@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -40,7 +44,7 @@ func coreProtocolRevisionID(explorerID string, draftVersion int64) string {
 
 func coreProtocolRestoreBody(f *coreProtocolFixture, commandID, revisionID string, expectedVersion int64, expectedDigest string) string {
 	return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, f.snapshot.Token, expectedVersion, expectedDigest, revisionID)
+		commandID, ws.CurrentSemanticsVersion, f.snapshot.Token, expectedVersion, expectedDigest, revisionID)
 }
 
 func coreProtocolSaveLabelBody(f *coreProtocolFixture, commandID, label string, expectedVersion int64, expectedDigest string) (string, error) {
@@ -51,7 +55,7 @@ func coreProtocolSaveLabelBody(f *coreProtocolFixture, commandID, label string, 
 		return "", err
 	}
 	return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"UPDATE_COLUMN","outputId":"patients","column":"c_patient","columnValue":%s}]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, f.snapshot.Token, expectedVersion, expectedDigest, columnValue), nil
+		commandID, ws.CurrentSemanticsVersion, f.snapshot.Token, expectedVersion, expectedDigest, columnValue), nil
 }
 
 func coreProtocolDecodeAck(t *testing.T, response testHTTPResponse) authoringv2.ApplyCommandsResponse {
@@ -179,7 +183,7 @@ func coreProtocolDecodeHydratedState(t *testing.T, response testHTTPResponse, wa
 	}
 	var envelope struct {
 		loomapi.BuilderState
-		Workspace *authoringv2.Workspace `json:"workspace"`
+		Workspace *ws.Workspace `json:"workspace"`
 	}
 	if err := json.Unmarshal([]byte(response.Body), &envelope); err != nil {
 		t.Fatalf("%s decode hydration envelope: %v body=%s", stage, err, response.Body)
@@ -340,18 +344,18 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: base.snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			if base.beforeCompile != nil {
 				base.beforeCompile()
 			}
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if pending.beforePreview != nil {
 				pending.beforePreview()
 			}
@@ -711,7 +715,7 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 				}
 
 				stored := coreProtocolExpectHead(t, base, headVersion+1, won.ack.DraftDigest, "raced head")
-				workspace, decodeErr := authoringv2.DecodeWorkspace(stored.DraftConfig)
+				workspace, decodeErr := ws.DecodeWorkspace(stored.DraftConfig)
 				if decodeErr != nil {
 					t.Fatalf("raced head does not decode (torn state): %v bytes=%s", decodeErr, stored.DraftConfig)
 				}

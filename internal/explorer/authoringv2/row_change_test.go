@@ -7,75 +7,77 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func rowChangeWorkspace() Workspace {
+func rowChangeWorkspace() ws.Workspace {
 	visible := true
 	order := 0
-	return Workspace{
-		APIVersion:       APIVersion,
-		Kind:             WorkspaceKind,
-		SemanticsVersion: CurrentSemanticsVersion,
-		Explorer:         ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{{
-			Kind:             Kind,
-			Output:           Output{ID: "patients", Title: "Patients"},
+	return ws.Workspace{
+		APIVersion:       ws.APIVersion,
+		Kind:             ws.WorkspaceKind,
+		SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:         ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind:             ws.Kind,
+			Output:           ws.Output{ID: "patients", Title: "Patients"},
 			RootResourceType: "Patient",
-			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{
 				OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters",
 			}}},
-			Rows:       RecordsRowDefinition(),
-			Population: &Population{SelectionRevisionID: "selection-patients", Route: []PopulationRouteStep{}},
-			Columns: []Column{
-				{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible, Order: &order}},
-				{Column: "encounter_id", Label: "Encounter ID", OccurrenceID: "encounter", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}}},
+			Rows:       ws.RecordsRowDefinition(),
+			Population: &ws.Population{SelectionRevisionID: "selection-patients", Route: []ws.PopulationRouteStep{}},
+			Columns: []ws.Column{
+				{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible, Order: &order}},
+				{Column: "encounter_id", Label: "Encounter ID", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &ws.RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}}},
 			},
-			FixedFilters: []FixedFilter{{Column: "patient_id", Values: []string{"patient-1"}}},
-			Actions:      []Action{{Type: "download", Title: "Download", Columns: []ActionColumn{{Column: "encounter_id"}}}},
+			FixedFilters: []ws.FixedFilter{{Column: "patient_id", Values: []string{"patient-1"}}},
+			Actions:      []ws.Action{{Type: "download", Title: "Download", Columns: []ws.ActionColumn{{Column: "encounter_id"}}}},
 		}},
-		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
 }
 
-func rowChangeCatalog() CatalogSnapshot {
+func rowChangeCatalog() ws.CatalogSnapshot {
 	catalog := commandCatalog()
-	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
+	catalog.Edges = append(catalog.Edges, ws.CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
 	return catalog
 }
 
-func rowChangePlainRootScenario() (Workspace, CatalogSnapshot) {
+func rowChangePlainRootScenario() (ws.Workspace, ws.CatalogSnapshot) {
 	workspace := rowChangeWorkspace()
 	workspace.Documents[0].Route.Children = nil
 	workspace.Documents[0].Columns = workspace.Documents[0].Columns[:1]
-	workspace.Documents[0].Actions[0].Columns = []ActionColumn{{Column: "patient_id"}}
+	workspace.Documents[0].Actions[0].Columns = []ws.ActionColumn{{Column: "patient_id"}}
 
 	catalog := rowChangeCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"},
-		CatalogEdge{ID: "observation-patient", FromNodeID: "observation", ToNodeID: "patient", Label: "patient"},
+		ws.CatalogEdge{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"},
+		ws.CatalogEdge{ID: "observation-patient", FromNodeID: "observation", ToNodeID: "patient", Label: "patient"},
 	)
 	return workspace, catalog
 }
 
-func rowChangePopulationRoundTripScenario() (Workspace, CatalogSnapshot) {
+func rowChangePopulationRoundTripScenario() (ws.Workspace, ws.CatalogSnapshot) {
 	workspace, catalog := rowChangePlainRootScenario()
 	catalog.Edges = removeCatalogEdges(catalog.Edges, "patient-observation", "observation-patient")
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
-		CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
+		ws.CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
+		ws.CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
 	)
-	workspace.Documents[0].Population = &Population{SelectionRevisionID: "selection-patient-root", Route: []PopulationRouteStep{}}
+	workspace.Documents[0].Population = &ws.Population{SelectionRevisionID: "selection-patient-root", Route: []ws.PopulationRouteStep{}}
 	return workspace, catalog
 }
 
-func removeCatalogEdges(edges []CatalogEdge, ids ...string) []CatalogEdge {
+func removeCatalogEdges(edges []ws.CatalogEdge, ids ...string) []ws.CatalogEdge {
 	remove := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		remove[id] = true
 	}
-	filtered := make([]CatalogEdge, 0, len(edges))
+	filtered := make([]ws.CatalogEdge, 0, len(edges))
 	for _, edge := range edges {
 		if !remove[edge.ID] {
 			filtered = append(filtered, edge)
@@ -110,7 +112,7 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	document := rebased.Documents[0]
-	if document.RootResourceType != "Encounter" || document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != "Encounter" {
+	if document.RootResourceType != "Encounter" || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != "Encounter" {
 		t.Fatalf("rebased root=%#v", document.Route)
 	}
 	if len(document.Route.Children) != 1 || document.Route.Children[0].OccurrenceID != "encounter" || document.Route.Children[0].ResourceType != "Patient" || document.Route.Children[0].Relationship != "patient" {
@@ -120,10 +122,10 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 	for _, column := range document.Columns {
 		occurrences[column.Column] = column.OccurrenceID
 	}
-	if !reflect.DeepEqual(occurrences, map[string]string{"encounter_id": RootOccurrenceID, "patient_id": "encounter"}) {
+	if !reflect.DeepEqual(occurrences, map[string]string{"encounter_id": ws.RootOccurrenceID, "patient_id": "encounter"}) {
 		t.Fatalf("rebased column occurrences=%#v", occurrences)
 	}
-	if document.Population == nil || document.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(document.Population.Route, []PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"}}) {
+	if document.Population == nil || document.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(document.Population.Route, []ws.PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"}}) {
 		t.Fatalf("rebased population=%#v", document.Population)
 	}
 	if !reflect.DeepEqual(document.FixedFilters, workspace.Documents[0].FixedFilters) || !reflect.DeepEqual(document.Actions, workspace.Documents[0].Actions) {
@@ -135,13 +137,13 @@ func TestAssessAndApplyRowChangeAddsCatalogRootAlongAnAuthoredPath(t *testing.T)
 	workspace := rowChangeWorkspace()
 	workspace.Documents[0].Route.Children[0].CatalogEdgeID = "patient-encounter"
 	catalog := rowChangeCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "patient-decoy", ResourceType: "Patient", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "patient-decoy", ResourceType: "Patient", RowRootEligible: true})
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
-		CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
-		CatalogEdge{ID: "observation-patient", FromNodeID: "observation", ToNodeID: "patient", Label: "patient"},
-		CatalogEdge{ID: "observation-patient-decoy", FromNodeID: "observation", ToNodeID: "patient-decoy", Label: "patient"},
+		ws.CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+		ws.CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
+		ws.CatalogEdge{ID: "observation-patient", FromNodeID: "observation", ToNodeID: "patient", Label: "patient"},
+		ws.CatalogEdge{ID: "observation-patient-decoy", FromNodeID: "observation", ToNodeID: "patient-decoy", Label: "patient"},
 	)
 	before, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -162,7 +164,7 @@ func TestAssessAndApplyRowChangeAddsCatalogRootAlongAnAuthoredPath(t *testing.T)
 		t.Fatalf("derived root occurrence=%q, want a catalog-route choice token", assessment.Proposal.RootOccurrenceID)
 	}
 	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{
-		{OccurrenceID: RootOccurrenceID, EdgeID: "encounter-patient"},
+		{OccurrenceID: ws.RootOccurrenceID, EdgeID: "encounter-patient"},
 		{OccurrenceID: "encounter", EdgeID: "observation-encounter"},
 	}) {
 		t.Fatalf("route rebase=%#v", assessment.Proposal.RouteRebase)
@@ -172,14 +174,14 @@ func TestAssessAndApplyRowChangeAddsCatalogRootAlongAnAuthoredPath(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rebased.RootResourceType != "Observation" || rebased.Route.ResourceType != "Observation" || rebased.Route.OccurrenceID != RootOccurrenceID {
+	if rebased.RootResourceType != "Observation" || rebased.Route.ResourceType != "Observation" || rebased.Route.OccurrenceID != ws.RootOccurrenceID {
 		t.Fatalf("rebased root=%#v", rebased.Route)
 	}
 	if len(rebased.Route.Children) != 1 {
 		t.Fatalf("rebased route=%#v", rebased.Route)
 	}
 	encounter := rebased.Route.Children[0]
-	if encounter.OccurrenceID != "encounter" || encounter.ResourceType != "Encounter" || encounter.Relationship != "encounter" || encounter.MatchMode.Normalized() != RouteMatchOptional {
+	if encounter.OccurrenceID != "encounter" || encounter.ResourceType != "Encounter" || encounter.Relationship != "encounter" || encounter.MatchMode.Normalized() != ws.RouteMatchOptional {
 		t.Fatalf("rebased encounter=%#v", encounter)
 	}
 	if len(encounter.Children) != 1 || encounter.Children[0].ResourceType != "Patient" || encounter.Children[0].Relationship != "patient" || !strings.HasPrefix(encounter.Children[0].OccurrenceID, "row_change_") {
@@ -196,7 +198,7 @@ func TestAssessAndApplyRowChangeAddsCatalogRootAlongAnAuthoredPath(t *testing.T)
 	if !reflect.DeepEqual(occurrences, map[string]string{"patient_id": patientOccurrenceID, "encounter_id": "encounter"}) {
 		t.Fatalf("rebased column occurrences=%#v", occurrences)
 	}
-	if rebased.Population == nil || rebased.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(rebased.Population.Route, []PopulationRouteStep{
+	if rebased.Population == nil || rebased.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(rebased.Population.Route, []ws.PopulationRouteStep{
 		{ResourceType: "Encounter", Relationship: "encounter", CatalogEdgeID: "observation-encounter"},
 		{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"},
 	}) {
@@ -224,7 +226,7 @@ func TestAssessAndApplyRowChangePreservesPlainRootTableForCatalogRoot(t *testing
 	if rebased.RootResourceType != "Observation" || rebased.Route.ResourceType != "Observation" {
 		t.Fatalf("rebased root=%#v resource type=%q", rebased.Route, rebased.RootResourceType)
 	}
-	if rebased.Route.OccurrenceID != RootOccurrenceID || len(rebased.Route.Children) != 1 {
+	if rebased.Route.OccurrenceID != ws.RootOccurrenceID || len(rebased.Route.Children) != 1 {
 		t.Fatalf("rebased route=%#v", rebased.Route)
 	}
 	patient := rebased.Route.Children[0]
@@ -236,10 +238,10 @@ func TestAssessAndApplyRowChangePreservesPlainRootTableForCatalogRoot(t *testing
 	}
 	wantColumn := workspace.Documents[0].Columns[0]
 	wantColumn.OccurrenceID = patient.OccurrenceID
-	if !reflect.DeepEqual(rebased.Columns, []Column{wantColumn}) {
-		t.Fatalf("retained table columns=%#v, want %#v", rebased.Columns, []Column{wantColumn})
+	if !reflect.DeepEqual(rebased.Columns, []ws.Column{wantColumn}) {
+		t.Fatalf("retained table columns=%#v, want %#v", rebased.Columns, []ws.Column{wantColumn})
 	}
-	wantPopulationRoute := []PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "observation-patient"}}
+	wantPopulationRoute := []ws.PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "observation-patient"}}
 	if rebased.Population == nil || rebased.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(rebased.Population.Route, wantPopulationRoute) {
 		t.Fatalf("retained population=%#v", rebased.Population)
 	}
@@ -251,7 +253,7 @@ func TestAssessAndApplyRowChangePreservesPlainRootTableForCatalogRoot(t *testing
 func TestApplyRowChangeRoundTripRestoresDirectSelectedPopulationRoute(t *testing.T) {
 	workspace, catalog := rowChangePopulationRoundTripScenario()
 	observationDocument := rowChangeToObservation(t, workspace, catalog, "observation-patient-subject")
-	if observationDocument.Population == nil || observationDocument.Population.SelectionRevisionID != "selection-patient-root" || !reflect.DeepEqual(observationDocument.Population.Route, []PopulationRouteStep{{
+	if observationDocument.Population == nil || observationDocument.Population.SelectionRevisionID != "selection-patient-root" || !reflect.DeepEqual(observationDocument.Population.Route, []ws.PopulationRouteStep{{
 		ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "observation-patient-subject", StorageDirection: "OUTBOUND",
 	}}) {
 		t.Fatalf("Observation population route=%#v", observationDocument.Population)
@@ -261,7 +263,7 @@ func TestApplyRowChangeRoundTripRestoresDirectSelectedPopulationRoute(t *testing
 	}
 
 	patientOccurrenceID := observationDocument.Route.Children[0].OccurrenceID
-	toPatient, err := AssessRowChange(Workspace{Documents: []Document{observationDocument}}, catalog, RowChangeRequest{
+	toPatient, err := AssessRowChange(ws.Workspace{Documents: []ws.Document{observationDocument}}, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "patient", RootOccurrenceID: patientOccurrenceID,
 	})
 	if err != nil || toPatient.Status != RowChangeReady || toPatient.Proposal == nil {
@@ -277,7 +279,7 @@ func TestApplyRowChangeRoundTripRestoresDirectSelectedPopulationRoute(t *testing
 	if patientDocument.Population == nil || patientDocument.Population.SelectionRevisionID != "selection-patient-root" || len(patientDocument.Population.Route) != 0 {
 		t.Fatalf("round-trip should restore direct selection membership, population=%#v", patientDocument.Population)
 	}
-	if len(patientDocument.Columns) != 1 || patientDocument.Columns[0].OccurrenceID != RootOccurrenceID || patientDocument.Columns[0].Column != "patient_id" {
+	if len(patientDocument.Columns) != 1 || patientDocument.Columns[0].OccurrenceID != ws.RootOccurrenceID || patientDocument.Columns[0].Column != "patient_id" {
 		t.Fatalf("restored Patient field=%#v", patientDocument.Columns)
 	}
 }
@@ -285,15 +287,15 @@ func TestApplyRowChangeRoundTripRestoresDirectSelectedPopulationRoute(t *testing
 func TestApplyRowChangePopulationRebasePreservesDifferentRelationshipAtSeam(t *testing.T) {
 	workspace, catalog := rowChangePopulationRoundTripScenario()
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-observation-focus", FromNodeID: "patient", ToNodeID: "observation", Label: "focus", StorageDirection: "INBOUND"},
-		CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus", StorageDirection: "OUTBOUND"},
+		ws.CatalogEdge{ID: "patient-observation-focus", FromNodeID: "patient", ToNodeID: "observation", Label: "focus", StorageDirection: "INBOUND"},
+		ws.CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus", StorageDirection: "OUTBOUND"},
 	)
 	observationDocument := rowChangeToObservation(t, workspace, catalog, "observation-patient-subject")
 	patientOccurrenceID := observationDocument.Route.Children[0].OccurrenceID
 
-	assessment, err := AssessRowChange(Workspace{Documents: []Document{observationDocument}}, catalog, RowChangeRequest{
+	assessment, err := AssessRowChange(ws.Workspace{Documents: []ws.Document{observationDocument}}, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "patient", RootOccurrenceID: patientOccurrenceID,
-		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "patient-observation-focus"}},
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "patient-observation-focus"}},
 	})
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
 		t.Fatalf("Observation-to-Patient assessment=%#v err=%v", assessment, err)
@@ -302,7 +304,7 @@ func TestApplyRowChangePopulationRebasePreservesDifferentRelationshipAtSeam(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []PopulationRouteStep{
+	want := []ws.PopulationRouteStep{
 		{ResourceType: "Observation", Relationship: "focus", CatalogEdgeID: "patient-observation-focus", StorageDirection: "INBOUND"},
 		{ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "observation-patient-subject", StorageDirection: "OUTBOUND"},
 	}
@@ -314,20 +316,20 @@ func TestApplyRowChangePopulationRebasePreservesDifferentRelationshipAtSeam(t *t
 func TestApplyRowChangePopulationRebasePreservesDistinctSameTypeAnchor(t *testing.T) {
 	workspace, catalog := rowChangePopulationRoundTripScenario()
 	observationDocument := rowChangeToObservation(t, workspace, catalog, "observation-patient-subject")
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "patient-decoy", ResourceType: "Patient", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "patient-decoy", ResourceType: "Patient", RowRootEligible: true})
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-decoy-observation-subject", FromNodeID: "patient-decoy", ToNodeID: "observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
-		CatalogEdge{ID: "observation-patient-decoy-subject", FromNodeID: "observation", ToNodeID: "patient-decoy", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
+		ws.CatalogEdge{ID: "patient-decoy-observation-subject", FromNodeID: "patient-decoy", ToNodeID: "observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
+		ws.CatalogEdge{ID: "observation-patient-decoy-subject", FromNodeID: "observation", ToNodeID: "patient-decoy", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
 	)
 	decoyToken, err := encodeRowChangeRouteToken(rowChangeRouteToken{
-		EdgeIDs: []string{"observation-patient-decoy-subject"}, AnchorOccurrenceID: RootOccurrenceID,
+		EdgeIDs: []string{"observation-patient-decoy-subject"}, AnchorOccurrenceID: ws.RootOccurrenceID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assessment, err := AssessRowChange(Workspace{Documents: []Document{observationDocument}}, catalog, RowChangeRequest{
+	assessment, err := AssessRowChange(ws.Workspace{Documents: []ws.Document{observationDocument}}, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "patient-decoy", RootOccurrenceID: decoyToken,
-		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "patient-decoy-observation-subject"}},
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "patient-decoy-observation-subject"}},
 	})
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
 		t.Fatalf("Observation-to-distinct-Patient assessment=%#v err=%v", assessment, err)
@@ -336,7 +338,7 @@ func TestApplyRowChangePopulationRebasePreservesDistinctSameTypeAnchor(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []PopulationRouteStep{
+	want := []ws.PopulationRouteStep{
 		{ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "patient-decoy-observation-subject", StorageDirection: "INBOUND"},
 		{ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "observation-patient-subject", StorageDirection: "OUTBOUND"},
 	}
@@ -348,17 +350,17 @@ func TestApplyRowChangePopulationRebasePreservesDistinctSameTypeAnchor(t *testin
 	}
 }
 
-func rowChangeToObservation(t *testing.T, workspace Workspace, catalog CatalogSnapshot, inverseEdgeID string) Document {
+func rowChangeToObservation(t *testing.T, workspace ws.Workspace, catalog ws.CatalogSnapshot, inverseEdgeID string) ws.Document {
 	t.Helper()
 	token, err := encodeRowChangeRouteToken(rowChangeRouteToken{
-		EdgeIDs: []string{"patient-observation-subject"}, AnchorOccurrenceID: RootOccurrenceID,
+		EdgeIDs: []string{"patient-observation-subject"}, AnchorOccurrenceID: ws.RootOccurrenceID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: token,
-		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: inverseEdgeID}},
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: inverseEdgeID}},
 	})
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
 		t.Fatalf("Patient-to-Observation assessment=%#v err=%v", assessment, err)
@@ -377,7 +379,7 @@ func TestAssessRowChangeRejectsMalformedOrUnknownCatalogRouteTokenWithoutMutatio
 		t.Fatal(err)
 	}
 	unknownToken, err := encodeRowChangeRouteToken(rowChangeRouteToken{
-		EdgeIDs: []string{"missing-edge"}, AnchorOccurrenceID: RootOccurrenceID,
+		EdgeIDs: []string{"missing-edge"}, AnchorOccurrenceID: ws.RootOccurrenceID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +413,7 @@ func TestApplyRowChangeRejectsObsoleteCatalogRouteTokenWithoutPartialMutation(t 
 		t.Fatal(err)
 	}
 	updatedCatalog := catalog
-	updatedCatalog.Edges = make([]CatalogEdge, 0, len(catalog.Edges)-1)
+	updatedCatalog.Edges = make([]ws.CatalogEdge, 0, len(catalog.Edges)-1)
 	for _, edge := range catalog.Edges {
 		if edge.ID != "observation-patient" {
 			updatedCatalog.Edges = append(updatedCatalog.Edges, edge)
@@ -430,8 +432,8 @@ func TestApplyRowChangeRejectsObsoleteCatalogRouteTokenWithoutPartialMutation(t 
 func TestAssessRowChangeRejectsAnAbsentRootWithoutAnInversePath(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	catalog := rowChangeCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
-	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Edges = append(catalog.Edges, ws.CatalogEdge{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"})
 
 	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "observation"})
 	if err != nil {
@@ -445,10 +447,10 @@ func TestAssessRowChangeRejectsAnAbsentRootWithoutAnInversePath(t *testing.T) {
 func TestAssessRowChangeDoesNotTreatSameResourceTypeNodeAsCurrentRoot(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	catalog := rowChangeCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "patient-decoy", ResourceType: "Patient", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "patient-decoy", ResourceType: "Patient", RowRootEligible: true})
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-decoy", FromNodeID: "patient", ToNodeID: "patient-decoy", Label: "relatedPatients"},
-		CatalogEdge{ID: "decoy-patient", FromNodeID: "patient-decoy", ToNodeID: "patient", Label: "patient"},
+		ws.CatalogEdge{ID: "patient-decoy", FromNodeID: "patient", ToNodeID: "patient-decoy", Label: "relatedPatients"},
+		ws.CatalogEdge{ID: "decoy-patient", FromNodeID: "patient-decoy", ToNodeID: "patient", Label: "patient"},
 	)
 	unchanged, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "patient"})
 	if err != nil || unchanged.Status != RowChangeNoChange || unchanged.Proposal != nil {
@@ -476,20 +478,20 @@ func TestAssessRowChangeDisambiguatesDistinctCatalogPathsForAnAbsentRoot(t *test
 	workspace := rowChangeWorkspace()
 	catalog := rowChangeCatalog()
 	catalog.Nodes = append(catalog.Nodes,
-		CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true},
-		CatalogNode{ID: "condition", ResourceType: "Condition"},
+		ws.CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true},
+		ws.CatalogNode{ID: "condition", ResourceType: "Condition"},
 	)
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"},
-		CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient"},
-		CatalogEdge{ID: "patient-observation-focus", FromNodeID: "patient", ToNodeID: "observation", Label: "focus_Patient"},
-		CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus_Patient"},
-		CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
-		CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
-		CatalogEdge{ID: "patient-condition", FromNodeID: "patient", ToNodeID: "condition", Label: "conditions"},
-		CatalogEdge{ID: "condition-patient", FromNodeID: "condition", ToNodeID: "patient", Label: "patient"},
-		CatalogEdge{ID: "condition-observation", FromNodeID: "condition", ToNodeID: "observation", Label: "observations"},
-		CatalogEdge{ID: "observation-condition", FromNodeID: "observation", ToNodeID: "condition", Label: "condition"},
+		ws.CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"},
+		ws.CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient"},
+		ws.CatalogEdge{ID: "patient-observation-focus", FromNodeID: "patient", ToNodeID: "observation", Label: "focus_Patient"},
+		ws.CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus_Patient"},
+		ws.CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+		ws.CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
+		ws.CatalogEdge{ID: "patient-condition", FromNodeID: "patient", ToNodeID: "condition", Label: "conditions"},
+		ws.CatalogEdge{ID: "condition-patient", FromNodeID: "condition", ToNodeID: "patient", Label: "patient"},
+		ws.CatalogEdge{ID: "condition-observation", FromNodeID: "condition", ToNodeID: "observation", Label: "observations"},
+		ws.CatalogEdge{ID: "observation-condition", FromNodeID: "observation", ToNodeID: "condition", Label: "condition"},
 	)
 
 	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "observation"})
@@ -528,20 +530,20 @@ func TestAssessRowChangeDisambiguatesDistinctCatalogPathsForAnAbsentRoot(t *test
 
 func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
 	workspace := rowChangeWorkspace()
-	workspace.Documents[0].Route.Children[0].MatchMode = RouteMatchRequired
-	workspace.Documents[0].Route.Children[0].Children = []RouteNode{
+	workspace.Documents[0].Route.Children[0].MatchMode = ws.RouteMatchRequired
+	workspace.Documents[0].Route.Children[0].Children = []ws.RouteNode{
 		{OccurrenceID: "followup", ResourceType: "Encounter", Relationship: "revisits"},
-		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "observations", MatchMode: RouteMatchOptional},
+		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "observations", MatchMode: ws.RouteMatchOptional},
 	}
-	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, Column{
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, ws.Column{
 		Column: "observation_id", Label: "Observation ID", OccurrenceID: "observation",
-		Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}},
+		Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &ws.RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}},
 	})
 	catalog := rowChangeCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
-		CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
+		ws.CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+		ws.CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
 	)
 
 	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
@@ -554,7 +556,7 @@ func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
 		t.Fatalf("deep assessment=%#v", assessment)
 	}
 	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{
-		{OccurrenceID: RootOccurrenceID, EdgeID: "encounter-patient"},
+		{OccurrenceID: ws.RootOccurrenceID, EdgeID: "encounter-patient"},
 		{OccurrenceID: "encounter", EdgeID: "observation-encounter"},
 	}) {
 		t.Fatalf("deep route choices=%#v", assessment.Proposal.RouteRebase)
@@ -564,10 +566,10 @@ func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rebased.RootResourceType != "Observation" || rebased.Route.OccurrenceID != RootOccurrenceID {
+	if rebased.RootResourceType != "Observation" || rebased.Route.OccurrenceID != ws.RootOccurrenceID {
 		t.Fatalf("deep root=%#v", rebased.Route)
 	}
-	if len(rebased.Route.Children) != 1 || rebased.Route.Children[0].OccurrenceID != "encounter" || rebased.Route.Children[0].Relationship != "encounter" || rebased.Route.Children[0].MatchMode != RouteMatchOptional {
+	if len(rebased.Route.Children) != 1 || rebased.Route.Children[0].OccurrenceID != "encounter" || rebased.Route.Children[0].Relationship != "encounter" || rebased.Route.Children[0].MatchMode != ws.RouteMatchOptional {
 		t.Fatalf("deep encounter route=%#v", rebased.Route)
 	}
 	encounterChildren := rebased.Route.Children[0].Children
@@ -575,17 +577,17 @@ func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
 		t.Fatalf("deep rebase lost the off-path Encounter branch: %#v", encounterChildren)
 	}
 	patient := encounterChildren[1]
-	if patient.OccurrenceID != "observation" || patient.ResourceType != "Patient" || patient.Relationship != "patient" || patient.MatchMode != RouteMatchRequired {
+	if patient.OccurrenceID != "observation" || patient.ResourceType != "Patient" || patient.Relationship != "patient" || patient.MatchMode != ws.RouteMatchRequired {
 		t.Fatalf("deep patient route=%#v", patient)
 	}
 	occurrences := map[string]string{}
 	for _, column := range rebased.Columns {
 		occurrences[column.Column] = column.OccurrenceID
 	}
-	if !reflect.DeepEqual(occurrences, map[string]string{"patient_id": "observation", "encounter_id": "encounter", "observation_id": RootOccurrenceID}) {
+	if !reflect.DeepEqual(occurrences, map[string]string{"patient_id": "observation", "encounter_id": "encounter", "observation_id": ws.RootOccurrenceID}) {
 		t.Fatalf("deep column occurrences=%#v", occurrences)
 	}
-	if rebased.Population == nil || !reflect.DeepEqual(rebased.Population.Route, []PopulationRouteStep{
+	if rebased.Population == nil || !reflect.DeepEqual(rebased.Population.Route, []ws.PopulationRouteStep{
 		{ResourceType: "Encounter", Relationship: "encounter", CatalogEdgeID: "observation-encounter"},
 		{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"},
 	}) {
@@ -605,7 +607,7 @@ func TestAssessRowChangeReturnsStructuredRelationshipChoices(t *testing.T) {
 	}
 
 	catalog = rowChangeCatalog()
-	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-subject", FromNodeID: "encounter", ToNodeID: "patient", Label: "subject"})
+	catalog.Edges = append(catalog.Edges, ws.CatalogEdge{ID: "encounter-subject", FromNodeID: "encounter", ToNodeID: "patient", Label: "subject"})
 	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
 	if err != nil {
 		t.Fatal(err)
@@ -614,7 +616,7 @@ func TestAssessRowChangeReturnsStructuredRelationshipChoices(t *testing.T) {
 		t.Fatalf("ambiguous reverse assessment=%#v", assessment)
 	}
 	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
-		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "encounter-patient"}},
+		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "encounter-patient"}},
 	})
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
 		t.Fatalf("resolved assessment=%#v err=%v", assessment, err)
@@ -629,7 +631,7 @@ func TestAssessRowChangePrefersTheAuthoredInverseAmongDifferentRelationships(t *
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
 		t.Fatalf("assessment=%#v err=%v", assessment, err)
 	}
-	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-subject"}}) {
+	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "observation-patient-subject"}}) {
 		t.Fatalf("authored inverse route choice=%#v, want the subject relationship", assessment.Proposal.RouteRebase)
 	}
 	rebased, err := ApplyRowChange(workspace.Documents[0], catalog, *assessment.Proposal)
@@ -641,17 +643,17 @@ func TestAssessRowChangePrefersTheAuthoredInverseAmongDifferentRelationships(t *
 
 	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
-		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}},
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "observation-patient-focus"}},
 	})
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil ||
-		!reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}}) {
+		!reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "observation-patient-focus"}}) {
 		t.Fatalf("explicit inverse override assessment=%#v err=%v", assessment, err)
 	}
 }
 
 func TestAssessRowChangeKeepsAmbiguityBetweenMatchingInverseRelationships(t *testing.T) {
 	workspace, catalog := rowChangeSubjectFocusFixture()
-	catalog.Edges = append(catalog.Edges, CatalogEdge{
+	catalog.Edges = append(catalog.Edges, ws.CatalogEdge{
 		ID: "observation-patient-subject-secondary", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient",
 	})
 	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
@@ -668,7 +670,7 @@ func TestAssessRowChangeKeepsAmbiguityBetweenMatchingInverseRelationships(t *tes
 
 	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
-		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-subject-secondary"}},
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "observation-patient-subject-secondary"}},
 	})
 	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil ||
 		len(assessment.Proposal.RouteRebase) != 1 || assessment.Proposal.RouteRebase[0].EdgeID != "observation-patient-subject-secondary" {
@@ -676,9 +678,9 @@ func TestAssessRowChangeKeepsAmbiguityBetweenMatchingInverseRelationships(t *tes
 	}
 }
 
-func rowChangeSubjectFocusFixture() (Workspace, CatalogSnapshot) {
+func rowChangeSubjectFocusFixture() (ws.Workspace, ws.CatalogSnapshot) {
 	workspace := rowChangeWorkspace()
-	workspace.Documents[0].Route.Children[0] = RouteNode{
+	workspace.Documents[0].Route.Children[0] = ws.RouteNode{
 		OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "patient-observation-subject",
 	}
 	for index := range workspace.Documents[0].Columns {
@@ -687,11 +689,11 @@ func rowChangeSubjectFocusFixture() (Workspace, CatalogSnapshot) {
 		}
 	}
 	catalog := commandCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
 	catalog.Edges = append(catalog.Edges,
-		CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"},
-		CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient"},
-		CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus_Patient"},
+		ws.CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"},
+		ws.CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient"},
+		ws.CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus_Patient"},
 	)
 	return workspace, catalog
 }
@@ -700,7 +702,7 @@ func TestAssessRowChangeRequiresAnExplicitOccurrenceWhenTheRouteHasDuplicates(t 
 	workspace := rowChangeWorkspace()
 	workspace.Documents[0].Route.Children = append(
 		workspace.Documents[0].Route.Children,
-		RouteNode{OccurrenceID: "encounter-followup", ResourceType: "Encounter", Relationship: "encounters"},
+		ws.RouteNode{OccurrenceID: "encounter-followup", ResourceType: "Encounter", Relationship: "encounters"},
 	)
 	catalog := rowChangeCatalog()
 
@@ -748,10 +750,10 @@ func TestApplyRowChangeRejectsStaleProposalWithoutPartialMutation(t *testing.T) 
 		t.Fatalf("failed batch mutated input\nbefore=%s\nafter=%s", before, after)
 	}
 }
-func replacementCatalog() CatalogSnapshot {
+func replacementCatalog() ws.CatalogSnapshot {
 	catalog := rowChangeCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "report", ResourceType: "DiagnosticReport", RowRootEligible: true})
-	catalog.Candidates = append(catalog.Candidates, CatalogCandidate{
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "report", ResourceType: "DiagnosticReport", RowRootEligible: true})
+	catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
 		ID: "report-id", NodeID: "report", FieldPath: "id", Cardinality: "optional_one",
 		Label: "Report ID", LogicalType: "string", ProjectionModes: []string{"VALUE"},
 		DefaultProjectionMode: "VALUE",
@@ -762,7 +764,7 @@ func replacementCatalog() CatalogSnapshot {
 
 func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 	workspace := rowChangeWorkspace()
-	workspace.Documents[0].Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{}}
+	workspace.Documents[0].Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}}
 	for index := range workspace.Documents[0].Columns {
 		workspace.Documents[0].Columns[index].ColumnID = workspace.Documents[0].Columns[index].Column
 	}
@@ -792,14 +794,14 @@ func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := replaced.Documents[0]
-	if got.Output.ID != "patients" || got.Output.Title != "Patients" || got.RootResourceType != "DiagnosticReport" || got.Route.OccurrenceID != RootOccurrenceID || got.Route.ResourceType != "DiagnosticReport" || len(got.Route.Children) != 0 {
+	if got.Output.ID != "patients" || got.Output.Title != "Patients" || got.RootResourceType != "DiagnosticReport" || got.Route.OccurrenceID != ws.RootOccurrenceID || got.Route.ResourceType != "DiagnosticReport" || len(got.Route.Children) != 0 {
 		t.Fatalf("replacement identity/root = output %#v route %#v", got.Output, got.Route)
 	}
-	if got.Rows.Kind != RowDefinitionRecords || got.Population != nil || got.Construction != nil || got.ArchiveRetiredShape != nil || len(got.Frames) != 0 || len(got.FixedFilters) != 0 || len(got.Actions) != 0 || len(got.Columns) != 1 {
+	if got.Rows.Kind != ws.RowDefinitionRecords || got.Population != nil || got.Construction != nil || got.ArchiveRetiredShape != nil || len(got.Frames) != 0 || len(got.FixedFilters) != 0 || len(got.Actions) != 0 || len(got.Columns) != 1 {
 		t.Fatalf("replacement retained old intent: %#v", got)
 	}
 	column := got.Columns[0]
-	if column.Column != "id" || column.Label != "Report ID" || column.LogicalType != "string" || column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.Source.Field.Path != "id" || column.Source.Field.ProjectionMode != "VALUE" {
+	if column.Column != "id" || column.Label != "Report ID" || column.LogicalType != "string" || column.OccurrenceID != ws.RootOccurrenceID || column.Source.Kind != ws.SourceField || column.Source.Field == nil || column.Source.Field.Path != "id" || column.Source.Field.ProjectionMode != "VALUE" {
 		t.Fatalf("replacement id column = %#v", column)
 	}
 	if got.Output != workspace.Documents[0].Output || !reflect.DeepEqual(replaced.Tabs, workspace.Tabs) {
@@ -809,7 +811,7 @@ func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decodedCandidate, err := DecodeWorkspace(encodedCandidate)
+	decodedCandidate, err := ws.DecodeWorkspace(encodedCandidate)
 	if err != nil || !reflect.DeepEqual(decodedCandidate, replaced) {
 		t.Fatalf("replacement candidate round trip changed: got %#v err=%v", decodedCandidate, err)
 	}
@@ -817,9 +819,9 @@ func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 	shapeWorkspace := rowChangeWorkspace()
 	integer := int64(2)
 	shapeWorkspace.Documents[0].ArchiveRetiredShape = &storedTableShape{Derived: []storedDerivedConstruction{{
-		ConstructionID: "double_id", Output: ColumnOutput{Column: "double_id", Label: "Double ID"}, Operation: "ADD",
+		ConstructionID: "double_id", Output: ws.ColumnOutput{Column: "double_id", Label: "Double ID"}, Operation: "ADD",
 		Left:               storedArithmeticOperand{Kind: "COLUMN", Column: "patient_id"},
-		Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &integer}},
+		Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &ws.TableScalar{Kind: ws.TableScalarInteger, Integer: &integer}},
 		MissingInputPolicy: "PROPAGATE_NULL",
 	}}}
 	shapeWorkspace.Documents[0], err = migrateStoredDocumentFixture(shapeWorkspace.Documents[0])
@@ -838,7 +840,7 @@ func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 
 func TestAssessAndApplyRowReplacementReportsExactCurrentDraftReferences(t *testing.T) {
 	workspace := dependencyWorkspace(rowChangeWorkspace().Documents[0], workspaceOutputCombineDocument("combined", "patients"))
-	workspace.SharedFilters = map[string][]SharedFilterBinding{
+	workspace.SharedFilters = map[string][]ws.SharedFilterBinding{
 		"patient-filter":  {{OutputID: "patients", Column: "patient_id"}},
 		"combined-filter": {{OutputID: "combined", Column: "patient_id"}},
 	}
@@ -864,7 +866,7 @@ func TestAssessAndApplyRowReplacementReportsExactCurrentDraftReferences(t *testi
 	if !reflect.DeepEqual(applied.Documents[1], consumerBefore) {
 		t.Fatalf("replacement mutated current-draft consumer: got %#v want %#v", applied.Documents[1], consumerBefore)
 	}
-	if got := applied.Documents[1].Construction.Steps[0].Inputs[1]; got.Kind != ConstructionInputTableRevision || got.RevisionID != "labs-r9" || got.OutputID != "labs" {
+	if got := applied.Documents[1].Construction.Steps[0].Inputs[1]; got.Kind != ws.ConstructionInputTableRevision || got.RevisionID != "labs-r9" || got.OutputID != "labs" {
 		t.Fatalf("pinned TABLE_REVISION reference changed: %#v", got)
 	}
 	if len(applied.SharedFilters["patient-filter"]) != 0 {
@@ -979,7 +981,7 @@ func TestRowChangePreserveStillSerializesPreservationSemantics(t *testing.T) {
 func TestRowReplacementRequiresUniqueRootIdentityAndAuthorizedScalarID(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	catalog := replacementCatalog()
-	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "report-copy", ResourceType: "DiagnosticReport", RowRootEligible: true})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "report-copy", ResourceType: "DiagnosticReport", RowRootEligible: true})
 	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
 	if err != nil || assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "ROW_ROOT_RESOURCE_TYPE_AMBIGUOUS" {
 		t.Fatalf("duplicate root assessment=%#v err=%v", assessment, err)

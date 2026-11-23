@@ -6,6 +6,8 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 type RevisionStatus string
@@ -18,11 +20,11 @@ const (
 )
 
 type Explorer struct {
-	Project        string         `json:"project"`
-	ExplorerID     string         `json:"explorerId"`
-	Title          string         `json:"title"`
-	ManagementMode ManagementMode `json:"managementMode"`
-	ProjectConfig  *ProjectConfig `json:"projectConfig,omitempty"`
+	Project        string                        `json:"project"`
+	ExplorerID     string                        `json:"explorerId"`
+	Title          string                        `json:"title"`
+	ManagementMode viewer.ManagementMode         `json:"managementMode"`
+	ProjectConfig  *explorerconfig.ProjectConfig `json:"projectConfig,omitempty"`
 
 	DraftConfig                   json.RawMessage `json:"draftConfig,omitempty"`
 	DraftVersion                  int64           `json:"draftVersion"`
@@ -68,12 +70,12 @@ type Revision struct {
 	RecipeDigest         string                      `json:"recipeDigest"`
 	ResolvedSchemaDigest string                      `json:"resolvedSchemaDigest"`
 	SourceGeneration     string                      `json:"sourceGeneration"`
-	Materializations     []Materialization           `json:"materializations"`
-	EmittedColumns       []EmittedColumn             `json:"emittedColumns"`
-	Dataset              DatasetMetadata             `json:"dataset,omitempty"`
+	Materializations     []viewer.Materialization    `json:"materializations"`
+	EmittedColumns       []viewer.EmittedColumn      `json:"emittedColumns"`
+	Dataset              viewer.DatasetMetadata      `json:"dataset,omitempty"`
 	QualityReports       []publication.QualityReport `json:"qualityReports,omitempty"`
-	Publication          PublicationMetadata         `json:"publication,omitempty"`
-	Diagnostics          []Diagnostic                `json:"diagnostics"`
+	Publication          viewer.PublicationMetadata  `json:"publication,omitempty"`
+	Diagnostics          []viewer.Diagnostic         `json:"diagnostics"`
 	Status               RevisionStatus              `json:"status"`
 	CreatedBy            string                      `json:"createdBy,omitempty"`
 	CreatedAt            time.Time                   `json:"createdAt"`

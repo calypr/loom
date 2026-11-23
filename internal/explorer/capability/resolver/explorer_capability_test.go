@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
@@ -54,8 +57,8 @@ func TestAuthoringV2CatalogMatchesCompilerCatalog(t *testing.T) {
 			SupportedOperations: []capability.Operation{capability.OperationFilter, capability.OperationChart},
 		}}, nil,
 	)
-	want := authoringv2.CatalogFromCapability(snapshot, "default")
-	got := authoringv2.CatalogFromCapability(snapshot, "default")
+	want := ws.CatalogFromCapability(snapshot, "default")
+	got := ws.CatalogFromCapability(snapshot, "default")
 	digest, err := want.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +104,7 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 		nil,
 	)
 
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "birthDate" {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
 	}
@@ -157,7 +160,7 @@ func TestAuthoringV2CatalogExposesCandidatePopulationWithoutChangingSnapshotIden
 	beforeToken := snapshot.Token
 	beforeCanonicalPayload := append([]byte(nil), snapshot.CanonicalPayload()...)
 
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 2 {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
 	}
@@ -218,18 +221,18 @@ func TestAuthoringV2CatalogExposesCandidatePopulationWithoutChangingSnapshotIden
 }
 
 func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.T) {
-	state := authoringv2.BuilderState{
-		APIVersion:     authoringv2.APIVersion,
-		Kind:           authoringv2.StateKind,
+	state := ws.BuilderState{
+		APIVersion:     ws.APIVersion,
+		Kind:           ws.StateKind,
 		LifecycleState: "NEW",
-		Catalog: authoringv2.CatalogSnapshot{
+		Catalog: ws.CatalogSnapshot{
 			SourceGeneration:         "generation-a",
 			AuthorizationScopeDigest: "scope-a",
 			SnapshotToken:            "snapshot-a",
 			Complete:                 true,
-			Nodes:                    []authoringv2.CatalogNode{},
-			Edges:                    []authoringv2.CatalogEdge{},
-			Candidates: []authoringv2.CatalogCandidate{{
+			Nodes:                    []ws.CatalogNode{},
+			Edges:                    []ws.CatalogEdge{},
+			Candidates: []ws.CatalogCandidate{{
 				ID:                    "c_height_value",
 				NodeID:                "n_observation",
 				FieldPath:             "valueQuantity.value",
@@ -245,17 +248,17 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 					RowContext: capability.AggregateRowsRecords,
 					Supported:  true,
 				}},
-				Transformations: authoringv2.AggregateTransformationCapabilities{
-					Temporal: authoringv2.TemporalReductionCapabilities{
+				Transformations: ws.AggregateTransformationCapabilities{
+					Temporal: ws.TemporalReductionCapabilities{
 						Available: true,
-						TimestampFields: []authoringv2.TemporalFieldChoice{{
+						TimestampFields: []ws.TemporalFieldChoice{{
 							CandidateID:  "c_observation_issued",
 							NodeID:       "n_observation",
 							ResourceType: "Observation",
 							FieldPath:    "issued",
 							Label:        "Issued",
 						}},
-						AnchorFields: []authoringv2.TemporalFieldChoice{{
+						AnchorFields: []ws.TemporalFieldChoice{{
 							CandidateID:  "c_patient_birth_date",
 							NodeID:       "n_patient",
 							ResourceType: "Patient",
@@ -263,9 +266,9 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 							Label:        "Birth date",
 						}},
 					},
-					UnitNormalization: authoringv2.UnitNormalizationCapabilities{
+					UnitNormalization: ws.UnitNormalizationCapabilities{
 						Available: true,
-						Presets: []authoringv2.UnitNormalizationPresetCapability{{
+						Presets: []ws.UnitNormalizationPresetCapability{{
 							PolicyID:  "ucum-pressure",
 							Version:   "1",
 							Target:    unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
@@ -274,7 +277,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 					},
 				},
 			}},
-			RoutePolicy: authoringv2.RoutePolicy{AllowRepeatedEdges: true, AllowSelfLoops: true},
+			RoutePolicy: ws.RoutePolicy{AllowRepeatedEdges: true, AllowSelfLoops: true},
 		},
 	}
 	noOperationSnapshot := capability.NewSnapshot(
@@ -288,7 +291,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 		}},
 		nil,
 	)
-	noOperationCatalog := authoringv2.CatalogFromCapability(noOperationSnapshot, "default")
+	noOperationCatalog := ws.CatalogFromCapability(noOperationSnapshot, "default")
 	if len(noOperationCatalog.Candidates) != 1 {
 		t.Fatalf("no-operation catalog candidates = %#v, want one candidate", noOperationCatalog.Candidates)
 	}
@@ -320,7 +323,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 	if !temporal.Available || len(temporal.TimestampFields) != 1 || len(temporal.AnchorFields) != 1 {
 		t.Fatalf("generated temporal capabilities = %#v, want issued timestamp and birthDate anchor", temporal)
 	}
-	if got, want := temporal.TimestampFields[0], (authoringv2.TemporalFieldChoice{
+	if got, want := temporal.TimestampFields[0], (ws.TemporalFieldChoice{
 		CandidateID:  "c_observation_issued",
 		NodeID:       "n_observation",
 		ResourceType: "Observation",
@@ -329,7 +332,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 	}); got.CandidateId != want.CandidateID || got.NodeId != want.NodeID || got.ResourceType != want.ResourceType || got.FieldPath != want.FieldPath || got.Label != want.Label {
 		t.Fatalf("generated temporal timestamp = %#v, want %#v", got, want)
 	}
-	if got, want := temporal.AnchorFields[0], (authoringv2.TemporalFieldChoice{
+	if got, want := temporal.AnchorFields[0], (ws.TemporalFieldChoice{
 		CandidateID:  "c_patient_birth_date",
 		NodeID:       "n_patient",
 		ResourceType: "Patient",
@@ -381,7 +384,7 @@ func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
 		nil,
 	)
 
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || len(wire.Candidates[0].ProjectionModes) != 2 {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
 	}
@@ -418,7 +421,7 @@ func TestAuthoringV2CatalogAdvertisesScalarRecodingAndCodedIdentityRefusal(t *te
 		nil,
 	)
 
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || !wire.Candidates[0].ValueTransformations.ExactCategoryRecode.Available {
 		t.Fatalf("scalar recoding capability = %#v", wire.Candidates)
 	}
@@ -471,7 +474,7 @@ func TestAuthoringV2CatalogOmitsCandidateWithoutExecutableConstructionChoice(t *
 		nil,
 	)
 
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 0 || len(wire.Diagnostics) != 1 || wire.Diagnostics[0].Code != "CONSTRUCTION_CHOICE_UNAVAILABLE" {
 		t.Fatalf("catalog=%#v, want candidate omitted with diagnostic", wire)
 	}
@@ -488,7 +491,7 @@ func TestAuthoringV2CatalogBlocksObjectProjectionWithTypedChildHint(t *testing.T
 		}, nil,
 	)
 
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "type.coding[].system" {
 		t.Fatalf("catalog candidates = %#v, want only the typed child field", wire.Candidates)
 	}
@@ -924,7 +927,7 @@ func TestAuthoringV2CatalogCarriesAdditiveObservedAvailability(t *testing.T) {
 		Fields:        []capability.ObservedField{{ResourceType: "Organization", Path: "name", ShapeKind: "string-ish", PathObservedCount: 1, Examples: []string{"Clinic"}, ExamplesTruncated: true, SemanticObservations: []capability.ConceptCandidate{}}},
 		Relationships: []capability.ObservedRelationship{{SourceResourceType: "Patient", TargetResourceType: "Organization", Label: "managingOrganization", StorageDirection: "OUTBOUND", BuilderDirection: "INBOUND", ObservedEdgeCount: 2}},
 	}
-	wire := authoringv2.CatalogFromCapability(snapshot, "default")
+	wire := ws.CatalogFromCapability(snapshot, "default")
 	if len(wire.Nodes) != 1 || len(wire.Candidates) != 0 || wire.Availability == nil || len(wire.Availability.Fields) != 1 || wire.Availability.Fields[0].ObservedShapeKind != "string-ish" {
 		t.Fatalf("wire catalog changed compiler graph or lost observations: %#v", wire)
 	}

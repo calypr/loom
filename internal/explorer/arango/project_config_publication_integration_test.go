@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
@@ -66,8 +68,8 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 	}
 	createdAt := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	for _, owner := range []explorer.Explorer{
-		{Project: project, ExplorerID: "other-recipe", Title: otherDefinition.Title, ManagementMode: explorer.ManagementRepository, ProjectConfig: &otherDefinition, DraftVersion: 1, DraftDigest: otherDigest, UpdatedAt: createdAt},
-		{Project: project, ExplorerID: "interactive", Title: "Builder owner", ManagementMode: explorer.ManagementInteractive, DraftVersion: 1, UpdatedAt: createdAt},
+		{Project: project, ExplorerID: "other-recipe", Title: otherDefinition.Title, ManagementMode: viewer.ManagementRepository, ProjectConfig: &otherDefinition, DraftVersion: 1, DraftDigest: otherDigest, UpdatedAt: createdAt},
+		{Project: project, ExplorerID: "interactive", Title: "Builder owner", ManagementMode: viewer.ManagementInteractive, DraftVersion: 1, UpdatedAt: createdAt},
 	} {
 		if _, err := explorers.Create(ctx, owner); err != nil {
 			t.Fatalf("seed preserved owner %q: %v", owner.ExplorerID, err)
@@ -102,7 +104,7 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 		t.Fatalf("other-recipe owner = %+v, %v; want preserved", other, err)
 	}
 	interactive, err := explorers.Get(ctx, project, "interactive")
-	if err != nil || interactive.ManagementMode != explorer.ManagementInteractive || interactive.ProjectConfig != nil {
+	if err != nil || interactive.ManagementMode != viewer.ManagementInteractive || interactive.ProjectConfig != nil {
 		t.Fatalf("interactive owner = %+v, %v; want preserved", interactive, err)
 	}
 }
@@ -115,7 +117,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 		"commit-1", 0,
 		projectConfigPublication(t, project, "taken", "recipe-a", "Taken", "revision-taken", "generation-1", "execution-1", bundle),
 	)
-	if _, err := explorers.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "taken", Title: "Interactive", ManagementMode: explorer.ManagementInteractive, UpdatedAt: time.Now().UTC()}); err != nil {
+	if _, err := explorers.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "taken", Title: "Interactive", ManagementMode: viewer.ManagementInteractive, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := explorers.PublishProjectConfigs(ctx, request); !errors.Is(err, explorer.ErrDraftConflict) {
@@ -128,7 +130,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 		"commit-legacy", 0,
 		projectConfigPublication(t, legacyProject, "default", "recipe-a", "Default", "revision-legacy", "generation-1", "execution-legacy", bundle),
 	)
-	if _, err := explorers.Create(ctx, explorer.Explorer{Project: legacyProject, ExplorerID: "default", Title: "Legacy repository", ManagementMode: explorer.ManagementRepository, DraftVersion: 1, UpdatedAt: time.Now().UTC()}); err != nil {
+	if _, err := explorers.Create(ctx, explorer.Explorer{Project: legacyProject, ExplorerID: "default", Title: "Legacy repository", ManagementMode: viewer.ManagementRepository, DraftVersion: 1, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := explorers.PublishProjectConfigs(ctx, legacyRequest); !errors.Is(err, explorer.ErrDraftConflict) {
@@ -273,9 +275,9 @@ func projectConfigTestBundle(name, translation string) recipe.Bundle {
 	}
 }
 
-func projectConfigTestDefinition(id, recipeName, title string) explorer.ProjectConfig {
-	return explorer.ProjectConfig{
-		ID: id, Title: title, RecipeRef: explorer.ProjectConfigRecipeRef{Name: recipeName},
+func projectConfigTestDefinition(id, recipeName, title string) explorerconfig.ProjectConfig {
+	return explorerconfig.ProjectConfig{
+		ID: id, Title: title, RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: recipeName},
 		Views: []explorerconfig.ConfigView{{
 			ID: "view", Title: title, Output: "output",
 			Table:   explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "extension_code", Visible: true}}},
@@ -339,18 +341,18 @@ func projectConfigPublication(t *testing.T, project, id, recipeName, title, revi
 			ID: revisionID, Project: projectid.Legacy(project), ExplorerID: id,
 			Recipe: resolvedBundle, RecipeDigest: digest, ResolvedSchemaDigest: strings.Repeat("d", 64),
 			Config: configJSON, PublicOutputContract: contractJSON,
-			EmittedColumns: []explorer.EmittedColumn{{
+			EmittedColumns: []viewer.EmittedColumn{{
 				EmissionID: "dynamic:extension_code", OutputID: "output", PublicColumn: "extension_code",
 				Label: "Extension code", LogicalType: "string", Cardinality: "optional_one",
 				Nullable: true, Shape: "scalar", Lossless: true, Filterable: true, Chartable: true,
 			}},
-			SourceGeneration: generation, Dataset: explorer.DatasetMetadata{
+			SourceGeneration: generation, Dataset: viewer.DatasetMetadata{
 				Generation: generation, SchemaDigest: strings.Repeat("c", 64),
-				Outputs: []explorer.DatasetOutput{{Name: "output", State: "PUBLISHED", Queryable: true, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
+				Outputs: []viewer.DatasetOutput{{Name: "output", State: "PUBLISHED", Queryable: true, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
 			},
-			Materializations: []explorer.Materialization{{OutputID: "output", Output: "output", MaterializationID: executionID, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
+			Materializations: []viewer.Materialization{{OutputID: "output", Output: "output", MaterializationID: executionID, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
 			QualityReports:   []publicationdata.QualityReport{projectConfigTestQuality(project, generation, executionID)},
-			Publication:      explorer.PublicationMetadata{State: "READY", Generation: generation, ExecutionID: executionID, UpdatedAt: now},
+			Publication:      viewer.PublicationMetadata{State: "READY", Generation: generation, ExecutionID: executionID, UpdatedAt: now},
 			Status:           explorer.RevisionReady, CreatedBy: "test", CreatedAt: now, ReadyAt: &readyAt,
 		},
 	}
@@ -462,7 +464,7 @@ func assertProjectConfigActive(t *testing.T, ctx context.Context, store *Store, 
 	if err != nil {
 		t.Fatalf("load config owner %q: %v", id, err)
 	}
-	if owner.ManagementMode != explorer.ManagementRepository || owner.ProjectConfig == nil || owner.ActiveRevisionID != revisionID {
+	if owner.ManagementMode != viewer.ManagementRepository || owner.ProjectConfig == nil || owner.ActiveRevisionID != revisionID {
 		t.Fatalf("config owner %q = %+v, want active revision %q", id, owner, revisionID)
 	}
 	revision, err := store.GetRevision(ctx, revisionID)

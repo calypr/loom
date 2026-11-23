@@ -10,6 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -22,7 +27,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -36,7 +40,7 @@ type agreementPublicationStore struct {
 	releaseRevision int64
 }
 
-func (s *agreementPublicationStore) PublishAuthoring(_ context.Context, receipt explorer.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expected int64) (*explorer.Revision, error) {
+func (s *agreementPublicationStore) PublishAuthoring(_ context.Context, receipt receiptmodel.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expected int64) (*explorer.Revision, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	key := explorerfixtures.Key(revision.Project, revision.ExplorerID)
@@ -62,7 +66,7 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 	if before.StatusCode != http.StatusOK {
 		t.Fatalf("initial Viewer status=%d body=%s", before.StatusCode, before.Body)
 	}
-	var beforeState explorer.ExplorerStateV1
+	var beforeState viewer.ExplorerStateV1
 	if err := json.Unmarshal([]byte(before.Body), &beforeState); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +105,7 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 		t.Fatalf("persisted publication identity diverged from receipt: revision=%#v receipt=%#v", persisted, receipt)
 	}
 
-	unpublished, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	unpublished, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +132,7 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("fresh Viewer status=%d body=%s", response.StatusCode, response.Body)
 		}
-		var state explorer.ExplorerStateV1
+		var state viewer.ExplorerStateV1
 		if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
 			t.Fatal(err)
 		}
@@ -147,7 +151,7 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 		if !reflect.DeepEqual(got, []string{"c_patient:Patient ID:string", "patient_count:Patient count:integer"}) {
 			t.Fatalf("Viewer public columns/types = %#v", got)
 		}
-		loadedWorkspace, err := authoringv2.DecodeWorkspace(state.Active.Bundle)
+		loadedWorkspace, err := ws.DecodeWorkspace(state.Active.Bundle)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -183,18 +187,18 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 	assertFreshViewer()
 }
 
-func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicationStore, *explorer.Service, *explorer.CompilationReceipt, *int, *bool) {
+func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicationStore, *explorer.Service, *receiptmodel.CompilationReceipt, *int, *bool) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	visible, order := true, 1
-	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, ws.Column{
 		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
-		Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &order},
+		Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}},
+		Table:  &ws.TablePresentation{Visible: &visible, Order: &order},
 	})
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -205,7 +209,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 		t.Fatal(err)
 	}
 	store := &agreementPublicationStore{testExplorerStore: newTestExplorerStore()}
-	_, err = store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "publication-agreement", Title: "Publication agreement", ManagementMode: explorer.ManagementInteractive, DraftConfig: raw, DraftDigest: digest, DraftVersion: 1})
+	_, err = store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "publication-agreement", Title: "Publication agreement", ManagementMode: viewer.ManagementInteractive, DraftConfig: raw, DraftDigest: digest, DraftVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +239,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 			}
 			return dataset.ProjectRelease{ID: "release-agreement", Project: project, Generation: generation}, 7, nil
 		},
-		MaterializeReceipt: func(_ context.Context, actual *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
+		MaterializeReceipt: func(_ context.Context, actual *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 			calls++
 			if actual.ID != receipt.ID || bindings.Project != "project-a" || bindings.DatasetGeneration != snapshot.Identity.Generation {
 				t.Fatalf("materializer received foreign receipt or generation: %#v %#v", actual, bindings)

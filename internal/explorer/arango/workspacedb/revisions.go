@@ -3,9 +3,11 @@ package workspacedb
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/explorer"
@@ -74,9 +76,9 @@ type immutableRevision struct {
 	RecipeDigest         string
 	ResolvedSchemaDigest string
 	SourceGeneration     string
-	Materializations     []explorer.Materialization
-	EmittedColumns       []explorer.EmittedColumn
-	Dataset              explorer.DatasetMetadata
+	Materializations     []viewer.Materialization
+	EmittedColumns       []viewer.EmittedColumn
+	Dataset              viewer.DatasetMetadata
 	QualityReports       []publication.QualityReport
 }
 
@@ -86,7 +88,7 @@ func revisionImmutableContent(value explorer.Revision) immutableRevision {
 		Config: append([]byte(nil), value.Config...), AuthoringBundle: append([]byte(nil), value.AuthoringBundle...), IntentDigest: value.IntentDigest,
 		CompilationReceiptID: value.CompilationReceiptID, PublicOutputContract: append([]byte(nil), value.PublicOutputContract...), Recipe: value.Recipe,
 		RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration,
-		Materializations: append([]explorer.Materialization(nil), value.Materializations...), EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Dataset: value.Dataset,
+		Materializations: append([]viewer.Materialization(nil), value.Materializations...), EmittedColumns: append([]viewer.EmittedColumn(nil), value.EmittedColumns...), Dataset: value.Dataset,
 		QualityReports: publication.CloneQualityReports(value.QualityReports),
 	}
 }
@@ -107,7 +109,7 @@ func (s *RevisionStore) GetRevision(ctx context.Context, id string) (*explorer.R
 	return out, nil
 }
 
-func (s *RevisionStore) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+func (s *RevisionStore) FailRevision(ctx context.Context, id string, diagnostics []viewer.Diagnostic) (*explorer.Revision, error) {
 	now := time.Now().UTC()
 	patch := map[string]any{"status": explorer.RevisionFailed, "diagnostics": diagnostics, "failedAt": now}
 	var out *explorer.Revision

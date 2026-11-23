@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -17,7 +19,7 @@ func (e *PreviewResolutionError) Unwrap() error { return e.Err }
 
 func ClassifyPreviewResolutionError(receiptID string, err error) error {
 	var mismatch *ContractMismatch
-	if errors.As(err, &mismatch) || errors.Is(err, explorer.ErrReceiptRecompileRequired) {
+	if errors.As(err, &mismatch) || errors.Is(err, receiptmodel.ErrReceiptRecompileRequired) {
 		return &PreviewResolutionError{ReceiptID: receiptID, Err: err}
 	}
 	return err

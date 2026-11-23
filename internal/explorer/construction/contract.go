@@ -1,8 +1,8 @@
 package construction
 
 import (
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -90,9 +90,9 @@ type RelatedFieldChoiceSearchRequest struct {
 }
 
 type RelatedFieldChoice struct {
-	ChoiceID string                                     `json:"choiceId"`
-	Label    string                                     `json:"label"`
-	Source   authoringv2.ConstructionRelatedFieldSource `json:"source"`
+	ChoiceID string                            `json:"choiceId"`
+	Label    string                            `json:"label"`
+	Source   ws.ConstructionRelatedFieldSource `json:"source"`
 }
 
 type RelatedFieldChoiceSearchResponse struct {
@@ -122,14 +122,14 @@ type RelatedExpandContributorChoiceSearchRequest struct {
 }
 
 type RelatedExpandContributorChoice struct {
-	ChoiceID             string                                     `json:"choiceId"`
-	Source               authoringv2.ConstructionRelatedFieldSource `json:"source"`
-	Label                string                                     `json:"label"`
-	Operators            []string                                   `json:"operators"`
-	SuggestedValues      []string                                   `json:"suggestedValues"`
-	SuggestionsComplete  bool                                       `json:"suggestionsComplete"`
-	SuggestionsTruncated bool                                       `json:"suggestionsTruncated"`
-	SuggestionsSource    string                                     `json:"suggestionsSource"`
+	ChoiceID             string                            `json:"choiceId"`
+	Source               ws.ConstructionRelatedFieldSource `json:"source"`
+	Label                string                            `json:"label"`
+	Operators            []string                          `json:"operators"`
+	SuggestedValues      []string                          `json:"suggestedValues"`
+	SuggestionsComplete  bool                              `json:"suggestionsComplete"`
+	SuggestionsTruncated bool                              `json:"suggestionsTruncated"`
+	SuggestionsSource    string                            `json:"suggestionsSource"`
 }
 
 type RelatedExpandContributorChoiceSearchResponse struct {

@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
-	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 )
 
 func TestConstructionStageWithoutRelatedAnchorsSurvivesReceiptJSON(t *testing.T) {
@@ -19,7 +19,7 @@ func TestConstructionStageWithoutRelatedAnchorsSurvivesReceiptJSON(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored explorer.ReceiptConstructionStage
+	var stored receiptmodel.ReceiptConstructionStage
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}

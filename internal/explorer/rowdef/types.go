@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -18,15 +22,15 @@ import (
 type CompileRequest struct {
 	Project               string
 	ExplorerID            string
-	Workspace             authoringv2.Workspace
+	Workspace             ws.Workspace
 	SnapshotToken         string
 	RequestID             string
-	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
+	RowDefinitionProposal *receiptmodel.RowDefinitionProposalBinding
 }
 
 type Store interface {
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
-	RevisionWorkspace(context.Context, explorer.Revision) (authoringv2.Workspace, error)
+	RevisionWorkspace(context.Context, explorer.Revision) (ws.Workspace, error)
 }
 
 type Config struct {
@@ -35,15 +39,15 @@ type Config struct {
 	Capability                 ports.CapabilityResolver
 
 	GetOwner                       func(context.Context, string, string) (*explorer.Explorer, error)
-	Compile                        func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
-	LookupReceipt                  func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
-	ValidateExecutableReceiptRoute func(*explorer.CompilationReceipt, string, string) error
-	VerifyProposalReceipt          func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
-	PrepareCandidateWorkspace      func(authoringv2.Workspace, string, bool) (authoringv2.Workspace, error)
+	Compile                        func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	LookupReceipt                  func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	ValidateExecutableReceiptRoute func(*receiptmodel.CompilationReceipt, string, string) error
+	VerifyProposalReceipt          func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
+	PrepareCandidateWorkspace      func(ws.Workspace, string, bool) (ws.Workspace, error)
 
-	PreviewReceipt        func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
-	ValidateReceiptStream func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error
-	RowLineage            func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
+	PreviewReceipt        func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
+	ValidateReceiptStream func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error
+	RowLineage            func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
 	RowChoiceResolver     RowChoiceResolver
 	RowChoicePlanner      RowChoicePlanner
@@ -75,9 +79,9 @@ type AssessRowChangeRequest struct {
 }
 
 type AssessRowChangeResult struct {
-	CandidateDocument    *authoringv2.Document
-	CandidateNetwork     *authoringv2.AuthoringNetwork
-	CandidateRowIdentity *authoringv2.RowIdentityPlan
+	CandidateDocument    *ws.Document
+	CandidateNetwork     *ws.AuthoringNetwork
+	CandidateRowIdentity *ws.RowIdentityPlan
 	SnapshotToken        string
 	DraftVersion         int64
 	DraftDigest          string
@@ -138,18 +142,18 @@ type RowDefinitionSelection struct {
 }
 
 type FieldGroupSelection struct {
-	RowChoiceID      string                       `json:"rowChoiceId"`
-	MissingKeyPolicy authoringv2.MissingKeyPolicy `json:"missingKeyPolicy"`
+	RowChoiceID      string              `json:"rowChoiceId"`
+	MissingKeyPolicy ws.MissingKeyPolicy `json:"missingKeyPolicy"`
 }
 
 type ExplicitGroupSelection struct {
-	RevisionID             string                             `json:"revisionId"`
-	UnassignedMemberPolicy authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicy"`
+	RevisionID             string                    `json:"revisionId"`
+	UnassignedMemberPolicy ws.UnassignedMemberPolicy `json:"unassignedMemberPolicy"`
 }
 
 type ExpandedSelection struct {
-	RowChoiceID           string                            `json:"rowChoiceId"`
-	EmptyCollectionPolicy authoringv2.EmptyCollectionPolicy `json:"emptyCollectionPolicy"`
+	RowChoiceID           string                   `json:"rowChoiceId"`
+	EmptyCollectionPolicy ws.EmptyCollectionPolicy `json:"emptyCollectionPolicy"`
 }
 
 func (s RowDefinitionSelection) Validate() error {
@@ -181,7 +185,7 @@ func (s RowDefinitionSelection) Validate() error {
 			return err
 		}
 		switch s.FieldGroup.MissingKeyPolicy {
-		case authoringv2.MissingKeyError, authoringv2.MissingKeyExclude, authoringv2.MissingKeyGroupAsMissing:
+		case ws.MissingKeyError, ws.MissingKeyExclude, ws.MissingKeyGroupAsMissing:
 			return nil
 		default:
 			return fmt.Errorf("FIELD_GROUP missingKeyPolicy is unsupported")
@@ -194,7 +198,7 @@ func (s RowDefinitionSelection) Validate() error {
 			return err
 		}
 		switch s.ExplicitGroup.UnassignedMemberPolicy {
-		case authoringv2.UnassignedMemberError, authoringv2.UnassignedMemberExclude, authoringv2.UnassignedMemberGroupAsUnassigned:
+		case ws.UnassignedMemberError, ws.UnassignedMemberExclude, ws.UnassignedMemberGroupAsUnassigned:
 			return nil
 		default:
 			return fmt.Errorf("EXPLICIT_GROUP unassignedMemberPolicy is unsupported")
@@ -207,7 +211,7 @@ func (s RowDefinitionSelection) Validate() error {
 			return err
 		}
 		switch s.Expanded.EmptyCollectionPolicy {
-		case authoringv2.EmptyCollectionError, authoringv2.EmptyCollectionExclude, authoringv2.EmptyCollectionPreserveParent:
+		case ws.EmptyCollectionError, ws.EmptyCollectionExclude, ws.EmptyCollectionPreserveParent:
 			return nil
 		default:
 			return fmt.Errorf("EXPANDED emptyCollectionPolicy is unsupported")
@@ -276,17 +280,17 @@ type RowDefinitionComparison struct {
 }
 
 type RowDefinitionProposal struct {
-	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`
-	CandidateNetwork         authoringv2.AuthoringNetwork `json:"candidateNetwork"`
-	CandidateRowIdentity     authoringv2.RowIdentityPlan  `json:"candidateRowIdentity"`
-	ProposalID               string                       `json:"proposalId,omitempty"`
-	BaseReceiptID            string                       `json:"baseReceiptId"`
-	OutputID                 string                       `json:"outputId"`
-	SnapshotToken            string                       `json:"snapshotToken"`
-	DraftVersion             int64                        `json:"draftVersion"`
-	DraftDigest              string                       `json:"draftDigest"`
-	BaseDocumentDigest       string                       `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                       `json:"candidateWorkspaceDigest"`
-	Mode                     RowDefinitionSelectionKind   `json:"mode"`
-	Comparison               RowDefinitionComparison      `json:"comparison"`
+	CandidateDocument        ws.Document                `json:"candidateDocument"`
+	CandidateNetwork         ws.AuthoringNetwork        `json:"candidateNetwork"`
+	CandidateRowIdentity     ws.RowIdentityPlan         `json:"candidateRowIdentity"`
+	ProposalID               string                     `json:"proposalId,omitempty"`
+	BaseReceiptID            string                     `json:"baseReceiptId"`
+	OutputID                 string                     `json:"outputId"`
+	SnapshotToken            string                     `json:"snapshotToken"`
+	DraftVersion             int64                      `json:"draftVersion"`
+	DraftDigest              string                     `json:"draftDigest"`
+	BaseDocumentDigest       string                     `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                     `json:"candidateWorkspaceDigest"`
+	Mode                     RowDefinitionSelectionKind `json:"mode"`
+	Comparison               RowDefinitionComparison    `json:"comparison"`
 }

@@ -76,25 +76,25 @@ func sortSelectionMembers(members []explorerselection.SelectionMember) {
 }
 
 type explicitGroupRepositoryFixture struct {
-	explorer.ExplicitGroupRepository
-	header        *explorer.ExplicitGroupRevision
+	explorerselection.ExplicitGroupRepository
+	header        *explorerselection.ExplicitGroupRevision
 	writer        string
-	definitions   []explorer.ExplicitGroupDefinition
-	memberships   []explorer.ExplicitGroupMembership
+	definitions   []explorerselection.ExplicitGroupDefinition
+	memberships   []explorerselection.ExplicitGroupMembership
 	appendErr     error
 	beginCalls    int
 	abortCalls    int
 	completeCalls int
 }
 
-func (r *explicitGroupRepositoryFixture) BeginExplicitGroupRevision(_ context.Context, header explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision, writer string) (*explorer.ExplicitGroupRevision, error) {
+func (r *explicitGroupRepositoryFixture) BeginExplicitGroupRevision(_ context.Context, header explorerselection.ExplicitGroupRevision, source explorerselection.SelectionRevision, writer string) (*explorerselection.ExplicitGroupRevision, error) {
 	r.beginCalls++
 	if err := header.ValidateSourceSelection(source); err != nil {
 		return nil, err
 	}
 	if r.header != nil {
 		if r.header.ID != header.ID || r.header.SourceSelectionRevisionID != header.SourceSelectionRevisionID {
-			return nil, explorer.ErrExplicitGroupRevisionConflict
+			return nil, explorerselection.ErrExplicitGroupRevisionConflict
 		}
 		value := *r.header
 		return &value, nil
@@ -104,11 +104,11 @@ func (r *explicitGroupRepositoryFixture) BeginExplicitGroupRevision(_ context.Co
 	return &value, nil
 }
 
-func (r *explicitGroupRepositoryFixture) PutExplicitGroupDefinitions(_ context.Context, id explorer.ExplicitGroupRevisionID, writer string, groups []explorer.ExplicitGroupDefinition) error {
-	if r.header == nil || r.header.ID != id || r.writer != writer || r.header.State != explorer.ExplicitGroupRevisionStaging {
-		return explorer.ErrExplicitGroupRevisionConflict
+func (r *explicitGroupRepositoryFixture) PutExplicitGroupDefinitions(_ context.Context, id explorerselection.ExplicitGroupRevisionID, writer string, groups []explorerselection.ExplicitGroupDefinition) error {
+	if r.header == nil || r.header.ID != id || r.writer != writer || r.header.State != explorerselection.ExplicitGroupRevisionStaging {
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
-	canonical, err := explorer.CanonicalExplicitGroupDefinitions(groups)
+	canonical, err := explorerselection.CanonicalExplicitGroupDefinitions(groups)
 	if err != nil {
 		return err
 	}
@@ -116,14 +116,14 @@ func (r *explicitGroupRepositoryFixture) PutExplicitGroupDefinitions(_ context.C
 	return nil
 }
 
-func (r *explicitGroupRepositoryFixture) AppendExplicitGroupMemberships(_ context.Context, id explorer.ExplicitGroupRevisionID, writer string, memberships []explorer.ExplicitGroupMembership) ([]explorer.ExplicitGroupMembership, error) {
+func (r *explicitGroupRepositoryFixture) AppendExplicitGroupMemberships(_ context.Context, id explorerselection.ExplicitGroupRevisionID, writer string, memberships []explorerselection.ExplicitGroupMembership) ([]explorerselection.ExplicitGroupMembership, error) {
 	if r.appendErr != nil {
 		return nil, r.appendErr
 	}
-	if r.header == nil || r.header.ID != id || r.writer != writer || r.header.State != explorer.ExplicitGroupRevisionStaging {
-		return nil, explorer.ErrExplicitGroupRevisionConflict
+	if r.header == nil || r.header.ID != id || r.writer != writer || r.header.State != explorerselection.ExplicitGroupRevisionStaging {
+		return nil, explorerselection.ErrExplicitGroupRevisionConflict
 	}
-	canonical, err := explorer.CanonicalExplicitGroupMemberships(*r.header, r.definitions, memberships)
+	canonical, err := explorerselection.CanonicalExplicitGroupMemberships(*r.header, r.definitions, memberships)
 	if err != nil {
 		return nil, err
 	}
@@ -131,45 +131,45 @@ func (r *explicitGroupRepositoryFixture) AppendExplicitGroupMemberships(_ contex
 	return canonical, nil
 }
 
-func (r *explicitGroupRepositoryFixture) DigestExplicitGroupRevision(_ context.Context, _ string, id explorer.ExplicitGroupRevisionID) (string, string, int64, int64, error) {
+func (r *explicitGroupRepositoryFixture) DigestExplicitGroupRevision(_ context.Context, _ string, id explorerselection.ExplicitGroupRevisionID) (string, string, int64, int64, error) {
 	if r.header == nil || r.header.ID != id {
-		return "", "", 0, 0, explorer.ErrExplicitGroupRevisionNotFound
+		return "", "", 0, 0, explorerselection.ErrExplicitGroupRevisionNotFound
 	}
-	definitionDigest, err := explorer.ExplicitGroupDefinitionDigest(r.definitions)
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(r.definitions)
 	if err != nil {
 		return "", "", 0, 0, err
 	}
-	membershipDigest, err := explorer.ExplicitGroupMembershipDigest(*r.header, r.definitions, r.memberships)
+	membershipDigest, err := explorerselection.ExplicitGroupMembershipDigest(*r.header, r.definitions, r.memberships)
 	if err != nil {
 		return "", "", 0, 0, err
 	}
-	canonical, err := explorer.CanonicalExplicitGroupMemberships(*r.header, r.definitions, r.memberships)
+	canonical, err := explorerselection.CanonicalExplicitGroupMemberships(*r.header, r.definitions, r.memberships)
 	return definitionDigest, membershipDigest, int64(len(r.definitions)), int64(len(canonical)), err
 }
 
-func (r *explicitGroupRepositoryFixture) CompleteExplicitGroupRevision(_ context.Context, id explorer.ExplicitGroupRevisionID, writer, definitionDigest, membershipDigest string, groupCount, memberCount int64, at time.Time) (*explorer.ExplicitGroupRevision, error) {
+func (r *explicitGroupRepositoryFixture) CompleteExplicitGroupRevision(_ context.Context, id explorerselection.ExplicitGroupRevisionID, writer, definitionDigest, membershipDigest string, groupCount, memberCount int64, at time.Time) (*explorerselection.ExplicitGroupRevision, error) {
 	if r.header == nil || r.header.ID != id || r.writer != writer {
-		return nil, explorer.ErrExplicitGroupRevisionConflict
+		return nil, explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	actualDefinition, actualMembership, actualGroups, actualMembers, err := r.DigestExplicitGroupRevision(context.Background(), r.header.Project, id)
 	if err != nil {
 		return nil, err
 	}
 	if actualDefinition != definitionDigest || actualMembership != membershipDigest || actualGroups != groupCount || actualMembers != memberCount {
-		return nil, explorer.ErrExplicitGroupRevisionConflict
+		return nil, explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	r.completeCalls++
 	r.header.DefinitionDigest, r.header.MembershipDigest = definitionDigest, membershipDigest
 	r.header.GroupCount, r.header.MemberCount = groupCount, memberCount
-	r.header.State = explorer.ExplicitGroupRevisionComplete
+	r.header.State = explorerselection.ExplicitGroupRevisionComplete
 	r.header.CompletedAt = &at
 	return r.header, nil
 }
 
-func (r *explicitGroupRepositoryFixture) AbortExplicitGroupRevision(_ context.Context, id explorer.ExplicitGroupRevisionID, writer string) error {
+func (r *explicitGroupRepositoryFixture) AbortExplicitGroupRevision(_ context.Context, id explorerselection.ExplicitGroupRevisionID, writer string) error {
 	r.abortCalls++
 	if r.header == nil || r.header.ID != id || r.writer != writer {
-		return explorer.ErrExplicitGroupRevisionConflict
+		return explorerselection.ErrExplicitGroupRevisionConflict
 	}
 	r.header, r.definitions, r.memberships = nil, nil, nil
 	return nil
@@ -188,13 +188,13 @@ func TestCreateExplicitGroupRevisionPreservesEmptyAndOverlappingMemberships(t *t
 	if len(repository.definitions) != 3 || repository.definitions[2].ID != "group-empty" {
 		t.Fatalf("empty group definition was lost: %#v", repository.definitions)
 	}
-	want := []explorer.ExplicitGroupMembership{
+	want := []explorerselection.ExplicitGroupMembership{
 		{GroupID: "group-a", Ref: selectionStore.members[0].Ref},
 		{GroupID: "group-a", Ref: selectionStore.members[1].Ref},
 		{GroupID: "group-b", Ref: selectionStore.members[1].Ref},
 		{GroupID: "group-b", Ref: selectionStore.members[2].Ref},
 	}
-	got, err := explorer.CanonicalExplicitGroupMemberships(*repository.header, repository.definitions, repository.memberships)
+	got, err := explorerselection.CanonicalExplicitGroupMemberships(*repository.header, repository.definitions, repository.memberships)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("stored memberships = %#v err=%v, want %#v", got, err, want)
 	}

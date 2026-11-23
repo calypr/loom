@@ -2,6 +2,8 @@ package explorer
 
 import (
 	"context"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 type ViewBuilderMutation struct {
@@ -13,9 +15,9 @@ type ViewBuilderMutation struct {
 }
 
 type ViewBuilderRepository interface {
-	GetViewBuilderSettings(context.Context, string) (ViewBuilderSettings, error)
+	GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error)
 	SaveViewBuilderConfig(context.Context, ViewBuilderMutation) error
 	DeleteViewBuilderConfig(context.Context, string, string, string) error
-	SaveViewBuilderDefaults(context.Context, string, ViewBuilderDefaultsRequest) error
+	SaveViewBuilderDefaults(context.Context, string, viewer.ViewBuilderDefaultsRequest) error
 	AdoptViewBuilderCatalogs(context.Context, string) error
 }

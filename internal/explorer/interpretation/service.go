@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 type Repository interface {
@@ -211,11 +211,11 @@ func (s *Service) CreateInterpretationRevision(ctx context.Context, request Crea
 	return *created, nil
 }
 
-func ConfiguredPinnedRevisionIDs(workspace authoringv2.Workspace) (map[InterpretationRevisionID]struct{}, error) {
+func ConfiguredPinnedRevisionIDs(workspace ws.Workspace) (map[InterpretationRevisionID]struct{}, error) {
 	ids := make(map[InterpretationRevisionID]struct{})
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
-			if column.Interpretation == nil || column.Interpretation.Kind != authoringv2.FeatureInterpretationPinned {
+			if column.Interpretation == nil || column.Interpretation.Kind != ws.FeatureInterpretationPinned {
 				continue
 			}
 			if column.Interpretation.Pinned == nil {

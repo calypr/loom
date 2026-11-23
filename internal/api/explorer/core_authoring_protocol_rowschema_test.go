@@ -12,6 +12,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -23,7 +28,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -92,7 +96,7 @@ func c19ExpectRestoreHistory(t *testing.T, storeName, pointer, undoTarget string
 	if preRestore.DraftVersion != savedVersion || preRestore.DraftDigest != savedDigest {
 		t.Fatalf("%s: pointer revision=%d/%q want the pre-restore head %d/%q", storeName, preRestore.DraftVersion, preRestore.DraftDigest, savedVersion, savedDigest)
 	}
-	preRestoreWorkspace, err := authoringv2.DecodeWorkspace(preRestore.DraftConfig)
+	preRestoreWorkspace, err := ws.DecodeWorkspace(preRestore.DraftConfig)
 	if err != nil {
 		t.Fatalf("%s: decode pointer revision bytes: %v", storeName, err)
 	}
@@ -106,7 +110,7 @@ func c19ExpectRestoreHistory(t *testing.T, storeName, pointer, undoTarget string
 	if restoredFrom.DraftVersion != baselineVersion || restoredFrom.DraftDigest != baselineDigest {
 		t.Fatalf("%s: undo revision=%d/%q want the restored-from head %d/%q", storeName, restoredFrom.DraftVersion, restoredFrom.DraftDigest, baselineVersion, baselineDigest)
 	}
-	restoredFromWorkspace, err := authoringv2.DecodeWorkspace(restoredFrom.DraftConfig)
+	restoredFromWorkspace, err := ws.DecodeWorkspace(restoredFrom.DraftConfig)
 	if err != nil {
 		t.Fatalf("%s: decode undo revision bytes: %v", storeName, err)
 	}
@@ -116,7 +120,7 @@ func c19ExpectRestoreHistory(t *testing.T, storeName, pointer, undoTarget string
 	t.Logf("C19 (:69/:388) %s: restore head pointer names the pre-restore snapshot (version %d, the redo slot) while the consumed undo target names the restored-from revision (version %d); pointer and undo target are distinct store-minted ids, matching internal/explorer/lifecycle/draft_restore.go:33/47 and the store write path", storeName, savedVersion, baselineVersion)
 }
 
-func c19AuthoredLabel(workspace authoringv2.Workspace, column string) string {
+func c19AuthoredLabel(workspace ws.Workspace, column string) string {
 	for _, document := range workspace.Documents {
 		for _, candidate := range document.Columns {
 			if candidate.Column == column {
@@ -171,36 +175,36 @@ func c19CapabilitySnapshot() capability.Snapshot {
 	)
 }
 
-func c19Workspace(t *testing.T, snapshot capability.Snapshot) authoringv2.Workspace {
+func c19Workspace(t *testing.T, snapshot capability.Snapshot) ws.Workspace {
 	t.Helper()
 	raw := c19AuthoredWorkspace()
-	prepared, err := authoringv2.PrepareWorkspaceForCompilation(raw, authoringv2.CatalogFromCapability(snapshot, c19ExplorerID))
+	prepared, err := ws.PrepareWorkspaceForCompilation(raw, ws.CatalogFromCapability(snapshot, c19ExplorerID))
 	if err != nil {
 		t.Fatalf("prepare seed workspace: %v", err)
 	}
 	return prepared
 }
 
-func c19AuthoredWorkspace() authoringv2.Workspace {
-	scalar := func(path string) *authoringv2.FieldSource {
-		return &authoringv2.FieldSource{Path: path, ProjectionMode: "VALUE"}
+func c19AuthoredWorkspace() ws.Workspace {
+	scalar := func(path string) *ws.FieldSource {
+		return &ws.FieldSource{Path: path, ProjectionMode: "VALUE"}
 	}
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-			Output:           authoringv2.Output{ID: c19OutputID, Title: "Patients", RowLabel: "Patients"},
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+			Output:           ws.Output{ID: c19OutputID, Title: "Patients", RowLabel: "Patients"},
 			RootResourceType: "Patient",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []authoringv2.Column{
-				{ColumnID: "id", Column: c19ColumnPatient, Label: c19LabelPatient, LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: scalar("id")}},
-				{ColumnID: "active", Column: c19ColumnActive, Label: c19LabelActive, LogicalType: "boolean", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: scalar("active")}},
-				{ColumnID: "birth_order", Column: c19ColumnBirthOrder, Label: c19LabelBirthOrder, LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: scalar("multipleBirthInteger")}},
-				{ColumnID: "birth_date", Column: c19ColumnBirthDate, Label: c19LabelBirthDate, LogicalType: "date", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: scalar("birthDate")}},
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{
+				{ColumnID: "id", Column: c19ColumnPatient, Label: c19LabelPatient, LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: scalar("id")}},
+				{ColumnID: "active", Column: c19ColumnActive, Label: c19LabelActive, LogicalType: "boolean", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: scalar("active")}},
+				{ColumnID: "birth_order", Column: c19ColumnBirthOrder, Label: c19LabelBirthOrder, LogicalType: "integer", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: scalar("multipleBirthInteger")}},
+				{ColumnID: "birth_date", Column: c19ColumnBirthDate, Label: c19LabelBirthDate, LogicalType: "date", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: scalar("birthDate")}},
 			},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: c19OutputID, Order: 0, Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: c19OutputID, Order: 0, Visible: true}},
 	}
 }
 
@@ -271,7 +275,7 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 	}
 	store := newTestExplorerStore()
 	if _, err := store.Create(context.Background(), explorer.Explorer{
-		Project: c19Project, ExplorerID: c19ExplorerID, Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: c19Project, ExplorerID: c19ExplorerID, Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -301,15 +305,15 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -831,7 +835,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		t.Fatal(err)
 	}
 	if _, err := store.Create(ctx, explorer.Explorer{
-		Project: c19Project, ExplorerID: c19ExplorerID, Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: c19Project, ExplorerID: c19ExplorerID, Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -860,15 +864,15 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -903,7 +907,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	if persisted.DraftVersion != 2 || persisted.DraftDigest != ack.DraftDigest {
 		t.Fatalf("persisted Arango head disagrees with the acknowledgement: version=%d digest=%q ack=%+v", persisted.DraftVersion, persisted.DraftDigest, ack)
 	}
-	persistedWorkspace, err := authoringv2.DecodeWorkspace(persisted.DraftConfig)
+	persistedWorkspace, err := ws.DecodeWorkspace(persisted.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode persisted Arango draft: %v raw=%s", err, persisted.DraftConfig)
 	}
@@ -955,7 +959,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	if restarted.DraftVersion != restoredVersion || restarted.DraftDigest != restoredDigest {
 		t.Fatalf("fresh repository head=%d/%q want %d/%q", restarted.DraftVersion, restarted.DraftDigest, restoredVersion, restoredDigest)
 	}
-	restartedWorkspace, err := authoringv2.DecodeWorkspace(restarted.DraftConfig)
+	restartedWorkspace, err := ws.DecodeWorkspace(restarted.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode restored Arango draft: %v raw=%s", err, restarted.DraftConfig)
 	}

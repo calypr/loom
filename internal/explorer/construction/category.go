@@ -9,13 +9,16 @@ import (
 	"strconv"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
@@ -34,7 +37,7 @@ type ConstructionCategoryDiscoveryRequest struct {
 	GroupKeyIDs           []string                           `json:"groupKeyIds,omitempty"`
 	PivotStepID           string                             `json:"pivotStepId,omitempty"`
 	PivotSources          []ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
-	CandidateConstruction *authoringv2.Construction          `json:"candidateConstruction,omitempty"`
+	CandidateConstruction *ws.Construction                   `json:"candidateConstruction,omitempty"`
 
 	compileCandidate bool
 }
@@ -74,8 +77,8 @@ func (r ConstructionCategoryDiscoveryRequest) Validate() error {
 }
 
 type ConstructionDiscoveredCategory struct {
-	Key   authoringv2.TableScalar `json:"key"`
-	Label string                  `json:"label"`
+	Key   ws.TableScalar `json:"key"`
+	Label string         `json:"label"`
 }
 
 type ConstructionCategoryDiscoveryResponse struct {
@@ -103,9 +106,9 @@ const (
 
 type constructionScanFlow struct {
 	loadBase                   func(context.Context, string, string, string, int64, string, string) (Base, error)
-	compile                    func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
-	verifyProposalReceipt      func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
-	withPivotSources           func(context.Context, Base, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, map[string]bool, error)
+	compile                    func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	verifyProposalReceipt      func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
+	withPivotSources           func(context.Context, Base, ConstructionProposalRequest, ws.Construction) (ws.Construction, map[string]bool, error)
 	scanCategories             CategoryScanner
 	scanPopulation             ColumnPopulationScanner
 	selectionMembersCollection string
@@ -124,7 +127,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	if err != nil {
 		return Base{}, "", malformed("construction-category-discovery", "candidateConstruction is invalid", err)
 	}
-	var candidate authoringv2.Construction
+	var candidate ws.Construction
 	if err := json.Unmarshal(raw, &candidate); err != nil {
 		return Base{}, "", malformed("construction-category-discovery", "candidateConstruction is invalid", err)
 	}
@@ -141,28 +144,28 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		if len(groupKeys) == 0 {
 			return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_ROW_KEY_REQUIRED", "choose at least one row key before discovering Pivot categories", nil)
 		}
-		input := authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputSourceProjection}
+		input := ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}
 		if request.StageID != recipe.ConstructionSourceProjectionID {
 			inputIndex := constructionStepIndex(candidate.Steps, request.StageID)
 			if inputIndex < 0 {
 				return Base{}, "", conflict("construction-category-discovery", "STALE_STAGE_REFERENCE", "the requested input stage is not present in candidateConstruction", nil, nil)
 			}
 			candidate.Steps = candidate.Steps[:inputIndex+1]
-			input = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: request.StageID}
+			input = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: request.StageID}
 		}
-		candidate.Steps = append(candidate.Steps, authoringv2.ConstructionStep{
-			ID: request.PivotStepID, Inputs: []authoringv2.ConstructionInputRef{input},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+		candidate.Steps = append(candidate.Steps, ws.ConstructionStep{
+			ID: request.PivotStepID, Inputs: []ws.ConstructionInputRef{input},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 				ConstructionID: request.PivotStepID, GroupKeyIDs: groupKeys,
 				CategoryColumnID: request.CategoryColumnID, ValueColumnID: request.ValueColumnID,
-				DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-				MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-				UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+				DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+				MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 			}},
 		})
 		pivotIndex = len(candidate.Steps) - 1
 	}
-	if candidate.Steps[pivotIndex].Operation.Kind != authoringv2.ConstructionOperationPivot || candidate.Steps[pivotIndex].Operation.Pivot == nil {
+	if candidate.Steps[pivotIndex].Operation.Kind != ws.ConstructionOperationPivot || candidate.Steps[pivotIndex].Operation.Pivot == nil {
 		return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "pivotStepId must identify the candidate Pivot", nil)
 	}
 	pivot := candidate.Steps[pivotIndex].Operation.Pivot
@@ -184,7 +187,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate Pivot was not preserved", nil)
 	}
 
-	candidate.Steps = append([]authoringv2.ConstructionStep(nil), candidate.Steps[:pivotIndex+1]...)
+	candidate.Steps = append([]ws.ConstructionStep(nil), candidate.Steps[:pivotIndex+1]...)
 	candidate.SourceProjections = pruneConstructionCategorySourceProjections(candidate.SourceProjections, candidate.Steps)
 	pivotStep := &candidate.Steps[pivotIndex]
 	inputStageID := constructionStepInputStageID(*pivotStep)
@@ -192,7 +195,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	if err != nil {
 		return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 	}
-	inputByID := make(map[string]authoringv2.StageColumn, len(inputColumns))
+	inputByID := make(map[string]ws.StageColumn, len(inputColumns))
 	for _, column := range inputColumns {
 		inputByID[column.ID] = column
 	}
@@ -209,11 +212,11 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	pivotPayload := pivotStep.Operation.Pivot
 
 	pivotPayload.Discovery = nil
-	pivotPayload.Categories = []authoringv2.ConstructionPivotCategory{{Key: key, OutputColumnID: probeID}}
-	pivotPayload.DuplicatePolicy = authoringv2.ConstructionPivotDuplicateError
-	pivotPayload.MissingCellPolicy = authoringv2.ConstructionPivotMissingNull
-	pivotPayload.UnlistedCategoryPolicy = authoringv2.ConstructionPivotUnlistedError
-	pivotStep.Outputs = make([]authoringv2.StageColumn, 0, len(pivotPayload.GroupKeyIDs)+1)
+	pivotPayload.Categories = []ws.ConstructionPivotCategory{{Key: key, OutputColumnID: probeID}}
+	pivotPayload.DuplicatePolicy = ws.ConstructionPivotDuplicateError
+	pivotPayload.MissingCellPolicy = ws.ConstructionPivotMissingNull
+	pivotPayload.UnlistedCategoryPolicy = ws.ConstructionPivotUnlistedError
+	pivotStep.Outputs = make([]ws.StageColumn, 0, len(pivotPayload.GroupKeyIDs)+1)
 	publicNames := make(map[string]bool, len(inputColumns))
 	if sourceStage, found := constructionReceiptStage(base.Stages, request.StageID); found {
 		for _, column := range sourceStage.Columns {
@@ -234,18 +237,18 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		publicNames[strings.ToLower(column.Name)] = true
 		pivotStep.Outputs = append(pivotStep.Outputs, column)
 	}
-	pivotStep.Outputs = append(pivotStep.Outputs, authoringv2.StageColumn{
+	pivotStep.Outputs = append(pivotStep.Outputs, ws.StageColumn{
 		ID: probeID, Name: "__category_discovery_probe", Label: "Category discovery probe", Type: value.Type,
 	})
 
-	document, err := authoringv2.StartDocumentConstruction(base.Document)
+	document, err := ws.StartDocumentConstruction(base.Document)
 	if err != nil {
 		return Base{}, "", unprocessable("construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE", "the output cannot be upgraded for temporary category discovery", err)
 	}
 	document.Construction = &candidate
 	document.ArchiveRetiredShape = nil
 	workspace := base.Workspace
-	workspace.Documents = append([]authoringv2.Document(nil), base.Workspace.Documents...)
+	workspace.Documents = append([]ws.Document(nil), base.Workspace.Documents...)
 	documentIndex := constructionDocumentIndex(workspace, request.OutputID)
 	if documentIndex < 0 {
 		return Base{}, "", conflict("construction-category-discovery", "OUTPUT_NOT_FOUND", "the output is missing from the candidate workspace", nil, nil)
@@ -296,7 +299,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 		}
 		request.StageID = scanStageID
 	}
-	var stage *explorer.ReceiptConstructionStage
+	var stage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == request.StageID {
 			stage = &base.Stages[index]
@@ -403,18 +406,18 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 }
 
 func pruneConstructionCategorySourceProjections(
-	projections []authoringv2.ConstructionSourceProjection,
-	steps []authoringv2.ConstructionStep,
-) []authoringv2.ConstructionSourceProjection {
+	projections []ws.ConstructionSourceProjection,
+	steps []ws.ConstructionStep,
+) []ws.ConstructionSourceProjection {
 	owners := make(map[string]bool, len(steps))
 	for _, step := range steps {
 		switch step.Operation.Kind {
-		case authoringv2.ConstructionOperationPivot,
-			authoringv2.ConstructionOperationGroup,
-			authoringv2.ConstructionOperationFilter,
-			authoringv2.ConstructionOperationDerive,
-			authoringv2.ConstructionOperationUnpivot,
-			authoringv2.ConstructionOperationExpand:
+		case ws.ConstructionOperationPivot,
+			ws.ConstructionOperationGroup,
+			ws.ConstructionOperationFilter,
+			ws.ConstructionOperationDerive,
+			ws.ConstructionOperationUnpivot,
+			ws.ConstructionOperationExpand:
 			owners[step.ID] = true
 		}
 	}
@@ -427,7 +430,7 @@ func pruneConstructionCategorySourceProjections(
 	return pruned
 }
 
-func constructionPivotSourcePaths(construction authoringv2.Construction, pivotID string) map[string]string {
+func constructionPivotSourcePaths(construction ws.Construction, pivotID string) map[string]string {
 	paths := make(map[string]string)
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == pivotID {
@@ -435,7 +438,7 @@ func constructionPivotSourcePaths(construction authoringv2.Construction, pivotID
 		}
 	}
 	for _, step := range construction.Steps {
-		if step.OwnerStepID == pivotID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
+		if step.OwnerStepID == pivotID && step.Operation.Kind == ws.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
 			paths[step.Operation.RelatedField.OutputColumnID] = step.Operation.RelatedField.Source.Path
 		}
 	}
@@ -470,22 +473,22 @@ func uniqueConstructionPivotOutputName(fieldPath string, used map[string]bool) s
 	return name
 }
 
-func constructionProbeCategoryKey(typeName string) (authoringv2.TableScalar, error) {
+func constructionProbeCategoryKey(typeName string) (ws.TableScalar, error) {
 	switch expression.ValueKind(typeName) {
 	case expression.KindBoolean:
 		value := false
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarBoolean, Boolean: &value}, nil
+		return ws.TableScalar{Kind: ws.TableScalarBoolean, Boolean: &value}, nil
 	case expression.KindInteger:
 		value := int64(0)
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarInteger, Integer: &value}, nil
+		return ws.TableScalar{Kind: ws.TableScalarInteger, Integer: &value}, nil
 	case expression.KindDecimal:
 		value := float64(0)
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarDecimal, Decimal: &value}, nil
+		return ws.TableScalar{Kind: ws.TableScalarDecimal, Decimal: &value}, nil
 	case expression.KindString, expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
 		value := "__category_discovery_probe__"
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &value}, nil
+		return ws.TableScalar{Kind: ws.TableScalarString, String: &value}, nil
 	default:
-		return authoringv2.TableScalar{}, fmt.Errorf("unsupported scalar type %q", typeName)
+		return ws.TableScalar{}, fmt.Errorf("unsupported scalar type %q", typeName)
 	}
 }
 
@@ -513,7 +516,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 	if errors.As(err, &authoringErr) {
 		return err
 	}
-	if errors.Is(err, explorer.ErrReceiptRecompileRequired) {
+	if errors.Is(err, receiptmodel.ErrReceiptRecompileRequired) {
 		return conflict(stage, "RECEIPT_RECOMPILE_REQUIRED", "the compiled receipt no longer matches the current construction; refresh and try again", nil, cause)
 	}
 	if refusal, ok := facade.CategoryScanRefusalCodeOf(err); ok {
@@ -566,39 +569,39 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 	return internal(stage, "CATEGORY_DISCOVERY_FAILED", "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID", cause)
 }
 
-func constructionCategoryColumn(columns []explorer.ReceiptConstructionStageColumn, id string) (explorer.ReceiptConstructionStageColumn, bool) {
+func constructionCategoryColumn(columns []receiptmodel.ReceiptConstructionStageColumn, id string) (receiptmodel.ReceiptConstructionStageColumn, bool) {
 	for _, column := range columns {
 		if column.ID != id || column.ID == "" || column.Name == "" {
 			continue
 		}
 		if column.Cardinality != expression.RequiredOne && column.Cardinality != expression.OptionalOne {
-			return explorer.ReceiptConstructionStageColumn{}, false
+			return receiptmodel.ReceiptConstructionStageColumn{}, false
 		}
 		switch expression.ValueKind(column.Type) {
 		case expression.KindBoolean, expression.KindInteger, expression.KindDecimal, expression.KindString,
 			expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
 			return column, true
 		default:
-			return explorer.ReceiptConstructionStageColumn{}, false
+			return receiptmodel.ReceiptConstructionStageColumn{}, false
 		}
 	}
-	return explorer.ReceiptConstructionStageColumn{}, false
+	return receiptmodel.ReceiptConstructionStageColumn{}, false
 }
 
-func constructionCategoryScalar(value dataframeexecution.CategoryValue, kind string) (authoringv2.TableScalar, error) {
+func constructionCategoryScalar(value dataframeexecution.CategoryValue, kind string) (ws.TableScalar, error) {
 	if !value.Present {
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarMissing}, nil
+		return ws.TableScalar{Kind: ws.TableScalarMissing}, nil
 	}
 	if value.Value == nil {
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarNull}, nil
+		return ws.TableScalar{Kind: ws.TableScalarNull}, nil
 	}
 	switch expression.ValueKind(kind) {
 	case expression.KindString, expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
 		v, ok := value.Value.(string)
 		if !ok {
-			return authoringv2.TableScalar{}, fmt.Errorf("expected string, got %T", value.Value)
+			return ws.TableScalar{}, fmt.Errorf("expected string, got %T", value.Value)
 		}
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &v}, nil
+		return ws.TableScalar{Kind: ws.TableScalarString, String: &v}, nil
 	case expression.KindInteger:
 		var v int64
 		switch raw := value.Value.(type) {
@@ -611,13 +614,13 @@ func constructionCategoryScalar(value dataframeexecution.CategoryValue, kind str
 		case json.Number:
 			parsed, err := raw.Int64()
 			if err != nil {
-				return authoringv2.TableScalar{}, err
+				return ws.TableScalar{}, err
 			}
 			v = parsed
 		default:
-			return authoringv2.TableScalar{}, fmt.Errorf("expected integer, got %T", value.Value)
+			return ws.TableScalar{}, fmt.Errorf("expected integer, got %T", value.Value)
 		}
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarInteger, Integer: &v}, nil
+		return ws.TableScalar{Kind: ws.TableScalarInteger, Integer: &v}, nil
 	case expression.KindDecimal:
 		var v float64
 		switch raw := value.Value.(type) {
@@ -634,37 +637,37 @@ func constructionCategoryScalar(value dataframeexecution.CategoryValue, kind str
 		case json.Number:
 			parsed, err := strconv.ParseFloat(raw.String(), 64)
 			if err != nil {
-				return authoringv2.TableScalar{}, err
+				return ws.TableScalar{}, err
 			}
 			v = parsed
 		default:
-			return authoringv2.TableScalar{}, fmt.Errorf("expected decimal, got %T", value.Value)
+			return ws.TableScalar{}, fmt.Errorf("expected decimal, got %T", value.Value)
 		}
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarDecimal, Decimal: &v}, nil
+		return ws.TableScalar{Kind: ws.TableScalarDecimal, Decimal: &v}, nil
 	case expression.KindBoolean:
 		v, ok := value.Value.(bool)
 		if !ok {
-			return authoringv2.TableScalar{}, fmt.Errorf("expected boolean, got %T", value.Value)
+			return ws.TableScalar{}, fmt.Errorf("expected boolean, got %T", value.Value)
 		}
-		return authoringv2.TableScalar{Kind: authoringv2.TableScalarBoolean, Boolean: &v}, nil
+		return ws.TableScalar{Kind: ws.TableScalarBoolean, Boolean: &v}, nil
 	default:
-		return authoringv2.TableScalar{}, fmt.Errorf("unsupported category type %q", kind)
+		return ws.TableScalar{}, fmt.Errorf("unsupported category type %q", kind)
 	}
 }
 
-func constructionCategoryLabel(value authoringv2.TableScalar) string {
+func constructionCategoryLabel(value ws.TableScalar) string {
 	switch value.Kind {
-	case authoringv2.TableScalarMissing:
+	case ws.TableScalarMissing:
 		return "Missing"
-	case authoringv2.TableScalarNull:
+	case ws.TableScalarNull:
 		return "Null"
-	case authoringv2.TableScalarString:
+	case ws.TableScalarString:
 		return *value.String
-	case authoringv2.TableScalarInteger:
+	case ws.TableScalarInteger:
 		return strconv.FormatInt(*value.Integer, 10)
-	case authoringv2.TableScalarDecimal:
+	case ws.TableScalarDecimal:
 		return strconv.FormatFloat(*value.Decimal, 'f', -1, 64)
-	case authoringv2.TableScalarBoolean:
+	case ws.TableScalarBoolean:
 		return strconv.FormatBool(*value.Boolean)
 	default:
 		return strings.TrimSpace(string(value.Kind))
@@ -674,15 +677,15 @@ func constructionCategoryLabel(value authoringv2.TableScalar) string {
 func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 	ctx context.Context,
 	request ConstructionProposalRequest,
-	candidate authoringv2.Construction,
-	base *authoringv2.Construction,
+	candidate ws.Construction,
+	base *ws.Construction,
 	skip map[string]bool,
 ) ([]ConstructionProposalDiagnostic, error) {
 	if s.config.ScanCategories == nil {
 		return nil, nil
 	}
 	var diagnostics []ConstructionProposalDiagnostic
-	baseByID := make(map[string]authoringv2.ConstructionStep, len(candidate.Steps))
+	baseByID := make(map[string]ws.ConstructionStep, len(candidate.Steps))
 	if base != nil {
 		for _, step := range base.Steps {
 			baseByID[step.ID] = step
@@ -700,7 +703,7 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 			continue
 		}
 		pivot := step.Operation.Pivot
-		if step.Operation.Kind != authoringv2.ConstructionOperationPivot || pivot == nil || len(pivot.Categories) == 0 {
+		if step.Operation.Kind != ws.ConstructionOperationPivot || pivot == nil || len(pivot.Categories) == 0 {
 			continue
 		}
 		changed := step.ID == request.ChangedStepID

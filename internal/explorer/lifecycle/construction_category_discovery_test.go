@@ -5,19 +5,21 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 		t.Fatal(err)
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
-	upgraded, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	upgraded, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +64,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	invalidProof := false
 	noValues := false
 	presenceTracked := true
-	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		calls++
 		if receipt == nil || bindings.Project != request.Project || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != request.OutputID {
 			t.Fatalf("scanner received unbound receipt or runtime bindings: %#v %#v", receipt, bindings)
@@ -70,7 +72,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 		if scan.Output != request.OutputID || scan.StageID != request.StageID || scan.ColumnID != request.CategoryColumnID || scan.ValueColumnID != request.ValueColumnID || scan.MaxValues != 256 || !scan.RequireValue {
 			t.Fatalf("scanner received a different stage, pair, or value policy: %#v", scan)
 		}
-		var category explorer.ReceiptConstructionStageColumn
+		var category receiptmodel.ReceiptConstructionStageColumn
 		for _, stage := range receipt.ConstructionStages[request.OutputID] {
 			if stage.ID != request.StageID {
 				continue
@@ -140,8 +142,8 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	includeNull = true
 	withMissing, err := service.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || withMissing.Outcome != "COMPLETE" || !withMissing.Complete ||
-		len(withMissing.Categories) != 3 || withMissing.Categories[1].Key.Kind != authoringv2.TableScalarNull ||
-		withMissing.Categories[2].Key.Kind != authoringv2.TableScalarMissing {
+		len(withMissing.Categories) != 3 || withMissing.Categories[1].Key.Kind != ws.TableScalarNull ||
+		withMissing.Categories[2].Key.Kind != ws.TableScalarMissing {
 		t.Fatalf("presence-tracked missing-category discovery = %#v, error = %v", withMissing, err)
 	}
 	presenceTracked = false
@@ -181,7 +183,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 		t.Fatalf("no-value category discovery = %#v, error = %v", empty, err)
 	}
 	noValues = false
-	service.config.ScanCategories = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{}, context.DeadlineExceeded
 	}
 	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_TIMEOUT" {
@@ -189,7 +191,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	}
 }
 
-func compilerCategoryScanProof(request construction.ConstructionCategoryDiscoveryRequest, column explorer.ReceiptConstructionStageColumn) facade.CategoryScanProof {
+func compilerCategoryScanProof(request construction.ConstructionCategoryDiscoveryRequest, column receiptmodel.ReceiptConstructionStageColumn) facade.CategoryScanProof {
 	return facade.CategoryScanProof{
 		Version: 2, Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, Column: column.Name, Kind: column.Type,

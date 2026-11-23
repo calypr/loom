@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 type SourceRowDescriptor struct {
@@ -14,7 +17,7 @@ type SourceRowDescriptor struct {
 	PhysicalColumn string
 }
 
-func ResolveAddressableSourceRow(workspace authoringv2.Workspace, contract explorer.PublicOutputContract, emitted []explorer.EmittedColumn) (SourceRowDescriptor, error) {
+func ResolveAddressableSourceRow(workspace ws.Workspace, contract receiptmodel.PublicOutputContract, emitted []viewer.EmittedColumn) (SourceRowDescriptor, error) {
 	if err := workspace.Validate(); err != nil {
 		return SourceRowDescriptor{}, fmt.Errorf("authoring workspace: %w", err)
 	}
@@ -26,7 +29,7 @@ func ResolveAddressableSourceRow(workspace authoringv2.Workspace, contract explo
 	return SourceRowDescriptor{}, fmt.Errorf("authoring workspace has no output %q", contract.OutputID)
 }
 
-func resolveAddressableDocumentSourceRow(document authoringv2.Document, contract explorer.PublicOutputContract, emitted []explorer.EmittedColumn) (SourceRowDescriptor, error) {
+func resolveAddressableDocumentSourceRow(document ws.Document, contract receiptmodel.PublicOutputContract, emitted []viewer.EmittedColumn) (SourceRowDescriptor, error) {
 	if err := document.Validate(); err != nil {
 		return SourceRowDescriptor{}, fmt.Errorf("authoring document: %w", err)
 	}
@@ -46,10 +49,10 @@ func resolveAddressableDocumentSourceRow(document authoringv2.Document, contract
 	if err := spec.ValidateRootGrain(document.RootResourceType, grain); err != nil {
 		return SourceRowDescriptor{}, fmt.Errorf("source row grain: %w", err)
 	}
-	var source authoringv2.Column
+	var source ws.Column
 	found := false
 	for _, column := range document.Columns {
-		if column.OccurrenceID != authoringv2.RootOccurrenceID || column.Source.Kind != authoringv2.SourceField || column.Source.Field == nil {
+		if column.OccurrenceID != ws.RootOccurrenceID || column.Source.Kind != ws.SourceField || column.Source.Field == nil {
 			continue
 		}
 		path := strings.Trim(strings.TrimSpace(column.Source.Field.Path), ".")
@@ -67,7 +70,7 @@ func resolveAddressableDocumentSourceRow(document authoringv2.Document, contract
 	}
 	var physical string
 	for _, column := range emitted {
-		if column.OutputID != document.Output.ID || column.OccurrenceID != authoringv2.RootOccurrenceID || column.ProjectionMode != "VALUE" || column.SourceResourceType != document.RootResourceType || strings.Trim(strings.TrimSpace(column.SourcePath), ".") != "id" {
+		if column.OutputID != document.Output.ID || column.OccurrenceID != ws.RootOccurrenceID || column.ProjectionMode != "VALUE" || column.SourceResourceType != document.RootResourceType || strings.Trim(strings.TrimSpace(column.SourcePath), ".") != "id" {
 			continue
 		}
 		if column.PublicColumn == "" || column.PublicColumn == "__loom_row_id" {

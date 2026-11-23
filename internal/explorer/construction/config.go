@@ -4,10 +4,13 @@ import (
 	"context"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/proposal"
@@ -16,9 +19,9 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 )
 
-type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
+type CategoryScanner func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
-type ColumnPopulationScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
+type ColumnPopulationScanner func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
 
 type AcceptedConstruction struct {
 	Preview      proposal.PreviewResult
@@ -45,11 +48,11 @@ type FrameSourceFamilyCandidate struct {
 type CompileRequest struct {
 	Project               string
 	ExplorerID            string
-	Workspace             authoringv2.Workspace
+	Workspace             ws.Workspace
 	SnapshotToken         string
 	RequestID             string
-	ConstructionProposal  *explorer.ConstructionProposalBinding
-	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
+	ConstructionProposal  *receiptmodel.ConstructionProposalBinding
+	RowDefinitionProposal *receiptmodel.RowDefinitionProposalBinding
 }
 
 type PreviewRequest struct {
@@ -66,7 +69,7 @@ type PreviewRequest struct {
 
 type Store interface {
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
-	RevisionWorkspace(context.Context, explorer.Revision) (authoringv2.Workspace, error)
+	RevisionWorkspace(context.Context, explorer.Revision) (ws.Workspace, error)
 }
 
 type Config struct {
@@ -82,10 +85,10 @@ type Config struct {
 
 	CompileReceipt ports.ReceiptCompiler
 
-	Compile               func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
-	VerifyProposalReceipt func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
+	Compile               func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	VerifyProposalReceipt func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
 	GetOwner              func(context.Context, string, string) (*explorer.Explorer, error)
-	LookupReceipt         func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
+	LookupReceipt         func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
 	Preview               func(context.Context, PreviewRequest) (proposal.PreviewResult, error)
 
 	ScanCategories       CategoryScanner
@@ -102,28 +105,28 @@ type Config struct {
 
 type SourceLanes interface {
 	ConstructionFilterSourceCapability(context.Context, Base, string, string) (ConstructionFilterSourceCapability, error)
-	ResolveConstructionFilterSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionFilterSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithFilterSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
-	ReauthorizeConstructionFilterSources(context.Context, Base, string, authoringv2.Construction) error
-	ConstructionHasFilterSourceInput(authoringv2.Construction) bool
+	ResolveConstructionFilterSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionFilterSourceSelection) (ws.ConstructionSourceProjection, error)
+	ConstructionCandidateWithFilterSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
+	ReauthorizeConstructionFilterSources(context.Context, Base, string, ws.Construction) error
+	ConstructionHasFilterSourceInput(ws.Construction) bool
 
 	ConstructionDeriveSourceCapability(context.Context, Base, string, string) (ConstructionDeriveSourceCapability, error)
-	ResolveConstructionDeriveSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionDeriveSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithDeriveSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
-	ReauthorizeConstructionDeriveSources(context.Context, Base, string, authoringv2.Construction) error
-	ConstructionHasDeriveSourceInput(authoringv2.Construction) bool
+	ResolveConstructionDeriveSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionDeriveSourceSelection) (ws.ConstructionSourceProjection, error)
+	ConstructionCandidateWithDeriveSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
+	ReauthorizeConstructionDeriveSources(context.Context, Base, string, ws.Construction) error
+	ConstructionHasDeriveSourceInput(ws.Construction) bool
 
 	ConstructionExpandSourceCapability(context.Context, Base, string, string) (ConstructionExpandSourceCapability, error)
-	ResolveConstructionExpandSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionExpandSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithExpandSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
-	ReauthorizeConstructionExpandSources(context.Context, Base, string, authoringv2.Construction) error
-	ConstructionHasExpandSourceInput(authoringv2.Construction) bool
+	ResolveConstructionExpandSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionExpandSourceSelection) (ws.ConstructionSourceProjection, error)
+	ConstructionCandidateWithExpandSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
+	ReauthorizeConstructionExpandSources(context.Context, Base, string, ws.Construction) error
+	ConstructionHasExpandSourceInput(ws.Construction) bool
 
 	ConstructionUnpivotSourceCapability(context.Context, Base, string, string) (ConstructionUnpivotSourceCapability, error)
-	ResolveConstructionUnpivotSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionUnpivotSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithUnpivotSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
-	ReauthorizeConstructionUnpivotSources(context.Context, Base, string, authoringv2.Construction) error
-	ConstructionHasUnpivotSourceInput(authoringv2.Construction) bool
+	ResolveConstructionUnpivotSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionUnpivotSourceSelection) (ws.ConstructionSourceProjection, error)
+	ConstructionCandidateWithUnpivotSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
+	ReauthorizeConstructionUnpivotSources(context.Context, Base, string, ws.Construction) error
+	ConstructionHasUnpivotSourceInput(ws.Construction) bool
 }
 
 type Service struct {
@@ -157,9 +160,9 @@ func (s *Service) SetConfig(config Config) {
 	}
 }
 
-func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 	if s.config.Capability.Catalog == nil {
-		return authoringv2.CatalogSnapshot{}
+		return ws.CatalogSnapshot{}
 	}
 	return s.config.Capability.Catalog(snapshot, explorerID)
 }
@@ -168,15 +171,15 @@ func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*ex
 	return s.config.GetOwner(ctx, project, explorerID)
 }
 
-func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 	return s.config.LookupReceipt(ctx, project, explorerID, receiptID)
 }
 
-func (s *Service) verifyProposalReceipt(ctx context.Context, stage string, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
+func (s *Service) verifyProposalReceipt(ctx context.Context, stage string, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
 	return s.config.VerifyProposalReceipt(ctx, stage, receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
-func (s *Service) compile(ctx context.Context, request CompileRequest) (*explorer.CompilationReceipt, error) {
+func (s *Service) compile(ctx context.Context, request CompileRequest) (*receiptmodel.CompilationReceipt, error) {
 	return s.config.Compile(ctx, request)
 }
 

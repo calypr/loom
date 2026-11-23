@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func expandedItemFieldSuffix(expanded *authoringv2.ExpandedRows, occurrenceID, fieldPath string) (string, bool) {
+func expandedItemFieldSuffix(expanded *ws.ExpandedRows, occurrenceID, fieldPath string) (string, bool) {
 	if expanded == nil || expanded.OccurrenceID != occurrenceID {
 		return "", false
 	}
@@ -23,7 +24,7 @@ func expandedItemFieldSuffix(expanded *authoringv2.ExpandedRows, occurrenceID, f
 	return suffix, suffix != ""
 }
 
-func indexedProjectionOverlapsExpandedScope(expanded *authoringv2.ExpandedRows, occurrenceID string, boundaries []capability.RepeatedBoundary) bool {
+func indexedProjectionOverlapsExpandedScope(expanded *ws.ExpandedRows, occurrenceID string, boundaries []capability.RepeatedBoundary) bool {
 	if expanded == nil || expanded.OccurrenceID != occurrenceID {
 		return false
 	}
@@ -40,7 +41,7 @@ func indexedProjectionOverlapsExpandedScope(expanded *authoringv2.ExpandedRows, 
 	return false
 }
 
-func compileExpandedRows(expanded *authoringv2.ExpandedRows, route authoringv2.RouteNode, occurrences map[string]semanticOccurrence, snapshot capability.Snapshot) (recipe.Expansion, error) {
+func compileExpandedRows(expanded *ws.ExpandedRows, route ws.RouteNode, occurrences map[string]semanticOccurrence, snapshot capability.Snapshot) (recipe.Expansion, error) {
 	if expanded == nil {
 		return recipe.Expansion{}, fail("intent", "INVALID_ROW_EXPANSION", "$.rows.expanded", "expanded row definition is missing", nil, nil)
 	}
@@ -118,11 +119,11 @@ func compileExpandedRows(expanded *authoringv2.ExpandedRows, route authoringv2.R
 
 	policy := recipe.ExpansionExclude
 	switch expanded.EmptyCollectionPolicy {
-	case authoringv2.EmptyCollectionError:
+	case ws.EmptyCollectionError:
 		policy = recipe.ExpansionError
-	case authoringv2.EmptyCollectionExclude:
+	case ws.EmptyCollectionExclude:
 		policy = recipe.ExpansionExclude
-	case authoringv2.EmptyCollectionPreserveParent:
+	case ws.EmptyCollectionPreserveParent:
 		policy = recipe.ExpansionPreserveParent
 	default:
 		return recipe.Expansion{}, fail("intent", "INVALID_ROW_EXPANSION", "$.rows.expanded.emptyCollectionPolicy", "expanded row empty-collection policy is unsupported", map[string]any{"policy": expanded.EmptyCollectionPolicy}, nil)
@@ -137,10 +138,10 @@ func compileExpandedRows(expanded *authoringv2.ExpandedRows, route authoringv2.R
 	}, nil
 }
 
-func semanticRowChoiceOccurrences(route authoringv2.RouteNode, occurrences map[string]semanticOccurrence) []capability.RowChoiceOccurrence {
+func semanticRowChoiceOccurrences(route ws.RouteNode, occurrences map[string]semanticOccurrence) []capability.RowChoiceOccurrence {
 	result := make([]capability.RowChoiceOccurrence, 0)
-	var walk func(authoringv2.RouteNode, []capability.ConstructionRouteStep)
-	walk = func(node authoringv2.RouteNode, parentRoute []capability.ConstructionRouteStep) {
+	var walk func(ws.RouteNode, []capability.ConstructionRouteStep)
+	walk = func(node ws.RouteNode, parentRoute []capability.ConstructionRouteStep) {
 		resolved := occurrences[node.OccurrenceID]
 		result = append(result, capability.RowChoiceOccurrence{
 			OccurrenceID: node.OccurrenceID,
@@ -154,9 +155,9 @@ func semanticRowChoiceOccurrences(route authoringv2.RouteNode, occurrences map[s
 			if edge == nil {
 				continue
 			}
-			matchMode := authoringv2.RouteMatchOptional
-			if child.MatchMode.Normalized() == authoringv2.RouteMatchRequired {
-				matchMode = authoringv2.RouteMatchRequired
+			matchMode := ws.RouteMatchOptional
+			if child.MatchMode.Normalized() == ws.RouteMatchRequired {
+				matchMode = ws.RouteMatchRequired
 			}
 			step := capability.ConstructionRouteStep{
 				EdgeID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,

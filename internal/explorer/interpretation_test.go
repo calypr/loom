@@ -5,16 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
 )
 
-func interpretationFixture() InterpretationRevision {
-	return InterpretationRevision{
+func interpretationFixture() interpretation.InterpretationRevision {
+	return interpretation.InterpretationRevision{
 		Project: "program/project", LibraryID: "mapping",
-		Applicability: InterpretationApplicability{ResourceTypes: []string{"Observation", "Patient"}, LogicalTypes: []string{"string"}},
-		Rules: []InterpretationRule{{
-			ID: "status", Match: InterpretationStructuralMatch{ResourceType: "Observation", LogicalType: "string", System: "urn:status", Code: "active"},
-			Definition: InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "status", ProjectionMode: "VALUE"}}},
+		Applicability: interpretation.InterpretationApplicability{ResourceTypes: []string{"Observation", "Patient"}, LogicalTypes: []string{"string"}},
+		Rules: []interpretation.InterpretationRule{{
+			ID: "status", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Observation", LogicalType: "string", System: "urn:status", Code: "active"},
+			Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}},
 		}},
 		Author: "researcher", Explanation: "Use the observed status field",
 	}
@@ -24,7 +26,7 @@ func TestInterpretationCanonicalPermutationAndContentChange(t *testing.T) {
 	left := interpretationFixture()
 	right := interpretationFixture()
 	right.Applicability.ResourceTypes = []string{"Patient", "Observation", "Observation"}
-	right.Rules = []InterpretationRule{left.Rules[0]}
+	right.Rules = []interpretation.InterpretationRule{left.Rules[0]}
 	leftDigest, err := left.ComputeContentDigest()
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +58,7 @@ func TestInterpretationCanonicalPermutationAndContentChange(t *testing.T) {
 }
 
 func TestInterpretationPrepareCanonicalizesAndDerivesIDs(t *testing.T) {
-	revision, err := PrepareInterpretationRevision(interpretationFixture())
+	revision, err := interpretation.PrepareInterpretationRevision(interpretationFixture())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,44 +75,44 @@ func TestInterpretationPrepareCanonicalizesAndDerivesIDs(t *testing.T) {
 
 func TestInterpretationRejectsInvalidProjectAndIDs(t *testing.T) {
 	for _, raw := range []string{"", " leading", "with space", "bad/id"} {
-		if _, err := NewInterpretationLibraryID(raw); err == nil {
+		if _, err := interpretation.NewInterpretationLibraryID(raw); err == nil {
 			t.Errorf("library ID %q accepted", raw)
 		}
 	}
 	for _, raw := range []string{"", "not-a-digest", "sha256:ABC"} {
-		if _, err := NewInterpretationContentDigest(raw); err == nil {
+		if _, err := interpretation.NewInterpretationContentDigest(raw); err == nil {
 			t.Errorf("digest %q accepted", raw)
 		}
 	}
 	invalid := interpretationFixture()
 	invalid.Project = "bad project"
-	if _, err := PrepareInterpretationRevision(invalid); !errors.Is(err, ErrInvalidInterpretationProject) {
+	if _, err := interpretation.PrepareInterpretationRevision(invalid); !errors.Is(err, interpretation.ErrInvalidInterpretationProject) {
 		t.Fatalf("project error=%v", err)
 	}
 	invalid = interpretationFixture()
 	invalid.LibraryID = "bad/id"
-	if _, err := PrepareInterpretationRevision(invalid); !errors.Is(err, ErrInvalidInterpretationID) {
+	if _, err := interpretation.PrepareInterpretationRevision(invalid); !errors.Is(err, interpretation.ErrInvalidInterpretationID) {
 		t.Fatalf("library error=%v", err)
 	}
 }
 
 func TestInterpretationRejectsAmbiguousOverlapAndSelectsPriority(t *testing.T) {
 	base := interpretationFixture()
-	base.Rules = append(base.Rules, InterpretationRule{
-		ID: "status-specific", Match: InterpretationStructuralMatch{ResourceType: "Observation", LogicalType: "string", System: "urn:status", Code: "active"},
+	base.Rules = append(base.Rules, interpretation.InterpretationRule{
+		ID: "status-specific", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Observation", LogicalType: "string", System: "urn:status", Code: "active"},
 		Definition: base.Rules[0].Definition,
 	})
-	if _, err := PrepareInterpretationRevision(base); !errors.Is(err, ErrAmbiguousMapping) {
+	if _, err := interpretation.PrepareInterpretationRevision(base); !errors.Is(err, interpretation.ErrAmbiguousMapping) {
 		t.Fatalf("ambiguous overlap error=%v", err)
 	}
-	priorityOne, priorityTwo := InterpretationPriority(1), InterpretationPriority(2)
+	priorityOne, priorityTwo := interpretation.InterpretationPriority(1), interpretation.InterpretationPriority(2)
 	base.Rules[0].Priority = &priorityOne
 	base.Rules[1].Priority = &priorityTwo
-	revision, err := PrepareInterpretationRevision(base)
+	revision, err := interpretation.PrepareInterpretationRevision(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule, err := revision.SelectRule(InterpretationStructuralCandidate{ResourceType: "Observation", LogicalType: "string", System: "urn:status", Code: "active"})
+	rule, err := revision.SelectRule(interpretation.InterpretationStructuralCandidate{ResourceType: "Observation", LogicalType: "string", System: "urn:status", Code: "active"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +120,7 @@ func TestInterpretationRejectsAmbiguousOverlapAndSelectsPriority(t *testing.T) {
 		t.Fatalf("selected rule=%q, want status-specific", rule.ID)
 	}
 	base.Rules[1].Priority = &priorityOne
-	if _, err := PrepareInterpretationRevision(base); !errors.Is(err, ErrAmbiguousMapping) {
+	if _, err := interpretation.PrepareInterpretationRevision(base); !errors.Is(err, interpretation.ErrAmbiguousMapping) {
 		t.Fatalf("priority tie error=%v", err)
 	}
 }

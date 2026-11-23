@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	semanticauthoring "github.com/calypr/loom/internal/explorer/semanticauthoring"
 	"github.com/calypr/loom/internal/semantic"
 )
 
-func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapshot, commandID string, commandIndex int, command Command) (CommandResult, error) {
+func applySemanticSelections(workspace *ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commandID string, commandIndex int, command Command) (CommandResult, error) {
 	documentIndex := documentIndex(workspace, command.OutputID)
 	if documentIndex < 0 {
 		return CommandResult{}, fmt.Errorf("output %q was not found", command.OutputID)
@@ -66,7 +68,7 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 			if label == "" {
 				label = strings.TrimSpace(observation.Key.Code)
 			}
-			column := Column{Column: columnID, Label: label, LogicalType: plan.LogicalType, OccurrenceID: occurrenceID, Source: source}
+			column := ws.Column{Column: columnID, Label: label, LogicalType: plan.LogicalType, OccurrenceID: occurrenceID, Source: source}
 			column.ColumnID = stagedSourceColumnID(document.Output.ID, commandID, commandIndex, command.Type, selectionIndex, selection.ConceptID, selection.BindingID)
 			applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(*document))
 			document.Columns = append(document.Columns, column)

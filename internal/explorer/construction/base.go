@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -25,8 +28,8 @@ type constructionBaseLoader struct {
 	sourceStage                ports.ConstructionSourceStageCompiler
 	selectionMembersCollection string
 	canCompile                 bool
-	compile                    func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
-	verifyProposalReceipt      func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
+	compile                    func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	verifyProposalReceipt      func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
 	getOwner                   func(context.Context, string, string) (*explorer.Explorer, error)
 }
 
@@ -101,7 +104,7 @@ func (s constructionBaseLoader) validateConstructionBase(ctx context.Context, pr
 	if owner.DraftVersion != draftVersion || owner.DraftDigest != draftDigest {
 		return constructionBaseValidation{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction capabilities", nil, explorer.ErrDraftConflict)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		return constructionBaseValidation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
 	}
@@ -118,7 +121,7 @@ func (s constructionBaseLoader) validateConstructionBase(ctx context.Context, pr
 	if err != nil {
 		return constructionBaseValidation{}, fmt.Errorf("digest construction base document: %w", err)
 	}
-	upgraded, err := authoringv2.StartDocumentConstruction(document)
+	upgraded, err := ws.StartDocumentConstruction(document)
 	if err != nil {
 		return constructionBaseValidation{}, unprocessable("construction-capabilities", "INVALID_CONSTRUCTION_BASE", err.Error(), err)
 	}
@@ -131,8 +134,8 @@ func (s constructionBaseLoader) validateConstructionBase(ctx context.Context, pr
 	}
 	workspace.Documents[documentIndex] = upgraded
 	workspace = workspace.NormalizePresentationOrders()
-	if err := (authoringv2.BuilderState{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind,
+	if err := (ws.BuilderState{
+		APIVersion: ws.APIVersion, Kind: ws.StateKind,
 		Workspace: &workspace, Catalog: catalogSnapshot,
 	}).Validate(); err != nil {
 		return constructionBaseValidation{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
@@ -166,7 +169,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 		if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn == "" || len(stage.Columns) != 0 {
 			return constructionBaseCompilation{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
 		}
-		stages := []explorer.ReceiptConstructionStage{stage}
+		stages := []receiptmodel.ReceiptConstructionStage{stage}
 		if len(workspace.Documents) > 1 {
 			if !s.canCompile {
 				return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
@@ -225,15 +228,15 @@ type constructionBaseValidation struct {
 	outputID        string
 	authorized      ports.AuthorizedCapability
 	snapshot        capability.Snapshot
-	catalog         authoringv2.CatalogSnapshot
+	catalog         ws.CatalogSnapshot
 	owner           *explorer.Explorer
-	workspace       authoringv2.Workspace
-	document        authoringv2.Document
-	upgraded        authoringv2.Document
+	workspace       ws.Workspace
+	document        ws.Document
+	upgraded        ws.Document
 	baseDocumentSHA string
 }
 
-func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, stages []explorer.ReceiptConstructionStage) Base {
+func (v constructionBaseValidation) base(receipt *receiptmodel.CompilationReceipt, stages []receiptmodel.ReceiptConstructionStage) Base {
 	return Base{
 		Owner: v.owner, ExplorerID: v.explorerID, Workspace: v.workspace, Document: v.document,
 		Construction: *v.upgraded.Construction, Snapshot: v.snapshot, Authorized: v.authorized.Clone(), Catalog: v.catalog,
@@ -242,11 +245,11 @@ func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, s
 }
 
 type constructionBaseCompilation struct {
-	receipt *explorer.CompilationReceipt
-	stages  []explorer.ReceiptConstructionStage
+	receipt *receiptmodel.CompilationReceipt
+	stages  []receiptmodel.ReceiptConstructionStage
 }
 
-func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputID string) error {
+func validateReceiptOutputContract(receipt *receiptmodel.CompilationReceipt, outputID string) error {
 	return support.ValidateReceiptOutputContract(receipt, outputID)
 }
 
@@ -254,7 +257,7 @@ func receiptHasOutput(bundle recipe.Bundle, id string) bool {
 	return support.ReceiptHasOutput(bundle, id)
 }
 
-func documentDigest(document authoringv2.Document) (string, error) {
+func documentDigest(document ws.Document) (string, error) {
 	return rowdef.DocumentDigest(document)
 }
 

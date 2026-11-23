@@ -6,6 +6,10 @@ import (
 	"errors"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -29,13 +33,13 @@ func TestRemoveProjectedFieldResolvesAuthoredOwnerAndEnforcesDraftAndAuthorizati
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.AuthoringNetwork = projectedFieldNetwork
 	removeImportedCalls := 0
-	config.RemoveImportedField = func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error) {
+	config.RemoveImportedField = func(context.Context, string, ports.AuthorizedCapability, ws.Document, string, string) (ws.Document, error) {
 		removeImportedCalls++
-		return authoringv2.Document{}, errors.New("authored field must not be routed to pinned source editing")
+		return ws.Document{}, errors.New("authored field must not be routed to pinned source editing")
 	}
 	compileCalls := 0
-	var candidate authoringv2.Workspace
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var candidate ws.Workspace
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		candidate = request.Workspace
 		receipt := nativeReceipt(snapshot)
@@ -94,11 +98,11 @@ func TestRemoveProjectedFieldDisablesExactLegacyPinnedSlotAndPreservesAuthoredCo
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.AuthoringNetwork = projectedFieldNetwork
 	var removedStep, removedField string
-	config.RemoveImportedField = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, stepID, fieldID string) (authoringv2.Document, error) {
+	config.RemoveImportedField = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, stepID, fieldID string) (ws.Document, error) {
 		removedStep, removedField = stepID, fieldID
 		updated := cloneLifecycleDocument(t, document)
 		if updated.ImportedSource == nil {
-			return authoringv2.Document{}, errors.New("source plan is missing")
+			return ws.Document{}, errors.New("source plan is missing")
 		}
 		for stepIndex := range updated.ImportedSource.Steps {
 			step := &updated.ImportedSource.Steps[stepIndex]
@@ -115,7 +119,7 @@ func TestRemoveProjectedFieldDisablesExactLegacyPinnedSlotAndPreservesAuthoredCo
 		columnIDs := map[string]string{"fields[0]": "patient-id", "fields[1]": "patient-status"}
 		targetColumnID := columnIDs[fieldID]
 		if targetColumnID == "" {
-			return authoringv2.Document{}, errors.New("unexpected pinned field identity")
+			return ws.Document{}, errors.New("unexpected pinned field identity")
 		}
 		columns := updated.Columns[:0]
 		for _, column := range updated.Columns {
@@ -128,8 +132,8 @@ func TestRemoveProjectedFieldDisablesExactLegacyPinnedSlotAndPreservesAuthoredCo
 	}
 	compileCalls := 0
 	failCompile := false
-	var compiledCandidate authoringv2.Workspace
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var compiledCandidate ws.Workspace
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		compiledCandidate = request.Workspace
 		if failCompile {
@@ -192,15 +196,15 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 	}
 	raw, _ := workspace.CanonicalJSON()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
-	config.AuthoringNetwork = func(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+	config.AuthoringNetwork = func(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
 		network, err := projectedFieldNetwork(ctx, project, authorized, document)
 		if err != nil {
-			return authoringv2.AuthoringNetwork{}, err
+			return ws.AuthoringNetwork{}, err
 		}
 		for index := range network.ProjectedFields {
 			field := &network.ProjectedFields[index]
 			if field.ColumnID == "patient-status" {
-				field.Removal = authoringv2.ProjectedFieldRemovalDisablePinnedOutput
+				field.Removal = ws.ProjectedFieldRemovalDisablePinnedOutput
 				field.SourceOutputKey = "urn:loinc|8480-6"
 				field.SourceFieldID = ""
 			}
@@ -208,7 +212,7 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 		return network, nil
 	}
 	var removedStep, removedKey string
-	config.RemoveImportedOutput = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, stepID, outputKey string) (authoringv2.Document, error) {
+	config.RemoveImportedOutput = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, stepID, outputKey string) (ws.Document, error) {
 		removedStep, removedKey = stepID, outputKey
 		updated := cloneLifecycleDocument(t, document)
 		columns := updated.Columns[:0]
@@ -220,7 +224,7 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 		updated.Columns = columns
 		return updated, nil
 	}
-	config.CompileReceipt = func(_ context.Context, _ ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, _ ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		store.receipt = receipt
 		return receipt, nil
@@ -239,7 +243,7 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 	}
 }
 
-func projectedFieldRemovalFixture(t *testing.T, snapshot capability.Snapshot) (authoringv2.Workspace, recipe.Bundle, Config) {
+func projectedFieldRemovalFixture(t *testing.T, snapshot capability.Snapshot) (ws.Workspace, recipe.Bundle, Config) {
 	t.Helper()
 	config := testConfig(snapshot)
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{
@@ -255,50 +259,50 @@ func projectedFieldRemovalFixture(t *testing.T, snapshot capability.Snapshot) (a
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
-		ColumnID: "project-id", Column: "project_id", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, ws.Column{
+		ColumnID: "project-id", Column: "project_id", Label: "Project", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceProjectID},
 	})
-	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
-		ColumnID: "patient-birthdate", Column: "birth_date", Label: "Birth date", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}},
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, ws.Column{
+		ColumnID: "patient-birthdate", Column: "birth_date", Label: "Birth date", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}},
 	})
-	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
-		ColumnID: "coded-value", Column: "identifier_type", Label: "Identifier type", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, ws.Column{
+		ColumnID: "coded-value", Column: "identifier_type", Label: "Identifier type", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "identifier[]", KeyPath: "identifier[].type.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"},
 			Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "MRN"},
 		}},
 	})
-	other := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "other", Title: "Other"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{ColumnID: "other-project", Column: "other_project", Label: "Other project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}}},
+	other := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "other", Title: "Other"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{ColumnID: "other-project", Column: "other_project", Label: "Other project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}}},
 	}
 	workspace.Documents = append(workspace.Documents, other)
-	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "other-tab", Title: "Other", OutputID: "other", Order: 1, Visible: true})
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: "other-tab", Title: "Other", OutputID: "other", Order: 1, Visible: true})
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate projected-field fixture: %v", err)
 	}
 	return workspace, bundle, config
 }
 
-func projectedFieldNetwork(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
-	network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Bindings = []authoringv2.NetworkColumnBinding{
-		{ColumnID: "patient-id", OccurrenceID: authoringv2.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
-		{ColumnID: "patient-status", OccurrenceID: authoringv2.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
+func projectedFieldNetwork(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
+	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Bindings = []ws.NetworkColumnBinding{
+		{ColumnID: "patient-id", OccurrenceID: ws.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
+		{ColumnID: "patient-status", OccurrenceID: ws.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
 	}
-	network.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, network)
+	network.ProjectedFields = ws.ProjectedFieldsForDocument(document, network)
 	for index := range network.ProjectedFields {
 		field := &network.ProjectedFields[index]
 		if field.ColumnID == "patient-id" {
 			field.SourceFieldID = "fields[0]"
-			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinned
+			field.Removal = ws.ProjectedFieldRemovalDisablePinned
 		}
 		if field.ColumnID == "patient-status" {
 			field.SourceFieldID = "fields[1]"
-			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinned
+			field.Removal = ws.ProjectedFieldRemovalDisablePinned
 		}
 	}
 	return network, nil
@@ -306,13 +310,13 @@ func projectedFieldNetwork(_ context.Context, _ string, _ ports.AuthorizedCapabi
 
 func projectedFieldRemovalRequest(commandID, columnID, digest string, version int64, snapshotToken string) authoringv2.ApplyCommandsRequest {
 	return authoringv2.ApplyCommandsRequest{
-		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshotToken,
+		CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshotToken,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandRemoveProjectedField, OutputID: "patients", Payload: &authoringv2.ColumnPayload{ColumnID: columnID}}},
 	}
 }
 
-func findLifecycleColumn(document authoringv2.Document, columnID string) bool {
+func findLifecycleColumn(document ws.Document, columnID string) bool {
 	for _, column := range document.Columns {
 		if column.ColumnID == columnID {
 			return true
@@ -321,13 +325,13 @@ func findLifecycleColumn(document authoringv2.Document, columnID string) bool {
 	return false
 }
 
-func cloneLifecycleDocument(t *testing.T, document authoringv2.Document) authoringv2.Document {
+func cloneLifecycleDocument(t *testing.T, document ws.Document) ws.Document {
 	t.Helper()
 	raw, err := json.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cloned authoringv2.Document
+	var cloned ws.Document
 	if err := json.Unmarshal(raw, &cloned); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +346,7 @@ func TestReviewProjectedRemovalCandidateCASFailure(t *testing.T) {
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.AuthoringNetwork = projectedFieldNetwork
 	compileCalls := 0
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCalls++
 		if len(request.Workspace.Documents) != 2 || findLifecycleColumn(request.Workspace.Documents[0], "project-id") {
 			t.Fatal("incorrect candidate workspace compiled")

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -123,12 +125,12 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	}
 	materialized := materializations(receipt.Bundle, execution)
 	datasetMetadata := datasetMetadataFromExecution(receipt.Bundle, request.Generation, receipt.ResolvedSchemaDigest, execution)
-	publication := explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: request.Generation, ExecutionID: execution.ID, UpdatedAt: s.now()}
+	publication := viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: request.Generation, ExecutionID: execution.ID, UpdatedAt: s.now()}
 	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, execution.QualityReports, publication)
 	if err != nil {
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "PERSISTENCE_UNAVAILABLE", "the published repository revision could not be saved", err)
 	}
-	if owner.ManagementMode != explorer.ManagementRepository {
+	if owner.ManagementMode != viewer.ManagementRepository {
 		return RepositoryPublishResult{}, support.Conflict("repository_publish", "INVALID_MANAGEMENT_MODE", "default Explorer has invalid management mode", nil, nil)
 	}
 	if s.config.ActivateRelease == nil {
@@ -137,25 +139,25 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if err := s.config.ActivateRelease(ctx, projectid.Legacy(request.Project), request.Generation, selectorsForBundle(receipt.Bundle)); err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
 
-			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
+			_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, support.Conflict("repository_publish", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
 		}
 		var requirementsErr *dataset.ReleaseRequirementsError
 		if errors.As(err, &requirementsErr) {
 
-			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, support.Conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), map[string]any{"retryable": false}, err)
 		}
-		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+		_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "RELEASE_ACTIVATION_FAILED", "activate published ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
 	if err := s.store.ActivateRepositoryGeneration(ctx, request.Project, request.Generation, revision.ID); err != nil {
 
 		if errors.Is(err, explorer.ErrDraftConflict) {
-			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, support.Conflict("repository_publish", "GENERATION_ACTIVATION_FAILED", "generation activation lost a concurrent Explorer update; the prior Explorer revision was retained", nil, err)
 		}
-		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+		_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "GENERATION_ACTIVATION_FAILED", "activate ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()

@@ -2,8 +2,9 @@ package viewer
 
 import (
 	"encoding/json"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"time"
+
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/unit"

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
@@ -25,7 +27,7 @@ type viewBuilderServiceStore struct {
 	explorer.ExplorerStore
 	explorer.RevisionStore
 	explorer.ViewBuilderRepository
-	settings    explorer.ViewBuilderSettings
+	settings    viewer.ViewBuilderSettings
 	owners      []explorer.Explorer
 	revisions   map[string]explorer.Revision
 	writes      int
@@ -43,7 +45,7 @@ func (s *viewBuilderServiceStore) GetRevision(_ context.Context, id string) (*ex
 	}
 	return &value, nil
 }
-func (s *viewBuilderServiceStore) GetViewBuilderSettings(context.Context, string) (explorer.ViewBuilderSettings, error) {
+func (s *viewBuilderServiceStore) GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error) {
 	return s.settings, nil
 }
 func (s *viewBuilderServiceStore) SaveViewBuilderConfig(_ context.Context, request explorer.ViewBuilderMutation) error {
@@ -85,7 +87,7 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &viewBuilderServiceStore{
-		settings:  explorer.ViewBuilderSettings{Version: 1, Catalogs: map[string]string{resolved.Bundle.Name: snapshot.ID}},
+		settings:  viewer.ViewBuilderSettings{Version: 1, Catalogs: map[string]string{resolved.Bundle.Name: snapshot.ID}},
 		revisions: map[string]explorer.Revision{snapshot.ID: snapshot},
 	}
 	explorers, err := explorer.NewService(store)
@@ -93,8 +95,8 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(explorers)
-	config := explorer.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
-	request := explorer.ViewBuilderSaveRequest{CatalogRevisionID: snapshot.ID, Config: config}
+	config := explorerconfig.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
+	request := viewer.ViewBuilderSaveRequest{CatalogRevisionID: snapshot.ID, Config: config}
 	state, err := service.SaveViewBuilderConfig(context.Background(), "HTAN_INT/BForePC", config.ID, request, "editor")
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +115,7 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 	}
 	request.CatalogRevisionID = snapshot.ID
 	_, err = service.SaveViewBuilderConfig(context.Background(), "different/project", config.ID, request, "editor")
-	if !errors.Is(err, explorer.ErrInvalidViewBuilder) || store.writes != 1 {
+	if !errors.Is(err, viewer.ErrInvalidViewBuilder) || store.writes != 1 {
 		t.Fatalf("foreign project err=%v writes=%d", err, store.writes)
 	}
 }

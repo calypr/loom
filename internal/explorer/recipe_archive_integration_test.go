@@ -2,11 +2,14 @@ package explorer
 
 import (
 	"encoding/json"
+	"strings"
+	"testing"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
-	"strings"
-	"testing"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 const archiveIntegrationRecipe = `{"recipeSchemaVersion":1,"name":"archived-table","translationVersion":"v1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient","tableReshape":{"kind":"UNPIVOT","unpivot":{"constructionId":"shape","inputs":[{"column":"value","key":{"kind":"STRING","string":"value"}}],"keyOutput":"name","keyLabel":"Name","valueOutput":"result","valueLabel":"Result","nullRowPolicy":"DROP"}}}]}`
@@ -28,8 +31,8 @@ func TestArchivedRecipeReceiptGoldenIdentity(t *testing.T) {
 	if digest != "2ffdf4f14e5f6a339de8fcb2dcd1c8c0ac0bd6877be5d59b4a7f462d0eba4f6b" {
 		t.Fatal(digest)
 	}
-	r := CompilationReceipt{Project: "project", ExplorerID: "explorer", Bundle: b, RecipeDigest: digest}
-	r.ID, err = ReceiptID(r)
+	r := receiptmodel.CompilationReceipt{Project: "project", ExplorerID: "explorer", Bundle: b, RecipeDigest: digest}
+	r.ID, err = receiptmodel.ReceiptID(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,14 +45,14 @@ func TestArchivedRecipeReceiptGoldenIdentity(t *testing.T) {
 	if err = r.ValidateID(); err != nil {
 		t.Fatal(err)
 	}
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("retired recipe admitted for execution")
 	}
 	if _, err = b.CurrentBundle(); err == nil {
 		t.Fatal("archive converted to executable bundle")
 	}
 	before, _ := json.Marshal(r)
-	var changed CompilationReceipt
+	var changed receiptmodel.CompilationReceipt
 	if err = json.Unmarshal(before, &changed); err != nil {
 		t.Fatal(err)
 	}
@@ -69,16 +72,16 @@ func TestArchivedRecipeReceiptPreservesFullContractAuthentication(t *testing.T) 
 	r.ResolvedRecipeDigest = r.RecipeDigest
 	r.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[],"lossless":true,"mlReady":true}]}`)
 	r.OutputColumnProvenance = map[string]map[string]string{"patients": {"__loom_row_id": "EXPLICIT"}}
-	r.OutputContractDigest, _ = CompilationArtifactDigest(r.PublicOutputContract)
-	r.CompilationKey, _ = CompilationKey(r)
-	r.ID, _ = ReceiptID(r)
+	r.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(r.PublicOutputContract)
+	r.CompilationKey, _ = receiptmodel.CompilationKey(r)
+	r.ID, _ = receiptmodel.ReceiptID(r)
 	if err := r.ValidateArchive(); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("current contract version revived a retired recipe")
 	}
 	r.ResolvedRecipeDigest = "changed"
@@ -93,7 +96,7 @@ func TestArchivedRecipeViewerUsesFrozenMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision := Revision{ID: "original-revision", Recipe: b, RecipeDigest: "original-recipe-digest", CompilationReceiptID: "original-receipt", Config: raw, Dataset: DatasetMetadata{Outputs: []DatasetOutput{{Name: "patients", Queryable: true, Columns: []publication.PhysicalColumn{{Name: "name", LogicalType: "string"}, {Name: "result", LogicalType: "string"}}}}}}
+	revision := Revision{ID: "original-revision", Recipe: b, RecipeDigest: "original-recipe-digest", CompilationReceiptID: "original-receipt", Config: raw, Dataset: viewer.DatasetMetadata{Outputs: []viewer.DatasetOutput{{Name: "patients", Queryable: true, Columns: []publication.PhysicalColumn{{Name: "name", LogicalType: "string"}, {Name: "result", LogicalType: "string"}}}}}}
 	before, _ := json.Marshal(revision)
 	runtime, err := BuildViewerProjection(&revision)
 	if err != nil {
@@ -115,20 +118,20 @@ func TestArchivedRecipeViewerUsesFrozenMetadata(t *testing.T) {
 
 func TestArchivedTableShapeBindingStillAuthenticatesButCannotExecute(t *testing.T) {
 	r := testReceipt()
-	r.TableShapeProposal = &TableShapeProposalBinding{DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base", CandidateWorkspaceDigest: r.IntentDigest, SnapshotToken: r.SnapshotToken}
+	r.TableShapeProposal = &receiptmodel.TableShapeProposalBinding{DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base", CandidateWorkspaceDigest: r.IntentDigest, SnapshotToken: r.SnapshotToken}
 	var err error
-	r.CompilationKey, err = CompilationKey(r)
+	r.CompilationKey, err = receiptmodel.CompilationKey(r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.ID, err = ReceiptID(r)
+	r.ID, err = receiptmodel.ReceiptID(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = r.ValidateArchive(); err != nil {
 		t.Fatal(err)
 	}
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("retired TableShape proposal binding admitted for execution")
 	}
 	changed := *r.TableShapeProposal

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 type defaultViewBuilderStore struct {
@@ -18,8 +20,8 @@ func (defaultViewBuilderStore) Get(_ context.Context, project, id string) (*Expl
 	return nil, ErrNotFound
 }
 
-func (defaultViewBuilderStore) GetViewBuilderSettings(context.Context, string) (ViewBuilderSettings, error) {
-	return ViewBuilderSettings{DefaultConfigID: "recipe-view"}, nil
+func (defaultViewBuilderStore) GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error) {
+	return viewer.ViewBuilderSettings{DefaultConfigID: "recipe-view"}, nil
 }
 
 func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {

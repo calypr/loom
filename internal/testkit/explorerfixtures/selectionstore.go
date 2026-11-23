@@ -2,10 +2,11 @@ package explorerfixtures
 
 import (
 	"context"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"sort"
 	"sync"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer"
 )

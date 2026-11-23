@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/projectid"
@@ -36,7 +38,7 @@ func ValidateCandidateReceiptIdentity(receipt *CompilationReceipt, project, expl
 	return nil
 }
 
-func VerifyCandidateWorkspacePin(workspace authoringv2.Workspace, outputID, column, revisionID string) error {
+func VerifyCandidateWorkspacePin(workspace ws.Workspace, outputID, column, revisionID string) error {
 	for _, document := range workspace.Documents {
 		if document.Output.ID != outputID {
 			continue
@@ -45,7 +47,7 @@ func VerifyCandidateWorkspacePin(workspace authoringv2.Workspace, outputID, colu
 			if value.Column != column {
 				continue
 			}
-			if value.Interpretation == nil || value.Interpretation.Kind != authoringv2.FeatureInterpretationPinned || value.Interpretation.Pinned == nil || value.Interpretation.Pinned.RevisionID != revisionID {
+			if value.Interpretation == nil || value.Interpretation.Kind != ws.FeatureInterpretationPinned || value.Interpretation.Pinned == nil || value.Interpretation.Pinned.RevisionID != revisionID {
 				return fmt.Errorf("target workspace column is not pinned to revision %q", revisionID)
 			}
 			return nil
@@ -72,7 +74,7 @@ func VerifyCandidateReceiptInterpretation(receipt *CompilationReceipt, outputID,
 	return nil
 }
 
-func ValidateInterpretationCandidate(receipt *CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, proposed authoringv2.Workspace, command authoringv2.Command) error {
+func ValidateInterpretationCandidate(receipt *CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, proposed ws.Workspace, command authoringv2.Command) error {
 	if command.InterpretationCandidate() == nil {
 		return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE payload is required")
 	}
@@ -89,7 +91,7 @@ func ValidateInterpretationCandidate(receipt *CompilationReceipt, project, explo
 	if receipt.IntentDigest != proposedDigest {
 		return fmt.Errorf("%w: the candidate receipt was not compiled from this exact command result", ErrInterpretationCandidateMismatch)
 	}
-	candidateWorkspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	candidateWorkspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		return fmt.Errorf("%w: the candidate receipt normalized workspace is invalid: %v", ErrInvalidCandidateReceipt, err)
 	}

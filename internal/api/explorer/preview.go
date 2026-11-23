@@ -3,6 +3,9 @@ package explorerapi
 import (
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/proposal"
 
 	"bytes"
@@ -102,7 +105,7 @@ type previewResponseTooLargeError struct {
 
 type v2EmissionWire = loomapi.ContractColumn
 
-func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
+func v2EmissionColumns(columns []viewer.EmittedColumn) []v2EmissionWire {
 	out := make([]v2EmissionWire, 0, len(columns))
 	for _, column := range columns {
 		label := column.Label
@@ -161,7 +164,7 @@ type previewResponseEncoder struct {
 	rowSourceBytes int
 }
 
-func newPreviewResponseEncoder(receipt *explorer.CompilationReceipt, outputID string, columns []explorer.EmittedColumn, limit int) (*previewResponseEncoder, error) {
+func newPreviewResponseEncoder(receipt *receiptmodel.CompilationReceipt, outputID string, columns []viewer.EmittedColumn, limit int) (*previewResponseEncoder, error) {
 	if receipt == nil {
 		return nil, fmt.Errorf("compilation receipt is required")
 	}
@@ -368,7 +371,7 @@ func (h *Handlers) proposalPreviewOptions(project, outputID string, limit *int, 
 	return proposal.ProposalPreviewOptions{
 		Limit: limit, Timeout: timeout, AllowSampledAggregate: sampled,
 		Authorize: func(ctx context.Context) error { return h.authorizeAuthoringRead(ctx, project) },
-		Sink: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		Sink: func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			var err error
 			output.encoder, err = newPreviewResponseEncoder(receipt, outputID, columns, maxExplorerPreviewResponseBytes)
 			if err != nil {

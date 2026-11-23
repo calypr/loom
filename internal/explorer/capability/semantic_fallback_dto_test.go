@@ -1,15 +1,15 @@
 package capability_test
 
 import (
-	"github.com/calypr/loom/internal/explorer/construction"
 	"encoding/json"
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	constructionpkg "github.com/calypr/loom/internal/explorer/construction"
 )
 
 func TestSemanticFallbackDTOJSONRoundTripAndLegacyDefaults(t *testing.T) {
@@ -115,16 +115,16 @@ func TestSemanticFallbackDTOJSONRoundTripAndLegacyDefaults(t *testing.T) {
 
 func TestSemanticFrameFallbackSurvivesProposalRequestAndResponseDTOs(t *testing.T) {
 	wantFallbacks := []string{"valueCodeableConcept.coding[].display", "valueString"}
-	construction := authoringv2.Construction{
+	construction := ws.Construction{
 		Version: 1,
-		Steps: []authoringv2.ConstructionStep{{
+		Steps: []ws.ConstructionStep{{
 			ID:     "pivot-step",
-			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationCodedPivot,
-				CodedPivot: &authoringv2.ConstructionCodedPivot{
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationCodedPivot,
+				CodedPivot: &ws.ConstructionCodedPivot{
 					ConstructionID: "pivot-construction",
-					Source: &authoringv2.ConstructionCodedPivotSource{
+					Source: &ws.ConstructionCodedPivotSource{
 						Family: capability.SemanticFrameFamily{
 							BindingID: "binding-id", ResourceType: "Observation", SourcePath: "component[]",
 							SourceCanonical: "Observation.component.code", OwningScope: "component[]",
@@ -135,12 +135,12 @@ func TestSemanticFrameFallbackSurvivesProposalRequestAndResponseDTOs(t *testing.
 						CandidateID: "observation-candidate", NodeID: "observation-node",
 						FieldPath: "valueCodeableConcept.text",
 					},
-					Categories:        []authoringv2.ConstructionCodedPivotCategory{{System: "urn:staging", Code: "stage-1", OutputColumnID: "stage_one"}},
-					DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
-					MissingCellPolicy: authoringv2.ConstructionPivotMissingError,
+					Categories:        []ws.ConstructionCodedPivotCategory{{System: "urn:staging", Code: "stage-1", OutputColumnID: "stage_one"}},
+					DuplicatePolicy:   ws.ConstructionPivotDuplicateError,
+					MissingCellPolicy: ws.ConstructionPivotMissingError,
 				},
 			},
-			Outputs: []authoringv2.StageColumn{},
+			Outputs: []ws.StageColumn{},
 		}},
 	}
 
@@ -158,23 +158,23 @@ func TestSemanticFrameFallbackSurvivesProposalRequestAndResponseDTOs(t *testing.
 	requestJSON := mustMarshalJSON(t, request)
 	var decodedRequest loomapi.ConstructionProposalRequest
 	mustUnmarshalJSON(t, requestJSON, &decodedRequest)
-	var requestAuthoringConstruction authoringv2.Construction
+	var requestAuthoringConstruction ws.Construction
 	mustUnmarshalJSON(t, mustMarshalJSON(t, decodedRequest.CandidateConstruction), &requestAuthoringConstruction)
 	assertConstructionFallback(t, requestAuthoringConstruction, wantFallbacks)
 
-	authoringResponse := construction.ConstructionProposalResponse{
+	authoringResponse := constructionpkg.ConstructionProposalResponse{
 		OutputID: "observations", SnapshotToken: "snapshot-token", CandidateConstruction: construction,
 	}
 	responseJSON := mustMarshalJSON(t, authoringResponse)
 	var generatedResponse loomapi.ConstructionProposalResponse
 	mustUnmarshalJSON(t, responseJSON, &generatedResponse)
 	responseWireJSON := mustMarshalJSON(t, generatedResponse)
-	var decodedAuthoringResponse construction.ConstructionProposalResponse
+	var decodedAuthoringResponse constructionpkg.ConstructionProposalResponse
 	mustUnmarshalJSON(t, responseWireJSON, &decodedAuthoringResponse)
 	assertConstructionFallback(t, decodedAuthoringResponse.CandidateConstruction, wantFallbacks)
 }
 
-func assertConstructionFallback(t *testing.T, construction authoringv2.Construction, wantFallbacks []string) {
+func assertConstructionFallback(t *testing.T, construction ws.Construction, wantFallbacks []string) {
 	t.Helper()
 	if len(construction.Steps) != 1 || construction.Steps[0].Operation.CodedPivot == nil || construction.Steps[0].Operation.CodedPivot.Source == nil {
 		t.Fatalf("construction lost coded pivot source across API boundary: %#v", construction)

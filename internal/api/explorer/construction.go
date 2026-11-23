@@ -4,13 +4,14 @@ import (
 	"context"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func constructionProposalPreviewBudget(ctx context.Context, candidate authoringv2.Construction) (context.Context, time.Duration) {
+func constructionProposalPreviewBudget(ctx context.Context, candidate ws.Construction) (context.Context, time.Duration) {
 	for _, step := range candidate.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationPivot {
+		if step.Operation.Kind == ws.ConstructionOperationPivot {
 			return executionarango.WithPivotPreviewQueryBudget(ctx), executionarango.PivotCategoryScanTimeout
 		}
 	}

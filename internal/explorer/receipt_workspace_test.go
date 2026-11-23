@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
 )
 
 func TestHistoricalReceiptIdentitySurvivesExecutionRetirement(t *testing.T) {
-	workspace := authoringv2.NewWorkspace("Historical receipt")
+	workspace := ws.NewWorkspace("Historical receipt")
 	workspace.SemanticsVersion--
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -21,11 +23,11 @@ func TestHistoricalReceiptIdentitySurvivesExecutionRetirement(t *testing.T) {
 	}
 	receipt := testReceipt()
 	receipt.NormalizedBundle, receipt.IntentDigest = raw, digest
-	receipt.CompilationKey, err = CompilationKey(receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestHistoricalReceiptIdentitySurvivesExecutionRetirement(t *testing.T) {
 		t.Fatal("execution eligibility changed the immutable receipt")
 	}
 
-	migrated, err := authoringv2.MigrateStoredWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}

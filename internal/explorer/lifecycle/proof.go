@@ -3,14 +3,16 @@ package lifecycle
 import (
 	"context"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/proposal"
 )
 
-func (s *Service) verifyProposalReceipt(_ context.Context, stage string, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
-	return proposal.VerifyReceipt(stage, receipt, project, explorerID, snapshotToken, snapshot, expected, func() authoringv2.CatalogSnapshot {
+func (s *Service) verifyProposalReceipt(_ context.Context, stage string, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
+	return proposal.VerifyReceipt(stage, receipt, project, explorerID, snapshotToken, snapshot, expected, func() ws.CatalogSnapshot {
 		return s.catalog(snapshot, explorerID)
 	})
 }

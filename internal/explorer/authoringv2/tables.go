@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func applyCreateTable(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyCreateTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	node, ok := catalogNode(catalog, command.RootNodeID())
 	if !ok || !node.RowRootEligible {
@@ -20,12 +22,12 @@ func applyCreateTable(workspace *Workspace, catalog CatalogSnapshot, commandID s
 		}
 	}
 	title := strings.TrimSpace(command.Title)
-	workspace.Documents = append(workspace.Documents, Document{Kind: Kind, Output: Output{ID: outputID, Title: title}, RootResourceType: node.ResourceType, Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}, Rows: RecordsRowDefinition(), Columns: []Column{}})
-	workspace.Tabs = append(workspace.Tabs, Tab{ID: tabID, Title: title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
-	return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: RootOccurrenceID}, nil
+	workspace.Documents = append(workspace.Documents, ws.Document{Kind: ws.Kind, Output: ws.Output{ID: outputID, Title: title}, RootResourceType: node.ResourceType, Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: node.ResourceType}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{}})
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: tabID, Title: title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
+	return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: ws.RootOccurrenceID}, nil
 }
 
-func applyDuplicateTable(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyDuplicateTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	sourceIndex := documentIndex(workspace, command.SourceOutputID())
 	if sourceIndex < 0 {
@@ -36,11 +38,11 @@ func applyDuplicateTable(workspace *Workspace, catalog CatalogSnapshot, commandI
 	copy := workspace.Documents[sourceIndex]
 	copy.Output.ID, copy.Output.Title = outputID, strings.TrimSpace(command.Title)
 	workspace.Documents = append(workspace.Documents, copy)
-	workspace.Tabs = append(workspace.Tabs, Tab{ID: tabID, Title: copy.Output.Title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
-	return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: RootOccurrenceID}, nil
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: tabID, Title: copy.Output.Title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
+	return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: ws.RootOccurrenceID}, nil
 }
 
-func applyDeleteTable(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyDeleteTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -52,7 +54,7 @@ func applyDeleteTable(workspace *Workspace, catalog CatalogSnapshot, commandID s
 	return result, nil
 }
 
-func applyRenameTable(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRenameTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -68,7 +70,7 @@ func applyRenameTable(workspace *Workspace, catalog CatalogSnapshot, commandID s
 	return result, nil
 }
 
-func applyReorderTables(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyReorderTables(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if len(command.OutputIDs()) != len(workspace.Documents) {
 		return result, fmt.Errorf("outputIds must list every table exactly once")
@@ -91,7 +93,7 @@ func applyReorderTables(workspace *Workspace, catalog CatalogSnapshot, commandID
 	return result, nil
 }
 
-func applySetTableRoot(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetTableRoot(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	node, ok := catalogNode(catalog, command.RootNodeID())
@@ -106,11 +108,11 @@ func applySetTableRoot(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		return result, fmt.Errorf("ROOT_REBASE_REQUIRED: changing table root would discard configured routes, columns, filters, actions, or population")
 	}
 	current.RootResourceType = node.ResourceType
-	current.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}
+	current.Route = ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: node.ResourceType}
 	return result, nil
 }
 
-func applyApplyTableRootRebase(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyTableRootRebase(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	proposal := *command.RowChange()
 	if proposal.Mode == RowChangeModeReplace {
@@ -120,7 +122,7 @@ func applyApplyTableRootRebase(workspace *Workspace, catalog CatalogSnapshot, co
 		}
 		*workspace = replaced
 		result.OutputID = proposal.OutputID
-		result.OccurrenceID = RootOccurrenceID
+		result.OccurrenceID = ws.RootOccurrenceID
 		return result, nil
 	}
 	document := documentIndex(workspace, proposal.OutputID)
@@ -133,11 +135,11 @@ func applyApplyTableRootRebase(workspace *Workspace, catalog CatalogSnapshot, co
 	}
 	workspace.Documents[document] = rebased
 	result.OutputID = proposal.OutputID
-	result.OccurrenceID = RootOccurrenceID
+	result.OccurrenceID = ws.RootOccurrenceID
 	return result, nil
 }
 
-func applySetTablePopulation(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -154,7 +156,7 @@ func applySetTablePopulation(workspace *Workspace, catalog CatalogSnapshot, comm
 	return result, nil
 }
 
-func applyClearTablePopulation(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyClearTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {

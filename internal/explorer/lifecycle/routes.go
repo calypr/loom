@@ -3,6 +3,8 @@ package lifecycle
 import (
 	"context"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -39,6 +41,6 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request population
 	return s.populationService.SearchPopulationRoutes(ctx, request)
 }
 
-func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	return s.populationService.PreparePopulationRouteChoices(ctx, project, authorized, identities, workspace, commands)
 }

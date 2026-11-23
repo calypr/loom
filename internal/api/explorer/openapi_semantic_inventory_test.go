@@ -11,10 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -155,7 +156,7 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "EXPLORER_NOT_FOUND") {
 		t.Fatalf("missing-workspace browse must be typed EXPLORER_NOT_FOUND 404: status=%d body=%s", response.StatusCode, response.Body)
 	}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion}
 	workspace.Explorer.Title = "typed-not-found probe"
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {

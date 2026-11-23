@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -21,24 +23,24 @@ import (
 	"github.com/google/uuid"
 )
 
-func rebuildImportedDocument(document authoringv2.Document, output recipe.Output, schema []recipe.StageColumn, catalog authoringv2.CatalogSnapshot, previousLabels ...map[string]string) (authoringv2.Document, error) {
+func rebuildImportedDocument(document ws.Document, output recipe.Output, schema []recipe.StageColumn, catalog ws.CatalogSnapshot, previousLabels ...map[string]string) (ws.Document, error) {
 	route, err := recipeimport.ImportRoute(output, catalog)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
-	previousImported := make(map[string]authoringv2.Column, len(document.Columns))
+	previousImported := make(map[string]ws.Column, len(document.Columns))
 	authoredIDs := make(map[string]struct{}, len(document.Columns))
 	seenPreviousIDs := make(map[string]struct{}, len(document.Columns))
 	for index, column := range document.Columns {
 		if column.ColumnID != "" {
 			if _, duplicate := seenPreviousIDs[column.ColumnID]; duplicate {
-				return authoringv2.Document{}, fmt.Errorf("document column %d duplicates stable column id %q", index, column.ColumnID)
+				return ws.Document{}, fmt.Errorf("document column %d duplicates stable column id %q", index, column.ColumnID)
 			}
 			seenPreviousIDs[column.ColumnID] = struct{}{}
 		}
 		if isImportedRecipeColumn(column) {
 			if column.ColumnID == "" {
-				return authoringv2.Document{}, fmt.Errorf("imported document column %d has no stable column id", index)
+				return ws.Document{}, fmt.Errorf("imported document column %d has no stable column id", index)
 			}
 			previousImported[column.ColumnID] = column
 			continue
@@ -48,23 +50,23 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 		}
 	}
 
-	refreshed := make(map[string]authoringv2.Column, len(schema))
+	refreshed := make(map[string]ws.Column, len(schema))
 	schemaOrder := make(map[string]int, len(schema))
 	seenSchemaIDs, seenSchemaNames := make(map[string]struct{}, len(schema)), make(map[string]struct{}, len(schema))
 	for index, source := range schema {
 		if strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Name) == "" {
-			return authoringv2.Document{}, fmt.Errorf("imported source schema column %d requires a stable id and name", index)
+			return ws.Document{}, fmt.Errorf("imported source schema column %d requires a stable id and name", index)
 		}
 		if _, duplicate := seenSchemaIDs[source.ID]; duplicate {
-			return authoringv2.Document{}, fmt.Errorf("imported source schema duplicates column id %q", source.ID)
+			return ws.Document{}, fmt.Errorf("imported source schema duplicates column id %q", source.ID)
 		}
 		if _, duplicate := seenSchemaNames[source.Name]; duplicate {
-			return authoringv2.Document{}, fmt.Errorf("imported source schema duplicates column name %q", source.Name)
+			return ws.Document{}, fmt.Errorf("imported source schema duplicates column name %q", source.Name)
 		}
 		seenSchemaIDs[source.ID] = struct{}{}
 		seenSchemaNames[source.Name] = struct{}{}
 		if _, collides := authoredIDs[source.ID]; collides {
-			return authoringv2.Document{}, fmt.Errorf("imported source schema column id %q collides with an authored column", source.ID)
+			return ws.Document{}, fmt.Errorf("imported source schema column id %q collides with an authored column", source.ID)
 		}
 		schemaOrder[source.ID] = index
 
@@ -73,16 +75,16 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 		if label == "" {
 			label = source.Name
 		}
-		column := authoringv2.Column{ColumnID: source.ID, Column: source.Name, Label: label, LogicalType: source.Type,
-			OccurrenceID: authoringv2.RootOccurrenceID,
-			Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: source.Name}},
-			Table:        &authoringv2.TablePresentation{Visible: &visible}}
+		column := ws.Column{ColumnID: source.ID, Column: source.Name, Label: label, LogicalType: source.Type,
+			OccurrenceID: ws.RootOccurrenceID,
+			Source:       ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: source.Name}},
+			Table:        &ws.TablePresentation{Visible: &visible}}
 		if old, ok := previousImported[source.ID]; ok {
 			column = old
 			column.Column = source.Name
 			column.LogicalType = source.Type
 			if column.Source.Imported == nil {
-				return authoringv2.Document{}, fmt.Errorf("imported source column id %q lost its imported source identity", source.ID)
+				return ws.Document{}, fmt.Errorf("imported source column id %q lost its imported source identity", source.ID)
 			}
 			sourceCopy := *column.Source.Imported
 			sourceCopy.OutputColumn = source.Name
@@ -98,7 +100,7 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 		refreshed[source.ID] = column
 	}
 
-	columns := make([]authoringv2.Column, 0, len(schema)+len(document.Columns))
+	columns := make([]ws.Column, 0, len(schema)+len(document.Columns))
 	inserted := make(map[string]struct{}, len(schema))
 	for _, old := range document.Columns {
 		if isImportedRecipeColumn(old) {
@@ -134,7 +136,7 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 				insertAt = 0
 			}
 		}
-		columns = append(columns, authoringv2.Column{})
+		columns = append(columns, ws.Column{})
 		copy(columns[insertAt+1:], columns[insertAt:])
 		columns[insertAt] = column
 		inserted[source.ID] = struct{}{}
@@ -144,13 +146,13 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 	document.Rows = recipeimport.ImportRows(output)
 	document.Columns = columns
 	if err := document.Validate(); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	return document, nil
 }
 
-func isImportedRecipeColumn(column authoringv2.Column) bool {
-	return column.Source.Kind == authoringv2.SourceImported && column.Source.Imported != nil
+func isImportedRecipeColumn(column ws.Column) bool {
+	return column.Source.Kind == ws.SourceImported && column.Source.Imported != nil
 }
 
 func pinnedFieldBindingIDs(output recipe.Output, columns []facade.CompiledOutputColumn) (map[string]string, error) {
@@ -188,12 +190,12 @@ type importedProjectionFact struct {
 	ColumnID, Owner, Kind, Key, SemanticKey, LeafKey string
 }
 
-func importedProjectionFacts(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, compiled facade.CompiledRecipeOutput, native recipeplan.OutputPlan, catalog authoringv2.CatalogSnapshot) ([]importedProjectionFact, error) {
+func importedProjectionFacts(document ws.Document, original recipe.Output, plan *ws.ImportedSourcePlan, compiled facade.CompiledRecipeOutput, native recipeplan.OutputPlan, catalog ws.CatalogSnapshot) ([]importedProjectionFact, error) {
 	document.ImportedSource = plan
 	document.Columns = nil
 	for _, column := range compiled.OutputSchema {
 		if !column.Internal && !column.Identity {
-			document.Columns = append(document.Columns, authoringv2.Column{ColumnID: column.ID, Column: column.Name})
+			document.Columns = append(document.Columns, ws.Column{ColumnID: column.ID, Column: column.Name})
 		}
 	}
 	network, err := recipeimport.HydrateNetwork(document, original, catalog)
@@ -327,7 +329,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 	return facts, nil
 }
 
-func preserveImportedGeneratedIDs(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, baseline facade.CompiledRecipeOutput, baselineNative recipeplan.OutputPlan, candidate *facade.CompiledRecipeOutput, candidateNative recipeplan.OutputPlan, catalog authoringv2.CatalogSnapshot) error {
+func preserveImportedGeneratedIDs(document ws.Document, original recipe.Output, plan *ws.ImportedSourcePlan, baseline facade.CompiledRecipeOutput, baselineNative recipeplan.OutputPlan, candidate *facade.CompiledRecipeOutput, candidateNative recipeplan.OutputPlan, catalog ws.CatalogSnapshot) error {
 	pristinePlan := recipeimport.SourcePlan(original)
 	before, err := importedProjectionFacts(document, original, &pristinePlan, baseline, baselineNative, catalog)
 	if err != nil {
@@ -416,7 +418,7 @@ func rebindImportedGeneratedProjectionIDs(candidate *facade.CompiledRecipeOutput
 	return nil
 }
 
-func requiresPristineProjectionIdentity(output recipe.Output, plan *authoringv2.ImportedSourcePlan) bool {
+func requiresPristineProjectionIdentity(output recipe.Output, plan *ws.ImportedSourcePlan) bool {
 	if plan == nil {
 		return false
 	}
@@ -429,7 +431,7 @@ func requiresPristineProjectionIdentity(output recipe.Output, plan *authoringv2.
 	if r := plan.Relationships; r != nil && (len(r.Additions) > 0 || len(r.Removals) > 0 || len(r.MatchOverrides) > 0) {
 		return true
 	}
-	originals := map[string]authoringv2.ImportedSourceStep{}
+	originals := map[string]ws.ImportedSourceStep{}
 	for _, step := range recipeimport.SourcePlan(output).Steps {
 		originals[step.ID] = step
 	}
@@ -442,73 +444,73 @@ func requiresPristineProjectionIdentity(output recipe.Output, plan *authoringv2.
 	return false
 }
 
-func (r Sources) Edit(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+func (r Sources) Edit(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
 	return r.editSource(ctx, project, authorized, document, change, nil)
 }
 
-func (r Sources) CreateSourceRule(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+func (r Sources) CreateSourceRule(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, rule ws.SourceRuleCreate) (ws.Document, error) {
 	if err := rule.Validate(); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	return r.editSources(ctx, project, authorized, document, nil, nil, &rule)
 }
 
-func (r Sources) EditRelationship(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+func (r Sources) EditRelationship(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, change authoringv2.ImportedRelationshipChange) (ws.Document, error) {
 	if err := change.Validate(); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	return r.editSource(ctx, project, authorized, document, nil, &change)
 }
 
-func (r Sources) EditBatch(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+func (r Sources) EditBatch(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, changes []authoringv2.ImportedSourceStepChange) (ws.Document, error) {
 	if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	return r.editSources(ctx, project, authorized, document, changes, nil, nil)
 }
-func (r Sources) editSource(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+func (r Sources) editSource(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (ws.Document, error) {
 	var changes []authoringv2.ImportedSourceStepChange
 	if change != nil {
 		changes = []authoringv2.ImportedSourceStepChange{*change}
 	}
 	return r.editSources(ctx, project, authorized, document, changes, relationship, nil)
 }
-func (r Sources) editSources(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, rule *authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+func (r Sources) editSources(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, rule *ws.SourceRuleCreate) (ws.Document, error) {
 	if len(changes) > 0 {
 		if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
-			return authoringv2.Document{}, err
+			return ws.Document{}, err
 		}
 	}
 	if document.ImportedRecipe == nil {
-		return authoringv2.Document{}, fmt.Errorf("an imported source is required")
+		return ws.Document{}, fmt.Errorf("an imported source is required")
 	}
 	ref := *document.ImportedRecipe
 	if err := ref.Validate(); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	if r.registry == nil || r.engine == nil || ref.Name != r.defaultName {
-		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
+		return ws.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
-		return authoringv2.Document{}, capability.ErrStaleSnapshot
+		return ws.Document{}, capability.ErrStaleSnapshot
 	}
 	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)
 	if err != nil {
-		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
+		return ws.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	if digest != ref.Digest || entry.Digest != digest {
-		return authoringv2.Document{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
+		return ws.Document{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
 	}
 	var original *recipe.Output
 	for i := range bundle.Outputs {
@@ -518,13 +520,13 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 		}
 	}
 	if original == nil {
-		return authoringv2.Document{}, fmt.Errorf("pinned source output was not found")
+		return ws.Document{}, fmt.Errorf("pinned source output was not found")
 	}
 	plan, err := recipeimport.HydrateSourcePlan(*original, document.ImportedSource)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
-	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
+	catalog := ws.CatalogFromCapability(authorized.Snapshot, "")
 	input := recipeimport.PlanEditInput{}
 	previousSourceLabels := map[string]string{}
 	for _, change := range changes {
@@ -534,7 +536,7 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 		if input.PinnedFieldIDs == nil {
 			pristine, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized)
 			if err != nil {
-				return authoringv2.Document{}, err
+				return ws.Document{}, err
 			}
 			var columns []facade.CompiledOutputColumn
 			for _, output := range pristine.resolved.Compiled.Outputs {
@@ -544,7 +546,7 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 			}
 			input.PinnedFieldIDs, err = pinnedFieldBindingIDs(*original, columns)
 			if err != nil {
-				return authoringv2.Document{}, err
+				return ws.Document{}, err
 			}
 		}
 		for _, step := range plan.Steps {
@@ -561,7 +563,7 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 	if relationship != nil {
 		network, err := recipeimport.HydrateNetwork(document, *original, catalog)
 		if err != nil {
-			return authoringv2.Document{}, err
+			return ws.Document{}, err
 		}
 		input.Occurrences = network.Occurrences
 		if relationship.Action == "ADD" {
@@ -572,18 +574,18 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 		StepChanges: changes, Relationship: relationship, RuleCreate: rule,
 	}, input)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 
 	updated := document
 	updated.ImportedSource = &plan
 	source, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized, updated)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	effective, err := recipeimport.ApplySourcePlan(*original, &plan)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	var schema []recipe.StageColumn
 	for _, output := range source.resolved.Compiled.Outputs {
@@ -592,14 +594,14 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 		}
 		columns, err := importedSourceSchema(output.OutputSchema)
 		if err != nil {
-			return authoringv2.Document{}, err
+			return ws.Document{}, err
 		}
 		for _, column := range columns {
 			schema = append(schema, column.Column)
 		}
 	}
 	if schema == nil {
-		return authoringv2.Document{}, fmt.Errorf("source change produced no public columns")
+		return ws.Document{}, fmt.Errorf("source change produced no public columns")
 	}
 	return rebuildImportedDocument(updated, effective, schema, catalog, previousSourceLabels)
 }

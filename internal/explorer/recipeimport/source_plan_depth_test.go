@@ -1,9 +1,10 @@
 package recipeimport
 
 import (
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestImportSourcePlanPreservesDeepNativeRoutes(t *testing.T) {
@@ -17,7 +18,7 @@ func TestImportSourcePlanPreservesDeepNativeRoutes(t *testing.T) {
 		t.Fatalf("native validation: %v", e)
 	}
 	t.Log("native Bundle.Validate PASS")
-	c := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient"}}}
+	c := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "patient", ResourceType: "Patient"}}}
 	_, e := ImportWorkspace(b, c, map[string][]recipe.StageColumn{"out": {{ID: "id", Name: "id", Type: "string"}}})
 	if e != nil {
 		t.Fatalf("ImportWorkspace: %v", e)

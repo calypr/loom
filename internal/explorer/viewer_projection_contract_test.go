@@ -3,6 +3,8 @@ package explorer_test
 import (
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -18,8 +20,8 @@ func TestViewerProjectionDoesNotInventColumnsWithoutPublishedSchema(t *testing.T
 			TranslationVersion:  selector.TranslationVersion,
 			Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
 		},
-		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{Name: "patients", Selector: &selector}}},
-		EmittedColumns: []explorer.EmittedColumn{{
+		Dataset: viewer.DatasetMetadata{Outputs: []viewer.DatasetOutput{{Name: "patients", Selector: &selector}}},
+		EmittedColumns: []viewer.EmittedColumn{{
 			OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string",
 		}},
 	}
@@ -49,11 +51,11 @@ func TestViewerProjectionRejectsAliasedPhysicalColumns(t *testing.T) {
 				Fields: []recipe.Field{{Name: "patient_id", FieldRef: "Patient.id"}},
 			}},
 		},
-		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{
+		Dataset: viewer.DatasetMetadata{Outputs: []viewer.DatasetOutput{{
 			Name: "patients", Selector: &selector,
 			Columns: []publication.PhysicalColumn{{Name: "route_0__patient_id", LogicalType: "string", ClickHouse: "String"}},
 		}}},
-		EmittedColumns: []explorer.EmittedColumn{{
+		EmittedColumns: []viewer.EmittedColumn{{
 			OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string",
 		}},
 	}
@@ -74,7 +76,7 @@ func TestViewerProjectionKeepsRecipeOnlyLegacyFallback(t *testing.T) {
 	selector := dataset.DataframeSelector{Recipe: "legacy-query", TranslationVersion: "v1", Output: "patients"}
 	revision := explorer.Revision{
 		Recipe:  recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}}},
-		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{Name: "patients", Selector: &selector}}}, Status: explorer.RevisionActive,
+		Dataset: viewer.DatasetMetadata{Outputs: []viewer.DatasetOutput{{Name: "patients", Selector: &selector}}}, Status: explorer.RevisionActive,
 	}
 	runtime, err := explorer.BuildViewerProjection(&revision)
 	if err != nil || runtime == nil || len(runtime.Outputs) != 1 || runtime.Outputs[0].OutputID != "patients" {

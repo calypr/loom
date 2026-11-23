@@ -7,9 +7,11 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -18,14 +20,14 @@ func markSavedGroupFieldChoices(base Base, stageID, groupStepID string, choices 
 	if groupStepID == "" {
 		return
 	}
-	var selected *authoringv2.ConstructionStep
+	var selected *ws.ConstructionStep
 	for index := range base.Construction.Steps {
 		if base.Construction.Steps[index].ID == groupStepID {
 			selected = &base.Construction.Steps[index]
 			break
 		}
 	}
-	if selected == nil || selected.Operation.Kind != authoringv2.ConstructionOperationGroup || selected.Operation.Group == nil {
+	if selected == nil || selected.Operation.Kind != ws.ConstructionOperationGroup || selected.Operation.Group == nil {
 		return
 	}
 	inputStageID, ok := constructionGroupInputStageID(*selected)
@@ -91,7 +93,7 @@ func bindOneGroupRelatedRoute(choice *ConstructionGroupFieldChoice, routeID *str
 	return nil
 }
 
-func groupChoiceMatchesInputContext(source capability.GroupFieldChoiceSource, context explorer.ReceiptConstructionGroupFieldSourceContext) bool {
+func groupChoiceMatchesInputContext(source capability.GroupFieldChoiceSource, context receiptmodel.ReceiptConstructionGroupFieldSourceContext) bool {
 	if source.SourceStageID != context.SourceStageID || source.SourceIdentityColumn != context.SourceIdentityColumn ||
 		source.SourceShapeID == "" || source.OwnerOccurrenceID != source.OccurrenceID {
 		return false
@@ -102,7 +104,7 @@ func groupChoiceMatchesInputContext(source capability.GroupFieldChoiceSource, co
 	return source.SourceShapeID == context.SourceShapeID
 }
 
-func constructionStepHasGroupFieldSource(step authoringv2.ConstructionStep) bool {
+func constructionStepHasGroupFieldSource(step ws.ConstructionStep) bool {
 	if groupStepHasRowValueFieldSource(step) {
 		return true
 	}
@@ -117,8 +119,8 @@ func constructionStepHasGroupFieldSource(step authoringv2.ConstructionStep) bool
 	return false
 }
 
-func groupStepHasRowValueFieldSource(step authoringv2.ConstructionStep) bool {
-	if step.Operation.Kind != authoringv2.ConstructionOperationGroup {
+func groupStepHasRowValueFieldSource(step ws.ConstructionStep) bool {
+	if step.Operation.Kind != ws.ConstructionOperationGroup {
 		return false
 	}
 	for _, value := range step.RowValues {
@@ -129,7 +131,7 @@ func groupStepHasRowValueFieldSource(step authoringv2.ConstructionStep) bool {
 	return false
 }
 
-func groupRowValueSourceForOutput(values []authoringv2.ConstructionRowValue, outputID string) *authoringv2.ConstructionRowValue {
+func groupRowValueSourceForOutput(values []ws.ConstructionRowValue, outputID string) *ws.ConstructionRowValue {
 	for index := range values {
 		if values[index].OutputColumnID == outputID && values[index].FieldSource != nil {
 			return &values[index]
@@ -138,21 +140,21 @@ func groupRowValueSourceForOutput(values []authoringv2.ConstructionRowValue, out
 	return nil
 }
 
-func constructionGroupInputStageID(step authoringv2.ConstructionStep) (string, bool) {
+func constructionGroupInputStageID(step ws.ConstructionStep) (string, bool) {
 	if len(step.Inputs) != 1 {
 		return "", false
 	}
 	switch step.Inputs[0].Kind {
-	case authoringv2.ConstructionInputSourceProjection:
+	case ws.ConstructionInputSourceProjection:
 		return recipe.ConstructionSourceProjectionID, true
-	case authoringv2.ConstructionInputStepOutput:
+	case ws.ConstructionInputStepOutput:
 		return step.Inputs[0].StepID, true
 	default:
 		return "", false
 	}
 }
 
-func receiptConstructionStageByID(stages []explorer.ReceiptConstructionStage, stageID string) *explorer.ReceiptConstructionStage {
+func receiptConstructionStageByID(stages []receiptmodel.ReceiptConstructionStage, stageID string) *receiptmodel.ReceiptConstructionStage {
 	for index := range stages {
 		if stages[index].ID == stageID {
 			return &stages[index]
@@ -161,7 +163,7 @@ func receiptConstructionStageByID(stages []explorer.ReceiptConstructionStage, st
 	return nil
 }
 
-func groupFieldSourceForOutput(keys []authoringv2.ConstructionGroupKey, outputID string) *authoringv2.ConstructionGroupKey {
+func groupFieldSourceForOutput(keys []ws.ConstructionGroupKey, outputID string) *ws.ConstructionGroupKey {
 	for index := range keys {
 		if keys[index].OutputColumnID == outputID && keys[index].FieldSource != nil {
 			return &keys[index]
@@ -170,7 +172,7 @@ func groupFieldSourceForOutput(keys []authoringv2.ConstructionGroupKey, outputID
 	return nil
 }
 
-func groupFieldChoiceMatchesBinding(choice ConstructionGroupFieldChoice, binding authoringv2.ConstructionGroupFieldSource) bool {
+func groupFieldChoiceMatchesBinding(choice ConstructionGroupFieldChoice, binding ws.ConstructionGroupFieldSource) bool {
 	if choice.Kind != "FIELD_SOURCE" || choice.FieldSource == nil || choice.FieldSource.Kind != "CHOICE" {
 		return false
 	}
@@ -186,13 +188,13 @@ func groupFieldChoiceMatchesBinding(choice ConstructionGroupFieldChoice, binding
 	return resolved != nil && sameConstructionGroupFieldBinding(*resolved, binding)
 }
 
-func constructionGroupFieldBinding(source capability.GroupFieldChoiceSource) *authoringv2.ConstructionGroupFieldSource {
-	var input *authoringv2.ConstructionGroupFieldSourceInput
+func constructionGroupFieldBinding(source capability.GroupFieldChoiceSource) *ws.ConstructionGroupFieldSource {
+	var input *ws.ConstructionGroupFieldSourceInput
 	if source.Input != nil {
 		switch source.Input.Kind {
 		case "CURRENT_STAGE":
 			if current := source.Input.CurrentStage; current != nil {
-				input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &authoringv2.ConstructionGroupFieldCurrentStage{
+				input = &ws.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &ws.ConstructionGroupFieldCurrentStage{
 					SourceRole: current.SourceRole, OccurrenceID: current.OccurrenceID,
 					OwnerResourceType: current.OwnerResourceType, ResourceType: current.ResourceType,
 					CandidateID: current.CandidateID, CanonicalPath: current.CanonicalPath,
@@ -201,16 +203,16 @@ func constructionGroupFieldBinding(source capability.GroupFieldChoiceSource) *au
 			}
 		case "RELATED_OCCURRENCE":
 			if related := source.Input.RelatedOccurrence; related != nil {
-				steps := make([]authoringv2.ConstructionGroupFieldRelatedRouteStep, len(related.Route))
+				steps := make([]ws.ConstructionGroupFieldRelatedRouteStep, len(related.Route))
 				for index, step := range related.Route {
-					steps[index] = authoringv2.ConstructionGroupFieldRelatedRouteStep{
+					steps[index] = ws.ConstructionGroupFieldRelatedRouteStep{
 						StepIndex: step.StepIndex, FromOccurrenceID: step.FromOccurrenceID, FromNodeID: step.FromNodeID,
 						FromResourceType: step.FromResourceType, EdgeID: step.EdgeID, Relationship: step.Relationship,
 						StorageDirection: step.StorageDirection, MatchMode: step.MatchMode,
 						ToOccurrenceID: step.ToOccurrenceID, ToNodeID: step.ToNodeID, ToResourceType: step.ToResourceType,
 					}
 				}
-				input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &authoringv2.ConstructionGroupFieldRelatedOccurrence{
+				input = &ws.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &ws.ConstructionGroupFieldRelatedOccurrence{
 					AnchorOccurrenceID: related.AnchorOccurrenceID, AnchorNodeID: related.AnchorNodeID, AnchorResourceType: related.AnchorResourceType,
 					Route: steps, TargetOccurrenceID: related.TargetOccurrenceID, TargetNodeID: related.TargetNodeID,
 					TargetResourceType: related.TargetResourceType, ResourceType: related.ResourceType,
@@ -225,13 +227,13 @@ func constructionGroupFieldBinding(source capability.GroupFieldChoiceSource) *au
 	if input == nil {
 		return nil
 	}
-	return &authoringv2.ConstructionGroupFieldSource{
+	return &ws.ConstructionGroupFieldSource{
 		Kind: "BINDING", ValueKind: source.ValueKind, SourceStageID: source.SourceStageID,
 		SourceShapeID: source.SourceShapeID, Input: input,
 	}
 }
 
-func sameConstructionGroupFieldBinding(left, right authoringv2.ConstructionGroupFieldSource) bool {
+func sameConstructionGroupFieldBinding(left, right ws.ConstructionGroupFieldSource) bool {
 	if left.Kind != right.Kind || left.ValueKind != right.ValueKind || left.SourceStageID != right.SourceStageID ||
 		left.SourceShapeID != right.SourceShapeID || left.Input == nil || right.Input == nil || left.Input.Kind != right.Input.Kind {
 		return false
@@ -248,7 +250,7 @@ func sameConstructionGroupFieldBinding(left, right authoringv2.ConstructionGroup
 
 func constructionGroupFieldOwnerRoute(
 	base Base,
-	context *explorer.ReceiptConstructionGroupFieldSourceContext,
+	context *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	occurrenceID string,
 ) (capability.RowChoiceOccurrence, []capability.ConstructionRouteStep, error) {
 	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, occurrenceID, "")
@@ -264,9 +266,9 @@ func constructionGroupFieldOwnerRoute(
 }
 
 func compiledGroupRouteMatches(
-	root authoringv2.RouteNode,
+	root ws.RouteNode,
 	occurrenceID string,
-	compiled []explorer.ReceiptConstructionGroupFieldSourceRouteStep,
+	compiled []receiptmodel.ReceiptConstructionGroupFieldSourceRouteStep,
 	resolved []capability.ConstructionRouteStep,
 ) bool {
 	path, found := routePathToOccurrence(root, occurrenceID)
@@ -286,8 +288,8 @@ func compiledGroupRouteMatches(
 }
 
 func groupFieldPathForOwner(
-	owner explorer.ReceiptConstructionGroupFieldOwner,
-	expansion *explorer.ReceiptConstructionGroupFieldSourceExpansion,
+	owner receiptmodel.ReceiptConstructionGroupFieldOwner,
+	expansion *receiptmodel.ReceiptConstructionGroupFieldSourceExpansion,
 	candidatePath string,
 ) (string, bool) {
 	path := canonicalRowPath(candidatePath)
@@ -307,8 +309,8 @@ func groupFieldPathForOwner(
 }
 
 func groupConsumedFieldBoundaries(
-	expansion *explorer.ReceiptConstructionGroupFieldSourceExpansion,
-	owner explorer.ReceiptConstructionGroupFieldOwner,
+	expansion *receiptmodel.ReceiptConstructionGroupFieldSourceExpansion,
+	owner receiptmodel.ReceiptConstructionGroupFieldOwner,
 ) ([]string, bool) {
 	switch owner.Role {
 	case "ROOT", "OWNER":
@@ -375,7 +377,7 @@ type constructionGroupRelatedAnchor struct {
 
 func constructionGroupRelatedAnchorForStage(
 	base Base,
-	context *explorer.ReceiptConstructionGroupFieldSourceContext,
+	context *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 ) (constructionGroupRelatedAnchor, error) {
 	if context == nil {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("Group source context is unavailable")
@@ -449,7 +451,7 @@ func stripGroupFieldPathPrefix(path, prefix string) (string, bool) {
 	return relative, relative != ""
 }
 
-func groupSourceSelector(expansion *explorer.ReceiptConstructionGroupFieldSourceExpansion) string {
+func groupSourceSelector(expansion *receiptmodel.ReceiptConstructionGroupFieldSourceExpansion) string {
 	if expansion == nil {
 		return ""
 	}
@@ -468,7 +470,7 @@ func equalGroupFieldRoutes(left, right []capability.ConstructionRouteStep) bool 
 	return true
 }
 
-func groupFieldScopeLabel(owner explorer.ReceiptConstructionGroupFieldOwner, expansion *explorer.ReceiptConstructionGroupFieldSourceExpansion) string {
+func groupFieldScopeLabel(owner receiptmodel.ReceiptConstructionGroupFieldOwner, expansion *receiptmodel.ReceiptConstructionGroupFieldSourceExpansion) string {
 	parts := []string{owner.OwnerResourceType}
 	if owner.Role == "ANCESTOR" {
 		parts = append(parts, owner.ResourceType, owner.BoundarySelector)
@@ -483,8 +485,8 @@ func groupFieldScopeLabel(owner explorer.ReceiptConstructionGroupFieldOwner, exp
 }
 
 func matchedPublicGroupFieldColumn(
-	document authoringv2.Document,
-	stage explorer.ReceiptConstructionStage,
+	document ws.Document,
+	stage receiptmodel.ReceiptConstructionStage,
 	occurrenceID, candidatePath string,
 ) string {
 	stageIDs := make(map[string]bool, len(stage.Columns))
@@ -509,7 +511,7 @@ func (s *Service) constructionGroupFieldChoices(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	stage explorer.ReceiptConstructionStage,
+	stage receiptmodel.ReceiptConstructionStage,
 	semanticChoices []ConstructionSemanticGroupChoice,
 	semanticChoicesIncomplete bool,
 	targetGroupStepID string,
@@ -519,7 +521,7 @@ func (s *Service) constructionGroupFieldChoices(
 	for _, semantic := range semanticChoices {
 		choices = append(choices, ConstructionGroupFieldChoice{
 			Kind:             "SEMANTIC_CATEGORY",
-			SemanticCategory: &authoringv2.ConstructionGroupSemanticCategory{Kind: "CHOICE", ChoiceID: semantic.ChoiceID},
+			SemanticCategory: &ws.ConstructionGroupSemanticCategory{Kind: "CHOICE", ChoiceID: semantic.ChoiceID},
 			Label:            semantic.Label, ScopeLabel: semantic.ScopeLabel, ResourceType: semantic.ResourceType, CanonicalPath: semantic.SourcePath,
 		})
 	}
@@ -599,7 +601,7 @@ func (s *Service) constructionGroupFieldChoices(
 			}
 			label := firstNonEmpty(facts.Title, proved.Label, constructionGroupFieldLabel(fieldPath))
 			response := ConstructionGroupFieldChoice{
-				Kind: "FIELD_SOURCE", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
+				Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 				ValueKind: "SCALAR", Label: label, ScopeLabel: groupFieldScopeLabel(owner, context.SourceExpansion),
 				ValueType: proved.LogicalType, SourceStageID: context.SourceStageID, SourceShapeID: context.SourceShapeID,
 				CandidateID: proved.ID, SourceRole: owner.Role, OccurrenceID: owner.OccurrenceID,
@@ -649,7 +651,7 @@ func (s *Service) constructionGroupFieldChoices(
 					continue
 				}
 				choicesByID[choice.ChoiceID] = ConstructionGroupFieldChoice{
-					Kind: "FIELD_SOURCE", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
+					Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 					ValueKind: "CODING_IDENTITY", Label: "Coding", ScopeLabel: expansion.OwnerResourceType + " · " + expansion.Selector,
 					ValueType: "string", SourceStageID: context.SourceStageID, SourceShapeID: context.SourceShapeID,
 					SourceRole: "CURRENT_ITEM", OccurrenceID: expansion.OwnerOccurrenceID, ResourceType: "Coding",
@@ -678,20 +680,20 @@ func (s *Service) constructionGroupRowValueChoices(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	stage explorer.ReceiptConstructionStage,
+	stage receiptmodel.ReceiptConstructionStage,
 	groupStepID string,
 ) ([]ConstructionGroupFieldChoice, error) {
 	if groupStepID == "" {
 		return []ConstructionGroupFieldChoice{}, nil
 	}
-	var target *authoringv2.ConstructionStep
+	var target *ws.ConstructionStep
 	for index := range base.Construction.Steps {
 		if base.Construction.Steps[index].ID == groupStepID {
 			target = &base.Construction.Steps[index]
 			break
 		}
 	}
-	if target == nil || target.Operation.Kind != authoringv2.ConstructionOperationGroup || target.Operation.Group == nil {
+	if target == nil || target.Operation.Kind != ws.ConstructionOperationGroup || target.Operation.Group == nil {
 		return nil, conflict("construction-capabilities", "STALE_GROUP_STEP", "row-value choices require the exact saved Group step", nil, nil)
 	}
 	inputStageID, ok := constructionGroupInputStageID(*target)
@@ -715,19 +717,19 @@ func (s *Service) resolveConstructionGroupFieldSources(
 	ctx context.Context,
 	base Base,
 	outputID string,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, error) {
-	priorByStep := make(map[string][]authoringv2.ConstructionGroupKey)
-	priorRowValuesByStep := make(map[string][]authoringv2.ConstructionRowValue)
+	candidate ws.Construction,
+) (ws.Construction, error) {
+	priorByStep := make(map[string][]ws.ConstructionGroupKey)
+	priorRowValuesByStep := make(map[string][]ws.ConstructionRowValue)
 	for _, step := range base.Construction.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationGroup && step.Operation.Group != nil {
-			priorByStep[step.ID] = append([]authoringv2.ConstructionGroupKey(nil), step.Operation.Group.Keys...)
-			priorRowValuesByStep[step.ID] = append([]authoringv2.ConstructionRowValue(nil), step.RowValues...)
+		if step.Operation.Kind == ws.ConstructionOperationGroup && step.Operation.Group != nil {
+			priorByStep[step.ID] = append([]ws.ConstructionGroupKey(nil), step.Operation.Group.Keys...)
+			priorRowValuesByStep[step.ID] = append([]ws.ConstructionRowValue(nil), step.RowValues...)
 		}
 	}
 	for stepIndex := range candidate.Steps {
 		step := &candidate.Steps[stepIndex]
-		if step.Operation.Kind != authoringv2.ConstructionOperationGroup || step.Operation.Group == nil {
+		if step.Operation.Kind != ws.ConstructionOperationGroup || step.Operation.Group == nil {
 			continue
 		}
 		inputStageID, ok := constructionGroupInputStageID(*step)

@@ -8,27 +8,29 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestResolveInterpretationsSelectsUniquePriorityRule(t *testing.T) {
 	snapshot := interpretationSnapshot()
-	low := explorer.InterpretationPriority(1)
-	high := explorer.InterpretationPriority(2)
-	revision := prepareInterpretation(t, explorer.InterpretationRevision{
+	low := interpretation.InterpretationPriority(1)
+	high := interpretation.InterpretationPriority(2)
+	revision := prepareInterpretation(t, interpretation.InterpretationRevision{
 		ID: "revision-priority", Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "priority",
-		Applicability: explorer.InterpretationApplicability{ResourceTypes: []string{"Patient"}, LogicalTypes: []string{"string"}},
-		Rules: []explorer.InterpretationRule{
-			{ID: "rule-low", Priority: &low, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("id")},
-			{ID: "rule-high", Priority: &high, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("name.family")},
+		Applicability: interpretation.InterpretationApplicability{ResourceTypes: []string{"Patient"}, LogicalTypes: []string{"string"}},
+		Rules: []interpretation.InterpretationRule{
+			{ID: "rule-low", Priority: &low, Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("id")},
+			{ID: "rule-high", Priority: &high, Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("name.family")},
 		},
 	})
 	workspace := interpretationWorkspace(string(revision.ID))
-	inputs, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision})
+	inputs, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,22 +45,22 @@ func TestResolveInterpretationsRejectsMissingInapplicableAndAmbiguous(t *testing
 	if _, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, nil); err == nil {
 		t.Fatal("missing revision was accepted")
 	}
-	inapplicable := prepareInterpretation(t, explorer.InterpretationRevision{
+	inapplicable := prepareInterpretation(t, interpretation.InterpretationRevision{
 		ID: "revision-inapplicable", Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "wrong resource",
-		Applicability: explorer.InterpretationApplicability{ResourceTypes: []string{"Observation"}},
-		Rules:         []explorer.InterpretationRule{{ID: "rule", Match: explorer.InterpretationStructuralMatch{ResourceType: "Observation"}, Definition: fieldDefinition("id")}},
+		Applicability: interpretation.InterpretationApplicability{ResourceTypes: []string{"Observation"}},
+		Rules:         []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Observation"}, Definition: fieldDefinition("id")}},
 	})
 	workspace = interpretationWorkspace(string(inapplicable.ID))
-	if _, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{inapplicable.ID: inapplicable}); err == nil {
+	if _, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{inapplicable.ID: inapplicable}); err == nil {
 		t.Fatal("inapplicable revision was accepted")
 	}
-	first := explorer.InterpretationPriority(1)
-	second := explorer.InterpretationPriority(1)
-	ambiguous := explorer.InterpretationRevision{Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "tie", Rules: []explorer.InterpretationRule{
-		{ID: "rule-a", Priority: &first, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("id")},
-		{ID: "rule-b", Priority: &second, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("name.family")},
+	first := interpretation.InterpretationPriority(1)
+	second := interpretation.InterpretationPriority(1)
+	ambiguous := interpretation.InterpretationRevision{Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "tie", Rules: []interpretation.InterpretationRule{
+		{ID: "rule-a", Priority: &first, Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("id")},
+		{ID: "rule-b", Priority: &second, Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("name.family")},
 	}}
-	if _, err := ambiguous.SelectRule(explorer.InterpretationStructuralCandidate{ResourceType: "Patient"}); !errors.Is(err, explorer.ErrAmbiguousMapping) {
+	if _, err := ambiguous.SelectRule(interpretation.InterpretationStructuralCandidate{ResourceType: "Patient"}); !errors.Is(err, interpretation.ErrAmbiguousMapping) {
 		t.Fatalf("ambiguous selection error = %v", err)
 	}
 }
@@ -68,7 +70,7 @@ func TestResolveInterpretationCandidateRejectsSourceWithoutFHIRIdentity(t *testi
 	snapshot.Candidates = snapshot.Candidates[:1]
 	document := interpretationWorkspace("revision").Documents[0]
 	column := document.Columns[0]
-	column.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}
+	column.Source = ws.ColumnSource{Kind: ws.SourceProjectID}
 
 	resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
 	if err != nil {
@@ -92,7 +94,7 @@ func TestResolveInterpretationCandidateReturnsOrdinaryFieldIdentity(t *testing.T
 	if !reflect.DeepEqual(match.CapabilityCandidateIDs, []string{"candidate-id"}) {
 		t.Fatalf("capability candidate IDs = %#v", match.CapabilityCandidateIDs)
 	}
-	want := explorer.InterpretationStructuralCandidate{ResourceType: "Patient", LogicalType: "string", Cardinality: "optional_one", SchemaDigest: "schema"}
+	want := interpretation.InterpretationStructuralCandidate{ResourceType: "Patient", LogicalType: "string", Cardinality: "optional_one", SchemaDigest: "schema"}
 	if !reflect.DeepEqual(match.StructuralCandidate, want) {
 		t.Fatalf("structural candidate = %#v, want %#v", match.StructuralCandidate, want)
 	}
@@ -108,7 +110,7 @@ func TestResolveInterpretationCandidateMatchesCodedValueSystemAndCode(t *testing
 	}
 	snapshot.Candidates = []capability.Candidate{candidate}
 	document := interpretationWorkspace("revision").Documents[0]
-	document.Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 		Binding: &fhirbinding.CorrelatedBinding{ValuePath: candidate.FieldPath},
 		Key:     &fhirbinding.CorrelatedKey{System: "urn:codes", Code: "active"},
 	}}
@@ -133,7 +135,7 @@ func TestResolveInterpretationCandidateMatchesExtensionAncestry(t *testing.T) {
 	}}
 	snapshot.Candidates = []capability.Candidate{candidate}
 	document := interpretationWorkspace("revision").Documents[0]
-	document.Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{
+	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceExtensionByURL, Lookup: &ws.LookupSource{
 		Extension: &fhirbinding.ExtensionBinding{
 			OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent", "urn:leaf"}, ValuePath: "valueString",
 		},
@@ -183,9 +185,9 @@ func TestResolveInterpretationCandidateNormalizesLegacyIdentifierSource(t *testi
 	snapshot.Candidates = []capability.Candidate{candidate}
 	document := interpretationWorkspace("revision").Documents[0]
 	legacy := document.Columns[0]
-	legacy.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{Match: "urn:old-system", Path: candidate.FieldPath}}
+	legacy.Source = ws.ColumnSource{Kind: ws.SourceIdentifierBySystem, Lookup: &ws.LookupSource{Match: "urn:old-system", Path: candidate.FieldPath}}
 	modern := document.Columns[0]
-	modern.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{Identifier: &fhirbinding.IdentifierBinding{
+	modern.Source = ws.ColumnSource{Kind: ws.SourceIdentifierBySystem, Lookup: &ws.LookupSource{Identifier: &fhirbinding.IdentifierBinding{
 		OwnerPath: "identifier[]", ValuePath: "value", SystemURI: "urn:old-system", LogicalType: "string",
 	}}}
 
@@ -213,7 +215,7 @@ func readyInterpretationMatch(t *testing.T, resolution interpretationCandidateRe
 	return match
 }
 
-func assertUnavailableInterpretation(t *testing.T, document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot, want InterpretationCandidateResolutionState) {
+func assertUnavailableInterpretation(t *testing.T, document ws.Document, column ws.Column, snapshot capability.Snapshot, want InterpretationCandidateResolutionState) {
 	t.Helper()
 	resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
 	if err != nil {
@@ -229,12 +231,12 @@ func assertUnavailableInterpretation(t *testing.T, document authoringv2.Document
 
 func TestCompileWorkspaceUsesResolvedDefinitionAndResolvedDigest(t *testing.T) {
 	snapshot := interpretationSnapshot()
-	revision := prepareInterpretation(t, explorer.InterpretationRevision{
+	revision := prepareInterpretation(t, interpretation.InterpretationRevision{
 		ID: "revision-source", Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "replace suggestion",
-		Rules: []explorer.InterpretationRule{{ID: "rule", Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("name.family")}},
+		Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("name.family")}},
 	})
 	workspace := interpretationWorkspace(string(revision.ID))
-	inputs, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision})
+	inputs, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,13 +255,13 @@ func TestCompileWorkspaceUsesResolvedDefinitionAndResolvedDigest(t *testing.T) {
 		t.Fatal("pinned workspace compiled without resolved interpretation")
 	}
 	changed := revision
-	changed.Rules = append([]explorer.InterpretationRule(nil), revision.Rules...)
+	changed.Rules = append([]interpretation.InterpretationRule(nil), revision.Rules...)
 	changed.Rules[0].Definition = fieldDefinition("id")
-	changed, err = explorer.PrepareInterpretationRevision(changed)
+	changed, err = interpretation.PrepareInterpretationRevision(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedInputs, err := ResolveWorkspaceInterpretations("project-a", workspaceWithRevision(string(changed.ID)), snapshot, map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{changed.ID: changed})
+	changedInputs, err := ResolveWorkspaceInterpretations("project-a", workspaceWithRevision(string(changed.ID)), snapshot, map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{changed.ID: changed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,28 +289,28 @@ func interpretationSnapshot() capability.Snapshot {
 		}, nil)
 }
 
-func interpretationWorkspace(revisionID string) authoringv2.Workspace {
+func interpretationWorkspace(revisionID string) ws.Workspace {
 	return workspaceWithRevision(revisionID)
 }
 
-func workspaceWithRevision(revisionID string) authoringv2.Workspace {
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Interpretations"},
-		Documents: []authoringv2.Document{{Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Interpretation: &authoringv2.FeatureInterpretation{Kind: authoringv2.FeatureInterpretationPinned, Pinned: &authoringv2.PinnedInterpretation{RevisionID: revisionID}}}}}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+func workspaceWithRevision(revisionID string) ws.Workspace {
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Interpretations"},
+		Documents: []ws.Document{{Rows: ws.RecordsRowDefinition(), Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Interpretation: &ws.FeatureInterpretation{Kind: ws.FeatureInterpretationPinned, Pinned: &ws.PinnedInterpretation{RevisionID: revisionID}}}}}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 }
 
-func fieldDefinition(path string) explorer.InterpretationFeatureDefinition {
-	return explorer.InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: path, ProjectionMode: "VALUE"}}}
+func fieldDefinition(path string) interpretation.InterpretationFeatureDefinition {
+	return interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: path, ProjectionMode: "VALUE"}}}
 }
 
-func prepareInterpretation(t *testing.T, revision explorer.InterpretationRevision) explorer.InterpretationRevision {
+func prepareInterpretation(t *testing.T, revision interpretation.InterpretationRevision) interpretation.InterpretationRevision {
 	t.Helper()
 	if revision.CreatedAt.IsZero() {
 		revision.CreatedAt = time.Unix(1, 0).UTC()
 	}
-	prepared, err := explorer.PrepareInterpretationRevision(revision)
+	prepared, err := interpretation.PrepareInterpretationRevision(revision)
 	if err != nil {
 		t.Fatal(err)
 	}

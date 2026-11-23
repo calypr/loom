@@ -6,6 +6,10 @@ import (
 	"errors"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -34,10 +38,10 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	}
 	digest, _ := workspace.Digest()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
-	config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+	config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document, change *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
 		plan := recipeimport.SourcePlan(output)
 		if change != nil {
-			edited, err := recipeimport.EditPlan(output, plan, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{
+			edited, err := recipeimport.EditPlan(output, plan, ws.CatalogSnapshot{}, recipeimport.PlanEdit{
 				StepChanges: []authoringv2.ImportedSourceStepChange{*change},
 			}, recipeimport.PlanEditInput{})
 			if err != nil {
@@ -49,7 +53,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 		return document, nil
 	}
 	compileFailure := false
-	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		if compileFailure {
 			return nil, errors.New("downstream column would be missing")
 		}
@@ -60,7 +64,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 		return receipt, err
 	}
 	service := newTestService(t, store, config)
-	request := authoringv2.ApplyCommandsRequest{CommandID: "refresh-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
+	request := authoringv2.ApplyCommandsRequest{CommandID: "refresh-source", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandRefreshImportedSource, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{}}}}
 	response, err := service.ApplyCommands(ctx, "project-a", "patients", request, "tester")
 	if err != nil {
@@ -77,7 +81,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	if reloaded.Workspace == nil || reloaded.Workspace.Documents[0].ImportedSource == nil || reloaded.DraftDigest != response.DraftDigest {
 		t.Fatal("source steps lost on fresh Builder load")
 	}
-	if _, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "stale-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: request.Commands}, "tester"); err == nil {
+	if _, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "stale-source", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: request.Commands}, "tester"); err == nil {
 		t.Fatal("stale source edit was accepted")
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
@@ -87,7 +91,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 		t.Fatal("fixture requires source fields before removal")
 	}
 	change := authoringv2.Command{Type: authoringv2.CommandUpdateImportedSourceStep, OutputID: "patients", Payload: &authoringv2.ImportedSourcePayload{SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}}
-	_, err = service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "broken-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{change}}, "tester")
+	_, err = service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "broken-source", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{change}}, "tester")
 	if err == nil || store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
 		t.Fatalf("invalid downstream edit changed saved draft: %v", err)
 	}

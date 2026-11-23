@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/proposal"
 )
 
@@ -20,14 +21,14 @@ type AuthoringNetworkRequest struct {
 }
 
 type AuthoringNetworkResponse struct {
-	SnapshotToken string                       `json:"snapshotToken"`
-	DraftVersion  int64                        `json:"draftVersion"`
-	DraftDigest   string                       `json:"draftDigest"`
-	RowIdentity   authoringv2.RowIdentityPlan  `json:"rowIdentity"`
-	Network       authoringv2.AuthoringNetwork `json:"network"`
+	SnapshotToken string              `json:"snapshotToken"`
+	DraftVersion  int64               `json:"draftVersion"`
+	DraftDigest   string              `json:"draftDigest"`
+	RowIdentity   ws.RowIdentityPlan  `json:"rowIdentity"`
+	Network       ws.AuthoringNetwork `json:"network"`
 }
 
-func rowIdentityForNetwork(document authoringv2.Document, network authoringv2.AuthoringNetwork) authoringv2.RowIdentityPlan {
+func rowIdentityForNetwork(document ws.Document, network ws.AuthoringNetwork) ws.RowIdentityPlan {
 	return proposal.RowIdentityForNetwork(document, network)
 }
 

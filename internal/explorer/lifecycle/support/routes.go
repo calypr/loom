@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func ResolveCapabilityRouteEdge(snapshot capability.Snapshot, parentNodeID string, parent, child authoringv2.RouteNode) (capability.Edge, error) {
+func ResolveCapabilityRouteEdge(snapshot capability.Snapshot, parentNodeID string, parent, child ws.RouteNode) (capability.Edge, error) {
 	valid := func(edge capability.Edge) bool {
 		from, fromOK := snapshot.Node(edge.FromNodeID)
 		to, toOK := snapshot.Node(edge.ToNodeID)
@@ -105,16 +106,16 @@ func ReauthorizeConstructionRouteFromAnchor(snapshot capability.Snapshot, anchor
 	return resolved, nil
 }
 
-func RoutePathToOccurrence(root authoringv2.RouteNode, occurrenceID string) ([]authoringv2.RouteNode, bool) {
+func RoutePathToOccurrence(root ws.RouteNode, occurrenceID string) ([]ws.RouteNode, bool) {
 	if root.OccurrenceID == occurrenceID {
-		return []authoringv2.RouteNode{root}, true
+		return []ws.RouteNode{root}, true
 	}
 	for _, child := range root.Children {
 		path, found := RoutePathToOccurrence(child, occurrenceID)
 		if !found {
 			continue
 		}
-		return append([]authoringv2.RouteNode{root}, path...), true
+		return append([]ws.RouteNode{root}, path...), true
 	}
 	return nil, false
 }

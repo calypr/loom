@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -14,13 +17,13 @@ type Store struct {
 	explorer.RevisionStore
 	Mu             sync.Mutex
 	Explorers      map[string]explorer.Explorer
-	Receipts       map[string]explorer.CompilationReceipt
+	Receipts       map[string]receiptmodel.CompilationReceipt
 	Revisions      map[string]explorer.Revision
 	DraftRevisions map[string]explorer.DraftRevision
 }
 
 func NewStore() *Store {
-	return &Store{Explorers: map[string]explorer.Explorer{}, Receipts: map[string]explorer.CompilationReceipt{}, Revisions: map[string]explorer.Revision{}, DraftRevisions: map[string]explorer.DraftRevision{}}
+	return &Store{Explorers: map[string]explorer.Explorer{}, Receipts: map[string]receiptmodel.CompilationReceipt{}, Revisions: map[string]explorer.Revision{}, DraftRevisions: map[string]explorer.DraftRevision{}}
 }
 
 func Key(project, id string) string { return project + "\x00" + id }
@@ -100,7 +103,7 @@ func (s *Store) GetDraftRevision(_ context.Context, project, explorerID, revisio
 	return &value, nil
 }
 
-func (s *Store) InsertCompilationReceipt(_ context.Context, value explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (s *Store) InsertCompilationReceipt(_ context.Context, value receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	if existing, ok := s.Receipts[value.ID]; ok {
@@ -110,7 +113,7 @@ func (s *Store) InsertCompilationReceipt(_ context.Context, value explorer.Compi
 	return &value, nil
 }
 
-func (s *Store) GetCompilationReceipt(_ context.Context, id string) (*explorer.CompilationReceipt, error) {
+func (s *Store) GetCompilationReceipt(_ context.Context, id string) (*receiptmodel.CompilationReceipt, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	value, ok := s.Receipts[id]
@@ -120,7 +123,7 @@ func (s *Store) GetCompilationReceipt(_ context.Context, id string) (*explorer.C
 	return &value, nil
 }
 
-func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
+func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*receiptmodel.CompilationReceipt, error) {
 	value, err := s.GetCompilationReceipt(ctx, id)
 	if err != nil || value.Project != project || value.ExplorerID != explorerID {
 		return nil, explorer.ErrNotFound
@@ -148,14 +151,14 @@ func (s *Store) GetRevision(_ context.Context, id string) (*explorer.Revision, e
 	return &value, nil
 }
 
-func (s *Store) FailRevision(_ context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+func (s *Store) FailRevision(_ context.Context, id string, diagnostics []viewer.Diagnostic) (*explorer.Revision, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	value, ok := s.Revisions[id]
 	if !ok {
 		return nil, explorer.ErrNotFound
 	}
-	value.Status, value.Diagnostics = explorer.RevisionFailed, append([]explorer.Diagnostic(nil), diagnostics...)
+	value.Status, value.Diagnostics = explorer.RevisionFailed, append([]viewer.Diagnostic(nil), diagnostics...)
 	s.Revisions[id] = value
 	return &value, nil
 }

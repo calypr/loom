@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -41,7 +43,7 @@ type PopulationRoutesResponse struct {
 	Choices             []PopulationRouteChoice `json:"choices"`
 }
 
-func ValidateRoute(document authoringv2.Document, population authoringv2.Population, selectionType string, snapshot capability.Snapshot) ([]authoringv2.PopulationRouteStep, error) {
+func ValidateRoute(document ws.Document, population ws.Population, selectionType string, snapshot capability.Snapshot) ([]ws.PopulationRouteStep, error) {
 	rootNodes := make([]capability.Node, 0, 1)
 	for _, node := range snapshot.Nodes {
 		if node.ResourceType == document.RootResourceType && node.RowRootEligible {
@@ -56,7 +58,7 @@ func ValidateRoute(document authoringv2.Document, population authoringv2.Populat
 	}
 	currentID, currentType := rootNodes[0].ID, rootNodes[0].ResourceType
 	seenEdges := map[string]bool{}
-	resolvedRoute := append([]authoringv2.PopulationRouteStep(nil), population.Route...)
+	resolvedRoute := append([]ws.PopulationRouteStep(nil), population.Route...)
 	for index := range resolvedRoute {
 		step := resolvedRoute[index]
 		if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
@@ -87,7 +89,7 @@ func ValidateRoute(document authoringv2.Document, population authoringv2.Populat
 	return resolvedRoute, nil
 }
 
-func resolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
+func resolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step ws.PopulationRouteStep) (capability.Edge, capability.Node, error) {
 	valid := func(edge capability.Edge) (capability.Node, bool) {
 		return snapshot.MatchPopulationRouteEdge(edge, currentID, currentType, step.ResourceType, step.Relationship, step.StorageDirection)
 	}
@@ -120,11 +122,11 @@ func resolveRouteEdge(snapshot capability.Snapshot, currentID, currentType strin
 	return match, target, nil
 }
 
-func ResolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
+func ResolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step ws.PopulationRouteStep) (capability.Edge, capability.Node, error) {
 	return resolveRouteEdge(snapshot, currentID, currentType, step)
 }
 
-func findPopulationOutput(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+func findPopulationOutput(workspace ws.Workspace, outputID string) *ws.Document {
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == outputID {
 			return &workspace.Documents[index]
@@ -187,7 +189,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 		return result, err
 	}
 	document := findPopulationOutput(workspace, request.OutputID)
-	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, support.Malformed("population-routes", "outputId does not identify a valid row-rooted table", nil)
 	}
 	selected, err := s.getAuthorizedPopulationSelection(ctx, request.Project, request.SelectionRevisionID, snapshot)
@@ -287,7 +289,7 @@ func (s *Service) provePopulationRoute(ctx context.Context, authorized ports.Aut
 	return err == nil
 }
 
-func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if len(commands) == 0 || len(commands) != len(identities) {
 		return nil, support.Malformed("commands", "population route choices must resolve one-to-one with commands", nil)
 	}
@@ -305,7 +307,7 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 			return nil, support.Conflict("commands", "STALE_POPULATION_ROUTE", "the population route belongs to another table, selection, or catalog snapshot", nil, nil)
 		}
 		document := findPopulationOutput(workspace, command.OutputID)
-		if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+		if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 			return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 		}
 		selected, err := s.getAuthorizedPopulationSelection(ctx, project, command.SelectionRevisionID(), snapshot)
@@ -336,9 +338,9 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 		if err != nil || expected != command.RouteChoiceID() {
 			return nil, invalidPopulationRoute("the route choice identity no longer matches this selection")
 		}
-		steps := make([]authoringv2.PopulationRouteStep, 0, len(route))
+		steps := make([]ws.PopulationRouteStep, 0, len(route))
 		for _, step := range route {
-			steps = append(steps, authoringv2.PopulationRouteStep{
+			steps = append(steps, ws.PopulationRouteStep{
 				ResourceType: step.ToResourceType, Relationship: step.Relationship,
 				CatalogEdgeID: step.EdgeID, StorageDirection: step.StorageDirection,
 			})

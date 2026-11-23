@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -18,15 +19,15 @@ func deriveSourceLogicalTypeIsNumeric(logicalType string) bool {
 	}
 }
 
-func deriveOperandColumnIDs(derive *authoringv2.ConstructionDerive) []string {
+func deriveOperandColumnIDs(derive *ws.ConstructionDerive) []string {
 	if derive == nil {
 		return nil
 	}
 	ids := make([]string, 0, 2)
-	if derive.Left.Kind == authoringv2.ConstructionColumnOperand {
+	if derive.Left.Kind == ws.ConstructionColumnOperand {
 		ids = append(ids, derive.Left.ColumnID)
 	}
-	if derive.Right.Kind == authoringv2.ConstructionColumnOperand {
+	if derive.Right.Kind == ws.ConstructionColumnOperand {
 		ids = append(ids, derive.Right.ColumnID)
 	}
 	return ids
@@ -44,7 +45,7 @@ var deriveSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Derive scalar source fields is unavailable for the current dataset snapshot",
 }
 
-func validateDeriveSourceColumns(steps []authoringv2.ConstructionStep, deriveID string, sources []ConstructionDeriveSourceSelection) error {
+func validateDeriveSourceColumns(steps []ws.ConstructionStep, deriveID string, sources []ConstructionDeriveSourceSelection) error {
 	index := constructionStepIndex(steps, deriveID)
 	if index < 0 || steps[index].Operation.Derive == nil {
 		return fmt.Errorf("the selected Derive step is unavailable")
@@ -67,10 +68,10 @@ func containsConstructionColumnIDLocal(ids []string, want string) bool {
 	return false
 }
 
-func clearConstructionDeriveOwnedSources(base, candidate authoringv2.Construction, deriveID string) (authoringv2.Construction, error) {
+func clearConstructionDeriveOwnedSources(base, candidate ws.Construction, deriveID string) (ws.Construction, error) {
 	deriveIndex := constructionStepIndex(candidate.Steps, deriveID)
 	if deriveIndex < 0 {
-		return authoringv2.Construction{}, fmt.Errorf("the edited Derive step is missing")
+		return ws.Construction{}, fmt.Errorf("the edited Derive step is missing")
 	}
 	owned := make(map[string]bool)
 	for _, projection := range base.SourceProjections {
@@ -83,10 +84,10 @@ func clearConstructionDeriveOwnedSources(base, candidate authoringv2.Constructio
 			owned[projection.ColumnID] = true
 		}
 	}
-	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
+	steps := make([]ws.ConstructionStep, 0, len(candidate.Steps))
 	for index, step := range candidate.Steps {
 		if index <= deriveIndex {
-			outputs := make([]authoringv2.StageColumn, 0, len(step.Outputs))
+			outputs := make([]ws.StageColumn, 0, len(step.Outputs))
 			for _, output := range step.Outputs {
 				if owned[output.ID] {
 					continue
@@ -97,7 +98,7 @@ func clearConstructionDeriveOwnedSources(base, candidate authoringv2.Constructio
 		}
 		steps = append(steps, step)
 	}
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
+	projections := make([]ws.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
 	for _, projection := range candidate.SourceProjections {
 		if projection.OwnerStepID != deriveID {
 			projections = append(projections, projection)
@@ -107,7 +108,7 @@ func clearConstructionDeriveOwnedSources(base, candidate authoringv2.Constructio
 	return candidate, nil
 }
 
-func constructionOwnedDeriveSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
+func constructionOwnedDeriveSourceColumnID(construction ws.Construction, stageID, path string) string {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
 			continue
@@ -117,7 +118,7 @@ func constructionOwnedDeriveSourceColumnID(construction authoringv2.Construction
 			continue
 		}
 		step := construction.Steps[index]
-		if step.Operation.Kind != authoringv2.ConstructionOperationDerive || step.Operation.Derive == nil ||
+		if step.Operation.Kind != ws.ConstructionOperationDerive || step.Operation.Derive == nil ||
 			!containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID) ||
 			constructionStepInputStageID(step) != stageID {
 			continue
@@ -127,10 +128,10 @@ func constructionOwnedDeriveSourceColumnID(construction authoringv2.Construction
 	return ""
 }
 
-func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
+func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (ws.ConstructionSourceProjection, bool) {
 	path := canonicalRowPath(fieldPath)
 	if strings.TrimSpace(rootResourceType) == "" || path == "" {
-		return authoringv2.ConstructionSourceProjection{}, false
+		return ws.ConstructionSourceProjection{}, false
 	}
 	for _, node := range snapshot.Nodes {
 		if !node.RowRootEligible || node.ResourceType != rootResourceType {
@@ -152,16 +153,16 @@ func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceTyp
 			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
 			continue
 		}
-		return authoringv2.ConstructionSourceProjection{
-			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
+		return ws.ConstructionSourceProjection{
+			OccurrenceID: ws.RootOccurrenceID, FieldPath: facts.CanonicalPath,
 			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
 			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
 		}, true
 	}
-	return authoringv2.ConstructionSourceProjection{}, false
+	return ws.ConstructionSourceProjection{}, false
 }
 
-func ConstructionHasDeriveSourceInput(construction authoringv2.Construction) bool {
+func ConstructionHasDeriveSourceInput(construction ws.Construction) bool {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" {
 			continue
@@ -174,12 +175,12 @@ func ConstructionHasDeriveSourceInput(construction authoringv2.Construction) boo
 	return false
 }
 
-func isDeriveOwnedSourceProjection(construction authoringv2.Construction, projection authoringv2.ConstructionSourceProjection) bool {
+func isDeriveOwnedSourceProjection(construction ws.Construction, projection ws.ConstructionSourceProjection) bool {
 	index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
 	if index < 0 {
 		return false
 	}
 	step := construction.Steps[index]
-	return step.Operation.Kind == authoringv2.ConstructionOperationDerive && step.Operation.Derive != nil &&
+	return step.Operation.Kind == ws.ConstructionOperationDerive && step.Operation.Derive != nil &&
 		containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID)
 }

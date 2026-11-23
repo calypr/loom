@@ -9,6 +9,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -25,7 +29,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -40,19 +43,19 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	snapshot := capability.NewSnapshot(identity, baseSnapshot.Policy, baseSnapshot.Status, baseSnapshot.Complete, baseSnapshot.Truncated,
 		baseSnapshot.Nodes, baseSnapshot.Edges, baseSnapshot.Candidates, baseSnapshot.Diagnostics)
 
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
-	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
-	workspace.Documents[0].Population = &authoringv2.Population{SelectionRevisionID: "selection-base", Route: []authoringv2.PopulationRouteStep{}}
-	catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalog)
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
+	workspace.Documents[0].Rows = ws.RecordsRowDefinition()
+	workspace.Documents[0].Population = &ws.Population{SelectionRevisionID: "selection-base", Route: []ws.PopulationRouteStep{}}
+	catalog := ws.CatalogFromCapability(snapshot, explorerID)
+	workspace, err = ws.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
 	rawDraft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +104,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
 		SelectionReferenceValidator: func(_ context.Context, gotProject, generation string, gotScope authscope.ReadScope, refs []explorerselection.ResourceRef) error {
 			if gotProject != project || generation != snapshot.Identity.Generation || gotScope.Mode != scope.Mode || !reflect.DeepEqual(gotScope.AuthResourcePaths, scope.AuthResourcePaths) {
@@ -114,10 +117,10 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 			}
 			return nil
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.PopulationMemberRemovalProposal == nil || receipt.PopulationMemberRemovalProposal.CandidateSelectionRevisionID == "" {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not use the candidate population-removal receipt")
 			}
@@ -167,21 +170,21 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 
 	staleApply := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"population-remove-stale","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":8,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_POPULATION_MEMBER_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposal.ProposalId,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposal.ProposalId,
 	))
 	if staleApply.StatusCode != http.StatusConflict || store.SaveCalls != 0 {
 		t.Fatalf("wrong-version Apply status=%d saves=%d body=%s", staleApply.StatusCode, store.SaveCalls, staleApply.Body)
 	}
 	staleDigestApply := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"population-remove-stale-digest","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":7,"expectedDraftDigest":"sha256:stale","commands":[{"type":"APPLY_POPULATION_MEMBER_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, proposal.ProposalId,
+		ws.CurrentSemanticsVersion, snapshot.Token, proposal.ProposalId,
 	))
 	if staleDigestApply.StatusCode != http.StatusConflict || store.SaveCalls != 0 {
 		t.Fatalf("wrong-digest Apply status=%d saves=%d body=%s", staleDigestApply.StatusCode, store.SaveCalls, staleDigestApply.Body)
 	}
 	apply := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"population-remove-apply","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":7,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_POPULATION_MEMBER_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposal.ProposalId,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposal.ProposalId,
 	))
 	if apply.StatusCode != http.StatusOK {
 		t.Fatalf("exact-CAS Apply status=%d body=%s", apply.StatusCode, apply.Body)
@@ -202,7 +205,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	}
 	staleReplay := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"population-remove-replay-stale","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":7,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_POPULATION_MEMBER_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposal.ProposalId,
+		ws.CurrentSemanticsVersion, snapshot.Token, draftDigest, proposal.ProposalId,
 	))
 	if staleReplay.StatusCode != http.StatusConflict || store.SaveCalls != 1 {
 		t.Fatalf("stale replay status=%d saves=%d body=%s", staleReplay.StatusCode, store.SaveCalls, staleReplay.Body)

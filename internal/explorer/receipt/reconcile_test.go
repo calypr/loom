@@ -6,13 +6,16 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	receipttest "github.com/calypr/loom/internal/testkit/recipetest"
@@ -36,7 +39,7 @@ func TestReconcileFinalOutputMetadataUsesCompilerSchemaTypes(t *testing.T) {
 			t.Fatalf("presentation column %q physical order = %d, want %d", column.PublicColumn, column.PhysicalOrder, index)
 		}
 	}
-	if !reflect.DeepEqual(reconciled.IdentityMappings, []explorer.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score"}}}) {
+	if !reflect.DeepEqual(reconciled.IdentityMappings, []receiptmodel.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score"}}}) {
 		t.Fatalf("identity mappings retained non-final emission: %#v", reconciled.IdentityMappings)
 	}
 
@@ -49,7 +52,7 @@ func TestReconcileFinalOutputMetadataUsesCompilerSchemaTypes(t *testing.T) {
 	if score.LogicalType != "decimal" || score.Cardinality != "required_one" || score.Nullable || !reflect.DeepEqual(score.ResultUnit, wantUnit) {
 		t.Fatalf("compiler metadata for base column = %#v", score)
 	}
-	wantSourcePolicy := &explorer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []explorer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
+	wantSourcePolicy := &viewer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []viewer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
 	if !reflect.DeepEqual(score.UnitNormalization, wantSourcePolicy) {
 		t.Fatalf("source unit normalization policy changed: %#v", score.UnitNormalization)
 	}
@@ -71,7 +74,7 @@ func TestReconcileFinalOutputMetadataUsesCompilerSchemaTypes(t *testing.T) {
 	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"source-loss", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}) {
 		t.Fatalf("aggregate contract quality = %#v", contract)
 	}
-	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
+	if err := (receiptmodel.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
 		t.Fatalf("validate reconciled output contract: %v", err)
 	}
 }
@@ -98,7 +101,7 @@ func TestReconcileFinalOutputMetadataPreservesAuthoredOrderWithoutChangingExecut
 	if got := publicContractColumnNames(reconciled.OutputContracts[0].Columns); !reflect.DeepEqual(got, wantPresentation) {
 		t.Fatalf("public output contract columns = %#v, want authored order %#v", got, wantPresentation)
 	}
-	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
+	if err := (receiptmodel.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
 		t.Fatalf("validate ordered receipt contract: %v", err)
 	}
 	if got := []string{
@@ -146,9 +149,9 @@ func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *test
 }
 
 func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testing.T) {
-	document := receipttest.StageFixture("patients", []authoringv2.StageColumn{{ID: "score", Name: "score", Label: "Score", Type: "decimal"}, {ID: "patient_count", Name: "patient_count", Label: "Patient count", Type: "integer"}})
-	receipttest.AppendDeriveFixture(&document, "same_input", authoringv2.StageColumn{ID: "same_result", Name: "same_result", Label: "Same result", Type: "decimal"}, authoringv2.ConstructionDerivedAdd, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("score"), authoringv2.ConstructionMissingInputError)
-	receipttest.AppendDeriveFixture(&document, "ordered_inputs", authoringv2.StageColumn{ID: "ordered_result", Name: "ordered_result", Label: "Ordered result", Type: "decimal"}, authoringv2.ConstructionDerivedSubtract, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("patient_count"), authoringv2.ConstructionMissingInputError)
+	document := receipttest.StageFixture("patients", []ws.StageColumn{{ID: "score", Name: "score", Label: "Score", Type: "decimal"}, {ID: "patient_count", Name: "patient_count", Label: "Patient count", Type: "integer"}})
+	receipttest.AppendDeriveFixture(&document, "same_input", ws.StageColumn{ID: "same_result", Name: "same_result", Label: "Same result", Type: "decimal"}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("score"), ws.ConstructionMissingInputError)
+	receipttest.AppendDeriveFixture(&document, "ordered_inputs", ws.StageColumn{ID: "ordered_result", Name: "ordered_result", Label: "Ordered result", Type: "decimal"}, ws.ConstructionDerivedSubtract, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("patient_count"), ws.ConstructionMissingInputError)
 	workspace := receipttest.StageWorkspace(document)
 
 	_, columns, err := authoredOutputColumns(workspace)
@@ -177,27 +180,27 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 	for _, test := range []struct {
 		name           string
 		form           capability.ConstructionChoiceForm
-		rowValuePolicy authoringv2.ConstructionRowValuePolicy
+		rowValuePolicy ws.ConstructionRowValuePolicy
 		kind           string
 		cardinality    string
 		shape          string
 	}{
 		{name: "list", form: capability.ConstructionChoiceAll, kind: "string", cardinality: "many", shape: "array"},
-		{name: "one distinct value", form: capability.ConstructionChoiceAll, rowValuePolicy: authoringv2.ConstructionRowValueOne, kind: "string", cardinality: "optional_one", shape: "scalar"},
+		{name: "one distinct value", form: capability.ConstructionChoiceAll, rowValuePolicy: ws.ConstructionRowValueOne, kind: "string", cardinality: "optional_one", shape: "scalar"},
 		{name: "count", form: capability.ConstructionChoiceCount, kind: "integer", cardinality: "required_one", shape: "scalar"},
 		{name: "presence", form: capability.ConstructionChoicePresence, kind: "boolean", cardinality: "required_one", shape: "scalar"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			const columnName = "related_observation"
-			document := authoringv2.Document{
-				Output: authoringv2.Output{ID: "patients"},
-				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			document := ws.Document{
+				Output: ws.Output{ID: "patients"},
+				Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 					ID: "observation-step",
-					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &authoringv2.ConstructionRelatedSource{
+					Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedSource, RelatedSource: &ws.ConstructionRelatedSource{
 						Form: test.form, RowValuePolicy: test.rowValuePolicy, OutputColumnID: "observation-column",
-						ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+						ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
 					}},
-					Outputs: []authoringv2.StageColumn{{ID: "observation-column", Name: columnName, Label: "Related observation", Type: test.kind}},
+					Outputs: []ws.StageColumn{{ID: "observation-column", Name: columnName, Label: "Related observation", Type: test.kind}},
 				}}},
 			}
 			authored := map[string]AuthoredOutputColumn{}
@@ -218,20 +221,20 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 }
 
 func TestCodedPivotOutputKeepsSourceProvenanceAndSelectedCategoryLoss(t *testing.T) {
-	document := authoringv2.Document{
-		Output: authoringv2.Output{ID: "specimens"},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	document := ws.Document{
+		Output: ws.Output{ID: "specimens"},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 			ID: "coded-pivot-step",
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCodedPivot, CodedPivot: &authoringv2.ConstructionCodedPivot{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCodedPivot, CodedPivot: &ws.ConstructionCodedPivot{
 				ConstructionID: "coded-pivot-step",
-				Source: &authoringv2.ConstructionCodedPivotSource{
+				Source: &ws.ConstructionCodedPivotSource{
 					Family:      capability.SemanticFrameFamily{ResourceType: "Specimen", ValuePath: "type.coding[].display"},
 					CandidateID: "candidate-id", NodeID: "node-id",
 				},
-				Categories:      []authoringv2.ConstructionCodedPivotCategory{{System: "system", Code: "code", OutputColumnID: "category-column"}},
-				DuplicatePolicy: authoringv2.ConstructionPivotDuplicateError, MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
+				Categories:      []ws.ConstructionCodedPivotCategory{{System: "system", Code: "code", OutputColumnID: "category-column"}},
+				DuplicatePolicy: ws.ConstructionPivotDuplicateError, MissingCellPolicy: ws.ConstructionPivotMissingNull,
 			}},
-			Outputs: []authoringv2.StageColumn{{ID: "category-column", Name: "specimen_type", Label: "Specimen type", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "category-column", Name: "specimen_type", Label: "Specimen type", Type: "string"}},
 		}}},
 	}
 	authored := map[string]AuthoredOutputColumn{}
@@ -248,17 +251,17 @@ func TestCodedPivotOutputKeepsSourceProvenanceAndSelectedCategoryLoss(t *testing
 }
 
 func TestPivotPromotesPrivateRowKeyIntoAuthoredOutput(t *testing.T) {
-	document := authoringv2.Document{Construction: &authoringv2.Construction{
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{ColumnID: "specimen_ref", OwnerStepID: "pivot"}},
-		Steps: []authoringv2.ConstructionStep{{
+	document := ws.Document{Construction: &ws.Construction{
+		SourceProjections: []ws.ConstructionSourceProjection{{ColumnID: "specimen_ref", OwnerStepID: "pivot"}},
+		Steps: []ws.ConstructionStep{{
 			ID: "pivot",
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 				ConstructionID: "pivot", GroupKeyIDs: []string{"specimen_ref"},
-				DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-				MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-				UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+				DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+				MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 			}},
-			Outputs: []authoringv2.StageColumn{{ID: "specimen_ref", Name: "specimen_reference", Label: "Specimen reference", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "specimen_ref", Name: "specimen_reference", Label: "Specimen reference", Type: "string"}},
 		}},
 	}}
 	authored := make(map[string]AuthoredOutputColumn)
@@ -273,12 +276,12 @@ func TestPivotPromotesPrivateRowKeyIntoAuthoredOutput(t *testing.T) {
 		t.Fatalf("private source leaked into public lineage: %#v", key.InputColumns)
 	}
 	document.Construction.SourceProjections = nil
-	document.Construction.Steps = append([]authoringv2.ConstructionStep{{
+	document.Construction.Steps = append([]ws.ConstructionStep{{
 		ID: "input", OwnerStepID: "pivot",
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
-			OutputColumnID: "specimen_ref", Source: authoringv2.ConstructionRelatedFieldSource{NodeID: "observation", CandidateID: "specimen-reference"},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
+			OutputColumnID: "specimen_ref", Source: ws.ConstructionRelatedFieldSource{NodeID: "observation", CandidateID: "specimen-reference"},
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "specimen_ref", Name: "__pivot_source_reference", Label: "Observation.specimen.reference", Type: "string"}},
+		Outputs: []ws.StageColumn{{ID: "specimen_ref", Name: "__pivot_source_reference", Label: "Observation.specimen.reference", Type: "string"}},
 	}}, document.Construction.Steps...)
 	authored = make(map[string]AuthoredOutputColumn)
 	if err := authoredConstructionOutputs(document, authored); err != nil {
@@ -291,59 +294,59 @@ func TestPivotPromotesPrivateRowKeyIntoAuthoredOutput(t *testing.T) {
 }
 
 func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T) {
-	group := authoringv2.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
-	category := authoringv2.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}
-	value := authoringv2.StageColumn{ID: "value-id", Name: "value", Label: "Value", Type: "integer"}
-	pivotValue := authoringv2.StageColumn{ID: "pivot-value-id", Name: "active_value", Label: "Active value", Type: "integer"}
-	derivedValue := authoringv2.StageColumn{ID: "derived-value-id", Name: "adjusted_value", Label: "Adjusted value", Type: "integer"}
-	measureKey := authoringv2.StageColumn{ID: "measure-key-id", Name: "measure", Label: "Measure", Type: "string"}
-	measureValue := authoringv2.StageColumn{ID: "measure-value-id", Name: "measure_value", Label: "Measure value", Type: "integer"}
+	group := ws.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
+	category := ws.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}
+	value := ws.StageColumn{ID: "value-id", Name: "value", Label: "Value", Type: "integer"}
+	pivotValue := ws.StageColumn{ID: "pivot-value-id", Name: "active_value", Label: "Active value", Type: "integer"}
+	derivedValue := ws.StageColumn{ID: "derived-value-id", Name: "adjusted_value", Label: "Adjusted value", Type: "integer"}
+	measureKey := ws.StageColumn{ID: "measure-key-id", Name: "measure", Label: "Measure", Type: "string"}
+	measureValue := ws.StageColumn{ID: "measure-value-id", Name: "measure_value", Label: "Measure value", Type: "integer"}
 	one := int64(1)
 	active := "active"
-	document := authoringv2.Document{
-		Output: authoringv2.Output{ID: "patients"},
-		Columns: []authoringv2.Column{
+	document := ws.Document{
+		Output: ws.Output{ID: "patients"},
+		Columns: []ws.Column{
 			{ColumnID: group.ID, Column: group.Name, Label: group.Label},
 			{ColumnID: category.ID, Column: category.Name, Label: category.Label},
 			{ColumnID: value.ID, Column: value.Name, Label: value.Label},
 		},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 			{
 				ID: "pivot-step",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 					ConstructionID: "pivot-step", GroupKeyIDs: []string{group.ID}, CategoryColumnID: category.ID, ValueColumnID: value.ID,
-					Categories:      []authoringv2.ConstructionPivotCategory{{Key: authoringv2.TableScalar{Kind: "STRING", String: &active}, OutputColumnID: pivotValue.ID}},
-					DuplicatePolicy: authoringv2.ConstructionPivotDuplicateError, MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
-					UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+					Categories:      []ws.ConstructionPivotCategory{{Key: ws.TableScalar{Kind: "STRING", String: &active}, OutputColumnID: pivotValue.ID}},
+					DuplicatePolicy: ws.ConstructionPivotDuplicateError, MissingCellPolicy: ws.ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 				}},
-				Outputs: []authoringv2.StageColumn{group, pivotValue},
+				Outputs: []ws.StageColumn{group, pivotValue},
 			},
 			{
 				ID: "derive-step",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-					ConstructionID: "derive-step", OutputColumnID: derivedValue.ID, Operation: authoringv2.ConstructionDerivedAdd,
-					Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: pivotValue.ID},
-					Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &one}},
-					MissingInputPolicy: authoringv2.ConstructionMissingInputError,
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+					ConstructionID: "derive-step", OutputColumnID: derivedValue.ID, Operation: ws.ConstructionDerivedAdd,
+					Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: pivotValue.ID},
+					Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &one}},
+					MissingInputPolicy: ws.ConstructionMissingInputError,
 				}},
-				Outputs: []authoringv2.StageColumn{group, pivotValue, derivedValue},
+				Outputs: []ws.StageColumn{group, pivotValue, derivedValue},
 			},
 			{
 				ID:        "filter-step",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: derivedValue.ID, Operator: authoringv2.ConstructionFilterExists}},
-				Outputs:   []authoringv2.StageColumn{group, pivotValue, derivedValue},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: derivedValue.ID, Operator: ws.ConstructionFilterExists}},
+				Outputs:   []ws.StageColumn{group, pivotValue, derivedValue},
 			},
 			{
 				ID: "unpivot-step",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
-					ConstructionID: "unpivot-step", Inputs: []authoringv2.ConstructionUnpivotInput{{ColumnID: pivotValue.ID, Key: authoringv2.TableScalar{Kind: "STRING", String: &active}}, {ColumnID: derivedValue.ID, Key: authoringv2.TableScalar{Kind: "STRING", String: &active}}},
-					KeyOutputColumnID: measureKey.ID, ValueOutputColumnID: measureValue.ID, NullRowPolicy: authoringv2.ConstructionUnpivotPreserve,
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
+					ConstructionID: "unpivot-step", Inputs: []ws.ConstructionUnpivotInput{{ColumnID: pivotValue.ID, Key: ws.TableScalar{Kind: "STRING", String: &active}}, {ColumnID: derivedValue.ID, Key: ws.TableScalar{Kind: "STRING", String: &active}}},
+					KeyOutputColumnID: measureKey.ID, ValueOutputColumnID: measureValue.ID, NullRowPolicy: ws.ConstructionUnpivotPreserve,
 				}},
-				Outputs: []authoringv2.StageColumn{group, measureKey, measureValue},
+				Outputs: []ws.StageColumn{group, measureKey, measureValue},
 			},
 		}},
 	}
-	_, columns, err := authoredOutputColumns(authoringv2.Workspace{Documents: []authoringv2.Document{document}})
+	_, columns, err := authoredOutputColumns(ws.Workspace{Documents: []ws.Document{document}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +354,7 @@ func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T
 	if len(final) != 2 {
 		t.Fatalf("final constructed columns = %#v, want only measure and measure_value", final)
 	}
-	emitted := map[string]explorer.EmittedColumn{
+	emitted := map[string]viewer.EmittedColumn{
 		"group":    {AuthoredColumns: []string{"group"}},
 		"category": {AuthoredColumns: []string{"category"}},
 		"value":    {AuthoredColumns: []string{"value"}},
@@ -370,7 +373,7 @@ func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T
 
 func TestReconcileFinalOutputMetadataResolvesGroupedSameNameKeyLineage(t *testing.T) {
 	const columnName = "col_f49356bac08742bd007bfd24"
-	source := explorer.EmittedColumn{
+	source := viewer.EmittedColumn{
 		EmissionID: "source-system", OutputID: "body-structures", NodeID: "body-structure-node",
 		CandidateID: "system-candidate", OccurrenceID: "base", AuthoredColumns: []string{columnName},
 		PublicColumn: columnName, Label: "System", LogicalType: "string", Cardinality: "optional_one",
@@ -381,28 +384,28 @@ func TestReconcileFinalOutputMetadataResolvesGroupedSameNameKeyLineage(t *testin
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{
 		Name: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups",
 	}}}
-	groupOutput := authoringv2.StageColumn{ID: "grouped-system", Name: columnName, Label: "System", Type: "string", Nullable: true}
+	groupOutput := ws.StageColumn{ID: "grouped-system", Name: columnName, Label: "System", Type: "string", Nullable: true}
 	sourceContractColumn := receiptTestPublicColumn(source)
 	sourceContractColumn.Cardinality = source.Cardinality
-	document := authoringv2.Document{
-		Output:  authoringv2.Output{ID: "body-structures", Title: "Body structures"},
-		Columns: []authoringv2.Column{{ColumnID: "source-system-id", Column: columnName, Label: "System"}},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	document := ws.Document{
+		Output:  ws.Output{ID: "body-structures", Title: "Body structures"},
+		Columns: []ws.Column{{ColumnID: "source-system-id", Column: columnName, Label: "System"}},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 			ID: "group-step",
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
 				ConstructionID: "group-by-system",
-				Keys:           []authoringv2.ConstructionGroupKey{{InputColumnID: "source-system-id", OutputColumnID: groupOutput.ID}},
+				Keys:           []ws.ConstructionGroupKey{{InputColumnID: "source-system-id", OutputColumnID: groupOutput.ID}},
 			}},
-			Outputs: []authoringv2.StageColumn{groupOutput},
+			Outputs: []ws.StageColumn{groupOutput},
 		}}},
 	}
 	translated := explorercompilation.WorkspaceResult{
-		Bundle: bundle, Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
-		EmittedColumns: []explorer.EmittedColumn{source},
-		OutputContracts: []explorer.PublicOutputContract{{
+		Bundle: bundle, Workspace: ws.Workspace{Documents: []ws.Document{document}},
+		EmittedColumns: []viewer.EmittedColumn{source},
+		OutputContracts: []receiptmodel.PublicOutputContract{{
 			OutputID: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups",
 			Lossless: true, MLReady: false, StructuralSuitability: "scalar",
-			Columns: []explorer.PublicOutputColumn{sourceContractColumn},
+			Columns: []receiptmodel.PublicOutputColumn{sourceContractColumn},
 		}},
 		Presentations: []explorercompilation.PresentationConfig{{
 			OutputID: "body-structures", Title: "Body structures",
@@ -450,25 +453,25 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 		keyOutputName   = "active"
 		countOutputName = "record_count"
 	)
-	groupOutputs := []authoringv2.StageColumn{
+	groupOutputs := []ws.StageColumn{
 		{ID: keyOutputID, Name: keyOutputName, Label: "Whether this record is in active use", Type: "boolean", Nullable: true},
 		{ID: countOutputID, Name: countOutputName, Label: "Record count", Type: "integer"},
 	}
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups"}}}
-	document := authoringv2.Document{
-		Output: authoringv2.Output{ID: "body-structures", Title: "Body structures"},
-		Construction: &authoringv2.Construction{
-			Version: authoringv2.ConstructionVersion,
-			SourceProjections: []authoringv2.ConstructionSourceProjection{{
-				ColumnID: inputID, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "active",
+	document := ws.Document{
+		Output: ws.Output{ID: "body-structures", Title: "Body structures"},
+		Construction: &ws.Construction{
+			Version: ws.ConstructionVersion,
+			SourceProjections: []ws.ConstructionSourceProjection{{
+				ColumnID: inputID, OccurrenceID: ws.RootOccurrenceID, FieldPath: "active",
 				FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
 			}},
-			Steps: []authoringv2.ConstructionStep{{
-				ID: "group_by_active", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			Steps: []ws.ConstructionStep{{
+				ID: "group_by_active", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
 					ConstructionID: "group_by_active",
-					Keys:           []authoringv2.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: keyOutputID}},
-					Aggregates:     []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: countOutputID}},
+					Keys:           []ws.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: keyOutputID}},
+					Aggregates:     []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: countOutputID}},
 				}},
 				Outputs: groupOutputs,
 			}},
@@ -476,8 +479,8 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 	}
 	translated := explorercompilation.WorkspaceResult{
 		Bundle:    bundle,
-		Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
-		OutputContracts: []explorer.PublicOutputContract{{
+		Workspace: ws.Workspace{Documents: []ws.Document{document}},
+		OutputContracts: []receiptmodel.PublicOutputContract{{
 			OutputID: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups",
 			Lossless: true, MLReady: true,
 		}},
@@ -512,7 +515,7 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 	}
 	for _, emitted := range reconciled.EmittedColumns {
 		if emitted.ConstructionID != "group_by_active" || len(emitted.InputColumns) != 0 || len(emitted.AuthoredColumns) != 0 ||
-			emitted.PublicColumn == inputID || emitted.PublicColumn == authoringv2.ConstructionSourceProjectionName(inputID) {
+			emitted.PublicColumn == inputID || emitted.PublicColumn == ws.ConstructionSourceProjectionName(inputID) {
 			t.Fatalf("hidden source input leaked into public emission: %#v", emitted)
 		}
 	}
@@ -526,7 +529,7 @@ func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughEx
 		genderItemID  = "gender-item-id"
 		genderItem    = "gender_item"
 	)
-	source := explorer.EmittedColumn{
+	source := viewer.EmittedColumn{
 		EmissionID: "source-gender", OutputID: outputID, AuthoredColumns: []string{"gender"},
 		PublicColumn: "gender", Label: "Gender", LogicalType: "string", Cardinality: "optional_one",
 		Nullable: true, Shape: "scalar", SourceResourceType: "Patient", SourcePath: "gender",
@@ -536,27 +539,27 @@ func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughEx
 		Name: outputID, RootResourceType: "Patient", RowGrain: "groups",
 		GroupRows: &recipe.GroupRows{RevisionID: groupRevision, UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
 	}}}
-	groupLabel := authoringv2.StageColumn{ID: "group-label-output", Name: "group_label", Label: "Group label", Type: "string"}
-	genderKey := authoringv2.StageColumn{ID: "gender-key-output", Name: genderItem, Label: "Gender item", Type: "string", Nullable: true}
-	rowCount := authoringv2.StageColumn{ID: "row-count-output", Name: "row_count", Label: "Row count", Type: "integer"}
-	document := authoringv2.Document{
-		Output: authoringv2.Output{ID: outputID, Title: "Two Patient cohort"},
-		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{
-			Kind: authoringv2.GroupSourceExplicit,
-			Explicit: &authoringv2.ExplicitGroupSource{
-				RevisionID: groupRevision, UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned,
+	groupLabel := ws.StageColumn{ID: "group-label-output", Name: "group_label", Label: "Group label", Type: "string"}
+	genderKey := ws.StageColumn{ID: "gender-key-output", Name: genderItem, Label: "Gender item", Type: "string", Nullable: true}
+	rowCount := ws.StageColumn{ID: "row-count-output", Name: "row_count", Label: "Row count", Type: "integer"}
+	document := ws.Document{
+		Output: ws.Output{ID: outputID, Title: "Two Patient cohort"},
+		Rows: ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{Source: ws.GroupSource{
+			Kind: ws.GroupSourceExplicit,
+			Explicit: &ws.ExplicitGroupSource{
+				RevisionID: groupRevision, UnassignedMemberPolicy: ws.UnassignedMemberGroupAsUnassigned,
 			},
 		}}},
-		Columns: []authoringv2.Column{{ColumnID: genderSource, Column: "gender", Label: "Gender"}},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		Columns: []ws.Column{{ColumnID: genderSource, Column: "gender", Label: "Gender"}},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 			{
 				ID:     "expand-members",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group_rows"}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationExpand, Expand: &authoringv2.ConstructionExpand{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationExpand, Expand: &ws.ConstructionExpand{
 					ConstructionID: "expand-members", InputColumnID: genderSource, OutputColumnID: genderItemID,
-					EmptyPolicy: authoringv2.ConstructionExpandEmptyPreserveParent,
+					EmptyPolicy: ws.ConstructionExpandEmptyPreserveParent,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
 					{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
 					{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
@@ -566,28 +569,28 @@ func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughEx
 			},
 			{
 				ID:     "group-by-gender",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "expand-members"}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-					ConstructionID: "group-by-gender", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-					Keys: []authoringv2.ConstructionGroupKey{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "expand-members"}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+					ConstructionID: "group-by-gender", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+					Keys: []ws.ConstructionGroupKey{
 						{InputColumnID: "group_label", OutputColumnID: groupLabel.ID},
 						{InputColumnID: genderItemID, OutputColumnID: genderKey.ID},
 					},
-					Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: rowCount.ID}},
+					Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: rowCount.ID}},
 				}},
-				Outputs: []authoringv2.StageColumn{groupLabel, genderKey, rowCount},
+				Outputs: []ws.StageColumn{groupLabel, genderKey, rowCount},
 			},
 		}},
 	}
 	sourceContractColumn := receiptTestPublicColumn(source)
 	sourceContractColumn.Cardinality = source.Cardinality
 	translated := explorercompilation.WorkspaceResult{
-		Bundle: bundle, Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
-		EmittedColumns: []explorer.EmittedColumn{source},
-		OutputContracts: []explorer.PublicOutputContract{{
+		Bundle: bundle, Workspace: ws.Workspace{Documents: []ws.Document{document}},
+		EmittedColumns: []viewer.EmittedColumn{source},
+		OutputContracts: []receiptmodel.PublicOutputContract{{
 			OutputID: outputID, RootResourceType: "Patient", RowGrain: "groups", Lossless: true, MLReady: true,
 			StructuralSuitability: "scalar",
-			Columns:               []explorer.PublicOutputColumn{sourceContractColumn},
+			Columns:               []receiptmodel.PublicOutputColumn{sourceContractColumn},
 		}},
 		Presentations: []explorercompilation.PresentationConfig{{OutputID: outputID, Title: "Two Patient cohort", Columns: []explorercompilation.PresentationColumn{{
 			EmissionID: source.EmissionID, PublicColumn: source.PublicColumn, Label: source.Label, Visible: true, Order: 0,
@@ -625,7 +628,7 @@ func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughEx
 		rowCountEmission.LogicalType != "integer" || rowCountEmission.Nullable {
 		t.Fatalf("group row-count metadata = %#v", rowCountEmission)
 	}
-	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(bundle, reconciled.EmittedColumns); err != nil {
+	if err := (receiptmodel.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(bundle, reconciled.EmittedColumns); err != nil {
 		t.Fatalf("validate Group→Expand public output contract: %v", err)
 	}
 }
@@ -636,26 +639,26 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 		Name: outputID, RootResourceType: "Specimen", RowGrain: "groups",
 		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"},
 	}}}
-	document := authoringv2.Document{
-		Output: authoringv2.Output{ID: outputID, Title: "Specimens"},
-		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{
-			Kind:     authoringv2.GroupSourceExplicit,
-			Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "grouprev_1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude},
+	document := ws.Document{
+		Output: ws.Output{ID: outputID, Title: "Specimens"},
+		Rows: ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{Source: ws.GroupSource{
+			Kind:     ws.GroupSourceExplicit,
+			Explicit: &ws.ExplicitGroupSource{RevisionID: "grouprev_1", UnassignedMemberPolicy: ws.UnassignedMemberExclude},
 		}}},
 	}
-	source := explorer.EmittedColumn{
+	source := viewer.EmittedColumn{
 		EmissionID: "source-specimen-id", OutputID: outputID, PublicColumn: "specimen_id", Label: "Specimen ID",
 		LogicalType: "string", Cardinality: "optional_one", Nullable: true, Shape: "scalar",
 		SourceResourceType: "Specimen", SourcePath: "id", Lossless: true, MLReady: true,
 		StructuralSuitability: "scalar", Filterable: true, Chartable: true,
 	}
 	translated := explorercompilation.WorkspaceResult{
-		Bundle: bundle, Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
-		EmittedColumns: []explorer.EmittedColumn{source},
-		OutputContracts: []explorer.PublicOutputContract{{
+		Bundle: bundle, Workspace: ws.Workspace{Documents: []ws.Document{document}},
+		EmittedColumns: []viewer.EmittedColumn{source},
+		OutputContracts: []receiptmodel.PublicOutputContract{{
 			OutputID: outputID, RootResourceType: "Specimen", RowGrain: "groups", RowMultiplication: "none",
 			Lossless: true, MLReady: true, StructuralSuitability: "scalar",
-			Columns: []explorer.PublicOutputColumn{publicOutputColumnFromEmission(source)},
+			Columns: []receiptmodel.PublicOutputColumn{publicOutputColumnFromEmission(source)},
 		}},
 		Presentations: []explorercompilation.PresentationConfig{{
 			OutputID: outputID, Title: "Specimens",
@@ -710,7 +713,7 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 	if got := reconciled.EmittedColumns[1]; got.LogicalType != "integer" || got.Cardinality != "required_one" || got.Nullable {
 		t.Fatalf("explicit group ordinal metadata = %#v", got)
 	}
-	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(bundle, reconciled.EmittedColumns); err != nil {
+	if err := (receiptmodel.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(bundle, reconciled.EmittedColumns); err != nil {
 		t.Fatalf("validate explicit group public output contract: %v", err)
 	}
 
@@ -748,24 +751,24 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 }
 
 func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T) {
-	patient := authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
-	status := authoringv2.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation status", Type: "string", Nullable: true}
-	document := authoringv2.Document{
-		Output:  authoringv2.Output{ID: "patients"},
-		Columns: []authoringv2.Column{{ColumnID: patient.ID, Column: patient.Name, Label: patient.Label}},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	patient := ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
+	status := ws.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation status", Type: "string", Nullable: true}
+	document := ws.Document{
+		Output:  ws.Output{ID: "patients"},
+		Columns: []ws.Column{{ColumnID: patient.ID, Column: patient.Name, Label: patient.Label}},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 			ID: "observation-status-step",
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 				ChoiceID: "choice", OutputColumnID: status.ID,
-				Source: authoringv2.ConstructionRelatedFieldSource{
+				Source: ws.ConstructionRelatedFieldSource{
 					Kind: capability.ConstructionChoiceSourceField, CandidateID: "status-candidate", NodeID: "observation-node",
 					ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
 				},
 			}},
-			Outputs: []authoringv2.StageColumn{patient, status},
+			Outputs: []ws.StageColumn{patient, status},
 		}}},
 	}
-	_, columns, err := authoredOutputColumns(authoringv2.Workspace{Documents: []authoringv2.Document{document}})
+	_, columns, err := authoredOutputColumns(ws.Workspace{Documents: []ws.Document{document}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,16 +788,16 @@ func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T
 func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	one := int64(1)
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "pivoted"}, {Name: "unpivoted"}}}
-	pivoted := receipttest.StageFixture("pivoted", []authoringv2.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "kind", Name: "kind", Label: "Kind", Type: "string"}, {ID: "value", Name: "value", Label: "Value", Type: "decimal"}})
+	pivoted := receipttest.StageFixture("pivoted", []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "kind", Name: "kind", Label: "Kind", Type: "string"}, {ID: "value", Name: "value", Label: "Value", Type: "decimal"}})
 	category := "systolic"
-	pivoted.Construction.Steps = []authoringv2.ConstructionStep{{ID: "pivot_vitals", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{ConstructionID: "pivot_vitals", GroupKeyIDs: []string{"patient_id"}, CategoryColumnID: "kind", ValueColumnID: "value", Categories: []authoringv2.ConstructionPivotCategory{{Key: authoringv2.TableScalar{Kind: "STRING", String: &category}, OutputColumnID: "systolic"}}, DuplicatePolicy: authoringv2.ConstructionPivotDuplicateError, MissingCellPolicy: authoringv2.ConstructionPivotMissingNull, UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError}}, Outputs: []authoringv2.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "systolic", Name: "systolic", Label: "Systolic", Type: "decimal", Nullable: true}}}}
-	receipttest.AppendDeriveFixture(&pivoted, "adjust_systolic", authoringv2.StageColumn{ID: "adjusted_systolic", Name: "adjusted_systolic", Label: "Adjusted systolic", Type: "decimal", Nullable: true}, authoringv2.ConstructionDerivedAdd, receipttest.ColumnOperand("systolic"), receipttest.IntegerOperand(&one), authoringv2.ConstructionMissingInputError)
-	unpivoted := receipttest.StageFixture("unpivoted", []authoringv2.StageColumn{{ID: "height", Name: "height", Label: "Height", Type: "decimal"}, {ID: "weight", Name: "weight", Label: "Weight", Type: "decimal"}})
+	pivoted.Construction.Steps = []ws.ConstructionStep{{ID: "pivot_vitals", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{ConstructionID: "pivot_vitals", GroupKeyIDs: []string{"patient_id"}, CategoryColumnID: "kind", ValueColumnID: "value", Categories: []ws.ConstructionPivotCategory{{Key: ws.TableScalar{Kind: "STRING", String: &category}, OutputColumnID: "systolic"}}, DuplicatePolicy: ws.ConstructionPivotDuplicateError, MissingCellPolicy: ws.ConstructionPivotMissingNull, UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError}}, Outputs: []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "systolic", Name: "systolic", Label: "Systolic", Type: "decimal", Nullable: true}}}}
+	receipttest.AppendDeriveFixture(&pivoted, "adjust_systolic", ws.StageColumn{ID: "adjusted_systolic", Name: "adjusted_systolic", Label: "Adjusted systolic", Type: "decimal", Nullable: true}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("systolic"), receipttest.IntegerOperand(&one), ws.ConstructionMissingInputError)
+	unpivoted := receipttest.StageFixture("unpivoted", []ws.StageColumn{{ID: "height", Name: "height", Label: "Height", Type: "decimal"}, {ID: "weight", Name: "weight", Label: "Weight", Type: "decimal"}})
 	height, weight := "height", "weight"
-	unpivoted.Construction.Steps = []authoringv2.ConstructionStep{{ID: "unpivot_vitals", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{ConstructionID: "unpivot_vitals", Inputs: []authoringv2.ConstructionUnpivotInput{{ColumnID: "height", Key: authoringv2.TableScalar{Kind: "STRING", String: &height}}, {ColumnID: "weight", Key: authoringv2.TableScalar{Kind: "STRING", String: &weight}}}, KeyOutputColumnID: "measure_name", ValueOutputColumnID: "measure_value", NullRowPolicy: authoringv2.ConstructionUnpivotDrop}}, Outputs: []authoringv2.StageColumn{{ID: "measure_name", Name: "measure_name", Label: "Measure", Type: "string"}, {ID: "measure_value", Name: "measure_value", Label: "Value", Type: "decimal", Nullable: true}}}}
+	unpivoted.Construction.Steps = []ws.ConstructionStep{{ID: "unpivot_vitals", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{ConstructionID: "unpivot_vitals", Inputs: []ws.ConstructionUnpivotInput{{ColumnID: "height", Key: ws.TableScalar{Kind: "STRING", String: &height}}, {ColumnID: "weight", Key: ws.TableScalar{Kind: "STRING", String: &weight}}}, KeyOutputColumnID: "measure_name", ValueOutputColumnID: "measure_value", NullRowPolicy: ws.ConstructionUnpivotDrop}}, Outputs: []ws.StageColumn{{ID: "measure_name", Name: "measure_name", Label: "Measure", Type: "string"}, {ID: "measure_value", Name: "measure_value", Label: "Value", Type: "decimal", Nullable: true}}}}
 	workspace := receipttest.StageWorkspace(pivoted, unpivoted)
 
-	emitted := []explorer.EmittedColumn{
+	emitted := []viewer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
 		{EmissionID: "emit_kind", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "shared_root"}, PublicColumn: "kind", Label: "Kind", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
 		{EmissionID: "emit_value", OutputID: "pivoted", AuthoredColumns: []string{"result_root"}, PublicColumn: "value", Label: "Value", LogicalType: "decimal", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
@@ -803,9 +806,9 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	}
 	translated := explorercompilation.WorkspaceResult{
 		Bundle: bundle, Workspace: workspace, EmittedColumns: emitted,
-		OutputContracts: []explorer.PublicOutputContract{
-			{OutputID: "pivoted", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: []explorer.PublicOutputColumn{receiptTestPublicColumn(emitted[0]), receiptTestPublicColumn(emitted[1]), receiptTestPublicColumn(emitted[2])}},
-			{OutputID: "unpivoted", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: []explorer.PublicOutputColumn{receiptTestPublicColumn(emitted[3]), receiptTestPublicColumn(emitted[4])}},
+		OutputContracts: []receiptmodel.PublicOutputContract{
+			{OutputID: "pivoted", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: []receiptmodel.PublicOutputColumn{receiptTestPublicColumn(emitted[0]), receiptTestPublicColumn(emitted[1]), receiptTestPublicColumn(emitted[2])}},
+			{OutputID: "unpivoted", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: []receiptmodel.PublicOutputColumn{receiptTestPublicColumn(emitted[3]), receiptTestPublicColumn(emitted[4])}},
 		},
 		Presentations: []explorercompilation.PresentationConfig{
 			{OutputID: "pivoted", Title: "Pivoted", Columns: []explorercompilation.PresentationColumn{
@@ -827,7 +830,7 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []explorer.EmittedColumn{
+	want := []viewer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Cardinality: "required_one", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
 		{EmissionID: "construction:pivot_vitals:systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"patient_id", "kind", "value"}, ConstructionID: "pivot_vitals", PublicColumn: "systolic", Label: "Systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_PIVOT_BASE_COLUMNS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 		{EmissionID: "construction:adjust_systolic:adjusted_systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"patient_id", "kind", "value"}, ConstructionID: "adjust_systolic", PublicColumn: "adjusted_systolic", Label: "Adjusted systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
@@ -852,28 +855,28 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 }
 
 func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexecution.Resolved) {
-	document := receipttest.StageFixture("patients", []authoringv2.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}, {ID: "score", Name: "score", Label: "Authored score", Type: "decimal"}, {ID: "stale", Name: "stale", Label: "Stale", Type: "string"}})
-	receipttest.AppendDeriveFixture(&document, "scale_score", authoringv2.StageColumn{ID: "scaled_score", Name: "scaled_score", Label: "Scaled score", Type: "decimal", Nullable: true}, authoringv2.ConstructionDerivedMultiply, receipttest.ColumnOperand("score"), receipttest.DecimalOperand(float64Pointer(2)), authoringv2.ConstructionMissingInputPropagateNull)
+	document := receipttest.StageFixture("patients", []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}, {ID: "score", Name: "score", Label: "Authored score", Type: "decimal"}, {ID: "stale", Name: "stale", Label: "Stale", Type: "string"}})
+	receipttest.AppendDeriveFixture(&document, "scale_score", ws.StageColumn{ID: "scaled_score", Name: "scaled_score", Label: "Scaled score", Type: "decimal", Nullable: true}, ws.ConstructionDerivedMultiply, receipttest.ColumnOperand("score"), receipttest.DecimalOperand(float64Pointer(2)), ws.ConstructionMissingInputPropagateNull)
 
-	policy := &explorer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []explorer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
-	emitted := []explorer.EmittedColumn{
+	policy := &viewer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []viewer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
+	emitted := []viewer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "patients", NodeID: "node-patient", CandidateID: "candidate-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Patient", SourcePath: "id", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Filterable: true, Chartable: true},
 		{EmissionID: "emit_score", OutputID: "patients", NodeID: "node-observation", CandidateID: "candidate-score", AuthoredColumns: []string{"score"}, PublicColumn: "score", Label: "Authored score", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Observation", SourcePath: "valueQuantity.value", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"source-loss"}, Filterable: true, Chartable: true, UnitNormalization: policy},
 		{EmissionID: "emit_stale", OutputID: "patients", NodeID: "node-observation", CandidateID: "candidate-stale", AuthoredColumns: []string{"stale"}, PublicColumn: "stale", Label: "Stale", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Observation", SourcePath: "value", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"dropped-loss"}},
 	}
-	contractColumns := []explorer.PublicOutputColumn{
+	contractColumns := []receiptmodel.PublicOutputColumn{
 		receiptTestPublicColumn(emitted[0]), receiptTestPublicColumn(emitted[1]), receiptTestPublicColumn(emitted[2]),
 	}
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}}}
 	translated := explorercompilation.WorkspaceResult{
 		Bundle: bundle, EmittedColumns: emitted,
-		OutputContracts: []explorer.PublicOutputContract{{OutputID: "patients", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"source-loss", "dropped-loss"}, Columns: contractColumns}},
+		OutputContracts: []receiptmodel.PublicOutputContract{{OutputID: "patients", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"source-loss", "dropped-loss"}, Columns: contractColumns}},
 		Presentations: []explorercompilation.PresentationConfig{{OutputID: "patients", Title: "Patients", Columns: []explorercompilation.PresentationColumn{
 			{EmissionID: "emit_patient_id", PublicColumn: "patient_id", Label: "Patient ID", Visible: true, Order: 0, PhysicalOrder: 0},
 			{EmissionID: "emit_score", PublicColumn: "score", Label: "Authored score", Visible: true, Order: 1, PhysicalOrder: 1},
 			{EmissionID: "emit_stale", PublicColumn: "stale", Label: "Stale", Visible: true, Order: 50, PhysicalOrder: 2},
 		}}},
-		IdentityMappings: []explorer.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score", "emit_stale"}}},
+		IdentityMappings: []receiptmodel.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score", "emit_stale"}}},
 		Workspace:        receipttest.StageWorkspace(document),
 	}
 	resolved := dataframeexecution.Resolved{
@@ -889,8 +892,8 @@ func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexec
 	return translated, resolved
 }
 
-func receiptTestPublicColumn(emitted explorer.EmittedColumn) explorer.PublicOutputColumn {
-	return explorer.PublicOutputColumn{
+func receiptTestPublicColumn(emitted viewer.EmittedColumn) receiptmodel.PublicOutputColumn {
+	return receiptmodel.PublicOutputColumn{
 		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...), InputColumns: append([]string(nil), emitted.InputColumns...),
 		Label: emitted.Label, LogicalType: emitted.LogicalType, Nullable: emitted.Nullable, Shape: emitted.Shape,
 		SourceResourceType: emitted.SourceResourceType, SourcePath: emitted.SourcePath,
@@ -900,7 +903,7 @@ func receiptTestPublicColumn(emitted explorer.EmittedColumn) explorer.PublicOutp
 	}
 }
 
-func emittedPublicColumnNames(values []explorer.EmittedColumn) []string {
+func emittedPublicColumnNames(values []viewer.EmittedColumn) []string {
 	names := make([]string, 0, len(values))
 	for _, value := range values {
 		names = append(names, value.PublicColumn)
@@ -908,7 +911,7 @@ func emittedPublicColumnNames(values []explorer.EmittedColumn) []string {
 	return names
 }
 
-func publicContractColumnNames(values []explorer.PublicOutputColumn) []string {
+func publicContractColumnNames(values []receiptmodel.PublicOutputColumn) []string {
 	names := make([]string, 0, len(values))
 	for _, value := range values {
 		names = append(names, value.Column)

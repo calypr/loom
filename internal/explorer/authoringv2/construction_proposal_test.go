@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *testing.T) {
@@ -35,7 +37,7 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 	}
 
 	request := ApplyCommandsRequest{
-		CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot-1",
+		CommandID: "command-1", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: "snapshot-1",
 		ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft", Commands: []Command{proposal},
 	}
 	if err := request.Validate(); err != nil {
@@ -90,24 +92,24 @@ func TestApplyConstructionProposalRejectsClientPlanAndUnresolvedApply(t *testing
 
 func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.T) {
 	document := rowValueGroupedDocument()
-	document.Columns[0].Source = ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}
-	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
-		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
-			RevisionID: "group-revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
+			RevisionID: "group-revision", UnassignedMemberPolicy: ws.UnassignedMemberExclude,
 		}},
 		AfterStepID: "source_filter",
-		RowValues:   []ExplicitGroupRowValue{{ColumnID: "status", Policy: ConstructionRowValueAll}},
+		RowValues:   []ws.ExplicitGroupRowValue{{ColumnID: "status", Policy: ws.ConstructionRowValueAll}},
 	}}
-	document.Construction.Steps = []ConstructionStep{
+	document.Construction.Steps = []ws.ConstructionStep{
 		{
-			ID: "source_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "status", Operator: ConstructionFilterExists}},
-			Outputs:   []StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
+			ID: "source_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
+			Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
 		},
 		{
-			ID: "cohort_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}},
-			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "group_label", Operator: ConstructionFilterExists}},
-			Outputs: []StageColumn{
+			ID: "cohort_filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_label", Operator: ws.ConstructionFilterExists}},
+			Outputs: []ws.StageColumn{
 				{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
 				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
 				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},

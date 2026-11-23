@@ -3,8 +3,9 @@ package recipeimport
 import (
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestExtensionRuleAppliesToRootAndTraversal(t *testing.T) {
@@ -17,12 +18,12 @@ func TestExtensionRuleAppliesToRootAndTraversal(t *testing.T) {
 			name = "traversal"
 		}
 		t.Run(name, func(t *testing.T) {
-			rule := authoringv2.SourceRuleCreate{Kind: SourcePlanExtensionColumn, OccurrenceID: occurrence,
-				Parameters: &authoringv2.ImportedSourceParameters{Extension: &authoringv2.ImportedExtensionParameters{
+			rule := ws.SourceRuleCreate{Kind: SourcePlanExtensionColumn, OccurrenceID: occurrence,
+				Parameters: &ws.ImportedSourceParameters{Extension: &ws.ImportedExtensionParameters{
 					Name: "extensions", Source: recipe.Expression{Select: "extension[].extension[]"},
 				}},
 			}
-			plan, err := EditPlan(output, SourcePlan(output), authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+			plan, err := EditPlan(output, SourcePlan(output), ws.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
 			if err != nil {
 				t.Fatal(err)
 			}

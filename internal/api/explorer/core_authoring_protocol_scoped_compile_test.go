@@ -10,6 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -20,7 +25,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -63,54 +67,54 @@ const (
 	scopedUnknownOutputID = "core-protocol-ghost-output"
 )
 
-func scopedCompileTestWorkspace() authoringv2.Workspace {
-	fieldColumn := func(columnID, column, label string) authoringv2.Column {
-		return authoringv2.Column{
+func scopedCompileTestWorkspace() ws.Workspace {
+	fieldColumn := func(columnID, column, label string) ws.Column {
+		return ws.Column{
 			ColumnID: columnID, Column: column, Label: label, LogicalType: scopedLogicalTypeString,
-			OccurrenceID: authoringv2.RootOccurrenceID,
-			Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: scopedPatientsFieldPath, ProjectionMode: "VALUE"}},
+			OccurrenceID: ws.RootOccurrenceID,
+			Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: scopedPatientsFieldPath, ProjectionMode: "VALUE"}},
 		}
 	}
-	rootDocument := func(outputID, title string, column authoringv2.Column) authoringv2.Document {
-		return authoringv2.Document{
-			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-			Output:           authoringv2.Output{ID: outputID, Title: title, RowLabel: scopedPatientsRowLabel},
+	rootDocument := func(outputID, title string, column ws.Column) ws.Document {
+		return ws.Document{
+			Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+			Output:           ws.Output{ID: outputID, Title: title, RowLabel: scopedPatientsRowLabel},
 			RootResourceType: "Patient",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Columns:          []authoringv2.Column{column},
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns:          []ws.Column{column},
 		}
 	}
-	encounters := authoringv2.Document{
-		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
-		Output:           authoringv2.Output{ID: scopedOutputEncounters, Title: scopedEncountersTitle, RowLabel: scopedPatientsRowLabel},
+	encounters := ws.Document{
+		Kind: ws.Kind, Rows: ws.RecordsRowDefinition(),
+		Output:           ws.Output{ID: scopedOutputEncounters, Title: scopedEncountersTitle, RowLabel: scopedPatientsRowLabel},
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 			ID: scopedEncounterStepID,
-			Inputs: []authoringv2.ConstructionInputRef{
-				{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: scopedOutputPatients},
-				{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: scopedOutputVisits},
+			Inputs: []ws.ConstructionInputRef{
+				{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: scopedOutputPatients},
+				{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: scopedOutputVisits},
 			},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-				Kind: authoringv2.ConstructionCombineAppend,
-				Projections: []authoringv2.ConstructionCombineProjection{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+				Kind: ws.ConstructionCombineAppend,
+				Projections: []ws.ConstructionCombineProjection{
 					{OutputColumnID: scopedEncounterColumnID, InputIndex: 0, InputColumnID: scopedPatientsColumnID},
 					{OutputColumnID: scopedEncounterColumnID, InputIndex: 1, InputColumnID: scopedVisitsColumnID},
 				},
 			}},
-			Outputs: []authoringv2.StageColumn{{ID: scopedEncounterColumnID, Name: scopedEncounterColumn, Label: scopedEncounterLabel, Type: scopedLogicalTypeString, Nullable: true}},
+			Outputs: []ws.StageColumn{{ID: scopedEncounterColumnID, Name: scopedEncounterColumn, Label: scopedEncounterLabel, Type: scopedLogicalTypeString, Nullable: true}},
 		}}},
 	}
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: scopedCompileExplorerT},
-		Documents: []authoringv2.Document{
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: scopedCompileExplorerT},
+		Documents: []ws.Document{
 			rootDocument(scopedOutputPatients, scopedPatientsTitle, fieldColumn(scopedPatientsColumnID, scopedPatientsColumn, scopedPatientsLabel)),
 			encounters,
 			rootDocument(scopedOutputVisits, scopedVisitsTitle, fieldColumn(scopedVisitsColumnID, scopedVisitsColumn, scopedVisitsLabel)),
 			rootDocument(scopedOutputConditions, scopedConditionsTitle, fieldColumn(scopedConditionsColumnID, scopedConditionsColumn, scopedConditionsLabel)),
 		},
-		Tabs: []authoringv2.Tab{
+		Tabs: []ws.Tab{
 			{ID: "patients-tab", Title: scopedPatientsTitle, OutputID: scopedOutputPatients, Order: 0, Visible: true},
 			{ID: "encounters-tab", Title: scopedEncountersTitle, OutputID: scopedOutputEncounters, Order: 1, Visible: true},
 			{ID: "visits-tab", Title: scopedVisitsTitle, OutputID: scopedOutputVisits, Order: 2, Visible: true},
@@ -148,7 +152,7 @@ type scopedCompileFixture struct {
 	app           *fiber.App
 	store         *testExplorerStore
 	snapshot      capability.Snapshot
-	workspace     authoringv2.Workspace
+	workspace     ws.Workspace
 	initialDigest string
 }
 
@@ -166,7 +170,7 @@ func newScopedCompileFixture(t *testing.T) *scopedCompileFixture {
 	}
 	store := newTestExplorerStore()
 	if _, err := store.Create(context.Background(), explorer.Explorer{
-		Project: scopedCompileProject, ExplorerID: scopedCompileExplorer, Title: scopedCompileExplorerT, ManagementMode: explorer.ManagementInteractive,
+		Project: scopedCompileProject, ExplorerID: scopedCompileExplorer, Title: scopedCompileExplorerT, ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -192,15 +196,15 @@ func newScopedCompileFixture(t *testing.T) *scopedCompileFixture {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -228,7 +232,7 @@ func (f *scopedCompileFixture) reconcile(outputID, requestID string) testHTTPRes
 	return response
 }
 
-func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response testHTTPResponse, stage string) (loomapi.CompileResponse, authoringv2.Workspace, *explorer.CompilationReceipt) {
+func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response testHTTPResponse, stage string) (loomapi.CompileResponse, ws.Workspace, *receiptmodel.CompilationReceipt) {
 	t.Helper()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("%s: reconcile status=%d body=%s", stage, response.StatusCode, response.Body)
@@ -245,7 +249,7 @@ func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response
 		t.Fatalf("%s: receipt %s not persisted", stage, compiled.ReceiptId)
 	}
 	var decoded struct {
-		Builder authoringv2.Workspace `json:"builder"`
+		Builder ws.Workspace `json:"builder"`
 	}
 	if err := json.Unmarshal([]byte(response.Body), &decoded); err != nil {
 		t.Fatalf("%s: decode builder workspace: %v", stage, err)
@@ -253,7 +257,7 @@ func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response
 	return compiled, decoded.Builder, &persisted
 }
 
-func scopedExpectCompleteWorkspace(t *testing.T, stage string, builder authoringv2.Workspace, initialDigest string) {
+func scopedExpectCompleteWorkspace(t *testing.T, stage string, builder ws.Workspace, initialDigest string) {
 	t.Helper()
 	if responseDigest, err := builder.Digest(); err != nil || responseDigest != initialDigest {
 		t.Fatalf("%s: returned workspace digest=%v (err %v) does not match the validated head %s", stage, responseDigest, err, initialDigest)
@@ -289,7 +293,7 @@ func scopedExpectStrings(t *testing.T, stage, component string, got, want []stri
 	}
 }
 
-func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.CompilationReceipt, wantOutputs, absentTokens []string) {
+func scopedExpectReceipt(t *testing.T, stage string, receipt *receiptmodel.CompilationReceipt, wantOutputs, absentTokens []string) {
 	t.Helper()
 	bundleNames := make([]string, 0, len(receipt.Bundle.Outputs))
 	byName := map[string]recipe.Output{}
@@ -300,7 +304,7 @@ func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.Compilati
 	scopedExpectStrings(t, stage, "recipe bundle outputs", bundleNames, wantOutputs)
 
 	emittedOutputs := make([]string, 0, len(receipt.EmittedColumns))
-	emittedByOutput := map[string][]explorer.EmittedColumn{}
+	emittedByOutput := map[string][]viewer.EmittedColumn{}
 	for _, emitted := range receipt.EmittedColumns {
 		emittedOutputs = append(emittedOutputs, emitted.OutputID)
 		emittedByOutput[emitted.OutputID] = append(emittedByOutput[emitted.OutputID], emitted)
@@ -319,12 +323,12 @@ func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.Compilati
 	}
 	scopedExpectStrings(t, stage, "compiled output schemas", schemaOutputs, wantOutputs)
 
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatalf("%s: decode public output contracts: %v", stage, err)
 	}
 	contractOutputs := make([]string, 0, len(contracts.Outputs))
-	contractsByID := map[string]explorer.PublicOutputContract{}
+	contractsByID := map[string]receiptmodel.PublicOutputContract{}
 	for _, contract := range contracts.Outputs {
 		contractOutputs = append(contractOutputs, contract.OutputID)
 		contractsByID[contract.OutputID] = contract
@@ -337,7 +341,7 @@ func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.Compilati
 	}
 	for _, output := range wantOutputs {
 		for _, want := range scopedLiteralColumns[output] {
-			var matched *explorer.EmittedColumn
+			var matched *viewer.EmittedColumn
 			for index := range emittedByOutput[output] {
 				if emittedByOutput[output][index].PublicColumn == want.public {
 					matched = &emittedByOutput[output][index]
@@ -358,7 +362,7 @@ func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.Compilati
 			if matched.OutputID != output {
 				t.Fatalf("%s: emitted column %q belongs to output %q not %q", stage, want.public, matched.OutputID, output)
 			}
-			var contractColumn *explorer.PublicOutputColumn
+			var contractColumn *receiptmodel.PublicOutputColumn
 			contract := contractsByID[output]
 			for index := range contract.Columns {
 				if contract.Columns[index].Column == want.public {

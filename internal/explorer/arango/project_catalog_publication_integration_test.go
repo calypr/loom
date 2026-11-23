@@ -3,6 +3,8 @@ package arango
 import (
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -61,7 +63,7 @@ func projectConfigCatalogSnapshotForTest(t *testing.T, publication explorer.Proj
 	snapshot.IntentDigest = ""
 	snapshot.CompilationReceiptID = ""
 	snapshot.CreatedBy = ""
-	snapshot.Diagnostics = []explorer.Diagnostic{}
+	snapshot.Diagnostics = []viewer.Diagnostic{}
 	snapshot.Status = explorer.RevisionReady
 	snapshot.ActivatedAt = nil
 	snapshot.FailedAt = nil

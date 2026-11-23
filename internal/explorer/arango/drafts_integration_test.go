@@ -14,6 +14,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
@@ -99,7 +103,7 @@ func draftCASDB(t *testing.T) (context.Context, *store.Client, *Store, string) {
 }
 func draftCASPayload(t *testing.T, title string) (json.RawMessage, string) {
 	t.Helper()
-	w := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: title}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}
+	w := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: title}, Documents: []ws.Document{}, Tabs: []ws.Tab{}}
 	raw, err := w.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +117,7 @@ func draftCASPayload(t *testing.T, title string) (json.RawMessage, string) {
 func draftCASSeed(t *testing.T, ctx context.Context, s *Store) explorer.Explorer {
 	t.Helper()
 	raw, digest := draftCASPayload(t, "Initial")
-	e := explorer.Explorer{Project: "project-cas", ExplorerID: "patients", Title: "Initial", ManagementMode: explorer.ManagementInteractive, DraftConfig: raw, DraftVersion: 1, DraftDigest: digest, DraftSnapshotToken: "snapshot-one", DraftSourceGeneration: "generation-one", DraftAuthorizationScopeDigest: "scope-one", ActiveRevisionID: "published-stable", UpdatedBy: "initial", UpdatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
+	e := explorer.Explorer{Project: "project-cas", ExplorerID: "patients", Title: "Initial", ManagementMode: viewer.ManagementInteractive, DraftConfig: raw, DraftVersion: 1, DraftDigest: digest, DraftSnapshotToken: "snapshot-one", DraftSourceGeneration: "generation-one", DraftAuthorizationScopeDigest: "scope-one", ActiveRevisionID: "published-stable", UpdatedBy: "initial", UpdatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
 	if _, err := s.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
@@ -285,8 +289,8 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 	snapshot := capability.Snapshot{Identity: capability.SnapshotIdentity{Project: before.Project, Generation: "generation-one", AuthorizationScopeDigest: "scope-one", SchemaDigest: "schema", ShapeDigest: "shape"}, Token: "snapshot-one", Status: capability.StatusReady, Complete: true}
 	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		Catalog: func(got capability.Snapshot, id string) authoringv2.CatalogSnapshot {
-			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: got.Identity.Project, ExplorerID: id, SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
+		Catalog: func(got capability.Snapshot, id string) ws.CatalogSnapshot {
+			return ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: got.Identity.Project, ExplorerID: id, SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true}, Nodes: []ws.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
 	}}
 	service, err := lifecycle.New(domain, config)
@@ -296,7 +300,7 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 	results := make(chan error, 2)
 	for i := range 2 {
 		go func(i int) {
-			_, err := service.ApplyCommands(ctx, before.Project, before.ExplorerID, authoringv2.ApplyCommandsRequest{CommandID: fmt.Sprintf("race-command-%d", i), SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: before.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: fmt.Sprintf("Patients-%d", i), Payload: &authoringv2.TablePayload{RootNodeID: "node"}}}}, "actor")
+			_, err := service.ApplyCommands(ctx, before.Project, before.ExplorerID, authoringv2.ApplyCommandsRequest{CommandID: fmt.Sprintf("race-command-%d", i), SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: before.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: fmt.Sprintf("Patients-%d", i), Payload: &authoringv2.TablePayload{RootNodeID: "node"}}}}, "actor")
 			results <- err
 		}(i)
 	}

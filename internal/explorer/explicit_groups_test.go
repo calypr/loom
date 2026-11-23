@@ -2,22 +2,23 @@ package explorer
 
 import (
 	"errors"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"testing"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 )
 
 func TestExplicitGroupDefinitionsCanonicalizeWithoutChangingIdentity(t *testing.T) {
-	input := []ExplicitGroupDefinition{
+	input := []explorerselection.ExplicitGroupDefinition{
 		{ID: " group-b ", Label: " Beta ", Ordinal: 1},
 		{ID: "group-a", Label: "Alpha", Ordinal: 0},
 	}
-	canonical, err := CanonicalExplicitGroupDefinitions(input)
+	canonical, err := explorerselection.CanonicalExplicitGroupDefinitions(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ExplicitGroupDefinition{
+	want := []explorerselection.ExplicitGroupDefinition{
 		{ID: "group-a", Label: "Alpha", Ordinal: 0},
 		{ID: "group-b", Label: "Beta", Ordinal: 1},
 	}
@@ -28,20 +29,20 @@ func TestExplicitGroupDefinitionsCanonicalizeWithoutChangingIdentity(t *testing.
 		t.Fatalf("canonicalization mutated caller input: %#v", input)
 	}
 
-	definitionDigest, err := ExplicitGroupDefinitionDigest(input)
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if definitionDigest != "c0624434be97bc243d9131b7611cdd8c0b38ec39edae0f7a87cebd35918ff3c0" {
 		t.Fatalf("definition digest = %s", definitionDigest)
 	}
-	reorderedDigest, err := ExplicitGroupDefinitionDigest(want)
+	reorderedDigest, err := explorerselection.ExplicitGroupDefinitionDigest(want)
 	if err != nil || reorderedDigest != definitionDigest {
 		t.Fatalf("reordered definition digest = %s err=%v, want %s", reorderedDigest, err, definitionDigest)
 	}
-	changedPresentation := append([]ExplicitGroupDefinition(nil), want...)
+	changedPresentation := append([]explorerselection.ExplicitGroupDefinition(nil), want...)
 	changedPresentation[0].Label = "Renamed"
-	changedDigest, err := ExplicitGroupDefinitionDigest(changedPresentation)
+	changedDigest, err := explorerselection.ExplicitGroupDefinitionDigest(changedPresentation)
 	if err != nil || changedDigest == definitionDigest {
 		t.Fatalf("definition presentation change digest = %s err=%v, want a changed definition digest", changedDigest, err)
 	}
@@ -52,23 +53,23 @@ func TestExplicitGroupDefinitionsCanonicalizeWithoutChangingIdentity(t *testing.
 
 func TestExplicitGroupMembershipDigestPreservesOverlapsAndDeduplicatesPairs(t *testing.T) {
 	revision := testExplicitGroupRevision()
-	groups := []ExplicitGroupDefinition{
+	groups := []explorerselection.ExplicitGroupDefinition{
 		{ID: "group-a", Label: "Alpha", Ordinal: 0},
 		{ID: "group-b", Label: "Beta", Ordinal: 1},
 	}
 	shared := explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}
 	onlyA := explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-2"}
-	memberships := []ExplicitGroupMembership{
+	memberships := []explorerselection.ExplicitGroupMembership{
 		{GroupID: "group-b", Ref: shared},
 		{GroupID: "group-a", Ref: onlyA},
 		{GroupID: "group-a", Ref: shared},
 		{GroupID: "group-a", Ref: shared},
 	}
-	canonical, err := CanonicalExplicitGroupMemberships(revision, groups, memberships)
+	canonical, err := explorerselection.CanonicalExplicitGroupMemberships(revision, groups, memberships)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ExplicitGroupMembership{
+	want := []explorerselection.ExplicitGroupMembership{
 		{GroupID: "group-a", Ref: shared},
 		{GroupID: "group-a", Ref: onlyA},
 		{GroupID: "group-b", Ref: shared},
@@ -76,32 +77,32 @@ func TestExplicitGroupMembershipDigestPreservesOverlapsAndDeduplicatesPairs(t *t
 	if !reflect.DeepEqual(canonical, want) {
 		t.Fatalf("canonical memberships = %#v, want %#v", canonical, want)
 	}
-	digest, err := ExplicitGroupMembershipDigest(revision, groups, memberships)
+	digest, err := explorerselection.ExplicitGroupMembershipDigest(revision, groups, memberships)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if digest != "a0445982c9a1edf1c5ac5f506dbc2cbf5e722b2568584064fcf3204827809cda" {
 		t.Fatalf("membership digest = %s", digest)
 	}
-	deduplicatedDigest, err := ExplicitGroupMembershipDigest(revision, groups, canonical)
+	deduplicatedDigest, err := explorerselection.ExplicitGroupMembershipDigest(revision, groups, canonical)
 	if err != nil || deduplicatedDigest != digest {
 		t.Fatalf("deduplicated digest = %s err=%v, want %s", deduplicatedDigest, err, digest)
 	}
-	singleGroupDigest, err := ExplicitGroupMembershipDigest(revision, groups, []ExplicitGroupMembership{{GroupID: "group-a", Ref: shared}, {GroupID: "group-a", Ref: onlyA}})
+	singleGroupDigest, err := explorerselection.ExplicitGroupMembershipDigest(revision, groups, []explorerselection.ExplicitGroupMembership{{GroupID: "group-a", Ref: shared}, {GroupID: "group-a", Ref: onlyA}})
 	if err != nil || singleGroupDigest == digest {
 		t.Fatalf("single-group digest = %s err=%v, want overlap to affect membership", singleGroupDigest, err)
 	}
-	definitionDigest, err := ExplicitGroupDefinitionDigest(groups)
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(groups)
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedGroups := append([]ExplicitGroupDefinition(nil), groups...)
+	changedGroups := append([]explorerselection.ExplicitGroupDefinition(nil), groups...)
 	changedGroups[0].Label = "Renamed"
-	changedDefinitionDigest, err := ExplicitGroupDefinitionDigest(changedGroups)
+	changedDefinitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(changedGroups)
 	if err != nil || changedDefinitionDigest == definitionDigest {
 		t.Fatalf("definition digest did not record label change: %s err=%v", changedDefinitionDigest, err)
 	}
-	unchangedMembershipDigest, err := ExplicitGroupMembershipDigest(revision, changedGroups, memberships)
+	unchangedMembershipDigest, err := explorerselection.ExplicitGroupMembershipDigest(revision, changedGroups, memberships)
 	if err != nil || unchangedMembershipDigest != digest {
 		t.Fatalf("presentation changed membership digest: %s err=%v, want %s", unchangedMembershipDigest, err, digest)
 	}
@@ -109,12 +110,12 @@ func TestExplicitGroupMembershipDigestPreservesOverlapsAndDeduplicatesPairs(t *t
 
 func TestExplicitGroupRevisionCompletesWithAnEmptyDeclaredGroup(t *testing.T) {
 	revision := testExplicitGroupRevision()
-	group := ExplicitGroupDefinition{ID: "empty", Label: "No members", Ordinal: 0}
-	definitionDigest, err := ExplicitGroupDefinitionDigest([]ExplicitGroupDefinition{group})
+	group := explorerselection.ExplicitGroupDefinition{ID: "empty", Label: "No members", Ordinal: 0}
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest([]explorerselection.ExplicitGroupDefinition{group})
 	if err != nil {
 		t.Fatal(err)
 	}
-	membershipDigest, err := ExplicitGroupMembershipDigest(revision, []ExplicitGroupDefinition{group}, nil)
+	membershipDigest, err := explorerselection.ExplicitGroupMembershipDigest(revision, []explorerselection.ExplicitGroupDefinition{group}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestExplicitGroupRevisionCompletesWithAnEmptyDeclaredGroup(t *testing.T) {
 		t.Fatalf("empty group digests = %s/%s", definitionDigest, membershipDigest)
 	}
 	completedAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
-	revision.State = ExplicitGroupRevisionComplete
+	revision.State = explorerselection.ExplicitGroupRevisionComplete
 	revision.DefinitionDigest = definitionDigest
 	revision.MembershipDigest = membershipDigest
 	revision.GroupCount = 1
@@ -136,50 +137,50 @@ func TestExplicitGroupRevisionCompletesWithAnEmptyDeclaredGroup(t *testing.T) {
 func TestExplicitGroupValidationRejectsAmbiguousOrUnscopedData(t *testing.T) {
 	tests := []struct {
 		name   string
-		groups []ExplicitGroupDefinition
+		groups []explorerselection.ExplicitGroupDefinition
 	}{
 		{name: "no groups"},
-		{name: "missing label", groups: []ExplicitGroupDefinition{{ID: "group-a", Ordinal: 0}}},
-		{name: "negative ordinal", groups: []ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: -1}}},
-		{name: "duplicate ID", groups: []ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}, {ID: "group-a", Label: "B", Ordinal: 1}}},
-		{name: "duplicate ordinal", groups: []ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}, {ID: "group-b", Label: "B", Ordinal: 0}}},
+		{name: "missing label", groups: []explorerselection.ExplicitGroupDefinition{{ID: "group-a", Ordinal: 0}}},
+		{name: "negative ordinal", groups: []explorerselection.ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: -1}}},
+		{name: "duplicate ID", groups: []explorerselection.ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}, {ID: "group-a", Label: "B", Ordinal: 1}}},
+		{name: "duplicate ordinal", groups: []explorerselection.ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}, {ID: "group-b", Label: "B", Ordinal: 0}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := CanonicalExplicitGroupDefinitions(tt.groups); err == nil {
+			if _, err := explorerselection.CanonicalExplicitGroupDefinitions(tt.groups); err == nil {
 				t.Fatal("invalid group definitions unexpectedly succeeded")
 			}
 		})
 	}
 
 	revision := testExplicitGroupRevision()
-	groups := []ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}}
-	if _, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{GroupID: "missing", Ref: explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); err == nil {
+	groups := []explorerselection.ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}}
+	if _, err := explorerselection.CanonicalExplicitGroupMemberships(revision, groups, []explorerselection.ExplicitGroupMembership{{GroupID: "missing", Ref: explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); err == nil {
 		t.Fatal("membership in undeclared group unexpectedly succeeded")
 	}
-	if _, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{GroupID: "group-a", Ref: explorerselection.ResourceRef{Project: "other-project", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); !errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
+	if _, err := explorerselection.CanonicalExplicitGroupMemberships(revision, groups, []explorerselection.ExplicitGroupMembership{{GroupID: "group-a", Ref: explorerselection.ResourceRef{Project: "other-project", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); !errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
 		t.Fatalf("cross-project membership error = %v", err)
 	}
 }
 
 func TestExplicitGroupMembershipCanonicalizesLegacyProjectIdentity(t *testing.T) {
 	project := "HTAN-HTAN001"
-	revision := ExplicitGroupRevision{
-		ID: ExplicitGroupRevisionIDFor(project, "group-membership-a"), Project: project,
+	revision := explorerselection.ExplicitGroupRevision{
+		ID: explorerselection.ExplicitGroupRevisionIDFor(project, "group-membership-a"), Project: project,
 		Generation: "generation-a", ScopeDigest: "scope-a", ResourceType: "Patient",
 		SourceSelectionRevisionID: "selection-a", SourceMembershipDigest: "source-membership-a",
-		State: ExplicitGroupRevisionStaging, IdempotencyKey: "group-membership-a",
+		State: explorerselection.ExplicitGroupRevisionStaging, IdempotencyKey: "group-membership-a",
 		CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}
-	groups := []ExplicitGroupDefinition{{ID: "group-a", Label: "Alpha", Ordinal: 0}}
-	memberships, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{
+	groups := []explorerselection.ExplicitGroupDefinition{{ID: "group-a", Label: "Alpha", Ordinal: 0}}
+	memberships, err := explorerselection.CanonicalExplicitGroupMemberships(revision, groups, []explorerselection.ExplicitGroupMembership{{
 		GroupID: "group-a",
 		Ref:     explorerselection.ResourceRef{Project: project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ExplicitGroupMembership{{
+	want := []explorerselection.ExplicitGroupMembership{{
 		GroupID: "group-a",
 		Ref:     explorerselection.ResourceRef{Project: "HTAN/HTAN001", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
 	}}
@@ -210,7 +211,7 @@ func TestExplicitGroupRevisionRejectsSourceSelectionMismatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			wrong := testCompleteSelection()
 			tt.mutate(&wrong)
-			if err := revision.ValidateSource(wrong); !errors.Is(err, ErrExplicitGroupRevisionStaleSource) {
+			if err := revision.ValidateSource(wrong); !errors.Is(err, explorerselection.ErrExplicitGroupRevisionStaleSource) {
 				t.Fatalf("source mismatch error = %v", err)
 			}
 		})
@@ -227,21 +228,21 @@ func TestExplicitGroupRevisionStateIsClosedAndConsistent(t *testing.T) {
 		t.Fatal("unknown revision state unexpectedly succeeded")
 	}
 	revision = testExplicitGroupRevision()
-	revision.State = ExplicitGroupRevisionComplete
-	if err := revision.Validate(); !errors.Is(err, ErrExplicitGroupRevisionIncomplete) {
+	revision.State = explorerselection.ExplicitGroupRevisionComplete
+	if err := revision.Validate(); !errors.Is(err, explorerselection.ErrExplicitGroupRevisionIncomplete) {
 		t.Fatalf("incomplete completed revision error = %v", err)
 	}
 }
 
 func TestExplicitGroupRevisionIDIsAStableIdempotencyReservation(t *testing.T) {
-	id := ExplicitGroupRevisionIDFor("project-a", "create-groups-1")
+	id := explorerselection.ExplicitGroupRevisionIDFor("project-a", "create-groups-1")
 	if id != "grouprev_1837853917e83e81b61c8715fc702d3800987862ac16a14f5e447e3b0adace6a" {
 		t.Fatalf("revision ID = %s", id)
 	}
-	if retryID := ExplicitGroupRevisionIDFor(" project-a ", " create-groups-1 "); retryID != id {
+	if retryID := explorerselection.ExplicitGroupRevisionIDFor(" project-a ", " create-groups-1 "); retryID != id {
 		t.Fatalf("canonical retry ID = %s, want %s", retryID, id)
 	}
-	if ExplicitGroupRevisionIDFor("project-b", "create-groups-1") == id || ExplicitGroupRevisionIDFor("project-a", "another-key") == id {
+	if explorerselection.ExplicitGroupRevisionIDFor("project-b", "create-groups-1") == id || explorerselection.ExplicitGroupRevisionIDFor("project-a", "another-key") == id {
 		t.Fatal("revision ID did not bind both project and idempotency key")
 	}
 	invalid := testExplicitGroupRevision()
@@ -251,18 +252,18 @@ func TestExplicitGroupRevisionIDIsAStableIdempotencyReservation(t *testing.T) {
 	}
 }
 
-func testExplicitGroupRevision() ExplicitGroupRevision {
-	return ExplicitGroupRevision{
-		ID: ExplicitGroupRevisionIDFor("project-a", "create-groups-1"), Project: "project-a", Generation: "generation-a", ScopeDigest: "scope-a",
+func testExplicitGroupRevision() explorerselection.ExplicitGroupRevision {
+	return explorerselection.ExplicitGroupRevision{
+		ID: explorerselection.ExplicitGroupRevisionIDFor("project-a", "create-groups-1"), Project: "project-a", Generation: "generation-a", ScopeDigest: "scope-a",
 		ResourceType: "Patient", SourceSelectionRevisionID: "selection-1", SourceMembershipDigest: "selection-membership",
-		State: ExplicitGroupRevisionStaging, IdempotencyKey: "create-groups-1", CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+		State: explorerselection.ExplicitGroupRevisionStaging, IdempotencyKey: "create-groups-1", CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
-func testCompleteExplicitGroupRevision() ExplicitGroupRevision {
+func testCompleteExplicitGroupRevision() explorerselection.ExplicitGroupRevision {
 	revision := testExplicitGroupRevision()
 	completedAt := revision.CreatedAt.Add(time.Minute)
-	revision.State = ExplicitGroupRevisionComplete
+	revision.State = explorerselection.ExplicitGroupRevisionComplete
 	revision.DefinitionDigest = "definition-digest"
 	revision.MembershipDigest = "membership-digest"
 	revision.GroupCount = 1

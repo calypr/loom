@@ -6,6 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -139,7 +144,7 @@ func (s *Service) populationConfig() population.Config {
 		SelectionMembersCollection:     s.config.SelectionMembersCollection,
 		LookupReceipt:                  s.lookupReceipt,
 		ValidateExecutableReceiptRoute: s.validateExecutableReceiptRoute,
-		Compile: func(ctx context.Context, request population.CompileRequest) (*explorer.CompilationReceipt, error) {
+		Compile: func(ctx context.Context, request population.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
 			return s.compile(ctx, compileRequest{
 				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
 				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID,
@@ -151,12 +156,12 @@ func (s *Service) populationConfig() population.Config {
 		CurrentWorkspace:      s.currentWorkspace,
 		CreateSelection:       s.CreateSelection,
 		Catalog:               s.catalog,
-		PreviewMemberRemoval: func(ctx context.Context, receipt *explorer.CompilationReceipt, project, explorerID string) error {
+		PreviewMemberRemoval: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, project, explorerID string) error {
 			binding := receipt.PopulationMemberRemovalProposal
 			_, err := s.Preview(ctx, PreviewRequest{
 				Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: binding.OutputID,
 				Limit: binding.PreviewLimit,
-				SinkFactory: func(_ *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+				SinkFactory: func(_ *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
 				},
 			})
@@ -182,7 +187,7 @@ func (s *Service) constructionConfig() construction.Config {
 		RowChoiceResolver:                  s.config.RowChoiceResolver,
 		RowChoicePlanner:                   s.config.RowChoicePlanner,
 		CompileReceipt:                     s.config.CompileReceipt,
-		Compile: func(ctx context.Context, request construction.CompileRequest) (*explorer.CompilationReceipt, error) {
+		Compile: func(ctx context.Context, request construction.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
 			return s.compile(ctx, compileRequest{
 				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
 				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID,
@@ -236,7 +241,7 @@ func (s *Service) buildRowDefService() (*rowdef.Service, error) {
 		SelectionMembersCollection: s.config.SelectionMembersCollection,
 		Capability:                 s.config.Capability,
 		GetOwner:                   s.getOwner,
-		Compile: func(ctx context.Context, request rowdef.CompileRequest) (*explorer.CompilationReceipt, error) {
+		Compile: func(ctx context.Context, request rowdef.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
 			return s.compile(ctx, compileRequest{
 				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
 				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID, RowDefinitionProposal: request.RowDefinitionProposal,
@@ -245,7 +250,7 @@ func (s *Service) buildRowDefService() (*rowdef.Service, error) {
 		LookupReceipt:                  s.lookupReceipt,
 		ValidateExecutableReceiptRoute: s.validateExecutableReceiptRoute,
 		VerifyProposalReceipt:          s.verifyProposalReceipt,
-		PrepareCandidateWorkspace: func(workspace authoringv2.Workspace, outputID string, replace bool) (authoringv2.Workspace, error) {
+		PrepareCandidateWorkspace: func(workspace ws.Workspace, outputID string, replace bool) (ws.Workspace, error) {
 			if replace {
 				return rowdef.RowChangeReceiptWorkspace(workspace, outputID)
 			}
@@ -324,7 +329,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return empty, support.Conflict("authoring-network", "DRAFT_CONFLICT", "saved draft changed; reload its network", nil, explorer.ErrDraftConflict)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		return empty, support.Conflict("authoring-network", "AUTHORING_STATE_MISSING", "saved source cannot be read", nil, err)
 	}
@@ -345,7 +350,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 		return empty, support.Unprocessable("authoring-network", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
 	if network.ProjectedFields == nil {
-		network.ProjectedFields = authoringv2.ProjectedFieldsForDocument(*document, network)
+		network.ProjectedFields = ws.ProjectedFieldsForDocument(*document, network)
 	}
 	rowIdentity := rowIdentityForNetwork(*document, network)
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
@@ -369,7 +374,7 @@ func fhirIdentifierPath(path string) bool { return rowdef.FHIRIdentifierPath(pat
 func applicableRowChoiceKinds(facts capability.RowChoiceFacts) []capability.RowChoiceKind {
 	return rowdef.ApplicableRowChoiceKinds(facts)
 }
-func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot authoringv2.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
+func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
 	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, expectedNodeID)
 }
 func capabilityRowChoiceKind(kind rowdef.RowChoiceKind) (capability.RowChoiceKind, error) {
@@ -404,26 +409,26 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDe
 	return s.syncRowDefService().ProposeRowDefinition(ctx, request)
 }
 
-func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace authoringv2.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
+func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace ws.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
 	return s.syncRowDefService().ValidateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, compilationAuth, command)
 }
 
-func validateResolvedRowChoice(route authoringv2.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
+func validateResolvedRowChoice(route ws.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
 	return rowdef.ValidateResolvedRowChoice(route, resolved, expected)
 }
 
-func proposalDocument(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+func proposalDocument(workspace ws.Workspace, outputID string) *ws.Document {
 	return proposal.ProposalDocument(workspace, outputID)
 }
 
-func documentDigest(document authoringv2.Document) (string, error) {
+func documentDigest(document ws.Document) (string, error) {
 	return proposal.DocumentDigest(document)
 }
 
-func rowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
+func rowChangeReceiptWorkspace(workspace ws.Workspace, outputID string) (ws.Workspace, error) {
 	return rowdef.RowChangeReceiptWorkspace(workspace, outputID)
 }
 
-func checkRowDefinitionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+func checkRowDefinitionProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {
 	return rowdef.CheckRowDefinitionProposalResult(workspace, receipt)
 }

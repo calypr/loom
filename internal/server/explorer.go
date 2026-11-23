@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
@@ -17,7 +19,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
@@ -146,7 +147,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 			Token:          capabilityResolver.ResolveToken,
 			ForCompilation: capabilityResolver.ResolveForCompilation,
 			ForExecution:   capabilityResolver.ResolveForExecution,
-			Catalog:        authoringv2.CatalogFromCapability,
+			Catalog:        ws.CatalogFromCapability,
 		},
 		ReceiptLookup:             receiptRuntime.ReceiptLookup,
 		ArtifactStore:             artifactStore,

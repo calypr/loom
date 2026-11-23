@@ -8,6 +8,12 @@ import (
 	"strconv"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
@@ -111,7 +117,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
 	priorFamily.ValueFallbacks = nil
 	priorFamily.FallbackOnBlankString = false
-	frame, err := authoringv2.NewFrameDefinition(
+	frame, err := ws.NewFrameDefinition(
 		"Stage values", "Stages selected from the existing primary text binding.", priorFamily, nil, capability.ConstructionChoiceValue,
 	)
 	if err != nil {
@@ -134,14 +140,14 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "explorer",
+	catalogSnapshot := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "explorer",
 		SourceGeneration: "generation-a", AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		SnapshotToken: snapshot.Token, Complete: true, Nodes: []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
-		Candidates: []authoringv2.CatalogCandidate{{
+		SnapshotToken: snapshot.Token, Complete: true, Nodes: []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		Candidates: []ws.CatalogCandidate{{
 			ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Label: primary.Label, LogicalType: primary.LogicalType,
 			Cardinality: primary.Cardinality, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &fieldChoice,
-		}}, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		}}, RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 	buildID := semantic.BuildID("project-a", "generation-a")
 	unrelated := entry
@@ -163,7 +169,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 		},
 		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" ||
@@ -195,7 +201,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	}
 
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "legacy-frame-category", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "legacy-frame-category", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: browsed.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID}}}},
 	}
@@ -208,7 +214,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	}
 	document := response.Workspace.Documents[0]
 	column := document.Columns[0]
-	if column.FrameID != frame.ID || column.Source.Kind != authoringv2.SourceCodedValue || column.Source.Lookup == nil || column.Source.Lookup.Binding == nil ||
+	if column.FrameID != frame.ID || column.Source.Kind != ws.SourceCodedValue || column.Source.Lookup == nil || column.Source.Lookup.Binding == nil ||
 		column.Source.Lookup.Binding.ValuePath != priorFamily.ValuePath || len(column.Source.Lookup.Binding.ValueFallback) != 0 || column.Source.Lookup.Binding.FallbackOnBlankString ||
 		len(document.Frames) != 1 || document.Frames[0].ID != frame.ID || !reflect.DeepEqual(document.Frames[0].Source, priorFamily) {
 		t.Fatalf("saved category changed the primary-only frame identity: frame=%#v column=%#v", document.Frames, column)
@@ -216,20 +222,20 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 }
 
 func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *testing.T) {
-	lookup := &authoringv2.LookupSource{ProjectionMode: "FIRST", Extension: &fhirbinding.ExtensionBinding{
+	lookup := &ws.LookupSource{ProjectionMode: "FIRST", Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[]", URLPath: []string{"urn:study:stage"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 	}}
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{Column: "stage", Label: "Stage", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{
-			Kind: authoringv2.SourceExtensionByURL, Lookup: lookup,
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{Column: "stage", Label: "Stage", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{
+			Kind: ws.SourceExtensionByURL, Lookup: lookup,
 		}}},
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, Documents: []authoringv2.Document{document},
-		Tabs: []authoringv2.Tab{{ID: "tab-out", Title: "Output", OutputID: "out", Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"}, Documents: []ws.Document{document},
+		Tabs: []ws.Tab{{ID: "tab-out", Title: "Output", OutputID: "out", Visible: true}},
 	}
 	beforeSource, err := json.Marshal(document.Columns[0].Source)
 	if err != nil {
@@ -239,7 +245,7 @@ func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := authoringv2.DecodeWorkspace(wire)
+	reloaded, err := ws.DecodeWorkspace(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +283,7 @@ func semanticFrameCompatibilityObservation(kind string) semantic.Observation {
 
 func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capability.SemanticFrameFamily {
 	t.Helper()
-	plan := authoringv2.ResolveSemanticSelectionPlan(entry.Observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
 		t.Fatalf("semantic compatibility fixture is not compiler-addable: %#v", plan)
 	}
@@ -292,17 +298,17 @@ func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capabi
 	}
 }
 
-func legacyFrameCompatibilityStore(t *testing.T, frame authoringv2.FrameDefinition) *fakeStore {
+func legacyFrameCompatibilityStore(t *testing.T, frame ws.FrameDefinition) *fakeStore {
 	t.Helper()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
-			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-			Rows:  authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{}, Frames: []authoringv2.FrameDefinition{frame},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+			Rows:  ws.RecordsRowDefinition(), Columns: []ws.Column{}, Frames: []ws.FrameDefinition{frame},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}},
+		Tabs: []ws.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}},
 	}
 	config, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -313,7 +319,7 @@ func legacyFrameCompatibilityStore(t *testing.T, frame authoringv2.FrameDefiniti
 		t.Fatal(err)
 	}
 	return &fakeStore{created: &explorer.Explorer{
-		Project: "project-a", ExplorerID: "explorer", Title: "Builder", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "explorer", Title: "Builder", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: config, DraftVersion: 1, DraftDigest: digest,
 	}}
 }

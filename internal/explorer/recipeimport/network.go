@@ -4,32 +4,33 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func HydrateNetwork(d authoringv2.Document, pinned recipe.Output, catalog authoringv2.CatalogSnapshot) (authoringv2.AuthoringNetwork, error) {
+func HydrateNetwork(d ws.Document, pinned recipe.Output, catalog ws.CatalogSnapshot) (ws.AuthoringNetwork, error) {
 	if d.ImportedRecipe == nil {
-		return authoringv2.NetworkForDocument(d, catalog)
+		return ws.NetworkForDocument(d, catalog)
 	}
 	if pinned.Name != d.ImportedRecipe.Output {
-		return authoringv2.AuthoringNetwork{}, fmt.Errorf("network source output does not match imported pin")
+		return ws.AuthoringNetwork{}, fmt.Errorf("network source output does not match imported pin")
 	}
 	if err := ValidateRelationshipOverlay(pinned, d.ImportedSource, catalog); err != nil {
-		return authoringv2.AuthoringNetwork{}, err
+		return ws.AuthoringNetwork{}, err
 	}
 	effective, err := ApplySourcePlan(pinned, d.ImportedSource)
 	if err != nil {
-		return authoringv2.AuthoringNetwork{}, err
+		return ws.AuthoringNetwork{}, err
 	}
 	effective = freezeOccurrences(effective)
 	route, err := ImportRoute(effective, catalog)
 	if err != nil {
-		return authoringv2.AuthoringNetwork{}, err
+		return ws.AuthoringNetwork{}, err
 	}
-	n := authoringv2.NewAuthoringNetwork(d, "IMPORTED_SOURCE")
+	n := ws.NewAuthoringNetwork(d, "IMPORTED_SOURCE")
 	n.SourceRows = ImportRows(effective)
-	stepIDs := map[string]string{authoringv2.RootOccurrenceID: ""}
+	stepIDs := map[string]string{ws.RootOccurrenceID: ""}
 	original := freezeOccurrences(pinned)
 	var index func([]recipe.Traversal, string)
 	index = func(items []recipe.Traversal, parent string) {
@@ -45,37 +46,37 @@ func HydrateNetwork(d authoringv2.Document, pinned recipe.Output, catalog author
 			stepIDs[a.OccurrenceID] = "relationships." + a.OccurrenceID
 		}
 	}
-	edges := map[string]authoringv2.CatalogEdge{}
+	edges := map[string]ws.CatalogEdge{}
 	for _, e := range catalog.Edges {
 		edges[e.ID] = e
 	}
-	var walk func(authoringv2.RouteNode, string, bool)
-	walk = func(r authoringv2.RouteNode, parent string, requiredPrefix bool) {
+	var walk func(ws.RouteNode, string, bool)
+	walk = func(r ws.RouteNode, parent string, requiredPrefix bool) {
 		e := edges[r.CatalogEdgeID]
-		n.Occurrences = append(n.Occurrences, authoringv2.NetworkOccurrence{OccurrenceID: r.OccurrenceID, ParentOccurrenceID: parent, SourceStepID: stepIDs[r.OccurrenceID], ResourceType: r.ResourceType, Label: r.ResourceType, CatalogEdgeID: r.CatalogEdgeID, Relationship: r.Relationship, StorageDirection: e.StorageDirection, MatchMode: r.MatchMode.Normalized(), Enabled: true, PreservesRowIdentity: true, CanExcludeRows: parent != "" && requiredPrefix && r.MatchMode == authoringv2.RouteMatchRequired})
+		n.Occurrences = append(n.Occurrences, ws.NetworkOccurrence{OccurrenceID: r.OccurrenceID, ParentOccurrenceID: parent, SourceStepID: stepIDs[r.OccurrenceID], ResourceType: r.ResourceType, Label: r.ResourceType, CatalogEdgeID: r.CatalogEdgeID, Relationship: r.Relationship, StorageDirection: e.StorageDirection, MatchMode: r.MatchMode.Normalized(), Enabled: true, PreservesRowIdentity: true, CanExcludeRows: parent != "" && requiredPrefix && r.MatchMode == ws.RouteMatchRequired})
 		for _, c := range r.Children {
-			walk(c, r.OccurrenceID, requiredPrefix && (parent == "" || r.MatchMode == authoringv2.RouteMatchRequired))
+			walk(c, r.OccurrenceID, requiredPrefix && (parent == "" || r.MatchMode == ws.RouteMatchRequired))
 		}
 	}
 	walk(route, "", true)
 
-	bindings := map[string]authoringv2.NetworkColumnBinding{}
+	bindings := map[string]ws.NetworkColumnBinding{}
 	var bind func([]recipe.Field, []recipe.Traversal, string)
 	bind = func(fields []recipe.Field, items []recipe.Traversal, occurrence string) {
 		for _, f := range fields {
 			if f.ColumnID != "" {
-				bindings[f.ColumnID] = authoringv2.NetworkColumnBinding{ColumnID: f.ColumnID, OccurrenceID: occurrence, SourceStepID: sourcePath(stepIDs[occurrence], "fields"), ValueMode: string(f.ValueMode.Normalized()), Status: "EXACT"}
+				bindings[f.ColumnID] = ws.NetworkColumnBinding{ColumnID: f.ColumnID, OccurrenceID: occurrence, SourceStepID: sourcePath(stepIDs[occurrence], "fields"), ValueMode: string(f.ValueMode.Normalized()), Status: "EXACT"}
 			}
 		}
 		for _, t := range items {
 			bind(t.Fields, t.Traversals, t.OccurrenceID)
 		}
 	}
-	bind(effective.Fields, effective.Traversals, authoringv2.RootOccurrenceID)
+	bind(effective.Fields, effective.Traversals, ws.RootOccurrenceID)
 	for _, c := range d.Columns {
 		b, ok := bindings[c.ColumnID]
 		if !ok {
-			b = authoringv2.NetworkColumnBinding{ColumnID: c.ColumnID, Status: "UNKNOWN"}
+			b = ws.NetworkColumnBinding{ColumnID: c.ColumnID, Status: "UNKNOWN"}
 		}
 		n.Bindings = append(n.Bindings, b)
 	}
@@ -89,7 +90,7 @@ func freezeOccurrences(output recipe.Output) recipe.Output {
 		return output
 	}
 	if clone.RootOccurrenceID == "" {
-		clone.RootOccurrenceID = authoringv2.RootOccurrenceID
+		clone.RootOccurrenceID = ws.RootOccurrenceID
 	}
 	var walk func([]recipe.Traversal, string)
 	walk = func(items []recipe.Traversal, path string) {
@@ -104,7 +105,7 @@ func freezeOccurrences(output recipe.Output) recipe.Output {
 	return clone
 }
 
-func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.ImportedSourcePlan, catalog authoringv2.CatalogSnapshot) error {
+func ValidateRelationshipOverlay(output recipe.Output, plan *ws.ImportedSourcePlan, catalog ws.CatalogSnapshot) error {
 	if plan == nil || plan.Relationships == nil {
 		return nil
 	}
@@ -116,7 +117,7 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 		return err
 	}
 	nodes := map[string]string{}
-	edges := map[string]authoringv2.CatalogEdge{}
+	edges := map[string]ws.CatalogEdge{}
 	rootNodeID := ""
 	for _, node := range catalog.Nodes {
 		nodes[node.ID] = node.ResourceType
@@ -137,8 +138,8 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 	routeEdges := map[string]string{}
 	types := map[string]string{}
 	nodeForOccurrence := map[string]string{}
-	var indexRoute func(authoringv2.RouteNode, string, string) error
-	indexRoute = func(r authoringv2.RouteNode, parent, nodeID string) error {
+	var indexRoute func(ws.RouteNode, string, string) error
+	indexRoute = func(r ws.RouteNode, parent, nodeID string) error {
 		parents[r.OccurrenceID] = parent
 		routeEdges[r.OccurrenceID] = r.CatalogEdgeID
 		types[r.OccurrenceID] = r.ResourceType
@@ -161,7 +162,7 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 	if err := indexRoute(route, "", rootNodeID); err != nil {
 		return err
 	}
-	candidates := map[string]authoringv2.CatalogCandidate{}
+	candidates := map[string]ws.CatalogCandidate{}
 	for _, c := range catalog.Candidates {
 		candidates[c.ID] = c
 	}
@@ -189,7 +190,7 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 			if !catalog.RoutePolicy.AllowRepeatedEdges && routeEdges[ancestor] == a.CatalogEdgeID {
 				return fmt.Errorf("relationship %q repeats an edge on its source path", a.OccurrenceID)
 			}
-			if ancestor != authoringv2.RootOccurrenceID {
+			if ancestor != ws.RootOccurrenceID {
 				depth++
 			}
 		}
@@ -248,7 +249,7 @@ func indexTraversalOccurrences(items []recipe.Traversal) map[string]*recipe.Trav
 	return index
 }
 
-func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.ImportedRelationshipOverlay) (recipe.Output, error) {
+func applyRelationshipOverlay(output recipe.Output, overlay *ws.ImportedRelationshipOverlay) (recipe.Output, error) {
 	if overlay == nil {
 		return output, nil
 	}
@@ -260,17 +261,17 @@ func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.Importe
 	for _, id := range overlay.Removals {
 		removed[id] = true
 	}
-	matches := map[string]authoringv2.RouteMatchMode{}
+	matches := map[string]ws.RouteMatchMode{}
 	for _, m := range overlay.MatchOverrides {
 		matches[m.OccurrenceID] = m.MatchMode
 	}
 	occurrences := indexTraversalOccurrences(output.Traversals)
 	for _, a := range overlay.Additions {
-		if occurrences[a.OccurrenceID] != nil || a.OccurrenceID == authoringv2.RootOccurrenceID {
+		if occurrences[a.OccurrenceID] != nil || a.OccurrenceID == ws.RootOccurrenceID {
 			return recipe.Output{}, fmt.Errorf("relationship addition %q collides with an existing occurrence", a.OccurrenceID)
 		}
 		parent := &output.Traversals
-		if a.ParentOccurrenceID != authoringv2.RootOccurrenceID {
+		if a.ParentOccurrenceID != ws.RootOccurrenceID {
 			traversal := occurrences[a.ParentOccurrenceID]
 			if traversal == nil || removed[a.ParentOccurrenceID] {
 				return recipe.Output{}, fmt.Errorf("relationship parent %q is unavailable", a.ParentOccurrenceID)
@@ -290,12 +291,12 @@ func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.Importe
 		occurrences = indexTraversalOccurrences(output.Traversals)
 	}
 	for id := range removed {
-		if id != authoringv2.RootOccurrenceID && occurrences[id] == nil {
+		if id != ws.RootOccurrenceID && occurrences[id] == nil {
 			return recipe.Output{}, fmt.Errorf("removed relationship %q is unavailable", id)
 		}
 	}
 	for id := range matches {
-		if id != authoringv2.RootOccurrenceID && occurrences[id] == nil {
+		if id != ws.RootOccurrenceID && occurrences[id] == nil {
 			return recipe.Output{}, fmt.Errorf("match override relationship %q is unavailable", id)
 		}
 	}

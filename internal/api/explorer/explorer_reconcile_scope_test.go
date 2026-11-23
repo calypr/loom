@@ -6,6 +6,11 @@ import (
 	"net/http"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -14,7 +19,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -22,42 +26,42 @@ import (
 
 func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{
 			{
-				Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "consumer", Title: "Consumer"},
-				RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-					ID: "combine", Inputs: []authoringv2.ConstructionInputRef{
-						{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "patients"},
-						{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "other"},
+				Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "consumer", Title: "Consumer"},
+				RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+				Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+					ID: "combine", Inputs: []ws.ConstructionInputRef{
+						{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "patients"},
+						{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "other"},
 					},
-					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-						Kind: authoringv2.ConstructionCombineAppend,
-						Projections: []authoringv2.ConstructionCombineProjection{
+					Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+						Kind: ws.ConstructionCombineAppend,
+						Projections: []ws.ConstructionCombineProjection{
 							{OutputColumnID: "combined", InputIndex: 0, InputColumnID: "old-patient-id"},
 							{OutputColumnID: "combined", InputIndex: 1, InputColumnID: "other-id"},
 						},
 					}},
-					Outputs: []authoringv2.StageColumn{{ID: "combined", Name: "combined", Label: "Combined", Type: "string", Nullable: true}},
+					Outputs: []ws.StageColumn{{ID: "combined", Name: "combined", Label: "Combined", Type: "string", Nullable: true}},
 				}}},
 			},
 			{
-				Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-				RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-				Columns: []authoringv2.Column{{ColumnID: "id", Column: "id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-					Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+				Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "patients", Title: "Patients"},
+				RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+				Columns: []ws.Column{{ColumnID: "id", Column: "id", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+					Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 			},
 			{
-				Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "other", Title: "Other"},
-				RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-				Columns: []authoringv2.Column{{ColumnID: "other-id", Column: "other_id", Label: "Other ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-					Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+				Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "other", Title: "Other"},
+				RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+				Columns: []ws.Column{{ColumnID: "other-id", Column: "other_id", Label: "Other ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+					Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 			},
 		},
-		Tabs: []authoringv2.Tab{
+		Tabs: []ws.Tab{
 			{ID: "consumer-tab", Title: "Consumer", OutputID: "consumer", Order: 0, Visible: true},
 			{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 1, Visible: true},
 			{ID: "other-tab", Title: "Other", OutputID: "other", Order: 2, Visible: true},
@@ -73,7 +77,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 	}
 	store := newTestExplorerStore()
 	if _, err := store.Create(context.Background(), explorer.Explorer{
-		Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 3, DraftDigest: digest,
 	}); err != nil {
 		t.Fatal(err)
@@ -96,15 +100,15 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -138,7 +142,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 	}
 	if _, err := lifecycleService.Preview(context.Background(), lifecycle.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: reconciled.Receipt.ID, OutputID: "patients",
-		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	}); err != nil {
@@ -167,7 +171,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 		t.Fatalf("selected output reconcile status=%d body=%s", apiResponse.StatusCode, apiResponse.Body)
 	}
 	var decoded struct {
-		Builder authoringv2.Workspace   `json:"builder"`
+		Builder ws.Workspace            `json:"builder"`
 		Outputs []loomapi.ReceiptOutput `json:"outputs"`
 	}
 	if err := json.Unmarshal([]byte(apiResponse.Body), &decoded); err != nil {

@@ -4,9 +4,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/workspace"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func cloneWorkspace(value Workspace) (Workspace, error) {
+func cloneWorkspace(value ws.Workspace) (ws.Workspace, error) {
 	return workspace.CloneWorkspace(value)
 }
 
@@ -14,23 +15,23 @@ func commandGeneratedID(prefix string, values ...any) string {
 	return workspace.CommandGeneratedID(prefix, values...)
 }
 
-func catalogNode(catalog CatalogSnapshot, id string) (CatalogNode, bool) {
+func catalogNode(catalog ws.CatalogSnapshot, id string) (ws.CatalogNode, bool) {
 	return workspace.CatalogNodeByID(catalog, id)
 }
 
-func catalogEdge(catalog CatalogSnapshot, id string) (CatalogEdge, bool) {
+func catalogEdge(catalog ws.CatalogSnapshot, id string) (ws.CatalogEdge, bool) {
 	return workspace.CatalogEdgeByID(catalog, id)
 }
 
-func routePath(route RouteNode, occurrenceID string) ([]RouteNode, bool) {
+func routePath(route ws.RouteNode, occurrenceID string) ([]ws.RouteNode, bool) {
 	return workspace.RoutePath(route, occurrenceID)
 }
 
-func catalogNodeForConstructionRoot(catalog CatalogSnapshot, resourceType string) (CatalogNode, bool) {
+func catalogNodeForConstructionRoot(catalog ws.CatalogSnapshot, resourceType string) (ws.CatalogNode, bool) {
 	return workspace.CatalogNodeForConstructionRoot(catalog, resourceType)
 }
 
-func findRoute(route *RouteNode, occurrenceID string) *RouteNode {
+func findRoute(route *ws.RouteNode, occurrenceID string) *ws.RouteNode {
 	return workspace.FindRoute(route, occurrenceID)
 }
 
@@ -38,7 +39,7 @@ func qualifySemanticPath(ownerPath, valuePath string) string {
 	return workspace.QualifySemanticPath(ownerPath, valuePath)
 }
 
-func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, fallback string) string {
+func inferredSourceLogicalType(document ws.Document, catalog ws.CatalogSnapshot, occurrenceID string, source ws.ColumnSource, fallback string) string {
 	return workspace.InferredSourceLogicalType(document, catalog, occurrenceID, source, fallback)
 }
 
@@ -46,11 +47,11 @@ func strictDecode(raw []byte, target any) error { return workspace.StrictDecode(
 
 func canonicalTransformPath(value string) string { return workspace.CanonicalTransformPath(value) }
 
-func cloneRowDefinition(rows RowDefinition) (RowDefinition, error) {
+func cloneRowDefinition(rows ws.RowDefinition) (ws.RowDefinition, error) {
 	return workspace.CloneRowDefinition(rows)
 }
 
-func cloneConstruction(construction *Construction) (*Construction, error) {
+func cloneConstruction(construction *ws.Construction) (*ws.Construction, error) {
 	return workspace.CloneConstruction(construction)
 }
 
@@ -60,27 +61,27 @@ func validFrameForm(form capability.ConstructionChoiceForm) bool {
 	return workspace.ValidFrameForm(form)
 }
 
-func supportsExplicitGroupRowValueColumn(column Column) bool {
+func supportsExplicitGroupRowValueColumn(column ws.Column) bool {
 	return workspace.SupportsExplicitGroupRowValueColumn(column)
 }
 
-func removeConstructionColumnValues(document *Document, columnID string) {
+func removeConstructionColumnValues(document *ws.Document, columnID string) {
 	workspace.RemoveConstructionColumnValues(document, columnID)
 }
 
-func removeExplicitGroupRowValue(document *Document, columnID string) {
+func removeExplicitGroupRowValue(document *ws.Document, columnID string) {
 	workspace.RemoveExplicitGroupRowValue(document, columnID)
 }
 
-func populateConstructionColumn(document *Document, column Column, policy ConstructionRowValuePolicy) error {
+func populateConstructionColumn(document *ws.Document, column ws.Column, policy ws.ConstructionRowValuePolicy) error {
 	return workspace.PopulateConstructionColumn(document, column, policy)
 }
 
-func populateExplicitGroupRowValue(document *Document, column Column, policy ConstructionRowValuePolicy) error {
+func populateExplicitGroupRowValue(document *ws.Document, column ws.Column, policy ws.ConstructionRowValuePolicy) error {
 	return workspace.PopulateExplicitGroupRowValue(document, column, policy)
 }
 
-func validateColumnValueTransformationForCatalog(document Document, catalog CatalogSnapshot, column Column, source ColumnSource, transformation columntransform.ValueTransformation) error {
+func validateColumnValueTransformationForCatalog(document ws.Document, catalog ws.CatalogSnapshot, column ws.Column, source ws.ColumnSource, transformation columntransform.ValueTransformation) error {
 	return workspace.ValidateColumnValueTransformationForCatalog(document, catalog, column, source, transformation)
 }
 
@@ -88,30 +89,30 @@ func stagedSourceColumnID(outputID, commandID string, commandIndex int, commandT
 	return workspace.StagedSourceColumnID(outputID, commandID, commandIndex, commandType, identity...)
 }
 
-func catalogNodeIDForOccurrence(route RouteNode, occurrenceID string, catalog CatalogSnapshot) (string, bool) {
+func catalogNodeIDForOccurrence(route ws.RouteNode, occurrenceID string, catalog ws.CatalogSnapshot) (string, bool) {
 	return workspace.CatalogNodeIDForOccurrence(route, occurrenceID, catalog)
 }
 
-func routePathUsesCatalogEdge(route RouteNode, occurrenceID, edgeID string, catalog CatalogSnapshot) (bool, error) {
+func routePathUsesCatalogEdge(route ws.RouteNode, occurrenceID, edgeID string, catalog ws.CatalogSnapshot) (bool, error) {
 	return workspace.RoutePathUsesCatalogEdge(route, occurrenceID, edgeID, catalog)
 }
 
-func routeSubtreeUsesCatalogEdge(route RouteNode, nodeID, edgeID string, catalog CatalogSnapshot) (bool, error) {
+func routeSubtreeUsesCatalogEdge(route ws.RouteNode, nodeID, edgeID string, catalog ws.CatalogSnapshot) (bool, error) {
 	return workspace.RouteSubtreeUsesCatalogEdge(route, nodeID, edgeID, catalog)
 }
 
-func resolveCatalogRouteEdge(catalog CatalogSnapshot, parentNodeID string, parent, child RouteNode) (CatalogEdge, error) {
+func resolveCatalogRouteEdge(catalog ws.CatalogSnapshot, parentNodeID string, parent, child ws.RouteNode) (ws.CatalogEdge, error) {
 	return workspace.ResolveCatalogRouteEdge(catalog, parentNodeID, parent, child)
 }
 
-func validateEditableSource(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource) error {
+func validateEditableSource(document ws.Document, catalog ws.CatalogSnapshot, occurrenceID string, source ws.ColumnSource) error {
 	return workspace.ValidateEditableSource(document, catalog, occurrenceID, source)
 }
 
-func validateEditableSourcePolicy(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, allowImportedRecipe bool) error {
+func validateEditableSourcePolicy(document ws.Document, catalog ws.CatalogSnapshot, occurrenceID string, source ws.ColumnSource, allowImportedRecipe bool) error {
 	return workspace.ValidateEditableSourcePolicy(document, catalog, occurrenceID, source, allowImportedRecipe)
 }
 
-func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, predicate ContributorPredicate) error {
+func ValidateContributorForCatalog(document ws.Document, catalog ws.CatalogSnapshot, occurrenceID string, source ws.ColumnSource, predicate ws.ContributorPredicate) error {
 	return workspace.ValidateContributorForCatalog(document, catalog, occurrenceID, source, predicate)
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 
@@ -50,17 +52,17 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, []capability.Edge{{ID: "subject", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"}}, []capability.Candidate{{ID: "patient-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}, nil)
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), map[string][]recipe.StageColumn{"Specimen": {{ID: "specimen-id", Name: "id", Label: "ID", Type: "string"}}})
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), map[string][]recipe.StageColumn{"Specimen": {{ID: "specimen-id", Name: "id", Label: "ID", Type: "string"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	original := workspace.Documents[0]
 	before, _ := json.Marshal(original)
-	added, err := resolver.EditRelationship(ctx, "project-a", authorized, original, authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "subject", MatchMode: authoringv2.RouteMatchOptional})
+	added, err := resolver.EditRelationship(ctx, "project-a", authorized, original, authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: ws.RootOccurrenceID, EdgeID: "subject", MatchMode: ws.RouteMatchOptional})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *added.ImportedRecipe != *original.ImportedRecipe || len(added.Route.Children) != 1 || added.Rows.Kind != authoringv2.RowDefinitionRecords {
+	if *added.ImportedRecipe != *original.ImportedRecipe || len(added.Route.Children) != 1 || added.Rows.Kind != ws.RowDefinitionRecords {
 		t.Fatal("add changed pin or row identity")
 	}
 	relation := added.ImportedSource.Relationships.Additions[0]
@@ -69,10 +71,10 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	}
 	t.Run("identifier rule on Graph Connect occurrence", func(t *testing.T) {
 		key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
-		params := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+		params := &ws.ImportedSourceParameters{Dynamic: &ws.ImportedDynamicParameters{
 			Name: "patient_identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value,
 		}}
-		created, err := resolver.CreateSourceRule(ctx, "project-a", authorized, added, authoringv2.SourceRuleCreate{
+		created, err := resolver.CreateSourceRule(ctx, "project-a", authorized, added, ws.SourceRuleCreate{
 			Kind: "DYNAMIC_COLUMN", OccurrenceID: relation.OccurrenceID, Parameters: params,
 		})
 		if err != nil {
@@ -124,7 +126,7 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 			t.Fatal("renaming the generated column changed its ID")
 		}
 		_, err = resolver.EditRelationship(ctx, "project-a", authorized, created, authoringv2.ImportedRelationshipChange{Action: "REMOVE", OccurrenceID: relation.OccurrenceID})
-		var unavailable *authoringv2.UnavailableSourceRuleOccurrence
+		var unavailable *ws.UnavailableSourceRuleOccurrence
 		if !errors.As(err, &unavailable) || unavailable.OccurrenceID != relation.OccurrenceID {
 			t.Fatalf("removed rule occurrence error = %v", err)
 		}
@@ -134,15 +136,15 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := authoringv2.DecodeWorkspace(raw)
+	reloaded, err := ws.DecodeWorkspace(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	required, err := resolver.EditRelationship(ctx, "project-a", authorized, reloaded.Documents[0], authoringv2.ImportedRelationshipChange{Action: "MATCH", OccurrenceID: relation.OccurrenceID, MatchMode: authoringv2.RouteMatchRequired})
+	required, err := resolver.EditRelationship(ctx, "project-a", authorized, reloaded.Documents[0], authoringv2.ImportedRelationshipChange{Action: "MATCH", OccurrenceID: relation.OccurrenceID, MatchMode: ws.RouteMatchRequired})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if required.Route.Children[0].OccurrenceID != relation.OccurrenceID || required.Route.Children[0].MatchMode != authoringv2.RouteMatchRequired {
+	if required.Route.Children[0].OccurrenceID != relation.OccurrenceID || required.Route.Children[0].MatchMode != ws.RouteMatchRequired {
 		t.Fatal("match edit retargeted occurrence")
 	}
 	effective, err := recipeimport.ApplySourcePlan(output, required.ImportedSource)
@@ -166,7 +168,7 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	if actual, _ := registry.entry.Bundle.Digest(); actual != digest {
 		t.Fatal("shared immutable recipe changed")
 	}
-	for _, change := range []authoringv2.ImportedRelationshipChange{{Action: "ADD", ParentOccurrenceID: "missing", EdgeID: "subject", MatchMode: authoringv2.RouteMatchOptional}, {Action: "ADD", ParentOccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "unauthorized", MatchMode: authoringv2.RouteMatchOptional}, {Action: "MATCH", OccurrenceID: authoringv2.RootOccurrenceID, MatchMode: authoringv2.RouteMatchRequired}} {
+	for _, change := range []authoringv2.ImportedRelationshipChange{{Action: "ADD", ParentOccurrenceID: "missing", EdgeID: "subject", MatchMode: ws.RouteMatchOptional}, {Action: "ADD", ParentOccurrenceID: ws.RootOccurrenceID, EdgeID: "unauthorized", MatchMode: ws.RouteMatchOptional}, {Action: "MATCH", OccurrenceID: ws.RootOccurrenceID, MatchMode: ws.RouteMatchRequired}} {
 		if _, err := resolver.EditRelationship(ctx, "project-a", authorized, original, change); err == nil {
 			t.Fatalf("accepted unauthorized edit: %#v", change)
 		}

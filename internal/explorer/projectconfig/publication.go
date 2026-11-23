@@ -3,6 +3,9 @@ package projectconfig
 import (
 	"fmt"
 
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -11,7 +14,7 @@ func ProjectConfigsForSourcePublication(
 	recipeName string,
 	catalogAnchored bool,
 	snapshot explorer.Revision,
-) ([]explorer.ProjectConfig, map[string]string, error) {
+) ([]explorerconfig.ProjectConfig, map[string]string, error) {
 	if recipeName == "" || snapshot.Recipe.Name != recipeName {
 		return nil, nil, fmt.Errorf("catalog snapshot recipe %q does not match configured recipe %q", snapshot.Recipe.Name, recipeName)
 	}
@@ -19,7 +22,7 @@ func ProjectConfigsForSourcePublication(
 		return nil, nil, fmt.Errorf("catalog snapshot for recipe %q has no project identity", recipeName)
 	}
 
-	definitions := make([]explorer.ProjectConfig, 0)
+	definitions := make([]explorerconfig.ProjectConfig, 0)
 	expectedRevisionIDs := make(map[string]string)
 	ownersByID := make(map[string]explorer.Explorer, len(owners))
 	for _, owner := range owners {
@@ -36,7 +39,7 @@ func ProjectConfigsForSourcePublication(
 		if owner.ProjectConfig == nil || owner.ProjectConfig.RecipeRef.Name != recipeName {
 			continue
 		}
-		if owner.ManagementMode != explorer.ManagementRepository || owner.ProjectConfig.ID != owner.ExplorerID {
+		if owner.ManagementMode != viewer.ManagementRepository || owner.ProjectConfig.ID != owner.ExplorerID {
 			return nil, nil, fmt.Errorf("project config owner %q has inconsistent identity or management mode", owner.ExplorerID)
 		}
 		if owner.ActiveRevisionID == "" {

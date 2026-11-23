@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -144,9 +148,9 @@ func (s *populationProposalTestStore) CleanupSelectionStaging(context.Context, t
 }
 
 func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
-	ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest,
-	actor string, prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error),
-	checker func(authoringv2.Workspace) error,
+	ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest,
+	actor string, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.Command, error),
+	checker func(ws.Workspace) error,
 ) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
@@ -158,7 +162,7 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return nil, explorer.ErrDraftConflict
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -199,16 +203,16 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: updated, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, Results: results, Diagnostics: []any{}}, nil
 }
 
-func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposalTestStore, capability.Snapshot, authoringv2.Workspace) {
+func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposalTestStore, capability.Snapshot, ws.Workspace) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	scopeBase := readySnapshot("project-a", "generation-a", "snapshot-base", scope)
 	snapshot := capability.NewSnapshot(scopeBase.Identity, capability.Policy{Route: capability.RoutePolicy{Version: "route-v1", MaxHops: 8}}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
 	workspace := lifecycleCandidatePreviewWorkspace()
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
-	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
-	workspace.Documents[0].Population = &authoringv2.Population{SelectionRevisionID: "selection-base", Route: []authoringv2.PopulationRouteStep{}}
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
+	workspace.Documents[0].Rows = ws.RecordsRowDefinition()
+	workspace.Documents[0].Population = &ws.Population{SelectionRevisionID: "selection-base", Route: []ws.PopulationRouteStep{}}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +246,7 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 	config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
 	config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorerselection.ResourceRef) error {
@@ -253,7 +257,7 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 		}
 		return nil
 	}
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		receipt.IntentDigest, err = request.Workspace.Digest()
 		if err != nil {
@@ -267,18 +271,18 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 			binding := *request.PopulationMemberRemovalProposal
 			receipt.PopulationMemberRemovalProposal = &binding
 		}
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
 		store.fakeStore.receipt = receipt
 		return receipt, nil
 	}
-	config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || receipt.PopulationMemberRemovalProposal == nil {
 			return dataframeexecution.PreviewSummary{}, errors.New("candidate proposal receipt was not used for preview")
 		}
@@ -327,7 +331,7 @@ func TestPopulationMemberRemovalProposalCreatesExactRevisionAndAppliesOnlyPopula
 	}
 
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-population-removal", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-population-removal", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
@@ -380,14 +384,14 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		t.Fatalf("route proof compiler scope = %#v, want exact authorized scope %#v", compilerScope, scope)
 	}
 	var previewBindings recipe.RuntimeBindings
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || receipt.PopulationMemberRemovalProposal == nil {
 			return dataframeexecution.PreviewSummary{}, errors.New("preview did not receive the population removal receipt")
 		}
 		previewBindings = bindings
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		intentDigest, err := request.Workspace.Digest()
 		if err != nil {
@@ -402,28 +406,28 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 			binding := *request.PopulationMemberRemovalProposal
 			receipt.PopulationMemberRemovalProposal = &binding
 		}
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
 		store.fakeStore.receipt = receipt
 		return receipt, nil
 	}
-	service.config.Capability.Catalog = func(_ capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-		return authoringv2.CatalogSnapshot{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: explorerID,
+	service.config.Capability.Catalog = func(_ capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+		return ws.CatalogSnapshot{
+			APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: explorerID,
 			SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-			SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-			Nodes: []authoringv2.CatalogNode{
+			SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+			Nodes: []ws.CatalogNode{
 				{ID: "specimen-node", ResourceType: "Specimen", RowRootEligible: true},
 				{ID: "patient-node", ResourceType: "Patient"},
 				{ID: "observation-node", ResourceType: "Observation"},
 			},
-			Edges: []authoringv2.CatalogEdge{
+			Edges: []ws.CatalogEdge{
 				{ID: "specimen-patient", FromNodeID: "specimen-node", ToNodeID: "patient-node", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
 				{ID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", Label: "subject_Patient", StorageDirection: "INBOUND"},
 			},
@@ -450,13 +454,13 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		MemberCount: int64(len(members)), MemberBytes: 100, Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
 	store.fakeStore.selection, store.fakeStore.selectionMembers = &baseHeader, members
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace.Documents[0].RootResourceType = "Specimen"
 	workspace.Documents[0].Route.ResourceType = "Specimen"
-	workspace.Documents[0].Population = &authoringv2.Population{SelectionRevisionID: "selection-base"}
+	workspace.Documents[0].Population = &ws.Population{SelectionRevisionID: "selection-base"}
 	store.created.DraftConfig, err = workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -472,9 +476,9 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	if err != nil || !baseRoutes.Complete || len(baseRoutes.Choices) != 1 || len(baseRoutes.Choices[0].Route) != 2 {
 		t.Fatalf("base Specimen → Patient → Observation route = %#v, %v", baseRoutes, err)
 	}
-	baseRoute := make([]authoringv2.PopulationRouteStep, 0, 2)
+	baseRoute := make([]ws.PopulationRouteStep, 0, 2)
 	for _, hop := range baseRoutes.Choices[0].Route {
-		baseRoute = append(baseRoute, authoringv2.PopulationRouteStep{
+		baseRoute = append(baseRoute, ws.PopulationRouteStep{
 			ResourceType: hop.ToResourceType, Relationship: hop.Relationship,
 			CatalogEdgeID: hop.EdgeID, StorageDirection: hop.StorageDirection,
 		})
@@ -511,7 +515,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 			t.Fatalf("candidate route hop %d = %#v, want %#v", index, got, want)
 		}
 	}
-	currentWorkspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	currentWorkspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +526,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	}
 
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-routed-population-removal", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-routed-population-removal", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
@@ -598,12 +602,12 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 		if err != nil {
 			t.Fatal(err)
 		}
-		service.config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			return dataframeexecution.PreviewSummary{}, errors.New("candidate preview rejected")
 		}
 		beforeDigest, beforeVersion, saveCalls := store.created.DraftDigest, store.created.DraftVersion, store.fakeStore.saveDraftCalls
 		request := authoringv2.ApplyCommandsRequest{
-			CommandID: "apply-preview-fail", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+			CommandID: "apply-preview-fail", SemanticsVersion: ws.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest,
 			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 		}
@@ -622,7 +626,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 			t.Fatal(err)
 		}
 		request := authoringv2.ApplyCommandsRequest{
-			CommandID: "apply-population-once", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+			CommandID: "apply-population-once", SemanticsVersion: ws.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 		}
@@ -651,17 +655,17 @@ func TestPopulationMemberRemovalProposalRejectsRouteSubstitution(t *testing.T) {
 	binding := *forged.PopulationMemberRemovalProposal
 	binding.RouteChoiceID = "route-substituted"
 	forged.PopulationMemberRemovalProposal = &binding
-	forged.CompilationKey, err = explorer.CompilationKey(forged)
+	forged.CompilationKey, err = receiptmodel.CompilationKey(forged)
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged.ID, err = explorer.ReceiptID(forged)
+	forged.ID, err = receiptmodel.ReceiptID(forged)
 	if err != nil {
 		t.Fatal(err)
 	}
 	store.fakeStore.receipt = &forged
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-route-substitution", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-route-substitution", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: forged.ID}}},
 	}

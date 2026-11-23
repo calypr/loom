@@ -8,6 +8,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -15,7 +20,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestConstructionInputsCatalogDoesNotReadUnauthorizedRevisionMetadata(t *testing.T) {
@@ -100,23 +104,23 @@ func TestConstructionInputsCatalogDoesNotReadUnauthorizedRevisionMetadata(t *tes
 
 func constructionInputsImmutablePresentationRevision(t *testing.T, execution publication.BundleExecution, tableTitle, outputTitle, columnLabel string, status explorer.RevisionStatus) *explorer.Revision {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace.Explorer.Title = tableTitle
 	document := workspace.Documents[0]
-	document.Output = authoringv2.Output{ID: execution.Outputs[0].Name, Title: outputTitle}
+	document.Output = ws.Output{ID: execution.Outputs[0].Name, Title: outputTitle}
 	document.RootResourceType = "Observation"
 	document.Route.ResourceType = "Observation"
-	workspace.Documents = []authoringv2.Document{document}
+	workspace.Documents = []ws.Document{document}
 	workspaceJSON, err := json.Marshal(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	contracts, err := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{{
+	contracts, err := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{{
 		OutputID: execution.Outputs[0].Name, RootResourceType: "Observation", RowGrain: "resource",
-		Columns: []explorer.PublicOutputColumn{{Column: "value", Label: columnLabel, LogicalType: "decimal"}},
+		Columns: []receiptmodel.PublicOutputColumn{{Column: "value", Label: columnLabel, LogicalType: "decimal"}},
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -125,9 +129,9 @@ func constructionInputsImmutablePresentationRevision(t *testing.T, execution pub
 		ID: "authoring_" + strings.TrimPrefix(execution.ReceiptID, "receipt_"), Project: execution.Project,
 		CompilationReceiptID: execution.ReceiptID, PublicOutputContract: contracts, AuthoringBundle: workspaceJSON,
 		Recipe:           recipe.Bundle{Outputs: []recipe.Output{{Name: execution.Outputs[0].Name, RootResourceType: "Observation", RowGrain: "resource"}}},
-		EmittedColumns:   []explorer.EmittedColumn{{OutputID: execution.Outputs[0].Name, PublicColumn: "value", Label: columnLabel, LogicalType: "decimal"}},
+		EmittedColumns:   []viewer.EmittedColumn{{OutputID: execution.Outputs[0].Name, PublicColumn: "value", Label: columnLabel, LogicalType: "decimal"}},
 		SourceGeneration: execution.DatasetGeneration,
-		Publication:      explorer.PublicationMetadata{State: string(explorer.RevisionActive), Generation: execution.DatasetGeneration, ExecutionID: execution.ID},
+		Publication:      viewer.PublicationMetadata{State: string(explorer.RevisionActive), Generation: execution.DatasetGeneration, ExecutionID: execution.ID},
 		Status:           status,
 	}
 }

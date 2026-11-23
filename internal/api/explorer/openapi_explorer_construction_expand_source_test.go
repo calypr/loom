@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -18,7 +22,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -78,7 +81,7 @@ func expandSourceHTTPProcedureSnapshot() capability.Snapshot {
 
 func expandSourceHTTPProcedureWorkspace() []byte {
 	visible, order := true, 0
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Procedures"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "procedures", Title: "Procedures", RowLabel: "Procedures"}, RootResourceType: "Procedure", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Procedure"}, Columns: []authoringv2.Column{{Column: "procedure_id", Label: "Procedure ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}}}}}, Tabs: []authoringv2.Tab{{ID: "procedures-tab", Title: "Procedures", OutputID: "procedures", Order: 0, Visible: true}}}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Procedures"}, Documents: []ws.Document{{Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "procedures", Title: "Procedures", RowLabel: "Procedures"}, RootResourceType: "Procedure", Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Procedure"}, Columns: []ws.Column{{Column: "procedure_id", Label: "Procedure ID", LogicalType: "string", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible, Order: &order}}}}}, Tabs: []ws.Tab{{ID: "procedures-tab", Title: "Procedures", OutputID: "procedures", Order: 0, Visible: true}}}
 	raw, _ := json.Marshal(workspace)
 	return raw
 }
@@ -165,24 +168,24 @@ func expandSourceHTTPAssertSigned(t *testing.T, expandRaw json.RawMessage, signe
 
 func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *testing.T) {
 	snapshot := expandSourceHTTPProcedureSnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(expandSourceHTTPProcedureWorkspace())
+	workspace, err := ws.DecodeWorkspace(expandSourceHTTPProcedureWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate staged expand-source workspace: %v", err)
 	}
@@ -229,17 +232,17 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "procedures" {
 				t.Fatalf("unexpected expand-source candidate preview receipt/bindings: %#v / %#v", receipt, bindings)
 			}
@@ -317,20 +320,20 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 	}
 	choiceID := *choice.ChoiceID
 
-	candidateConstruction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	candidateConstruction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 		ID:     expandSourceHTTPStep,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind: authoringv2.ConstructionOperationExpand,
-			Expand: &authoringv2.ConstructionExpand{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind: ws.ConstructionOperationExpand,
+			Expand: &ws.ConstructionExpand{
 				ConstructionID: expandSourceHTTPStep, InputColumnID: expandSourceHTTPInput, OutputColumnID: expandSourceHTTPItem,
-				EmptyPolicy: authoringv2.ConstructionExpandEmptyExclude,
-				ExpandedField: &authoringv2.ConstructionExpandedFieldSource{
+				EmptyPolicy: ws.ConstructionExpandEmptyExclude,
+				ExpandedField: &ws.ConstructionExpandedFieldSource{
 					Path: "status", Cardinality: "many", FHIRType: "string", LogicalType: "code",
 				},
 			},
 		},
-		Outputs: append(append([]authoringv2.StageColumn(nil), columns...), authoringv2.StageColumn{
+		Outputs: append(append([]ws.StageColumn(nil), columns...), ws.StageColumn{
 			ID: expandSourceHTTPItem, Name: "expand_uri_item", Label: "Uri item", Type: "string",
 		}),
 	}}}
@@ -414,7 +417,7 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"expand-source-apply","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"procedures","proposalId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, digest, proposal.ProposalID,
+		ws.CurrentSemanticsVersion, snapshot.Token, digest, proposal.ProposalID,
 	))
 	if applyHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("apply expand-source proposal status=%d body=%s", applyHTTP.StatusCode, applyHTTP.Body)

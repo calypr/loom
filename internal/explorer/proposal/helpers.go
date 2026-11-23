@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func ProposalDocument(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+func ProposalDocument(workspace ws.Workspace, outputID string) *ws.Document {
 	for index := range workspace.Documents {
 		if workspace.Documents[index].Output.ID == outputID {
 			return &workspace.Documents[index]
@@ -18,7 +18,7 @@ func ProposalDocument(workspace authoringv2.Workspace, outputID string) *authori
 	return nil
 }
 
-func DocumentDigest(document authoringv2.Document) (string, error) {
+func DocumentDigest(document ws.Document) (string, error) {
 	raw, err := json.Marshal(document)
 	if err != nil {
 		return "", fmt.Errorf("encode authoring document digest: %w", err)
@@ -27,15 +27,15 @@ func DocumentDigest(document authoringv2.Document) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func RowIdentityForNetwork(document authoringv2.Document, network authoringv2.AuthoringNetwork) authoringv2.RowIdentityPlan {
+func RowIdentityForNetwork(document ws.Document, network ws.AuthoringNetwork) ws.RowIdentityPlan {
 	effective := document
 	effective.Rows = network.SourceRows
-	var route func(string) authoringv2.RouteNode
-	route = func(id string) authoringv2.RouteNode {
-		var result authoringv2.RouteNode
+	var route func(string) ws.RouteNode
+	route = func(id string) ws.RouteNode {
+		var result ws.RouteNode
 		for _, occurrence := range network.Occurrences {
 			if occurrence.OccurrenceID == id {
-				result = authoringv2.RouteNode{OccurrenceID: id, ResourceType: occurrence.ResourceType, CatalogEdgeID: occurrence.CatalogEdgeID, Relationship: occurrence.Relationship, MatchMode: occurrence.MatchMode}
+				result = ws.RouteNode{OccurrenceID: id, ResourceType: occurrence.ResourceType, CatalogEdgeID: occurrence.CatalogEdgeID, Relationship: occurrence.Relationship, MatchMode: occurrence.MatchMode}
 				break
 			}
 		}
@@ -46,6 +46,6 @@ func RowIdentityForNetwork(document authoringv2.Document, network authoringv2.Au
 		}
 		return result
 	}
-	effective.Route = route(authoringv2.RootOccurrenceID)
-	return authoringv2.DescribeRowIdentity(effective)
+	effective.Route = route(ws.RootOccurrenceID)
+	return ws.DescribeRowIdentity(effective)
 }

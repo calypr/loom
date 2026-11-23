@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -17,8 +21,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 
@@ -45,7 +47,7 @@ type importedRecipeResolution struct {
 	pinnedSchemas map[string][]facade.CompiledOutputColumn
 }
 
-func (r Sources) load(ctx context.Context, project, name, version, digest string, authorized ports.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
+func (r Sources) load(ctx context.Context, project, name, version, digest string, authorized ports.AuthorizedCapability, documents ...ws.Document) (importedRecipeResolution, error) {
 	if r.registry == nil || r.engine == nil || name == "" || name != r.defaultName {
 		return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
@@ -128,7 +130,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 						return importedRecipeResolution{}, err
 					}
 				}
-				if err := recipeimport.ValidateRelationshipOverlay(effective.Outputs[i], document.ImportedSource, authoringv2.CatalogFromCapability(authorized.Snapshot, "")); err != nil {
+				if err := recipeimport.ValidateRelationshipOverlay(effective.Outputs[i], document.ImportedSource, ws.CatalogFromCapability(authorized.Snapshot, "")); err != nil {
 					return importedRecipeResolution{}, err
 				}
 				output, applyErr := recipeimport.ApplySourcePlan(effective.Outputs[i], document.ImportedSource)
@@ -173,7 +175,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 				if !ok || native == nil {
 					return importedRecipeResolution{}, fmt.Errorf("source projection identity proof is unavailable")
 				}
-				if err := preserveImportedGeneratedIDs(document, original, &plan, baseline, pinnedNative[output.Name], output, *native, authoringv2.CatalogFromCapability(authorized.Snapshot, "")); err != nil {
+				if err := preserveImportedGeneratedIDs(document, original, &plan, baseline, pinnedNative[output.Name], output, *native, ws.CatalogFromCapability(authorized.Snapshot, "")); err != nil {
 					return importedRecipeResolution{}, err
 				}
 			}
@@ -182,23 +184,23 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 	return importedRecipeResolution{bundle: bundle, resolved: resolved, digest: actual, pinnedSchemas: pinnedSchemas}, nil
 }
 
-func (r Sources) DefaultWorkspace(ctx context.Context, project string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
+func (r Sources) DefaultWorkspace(ctx context.Context, project string, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (ws.Workspace, error) {
 	if r.capabilities == nil {
-		return authoringv2.Workspace{}, fmt.Errorf("dataframe capability resolver is unavailable")
+		return ws.Workspace{}, fmt.Errorf("dataframe capability resolver is unavailable")
 	}
 	authorized, err := r.capabilities.ResolveForCompilation(ctx, project, snapshot.Token)
 	if err != nil {
-		return authoringv2.Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	source, err := r.load(ctx, project, r.defaultName, r.defaultVersion, "", authorized)
 	if err != nil {
-		return authoringv2.Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	schemas := make(map[string][]recipe.StageColumn, len(source.resolved.Compiled.Outputs))
 	for _, output := range source.resolved.Compiled.Outputs {
 		columns, err := importedSourceSchema(output.OutputSchema)
 		if err != nil {
-			return authoringv2.Workspace{}, err
+			return ws.Workspace{}, err
 		}
 		for _, column := range columns {
 			schemas[output.Name] = append(schemas[output.Name], column.Column)
@@ -206,14 +208,14 @@ func (r Sources) DefaultWorkspace(ctx context.Context, project string, snapshot 
 	}
 	workspace, err := recipeimport.ImportWorkspace(source.bundle, catalog, schemas)
 	if err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("import configured dataframe into the graphical builder: %w", err)
+		return ws.Workspace{}, fmt.Errorf("import configured dataframe into the graphical builder: %w", err)
 	}
 	workspace.Explorer.Title = "Default dataframe"
 	workspace.Explorer.Description = "Based on the shared default recipe. Edits are saved for this project."
 	return workspace, nil
 }
 
-func (r Sources) Resolve(ctx context.Context, project string, workspace authoringv2.Workspace, authorized ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error) {
+func (r Sources) Resolve(ctx context.Context, project string, workspace ws.Workspace, authorized ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error) {
 	var result []explorercompilation.ResolvedImportedRecipe
 	cache := map[string]importedRecipeResolution{}
 	for _, document := range workspace.Documents {
@@ -228,7 +230,7 @@ func (r Sources) Resolve(ctx context.Context, project string, workspace authorin
 		source, ok := cache[key]
 		if !ok {
 			var err error
-			var documents []authoringv2.Document
+			var documents []ws.Document
 			for _, candidate := range workspace.Documents {
 				pin := candidate.ImportedRecipe
 				if pin != nil && pin.Name == ref.Name && pin.TranslationVersion == ref.TranslationVersion && pin.Digest == ref.Digest {
@@ -287,17 +289,17 @@ func importedSourceSchema(columns []facade.CompiledOutputColumn) ([]explorercomp
 	return result, nil
 }
 
-func (r Sources) SourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+func (r Sources) SourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 	if request.Document.ImportedRecipe == nil {
-		return explorer.ReceiptConstructionStage{}, fmt.Errorf("an imported recipe reference is required")
+		return receiptmodel.ReceiptConstructionStage{}, fmt.Errorf("an imported recipe reference is required")
 	}
 	ref := request.Document.ImportedRecipe
 	if err := ref.Validate(); err != nil {
-		return explorer.ReceiptConstructionStage{}, err
+		return receiptmodel.ReceiptConstructionStage{}, err
 	}
 	source, err := r.load(ctx, request.Project, ref.Name, ref.TranslationVersion, ref.Digest, request.Authorized, request.Document)
 	if err != nil {
-		return explorer.ReceiptConstructionStage{}, err
+		return receiptmodel.ReceiptConstructionStage{}, err
 	}
 	for _, output := range source.resolved.Compiled.Outputs {
 		if output.Name != ref.Output {
@@ -305,11 +307,11 @@ func (r Sources) SourceStage(ctx context.Context, request ports.ConstructionSour
 		}
 		descriptor, err := facade.DescribeConstructionSourceStage(output.OutputSchema, request.Document.RootResourceType, &output.Plan)
 		if err != nil {
-			return explorer.ReceiptConstructionStage{}, err
+			return receiptmodel.ReceiptConstructionStage{}, err
 		}
 		return explorercompilation.ReceiptConstructionStageFromDescriptor(descriptor)
 	}
-	return explorer.ReceiptConstructionStage{}, fmt.Errorf("the pinned source has no dataframe %q", ref.Output)
+	return receiptmodel.ReceiptConstructionStage{}, fmt.Errorf("the pinned source has no dataframe %q", ref.Output)
 }
 
 func bindImportedSourceIDs(output string, schema []facade.CompiledOutputColumn) []facade.CompiledOutputColumn {

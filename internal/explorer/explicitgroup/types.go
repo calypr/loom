@@ -4,8 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -26,12 +28,12 @@ type ExplicitGroupRevisionListRequest struct {
 }
 
 type ExplicitGroupRevisionChoice struct {
-	RevisionID                string                               `json:"revisionId"`
-	SourceSelectionRevisionID string                               `json:"sourceSelectionRevisionId,omitempty"`
-	GroupCount                int64                                `json:"groupCount"`
-	MemberCount               int64                                `json:"memberCount"`
-	CreatedAt                 time.Time                            `json:"createdAt"`
-	UnassignedMemberPolicies  []authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
+	RevisionID                string                      `json:"revisionId"`
+	SourceSelectionRevisionID string                      `json:"sourceSelectionRevisionId,omitempty"`
+	GroupCount                int64                       `json:"groupCount"`
+	MemberCount               int64                       `json:"memberCount"`
+	CreatedAt                 time.Time                   `json:"createdAt"`
+	UnassignedMemberPolicies  []ws.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
 }
 
 type ExplicitGroupRevisionProof struct {
@@ -50,5 +52,5 @@ type ExplicitGroupRevisionProof struct {
 type ExplicitGroupRevisionResolver interface {
 	ListExplicitGroupRevisions(context.Context, ExplicitGroupRevisionListRequest) ([]ExplicitGroupRevisionChoice, error)
 	ResolveExplicitGroupRevision(context.Context, ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error)
-	ValidateCompilationReceipt(context.Context, ExplicitGroupRevisionProof, *explorer.CompilationReceipt) error
+	ValidateCompilationReceipt(context.Context, ExplicitGroupRevisionProof, *receiptmodel.CompilationReceipt) error
 }

@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -19,7 +23,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -91,32 +94,32 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := workspace.Documents[0]
 	document.RootResourceType = "Observation"
-	document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}
-	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
-		OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[].code.coding[]",
-		EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+	document.Route = ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{
+		OccurrenceID: ws.RootOccurrenceID, ScopePath: "component[].code.coding[]",
+		EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent,
 	}}
-	document.Columns = []authoringv2.Column{}
-	document.Output = authoringv2.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
-	document, err = authoringv2.StartDocumentConstruction(document)
+	document.Columns = []ws.Column{}
+	document.Output = ws.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
+	document, err = ws.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace.Documents[0] = document
 	workspace.Tabs[0].OutputID = "observations"
 	workspace.Tabs[0].Title = "Observations"
-	catalogSnapshot := authoringv2.CatalogFromCapability(snapshot, "observation-explorer")
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
+	catalogSnapshot := ws.CatalogFromCapability(snapshot, "observation-explorer")
+	workspace, err = ws.MigrateLegacyContributors(workspace, catalogSnapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalogSnapshot).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, catalogSnapshot).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate group field source workspace: %v", err)
 	}
@@ -154,16 +157,16 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
 		RowChoicePlanner: rowChoices,
-		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "observations" {
 				previewContractErr = fmt.Errorf("Group field source proposal did not reach compiled preview: receipt=%#v bindings=%#v", receipt, bindings)
 				return dataframeexecution.PreviewSummary{}, previewContractErr
@@ -215,20 +218,20 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	}
 
 	stepID := "group_current_coding"
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: stepID, Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: stepID, MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys: []authoringv2.ConstructionGroupKey{{
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: stepID, Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: stepID, MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys: []ws.ConstructionGroupKey{{
 				OutputColumnID: "status_group",
-				FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: scalarChoiceID},
+				FieldSource:    &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: scalarChoiceID},
 			}, {
 				OutputColumnID: "coding_identity",
-				FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: codingChoiceID},
+				FieldSource:    &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: codingChoiceID},
 			}},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "status_group", Name: "status_group", Label: "Status", Type: "string"},
 			{ID: "coding_identity", Name: "coding_identity", Label: "Coding", Type: "string"},
 			{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
@@ -256,7 +259,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	if proposal.ProposalID == nil || proposal.PreviewStatus != "READY" || previewContractErr != nil {
 		t.Fatalf("group field source proposal did not complete preview: response=%#v err=%v", proposal, previewContractErr)
 	}
-	var resolved authoringv2.Construction
+	var resolved ws.Construction
 	if err := json.Unmarshal(proposal.CandidateConstruction, &resolved); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +278,7 @@ func (f *groupFieldSourceProposalFixture) apply(t *testing.T, commandID string) 
 	t.Helper()
 	return requestJSON(t, f.app, http.MethodPost, f.basePath+"/commands", fmt.Sprintf(
 		`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"observations","proposalId":%q}]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, f.snapshot.Token, f.digest, f.proposal,
+		commandID, ws.CurrentSemanticsVersion, f.snapshot.Token, f.digest, f.proposal,
 	))
 }
 

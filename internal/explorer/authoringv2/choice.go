@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command, source ColumnSource, logicalType, presentation string) (CommandResult, error) {
+func applyColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, source ws.ColumnSource, logicalType, presentation string) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	documentPos := documentIndex(workspace, command.OutputID)
 	if documentPos < 0 {
@@ -17,7 +19,7 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	if err := validateResolvedConstructionChoiceSource(workspace.Documents[documentPos], catalog, command, source); err != nil {
 		return result, err
 	}
-	var contributor *ContributorPredicate
+	var contributor *ws.ContributorPredicate
 	if command.Contributor() != nil {
 		normalized := command.Contributor().Normalized()
 		if err := ValidateContributorForCatalog(workspace.Documents[documentPos], catalog, command.OccurrenceID(), source, normalized); err != nil {
@@ -45,17 +47,17 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	if strings.TrimSpace(logicalType) == "" {
 		logicalType = inferredSourceLogicalType(workspace.Documents[documentPos], catalog, command.OccurrenceID(), source, "string")
 	}
-	column := Column{Column: columnID, Label: label, LogicalType: logicalType, OccurrenceID: command.OccurrenceID(), Source: source, Contributor: contributor}
+	column := ws.Column{Column: columnID, Label: label, LogicalType: logicalType, OccurrenceID: command.OccurrenceID(), Source: source, Contributor: contributor}
 	column.ColumnID = stagedSourceColumnID(workspace.Documents[documentPos].Output.ID, commandID, index, command.Type, column.Column)
 	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[documentPos]))
 	workspace.Documents[documentPos].Columns = append(workspace.Documents[documentPos].Columns, column)
-	var policy ConstructionRowValuePolicy
+	var policy ws.ConstructionRowValuePolicy
 	if command.ConstructionChoice() != nil {
 		policy = command.ConstructionChoice().RowValuePolicy
 	}
 	document := &workspace.Documents[documentPos]
-	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil &&
-		document.Rows.Groups.Source.Kind == GroupSourceExplicit {
+	if document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil &&
+		document.Rows.Groups.Source.Kind == ws.GroupSourceExplicit {
 		if command.ConstructionChoice() != nil {
 			if err := populateExplicitGroupRowValue(document, column, policy); err != nil {
 				return result, err
@@ -67,13 +69,13 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
 }
 
-func validateResolvedConstructionChoiceSource(document Document, catalog CatalogSnapshot, command Command, source ColumnSource) error {
-	validate := func(candidateSource ColumnSource) error {
+func validateResolvedConstructionChoiceSource(document ws.Document, catalog ws.CatalogSnapshot, command Command, source ws.ColumnSource) error {
+	validate := func(candidateSource ws.ColumnSource) error {
 		return validateEditableSourcePolicy(document, catalog, command.OccurrenceID(), candidateSource, true)
 	}
 	selection, resolved := command.ConstructionChoice(), command.ResolvedChoice
 	if selection == nil || resolved == nil || selection.Form != capability.ConstructionChoiceAll ||
-		command.OccurrenceID() == RootOccurrenceID || source.Kind != SourceField || source.Field == nil ||
+		command.OccurrenceID() == ws.RootOccurrenceID || source.Kind != ws.SourceField || source.Field == nil ||
 		!strings.EqualFold(strings.TrimSpace(source.Field.ProjectionMode), string(capability.ConstructionChoiceAll)) ||
 		!sourceEqual(source, resolved.Source) || len(resolved.Route) == 0 {
 		return validate(source)
@@ -101,8 +103,8 @@ func validateResolvedConstructionChoiceSource(document Document, catalog Catalog
 	return validate(valueSource)
 }
 
-func ensureConstructionRoute(document *Document, catalog CatalogSnapshot, commandID string, commandIndex int, route []capability.ConstructionRouteStep, candidateID string) (string, error) {
-	if document == nil || document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+func ensureConstructionRoute(document *ws.Document, catalog ws.CatalogSnapshot, commandID string, commandIndex int, route []capability.ConstructionRouteStep, candidateID string) (string, error) {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return "", fmt.Errorf("table root route is invalid")
 	}
 	if catalog.RoutePolicy.MaxHops != nil && len(route) > *catalog.RoutePolicy.MaxHops {
@@ -153,7 +155,7 @@ func ensureConstructionRoute(document *Document, catalog CatalogSnapshot, comman
 		matched := -1
 		for childIndex := range current.Children {
 			child := &current.Children[childIndex]
-			if child.ResourceType != to.ResourceType || child.Relationship != edge.Label || child.MatchMode.Normalized() != RouteMatchMode(step.MatchMode) {
+			if child.ResourceType != to.ResourceType || child.Relationship != edge.Label || child.MatchMode.Normalized() != ws.RouteMatchMode(step.MatchMode) {
 				continue
 			}
 			existingEdgeID := child.CatalogEdgeID
@@ -175,7 +177,7 @@ func ensureConstructionRoute(document *Document, catalog CatalogSnapshot, comman
 		}
 		if matched < 0 {
 			occurrenceID := commandGeneratedID("occ_", "construction-route/v1", document.Output.ID, commandID, commandIndex, edgeIndex, step.EdgeID)
-			current.Children = append(current.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label, MatchMode: RouteMatchMode(step.MatchMode)})
+			current.Children = append(current.Children, ws.RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label, MatchMode: ws.RouteMatchMode(step.MatchMode)})
 			matched = len(current.Children) - 1
 		}
 		current = &current.Children[matched]

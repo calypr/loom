@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -37,19 +38,19 @@ type ColumnSourceResponse struct {
 	Facts         []capability.ConstructionChoiceFact `json:"facts"`
 }
 
-func columnRoute(document *authoringv2.Document, occurrenceID string, snapshot capability.Snapshot) ([]ColumnSourceRouteStep, []capability.ConstructionRouteStep, string, error) {
-	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+func columnRoute(document *ws.Document, occurrenceID string, snapshot capability.Snapshot) ([]ColumnSourceRouteStep, []capability.ConstructionRouteStep, string, error) {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return nil, nil, "", fmt.Errorf("table row-root route is invalid")
 	}
 	root, found := capabilityRootNode(snapshot, document.RootResourceType)
 	if !found {
 		return nil, nil, "", fmt.Errorf("table row root is missing or ambiguous")
 	}
-	var path []authoringv2.RouteNode
+	var path []ws.RouteNode
 	if !findOccurrencePath(document.Route, occurrenceID, nil, &path) {
 		return nil, nil, "", fmt.Errorf("column occurrence %q is not in its table route", occurrenceID)
 	}
-	if len(path) == 0 || path[0].OccurrenceID != authoringv2.RootOccurrenceID {
+	if len(path) == 0 || path[0].OccurrenceID != ws.RootOccurrenceID {
 		return nil, nil, "", fmt.Errorf("column occurrence route does not begin at the row root")
 	}
 	if snapshot.Policy.Route.MaxHops > 0 && len(path)-1 > snapshot.Policy.Route.MaxHops {
@@ -93,8 +94,8 @@ func columnRoute(document *authoringv2.Document, occurrenceID string, snapshot c
 	return responseRoute, compilerRoute, path[len(path)-1].ResourceType, nil
 }
 
-func findOccurrencePath(node authoringv2.RouteNode, occurrenceID string, prefix []authoringv2.RouteNode, result *[]authoringv2.RouteNode) bool {
-	current := append(append([]authoringv2.RouteNode(nil), prefix...), node)
+func findOccurrencePath(node ws.RouteNode, occurrenceID string, prefix []ws.RouteNode, result *[]ws.RouteNode) bool {
+	current := append(append([]ws.RouteNode(nil), prefix...), node)
 	if node.OccurrenceID == occurrenceID {
 		*result = current
 		return true
@@ -121,7 +122,7 @@ func capabilityRootNode(snapshot capability.Snapshot, resourceType string) (capa
 	return result, result.ID != ""
 }
 
-func columnSourcePresentation(column authoringv2.Column, resourceType string) (string, []capability.ConstructionChoiceFact) {
+func columnSourcePresentation(column ws.Column, resourceType string) (string, []capability.ConstructionChoiceFact) {
 	facts := []capability.ConstructionChoiceFact{{Label: "Value type", Value: firstColumnFact(column.LogicalType, "Unknown")}, {Label: "FHIR resource", Value: resourceType}, {Label: "Source kind", Value: column.Source.Kind}}
 	add := func(label, value string) {
 		if strings.TrimSpace(value) != "" {
@@ -175,7 +176,7 @@ func columnSourcePresentation(column authoringv2.Column, resourceType string) (s
 		add("Owner code", source.OwnerRecords.Key.Code)
 		add("Owner value", source.OwnerRecords.Binding.ValuePath)
 	}
-	if column.Source.Kind == authoringv2.SourceProjectID {
+	if column.Source.Kind == ws.SourceProjectID {
 		add("Value", "Project identifier")
 	}
 	label := strings.TrimSpace(column.Label)
@@ -225,7 +226,7 @@ func (b *fieldBrowse) ColumnSource(ctx context.Context, request ColumnSourceRequ
 	if document == nil {
 		return result, support.NotFound("column-source", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
 	}
-	var column *authoringv2.Column
+	var column *ws.Column
 	for index := range document.Columns {
 		if document.Columns[index].Column == request.Column {
 			column = &document.Columns[index]

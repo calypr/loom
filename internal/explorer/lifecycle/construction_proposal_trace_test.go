@@ -12,6 +12,11 @@ import (
 	"sort"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -40,14 +45,14 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	service.config.Capability.ForExecution = service.config.Capability.ForCompilation
-	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		catalog := lifecycleInterpretationCatalog(got, explorerID)
 		for _, candidate := range []capability.Candidate{numericCandidate} {
 			choice, err := capability.NewFieldConstructionChoice(got.Token, candidate)
 			if err != nil {
 				t.Fatalf("make source choice for %s: %v", candidate.ID, err)
 			}
-			catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+			catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
 				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
 				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
 				ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
@@ -58,7 +63,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 
 	workspace, baseDocument, baseConstruction := traceGroupMeanWorkspace(t, store)
 	compileCount := 0
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileCount++
 		receipt, err := compileTraceReceipt(ctx, request, snapshot, service.catalog(snapshot, request.ExplorerID))
 		if err != nil {
@@ -67,7 +72,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 		store.receipt = receipt
 		return receipt, nil
 	}
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || receipt.ConstructionProposal == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview did not receive the proposal's exact compiled receipt")
 		}
@@ -75,8 +80,8 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 	}
 
 	candidate := cloneLifecycleTestConstruction(t, baseConstruction)
-	candidate.Steps[0].Operation.Group.Aggregates[0] = authoringv2.ConstructionGroupAggregate{
-		Operation: authoringv2.ConstructionGroupMean, InputColumnID: "birth-count", OutputColumnID: "row_count",
+	candidate.Steps[0].Operation.Group.Aggregates[0] = ws.ConstructionGroupAggregate{
+		Operation: ws.ConstructionGroupMean, InputColumnID: "birth-count", OutputColumnID: "row_count",
 	}
 	candidate.Steps[0].Outputs[1].Type = "decimal"
 
@@ -125,7 +130,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 
 	preview, err := service.Preview(context.Background(), PreviewRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: "patients",
-		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	})
@@ -134,7 +139,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 	}
 
 	apply, err := service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
-		CommandID: "trace-apply-group-mean", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "trace-apply-group-mean", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: versionBefore, ExpectedDraftDigest: digestBefore,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "trace-actor")
@@ -168,12 +173,12 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 	_ = workspace
 }
 
-func traceGroupMeanWorkspace(t *testing.T, store *fakeStore) (authoringv2.Workspace, authoringv2.Document, authoringv2.Construction) {
+func traceGroupMeanWorkspace(t *testing.T, store *fakeStore) (ws.Workspace, ws.Document, ws.Construction) {
 	t.Helper()
 	workspace := lifecycleCandidatePreviewWorkspace()
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
-	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
+	workspace.Documents[0].Rows = ws.RecordsRowDefinition()
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,34 +189,34 @@ func traceGroupMeanWorkspace(t *testing.T, store *fakeStore) (authoringv2.Worksp
 		document.Columns[0].ColumnID = "patient-id"
 	}
 	patientIDColumnID := document.Columns[0].ColumnID
-	document.Columns = append(document.Columns, authoringv2.Column{
+	document.Columns = append(document.Columns, ws.Column{
 		ColumnID: "birth-count", Column: "birth_count", Label: "Birth count", LogicalType: "integer",
-		OccurrenceID: authoringv2.RootOccurrenceID,
-		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "multipleBirthInteger", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "multipleBirthInteger", ProjectionMode: "VALUE"}},
 	})
 	sort.SliceStable(document.Columns, func(left, right int) bool {
 		return document.Columns[left].ColumnID < document.Columns[right].ColumnID
 	})
-	groupOutputs := []authoringv2.StageColumn{
+	groupOutputs := []ws.StageColumn{
 		{ID: "patient-key", Name: "patient_key", Label: "Patient", Type: "string"},
 		{ID: "row_count", Name: "row_count", Label: "Aggregate", Type: "integer"},
 	}
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
-			ID: "group-records", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-				ConstructionID: "group-records", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-				Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: patientIDColumnID, OutputColumnID: "patient-key"}},
-				Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+			ID: "group-records", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+				ConstructionID: "group-records", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+				Keys:       []ws.ConstructionGroupKey{{InputColumnID: patientIDColumnID, OutputColumnID: "patient-key"}},
+				Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
 			}},
 			Outputs: groupOutputs,
 		},
 		{
-			ID: "dependent-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group-records"}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: "row_count", Operator: authoringv2.ConstructionFilterExists,
+			ID: "dependent-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group-records"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "row_count", Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: append([]authoringv2.StageColumn(nil), groupOutputs...),
+			Outputs: append([]ws.StageColumn(nil), groupOutputs...),
 		},
 	}}
 	document.Construction = &construction
@@ -239,8 +244,8 @@ func traceFieldCandidate(snapshotToken, id, field, logicalType string) capabilit
 	}
 }
 
-func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptRequest, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.CompilationReceipt, error) {
-	prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
+func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptRequest, snapshot capability.Snapshot, catalog ws.CatalogSnapshot) (*receiptmodel.CompilationReceipt, error) {
+	prepared, err := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("prepare trace workspace: %w", err)
 	}
@@ -273,14 +278,14 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 	if err != nil {
 		return nil, err
 	}
-	contracts, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
+	contracts, err := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: translated.OutputContracts})
 	if err != nil {
 		return nil, err
 	}
 	receipt := nativeReceipt(snapshot)
 	receipt.ExplorerID = request.ExplorerID
-	receipt.ReceiptFormatVersion = explorer.CurrentReceiptFormatVersion
-	receipt.CompilerContractVersion = explorer.CurrentCompilerContractVersion
+	receipt.ReceiptFormatVersion = receiptmodel.CurrentReceiptFormatVersion
+	receipt.CompilerContractVersion = receiptmodel.CurrentCompilerContractVersion
 	receipt.IntentDigest = workspaceDigest
 	receipt.ResolvedInputsDigest = translated.ResolvedInputsDigest
 	receipt.RecipeDigest = translated.RecipeDigest
@@ -291,7 +296,7 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 	receipt.EmittedColumns = translated.EmittedColumns
 	receipt.IdentityMappings = translated.IdentityMappings
 	receipt.PublicOutputContract = contracts
-	receipt.OutputContractDigest, err = explorer.CompilationArtifactDigest(contracts)
+	receipt.OutputContractDigest, err = receiptmodel.CompilationArtifactDigest(contracts)
 	if err != nil {
 		return nil, err
 	}
@@ -303,11 +308,11 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 	if err != nil {
 		return nil, err
 	}
-	receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 	if err != nil {
 		return nil, err
 	}
-	receipt.ID, err = explorer.ReceiptID(*receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -317,19 +322,19 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 	return receipt, nil
 }
 
-func traceReceiptStages(compiled facade.CompiledRecipe) map[string][]explorer.ReceiptConstructionStage {
+func traceReceiptStages(compiled facade.CompiledRecipe) map[string][]receiptmodel.ReceiptConstructionStage {
 
-	var stages map[string][]explorer.ReceiptConstructionStage
+	var stages map[string][]receiptmodel.ReceiptConstructionStage
 	for _, output := range compiled.Outputs {
 		if len(output.Stages) == 0 {
 			continue
 		}
 		if stages == nil {
-			stages = make(map[string][]explorer.ReceiptConstructionStage)
+			stages = make(map[string][]receiptmodel.ReceiptConstructionStage)
 		}
-		outputStages := make([]explorer.ReceiptConstructionStage, 0, len(output.Stages))
+		outputStages := make([]receiptmodel.ReceiptConstructionStage, 0, len(output.Stages))
 		for index, descriptor := range output.Stages {
-			stage := explorer.ReceiptConstructionStage{
+			stage := receiptmodel.ReceiptConstructionStage{
 				ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
 				RowIdentityColumn: descriptor.RowIdentityColumn,
 			}
@@ -340,7 +345,7 @@ func traceReceiptStages(compiled facade.CompiledRecipe) map[string][]explorer.Re
 				if column.Internal || column.Identity {
 					continue
 				}
-				stage.Columns = append(stage.Columns, explorer.ReceiptConstructionStageColumn{
+				stage.Columns = append(stage.Columns, receiptmodel.ReceiptConstructionStageColumn{
 					ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind,
 					Cardinality: expression.Cardinality(column.Cardinality),
 				})
@@ -350,7 +355,7 @@ func traceReceiptStages(compiled facade.CompiledRecipe) map[string][]explorer.Re
 				if capability.Supported {
 					reasonCode, reason = "", ""
 				}
-				stage.Capabilities = append(stage.Capabilities, explorer.ReceiptConstructionOperationChoice{
+				stage.Capabilities = append(stage.Capabilities, receiptmodel.ReceiptConstructionOperationChoice{
 					Kind: string(capability.Operation), Supported: capability.Supported, ReasonCode: reasonCode, Reason: reason,
 				})
 			}
@@ -361,12 +366,12 @@ func traceReceiptStages(compiled facade.CompiledRecipe) map[string][]explorer.Re
 	return stages
 }
 
-func traceReceiptOutputSchemas(compiled facade.CompiledRecipe) map[string][]explorer.ReceiptCompiledOutputColumn {
-	schemas := make(map[string][]explorer.ReceiptCompiledOutputColumn, len(compiled.Outputs))
+func traceReceiptOutputSchemas(compiled facade.CompiledRecipe) map[string][]receiptmodel.ReceiptCompiledOutputColumn {
+	schemas := make(map[string][]receiptmodel.ReceiptCompiledOutputColumn, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
-		columns := make([]explorer.ReceiptCompiledOutputColumn, 0, len(output.OutputSchema))
+		columns := make([]receiptmodel.ReceiptCompiledOutputColumn, 0, len(output.OutputSchema))
 		for _, column := range output.OutputSchema {
-			columns = append(columns, explorer.ReceiptCompiledOutputColumn{
+			columns = append(columns, receiptmodel.ReceiptCompiledOutputColumn{
 				ID: column.ID, Name: column.Name, Label: column.Label, LogicalType: column.Kind,
 				Cardinality: column.Cardinality, Nullable: column.Nullable, Internal: column.Internal, Identity: column.Identity,
 			})
@@ -376,7 +381,7 @@ func traceReceiptOutputSchemas(compiled facade.CompiledRecipe) map[string][]expl
 	return schemas
 }
 
-func traceOutputProvenance(columns []explorer.EmittedColumn) map[string]map[string]string {
+func traceOutputProvenance(columns []viewer.EmittedColumn) map[string]map[string]string {
 	provenance := make(map[string]map[string]string)
 	for _, column := range columns {
 		if provenance[column.OutputID] == nil {
@@ -400,7 +405,7 @@ func traceOutputFingerprints(compiled facade.CompiledRecipe) (map[string]string,
 	return fingerprints, nil
 }
 
-func traceStageColumnType(step authoringv2.ConstructionStep, columnID string) string {
+func traceStageColumnType(step ws.ConstructionStep, columnID string) string {
 	for _, column := range step.Outputs {
 		if column.ID == columnID {
 			return column.Type
@@ -409,7 +414,7 @@ func traceStageColumnType(step authoringv2.ConstructionStep, columnID string) st
 	return ""
 }
 
-func traceReceiptStageColumnType(receipt *explorer.CompilationReceipt, stageID, columnID string) string {
+func traceReceiptStageColumnType(receipt *receiptmodel.CompilationReceipt, stageID, columnID string) string {
 	if receipt == nil || len(receipt.ConstructionStages["patients"]) == 0 {
 		return ""
 	}
@@ -426,7 +431,7 @@ func traceReceiptStageColumnType(receipt *explorer.CompilationReceipt, stageID, 
 	return ""
 }
 
-func emittedPublicColumns(receipt *explorer.CompilationReceipt) []string {
+func emittedPublicColumns(receipt *receiptmodel.CompilationReceipt) []string {
 	columns := make([]string, 0, len(receipt.EmittedColumns))
 	for _, column := range receipt.EmittedColumns {
 		if column.OutputID == "patients" {
@@ -535,9 +540,9 @@ type operationHistoryReloadCase struct {
 	ActionIndex     int                                           `json:"actionIndex"`
 	OutputID        string                                        `json:"outputId"`
 	StageID         string                                        `json:"stageId"`
-	Before          authoringv2.BuilderState                      `json:"before"`
-	After           authoringv2.BuilderState                      `json:"after"`
-	StoredWorkspace authoringv2.Workspace                         `json:"storedWorkspace"`
+	Before          ws.BuilderState                               `json:"before"`
+	After           ws.BuilderState                               `json:"after"`
+	StoredWorkspace ws.Workspace                                  `json:"storedWorkspace"`
 	Capabilities    construction.ConstructionCapabilitiesResponse `json:"capabilities"`
 }
 type operationHistoryReloadSummary struct {
@@ -583,7 +588,7 @@ type operationHistoryProposalResponseEntry struct {
 type operationHistoryPreviewResult struct {
 	ReceiptID string                            `json:"receiptId"`
 	OutputID  string                            `json:"outputId"`
-	Columns   []explorer.EmittedColumn          `json:"columns"`
+	Columns   []viewer.EmittedColumn            `json:"columns"`
 	Summary   dataframeexecution.PreviewSummary `json:"summary"`
 }
 type operationHistoryReplayCase struct {
@@ -841,7 +846,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					t.Fatalf("trace %s action %d frontend expectation differs from model", traceID, actionIndex)
 				}
 				if len(cp.AcceptedDocument) > 0 {
-					var doc authoringv2.Document
+					var doc ws.Document
 					if err := json.Unmarshal(cp.AcceptedDocument, &doc); err != nil {
 						t.Fatalf("trace %s action %d decode acceptedDocument: %v", traceID, actionIndex, err)
 					}
@@ -880,7 +885,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					ready = true
 					preview, previewErr := service.Preview(context.Background(), PreviewRequest{
 						Project: req.Project, ExplorerID: req.ExplorerID, ReceiptID: lastProposal.ProposalID, OutputID: req.OutputID, Limit: req.Limit,
-						SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+						SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 							return func(map[string]any) error { return nil }, nil
 						},
 					})
@@ -896,7 +901,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					}
 					lastPreviewResult = &operationHistoryPreviewResult{
 						ReceiptID: preview.Receipt.ID, OutputID: req.OutputID,
-						Columns: append([]explorer.EmittedColumn(nil), preview.Columns...), Summary: preview.Summary,
+						Columns: append([]viewer.EmittedColumn(nil), preview.Columns...), Summary: preview.Summary,
 					}
 					summary.ServicePreviewCount++
 					previewed = true
@@ -948,7 +953,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					t.Fatalf("fresh Builder changed initial saved Group: err=%v", reloadErr)
 				}
 				applied, err := service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
-					CommandID: "operation-history-" + traceID + "-" + fmt.Sprint(actionIndex), SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+					CommandID: "operation-history-" + traceID + "-" + fmt.Sprint(actionIndex), SemanticsVersion: ws.CurrentSemanticsVersion,
 					SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 					Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: lastProposal.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: lastProposal.ProposalID}}},
 				}, "operation-history-test")
@@ -1097,7 +1102,7 @@ func prepareOperationHistorySeeds(t *testing.T, traces operationHistoryTraceFile
 	for _, id := range ids {
 		trace := traceByIDForID(t, traces, id)
 		workspaceContext := decodeTraceWorkspaceContext(t, trace)
-		var workspace authoringv2.Workspace
+		var workspace ws.Workspace
 		if err := json.Unmarshal(seedByID[id].AcceptedWorkspace, &workspace); err != nil {
 			t.Errorf("seed %s decode acceptedWorkspace: %v", id, err)
 			failed = true
@@ -1194,7 +1199,7 @@ func traceAggregateOutputID(t *testing.T, trace operationHistoryTrace) string {
 	return initial.AggregateOutputID
 }
 
-func assertTraceSeedIdentity(t *testing.T, id string, identity operationHistorySeedIdentity, workspace authoringv2.Workspace, request construction.ConstructionProposalRequest) {
+func assertTraceSeedIdentity(t *testing.T, id string, identity operationHistorySeedIdentity, workspace ws.Workspace, request construction.ConstructionProposalRequest) {
 	t.Helper()
 	digest, err := workspace.Digest()
 	if err != nil {
@@ -1219,12 +1224,12 @@ func readOperationHistoryJSON(t *testing.T, path string, target any) {
 	}
 }
 
-func decodeTraceWorkspace(t *testing.T, id string, data json.RawMessage) authoringv2.Workspace {
+func decodeTraceWorkspace(t *testing.T, id string, data json.RawMessage) ws.Workspace {
 	t.Helper()
 	if len(data) == 0 {
 		t.Fatalf("trace %s has no acceptedWorkspace", id)
 	}
-	w, err := authoringv2.DecodeWorkspace(data)
+	w, err := ws.DecodeWorkspace(data)
 	if err != nil {
 		t.Fatalf("trace %s decode acceptedWorkspace: %v", id, err)
 	}
@@ -1279,16 +1284,16 @@ func assertTraceProposalContext(t *testing.T, id string, trace operationHistoryT
 	}
 }
 
-func constructionFromRaw(t *testing.T, id string, actionIndex int, data json.RawMessage) authoringv2.Construction {
+func constructionFromRaw(t *testing.T, id string, actionIndex int, data json.RawMessage) ws.Construction {
 	t.Helper()
-	var candidate authoringv2.Construction
+	var candidate ws.Construction
 	if len(data) == 0 || json.Unmarshal(data, &candidate) != nil {
 		t.Fatalf("trace %s action %d missing/invalid candidateConstruction", id, actionIndex)
 	}
 	return candidate
 }
 
-func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w authoringv2.Workspace, r construction.ConstructionProposalRequest) {
+func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w ws.Workspace, r construction.ConstructionProposalRequest) {
 	t.Helper()
 	if err := w.Validate(); err != nil {
 		t.Fatalf("trace %s accepted workspace validation: %v", id, err)
@@ -1304,7 +1309,7 @@ func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w authoringv2.W
 
 type operationHistoryCompileStats struct{ base, candidate int }
 
-func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request construction.ConstructionProposalRequest) (*Service, *fakeStore, capability.Snapshot, authoringv2.Workspace, *operationHistoryCompileStats) {
+func newOperationHistoryService(t *testing.T, w ws.Workspace, request construction.ConstructionProposalRequest) (*Service, *fakeStore, capability.Snapshot, ws.Workspace, *operationHistoryCompileStats) {
 	t.Helper()
 	encoded, err := w.CanonicalJSON()
 	if err != nil {
@@ -1324,25 +1329,25 @@ func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request c
 	}
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		c := traceWorkspaceCatalog(got, explorerID, w, rootID)
 		for i := range c.Nodes {
 			count := int64(2)
 			c.Nodes[i].DocumentCount = &count
 		}
 		if c.Edges == nil {
-			c.Edges = []authoringv2.CatalogEdge{}
+			c.Edges = []ws.CatalogEdge{}
 		}
 		for i := range c.Candidates {
 			if c.Candidates[i].AggregateOperations == nil {
 				c.Candidates[i].AggregateOperations = []capability.AggregateOperationCapability{}
 			}
-			c.Candidates[i].Transformations = authoringv2.AggregateTransformationCapabilitiesForCapability(got, c.Candidates[i].ID)
+			c.Candidates[i].Transformations = ws.AggregateTransformationCapabilitiesForCapability(got, c.Candidates[i].ID)
 		}
 		return c
 	}
 	stats := &operationHistoryCompileStats{}
-	config.CompileReceipt = func(ctx context.Context, cr ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, cr ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		if cr.ConstructionProposal == nil {
 			stats.base++
 		} else {
@@ -1355,7 +1360,7 @@ func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request c
 		store.receipt = receipt
 		return receipt, nil
 	}
-	config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || receipt.ConstructionProposal == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview has no compiled proposal receipt")
 		}
@@ -1366,11 +1371,11 @@ func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request c
 
 type traceSourceField struct{ ColumnID, FieldPath, FHIRType, LogicalType, Label string }
 
-func traceWorkspaceSourceFields(w authoringv2.Workspace) []traceSourceField {
+func traceWorkspaceSourceFields(w ws.Workspace) []traceSourceField {
 	fields := map[string]traceSourceField{}
 	for _, doc := range w.Documents {
 		for _, col := range doc.Columns {
-			if col.Source.Kind == authoringv2.SourceField && col.Source.Field != nil {
+			if col.Source.Kind == ws.SourceField && col.Source.Field != nil {
 				fields[col.ColumnID] = traceSourceField{ColumnID: col.ColumnID, FieldPath: col.Source.Field.Path, LogicalType: col.LogicalType, Label: col.Label}
 			}
 		}
@@ -1392,24 +1397,24 @@ func traceWorkspaceSourceFields(w authoringv2.Workspace) []traceSourceField {
 	return result
 }
 
-func traceWorkspaceCatalog(snapshot capability.Snapshot, explorerID string, w authoringv2.Workspace, nodeID string) authoringv2.CatalogSnapshot {
+func traceWorkspaceCatalog(snapshot capability.Snapshot, explorerID string, w ws.Workspace, nodeID string) ws.CatalogSnapshot {
 	rootType := "Patient"
 	if len(w.Documents) > 0 && w.Documents[0].RootResourceType != "" {
 		rootType = w.Documents[0].RootResourceType
 	}
-	c := authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: explorerID, SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: nodeID, ResourceType: rootType, RowRootEligible: true, RowGrain: "patient"}}, Candidates: []authoringv2.CatalogCandidate{}}
+	c := ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: explorerID, SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true}, Nodes: []ws.CatalogNode{{ID: nodeID, ResourceType: rootType, RowRootEligible: true, RowGrain: "patient"}}, Candidates: []ws.CatalogCandidate{}}
 	for _, f := range traceWorkspaceSourceFields(w) {
 		candidate := capability.Candidate{ID: "trace-candidate-" + f.ColumnID, NodeID: nodeID, ResourceType: rootType, FieldPath: f.FieldPath, Label: f.Label, LogicalType: f.LogicalType, Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true}
 		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
 		if err != nil {
 			continue
 		}
-		c.Candidates = append(c.Candidates, authoringv2.CatalogCandidate{ID: candidate.ID, NodeID: nodeID, FieldPath: f.FieldPath, Label: f.Label, LogicalType: f.LogicalType, Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice})
+		c.Candidates = append(c.Candidates, ws.CatalogCandidate{ID: candidate.ID, NodeID: nodeID, FieldPath: f.FieldPath, Label: f.Label, LogicalType: f.LogicalType, Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice})
 	}
 	return c
 }
 
-func emittedPublicColumnsForOutput(receipt *explorer.CompilationReceipt, outputID string) []string {
+func emittedPublicColumnsForOutput(receipt *receiptmodel.CompilationReceipt, outputID string) []string {
 	var columns []string
 	for _, col := range receipt.EmittedColumns {
 		if col.OutputID == outputID {
@@ -1419,9 +1424,9 @@ func emittedPublicColumnsForOutput(receipt *explorer.CompilationReceipt, outputI
 	return columns
 }
 
-func workspaceFromDraft(t *testing.T, id string, data []byte) authoringv2.Workspace {
+func workspaceFromDraft(t *testing.T, id string, data []byte) ws.Workspace {
 	t.Helper()
-	w, err := authoringv2.DecodeWorkspace(data)
+	w, err := ws.DecodeWorkspace(data)
 	if err != nil {
 		t.Fatalf("trace %s decode draft: %v", id, err)
 	}
@@ -1448,7 +1453,7 @@ func sameOperationHistoryExpectation(a, b operationHistoryExpectation) bool {
 	return a.ProposalStatus == b.ProposalStatus && equalStringSlices(a.StepIDs, b.StepIDs) && reflect.DeepEqual(a.GroupOutputTypes, b.GroupOutputTypes) && reflect.DeepEqual(a.DownstreamInputTypes, b.DownstreamInputTypes) && reflect.DeepEqual(a.DownstreamOutputTypes, b.DownstreamOutputTypes) && a.CandidateGroupKeyOutputID == b.CandidateGroupKeyOutputID && a.AcceptedGroupKeyOutputID == b.AcceptedGroupKeyOutputID && a.GroupKeyOutputRelation == b.GroupKeyOutputRelation && a.AcceptedAggregate == b.AcceptedAggregate && a.CandidateAggregate == b.CandidateAggregate && a.AcceptedChangesOnApply == b.AcceptedChangesOnApply && a.ApplyAck == b.ApplyAck && equalTraceMissingInputs(a.MissingInputs, b.MissingInputs) && equalStringSlices(a.RemovedStepIDs, b.RemovedStepIDs)
 }
 
-func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, aggregateOutputID string, expected operationHistoryExpectation, accepted authoringv2.Construction, proposal construction.ConstructionProposalResponse, receipt *explorer.CompilationReceipt, outputID string) {
+func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, aggregateOutputID string, expected operationHistoryExpectation, accepted ws.Construction, proposal construction.ConstructionProposalResponse, receipt *receiptmodel.CompilationReceipt, outputID string) {
 	t.Helper()
 	if got := constructionStepIDs(proposal.CandidateConstruction.Steps); !reflect.DeepEqual(got, expected.StepIDs) {
 		t.Fatalf("trace %s action %d steps %v != model %v", id, actionIndex, got, expected.StepIDs)
@@ -1481,7 +1486,7 @@ func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, ag
 		t.Fatalf("trace %s action %d aggregate output %s type %q != model %q", id, actionIndex, actualAggregateID, actualAggregateType, wantAggregateType)
 	}
 	acceptedPositions := make(map[string]int, len(accepted.Steps))
-	acceptedSteps := make(map[string]authoringv2.ConstructionStep, len(accepted.Steps))
+	acceptedSteps := make(map[string]ws.ConstructionStep, len(accepted.Steps))
 	for index, step := range accepted.Steps {
 		acceptedPositions[step.ID] = index
 		acceptedSteps[step.ID] = step
@@ -1605,7 +1610,7 @@ func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, ag
 	}
 }
 
-func traceConstructionStepPosition(construction authoringv2.Construction, stepID string) int {
+func traceConstructionStepPosition(construction ws.Construction, stepID string) int {
 	for index, step := range construction.Steps {
 		if step.ID == stepID {
 			return index
@@ -1641,7 +1646,7 @@ func traceProposalRequestFingerprint(t *testing.T, id string, request json.RawMe
 	return hex.EncodeToString(sum[:])
 }
 
-func constructionGroupOutputIdentity(construction authoringv2.Construction) (keyID, keyType, aggregateID, aggregateType string) {
+func constructionGroupOutputIdentity(construction ws.Construction) (keyID, keyType, aggregateID, aggregateType string) {
 	if len(construction.Steps) == 0 || construction.Steps[0].Operation.Group == nil {
 		return "", "", "", ""
 	}
@@ -1663,7 +1668,7 @@ func constructionGroupOutputIdentity(construction authoringv2.Construction) (key
 	return keyID, keyType, aggregateID, aggregateType
 }
 
-func actualTraceGroupOutputTypes(construction authoringv2.Construction) map[string]*string {
+func actualTraceGroupOutputTypes(construction ws.Construction) map[string]*string {
 	result := map[string]*string{"aggregate": nil, "key": nil}
 	if len(construction.Steps) == 0 || construction.Steps[0].Operation.Group == nil {
 		return result
@@ -1682,7 +1687,7 @@ func actualTraceGroupOutputTypes(construction authoringv2.Construction) map[stri
 	return result
 }
 
-func actualTraceDownstreamInputTypes(construction authoringv2.Construction, expected operationHistoryExpectation) map[string]string {
+func actualTraceDownstreamInputTypes(construction ws.Construction, expected operationHistoryExpectation) map[string]string {
 	result := make(map[string]string, len(expected.DownstreamInputTypes))
 	for stepID, input := range expected.DownstreamInputTypes {
 		result[stepID] = "MISSING"
@@ -1701,7 +1706,7 @@ func actualTraceDownstreamInputTypes(construction authoringv2.Construction, expe
 	return result
 }
 
-func actualTraceDownstreamOutputTypes(receipt *explorer.CompilationReceipt, outputID string, expected operationHistoryExpectation) map[string]string {
+func actualTraceDownstreamOutputTypes(receipt *receiptmodel.CompilationReceipt, outputID string, expected operationHistoryExpectation) map[string]string {
 	result := make(map[string]string, len(expected.DownstreamOutputTypes))
 	for stepID, output := range expected.DownstreamOutputTypes {
 		result[stepID] = traceReceiptStageColumnTypeForOutput(receipt, outputID, stepID, output.ColumnID)
@@ -1709,7 +1714,7 @@ func actualTraceDownstreamOutputTypes(receipt *explorer.CompilationReceipt, outp
 	return result
 }
 
-func traceStepColumnType(construction authoringv2.Construction, stepID, columnID string) string {
+func traceStepColumnType(construction ws.Construction, stepID, columnID string) string {
 	for _, step := range construction.Steps {
 		if step.ID != stepID {
 			continue
@@ -1723,13 +1728,13 @@ func traceStepColumnType(construction authoringv2.Construction, stepID, columnID
 	return "MISSING"
 }
 
-func traceStepInputID(construction authoringv2.Construction, stepID string) string {
+func traceStepInputID(construction ws.Construction, stepID string) string {
 	for _, step := range construction.Steps {
 		if step.ID != stepID {
 			continue
 		}
 		for _, input := range step.Inputs {
-			if input.Kind == authoringv2.ConstructionInputStepOutput {
+			if input.Kind == ws.ConstructionInputStepOutput {
 				return input.StepID
 			}
 		}
@@ -1737,7 +1742,7 @@ func traceStepInputID(construction authoringv2.Construction, stepID string) stri
 	return ""
 }
 
-func traceReceiptStageInputID(receipt *explorer.CompilationReceipt, outputID, stageID string) string {
+func traceReceiptStageInputID(receipt *receiptmodel.CompilationReceipt, outputID, stageID string) string {
 	if receipt == nil {
 		return ""
 	}
@@ -1749,7 +1754,7 @@ func traceReceiptStageInputID(receipt *explorer.CompilationReceipt, outputID, st
 	return ""
 }
 
-func traceReceiptStageColumnTypeForOutput(receipt *explorer.CompilationReceipt, outputID, stageID, columnID string) string {
+func traceReceiptStageColumnTypeForOutput(receipt *receiptmodel.CompilationReceipt, outputID, stageID, columnID string) string {
 	if receipt == nil {
 		return "MISSING"
 	}

@@ -10,6 +10,10 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -99,7 +103,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	originalHead.DraftConfig = append([]byte(nil), store.created.DraftConfig...)
 	expectedHead := originalHead
 	candidateID := proposal.CandidateSelection.ID
-	expectedWorkspace, err := authoringv2.DecodeWorkspace(originalHead.DraftConfig)
+	expectedWorkspace, err := ws.DecodeWorkspace(originalHead.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +125,11 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 		binding := *receipt.PopulationMemberRemovalProposal
 		binding.DraftVersion++
 		receipt.PopulationMemberRemovalProposal = &binding
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			t.Fatal(err)
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,7 +149,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 		service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
 	}
 	previewCalls := 0
-	service.config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if *c.ConcurrentDraftChange {
 			competing := before
@@ -171,7 +175,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	request := authoringv2.ApplyCommandsRequest{CommandID: "formal-removal-" + c.ID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: originalHead.DraftVersion, ExpectedDraftDigest: originalHead.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}}}
+	request := authoringv2.ApplyCommandsRequest{CommandID: "formal-removal-" + c.ID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: originalHead.DraftVersion, ExpectedDraftDigest: originalHead.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}}}
 	response, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	preserved := reflect.DeepEqual(*store.created, expectedHead)
 	exact := response != nil && string(store.created.DraftConfig) == string(expectedBytes) && store.created.DraftDigest == expectedDigest && store.created.DraftVersion == originalHead.DraftVersion+1 && response.Workspace.Documents[0].Population.SelectionRevisionID == candidateID && len(store.members[candidateID]) == 1 && store.members[candidateID][0].Ref.ID == "patient-1" && base.selection.ID == "selection-base" && base.selection.MemberCount == 2

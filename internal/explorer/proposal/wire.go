@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
@@ -17,7 +19,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 		OutputID             string                                  `json:"outputId"`
 		Change               *authoringv2.ImportedRelationshipChange `json:"change,omitempty"`
 		SourceStep           *authoringv2.ImportedSourceStepChange   `json:"sourceStep,omitempty"`
-		SourceRule           *authoringv2.SourceRuleCreate           `json:"sourceRule,omitempty"`
+		SourceRule           *ws.SourceRuleCreate                    `json:"sourceRule,omitempty"`
 		SourceSteps          []authoringv2.ImportedSourceStepChange  `json:"sourceSteps,omitempty"`
 		IncludePreview       *bool                                   `json:"includePreview,omitempty"`
 		Limit                *int                                    `json:"limit,omitempty"`
@@ -136,7 +138,7 @@ func (r SourceRelationshipProposalRequest) MarshalJSON() ([]byte, error) {
 		OutputID             string                                  `json:"outputId"`
 		Change               *authoringv2.ImportedRelationshipChange `json:"change,omitempty"`
 		SourceStep           *authoringv2.ImportedSourceStepChange   `json:"sourceStep,omitempty"`
-		SourceRule           *authoringv2.SourceRuleCreate           `json:"sourceRule,omitempty"`
+		SourceRule           *ws.SourceRuleCreate                    `json:"sourceRule,omitempty"`
 		SourceSteps          []authoringv2.ImportedSourceStepChange  `json:"sourceSteps,omitempty"`
 		Limit                int                                     `json:"limit,omitempty"`
 		IncludePreview       bool                                    `json:"includePreview,omitempty"`

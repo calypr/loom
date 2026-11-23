@@ -5,36 +5,38 @@ import (
 	"errors"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T) {
-	document := authoringv2.Document{
+	document := ws.Document{
 		RootResourceType: "MedicationAdministration",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"},
-		ImportedRecipe:   &authoringv2.ImportedRecipeRef{Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition(),
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "MedicationAdministration"},
+		ImportedRecipe:   &ws.ImportedRecipeRef{Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "MedicationAdministration"}, Rows: ws.RecordsRowDefinition(),
 	}
 	base := constructionBase{Document: document, Snapshot: capability.Snapshot{Nodes: []capability.Node{}}}
-	stage := explorer.ReceiptConstructionStage{
+	stage := receiptmodel.ReceiptConstructionStage{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-		Capabilities: []explorer.ReceiptConstructionOperationChoice{
+		Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{
 			{Kind: "GROUP", Supported: true}, {Kind: "PIVOT", Supported: true},
 			{Kind: "DERIVE", Supported: true}, {Kind: "FILTER", Supported: true},
 			{Kind: "UNPIVOT", Supported: true}, {Kind: "EXPAND", Supported: true},
 			{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true},
 		},
-		GroupFieldSourceContext: &explorer.ReceiptConstructionGroupFieldSourceContext{
+		GroupFieldSourceContext: &receiptmodel.ReceiptConstructionGroupFieldSourceContext{
 			SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "imported-source-shape",
-			SourceIdentityColumn: "_key", FieldOwners: []explorer.ReceiptConstructionGroupFieldOwner{{
-				Role: "ROOT", OccurrenceID: authoringv2.RootOccurrenceID,
+			SourceIdentityColumn: "_key", FieldOwners: []receiptmodel.ReceiptConstructionGroupFieldOwner{{
+				Role: "ROOT", OccurrenceID: ws.RootOccurrenceID,
 				OwnerResourceType: "MedicationAdministration", ResourceType: "MedicationAdministration",
 			}},
 		},
 	}
-	ordinaryOperations := append([]explorer.ReceiptConstructionOperationChoice(nil), stage.Capabilities...)
+	ordinaryOperations := append([]receiptmodel.ReceiptConstructionOperationChoice(nil), stage.Capabilities...)
 	service := &Service{}
 	coded, err := constructionCodedGroupChoices(base, "MedicationAdministration", stage)
 	if err != nil {
@@ -70,10 +72,10 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 
 func TestGenericEmptyRootStillFailsClosedForCodedGroupChoices(t *testing.T) {
 	base := constructionBase{
-		Document: authoringv2.Document{RootResourceType: "MedicationAdministration", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition()},
+		Document: ws.Document{RootResourceType: "MedicationAdministration", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "MedicationAdministration"}, Rows: ws.RecordsRowDefinition()},
 		Snapshot: capability.Snapshot{Nodes: []capability.Node{}},
 	}
-	stage := explorer.ReceiptConstructionStage{ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key", Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}}}
+	stage := receiptmodel.ReceiptConstructionStage{ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key", Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}}}
 	if _, err := constructionCodedGroupChoices(base, "MedicationAdministration", stage); err == nil {
 		t.Fatal("generic missing root should remain a hard coded-group route failure")
 	}
@@ -81,7 +83,7 @@ func TestGenericEmptyRootStillFailsClosedForCodedGroupChoices(t *testing.T) {
 
 type importedSourceChoicePlanner struct{ calls int }
 
-func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	planner.calls++
 	return nil, errors.New("generic FHIR route planner must not run for imported source choices")
 }
@@ -89,9 +91,9 @@ func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capa
 func TestImportedSourceGroupAndPivotCapabilitiesSkipGenericRowChoicePlanner(t *testing.T) {
 	planner := &importedSourceChoicePlanner{}
 	service := &Service{config: Config{RowChoicePlanner: planner}}
-	base := constructionBase{Document: authoringv2.Document{ImportedRecipe: &authoringv2.ImportedRecipeRef{
+	base := constructionBase{Document: ws.Document{ImportedRecipe: &ws.ImportedRecipeRef{
 		Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
-	}, Rows: authoringv2.RecordsRowDefinition(),
+	}, Rows: ws.RecordsRowDefinition(),
 	}}
 	group, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 	if err != nil || !group.Supported || group.ReasonCode != "" || len(group.Choices) != 0 {

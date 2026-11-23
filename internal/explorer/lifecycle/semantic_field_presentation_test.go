@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -35,7 +37,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 		Observation: semanticFrameCompatibilityObservation("quantity"),
 	}
 	family := semanticFrameCompatibilityFamily(t, entry)
-	frame, err := authoringv2.NewFrameDefinition(
+	frame, err := ws.NewFrameDefinition(
 		"Measurement values", "Measurements from the saved exact semantic binding.", family, nil, capability.ConstructionChoiceValue,
 	)
 	if err != nil {
@@ -52,16 +54,16 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: project, ExplorerID: "explorer",
+	catalogSnapshot := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: project, ExplorerID: "explorer",
 		SourceGeneration: generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		SnapshotToken: snapshot.Token, Complete: true,
-		Nodes: []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
-		Candidates: []authoringv2.CatalogCandidate{{
+		Nodes: []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		Candidates: []ws.CatalogCandidate{{
 			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
 			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
 			ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &fieldChoice,
-		}}, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		}}, RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 	newBuildID := semantic.BuildID(project, generation)
 	if previousBuildID == newBuildID {
@@ -73,7 +75,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 		},
 		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			if options.Project != project || options.DatasetGeneration != generation || options.ResourceType != "Observation" || options.BindingID != bindingID {
@@ -117,7 +119,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 	}
 
 	response, err := service.ApplyCommands(context.Background(), project, "explorer", authoringv2.ApplyCommandsRequest{
-		CommandID: "saved-frame-after-coverage-version", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "saved-frame-after-coverage-version", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{
 			ChoiceID: after.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID,
@@ -287,23 +289,23 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 
 func TestFieldPresentationRequiresStageWhenOutputHasConstructionSteps(t *testing.T) {
 	fixture := newFieldPresentationTestFixture(t, false)
-	workspace, err := authoringv2.DecodeWorkspace(fixture.store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(fixture.store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.Documents[0].Columns = []authoringv2.Column{{
+	workspace.Documents[0].Columns = []ws.Column{{
 		ColumnID: "observation-id", Column: "observation_id", Label: "Observation ID", LogicalType: "string",
-		OccurrenceID: authoringv2.RootOccurrenceID,
-		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 	}}
-	workspace.Documents[0].Construction = &authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{{
-			ID: "filter-stage", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: "observation-id", Operator: authoringv2.ConstructionFilterExists,
+	workspace.Documents[0].Construction = &ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{{
+			ID: "filter-stage", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "observation-id", Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: []authoringv2.StageColumn{{ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string"}},
 		}},
 	}
 	persistTestWorkspace(t, fixture.store, workspace)
@@ -534,23 +536,23 @@ func assertFieldPresentationCodedFamilyProof(
 		t.Fatal(err)
 	}
 	store := semanticAuthoringStore(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := &workspace.Documents[0]
 	document.RootResourceType = resourceType
-	document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType, Children: []authoringv2.RouteNode{}}
-	document.Columns = []authoringv2.Column{}
-	document.FixedFilters = []authoringv2.FixedFilter{}
-	document.Actions = []authoringv2.Action{}
+	document.Route = ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: resourceType, Children: []ws.RouteNode{}}
+	document.Columns = []ws.Column{}
+	document.FixedFilters = []ws.FixedFilter{}
+	document.Actions = []ws.Action{}
 	persistTestWorkspace(t, store, workspace)
-	catalogSnapshot := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: project, ExplorerID: "patients",
+	catalogSnapshot := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: project, ExplorerID: "patients",
 		SourceGeneration: generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-		Nodes: []authoringv2.CatalogNode{{ID: sourceNodeID, ResourceType: resourceType, RowRootEligible: true}},
-		Candidates: []authoringv2.CatalogCandidate{
+		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+		Nodes: []ws.CatalogNode{{ID: sourceNodeID, ResourceType: resourceType, RowRootEligible: true}},
+		Candidates: []ws.CatalogCandidate{
 			{ID: codeCandidate.ID, NodeID: codeCandidate.NodeID, FieldPath: codeCandidate.FieldPath, Label: codeCandidate.Label, LogicalType: codeCandidate.LogicalType, Cardinality: codeCandidate.Cardinality, Repeated: true, ProjectionModes: []string{"ARRAY"}, DefaultProjectionMode: "ARRAY", ConstructionChoice: &codeChoice},
 			{ID: displayCandidate.ID, NodeID: displayCandidate.NodeID, FieldPath: displayCandidate.FieldPath, Label: displayCandidate.Label, LogicalType: displayCandidate.LogicalType, Cardinality: displayCandidate.Cardinality, Repeated: true, ProjectionModes: []string{"FIRST", "ARRAY"}, DefaultProjectionMode: "FIRST", ConstructionChoice: &displayChoice},
 		},
@@ -570,7 +572,7 @@ func assertFieldPresentationCodedFamilyProof(
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 		},
 		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
 			return semantic.Page{State: semantic.Complete, Build: build, Families: []semantic.Family{family}}, nil
@@ -592,7 +594,7 @@ func assertFieldPresentationCodedFamilyProof(
 		Project: project, ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: resourceType, OutputID: "patients",
 		FieldPresentation: &semanticbrowse.FieldPresentationRequest{
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-			SourceNodeID: sourceNodeID, OccurrenceID: authoringv2.RootOccurrenceID, CandidateIDs: []string{codeCandidate.ID},
+			SourceNodeID: sourceNodeID, OccurrenceID: ws.RootOccurrenceID, CandidateIDs: []string{codeCandidate.ID},
 		},
 	}
 	response, err := service.BrowseSemanticInventory(context.Background(), request)
@@ -694,7 +696,7 @@ func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 		t.Fatalf("semantic replacement add produced workspace=%#v", applied.Workspace)
 	}
 	column := applied.Workspace.Documents[0].Columns[0]
-	wantOccurrence := authoringv2.RootOccurrenceID
+	wantOccurrence := ws.RootOccurrenceID
 	if related {
 		wantOccurrence = fixture.occurrenceID
 	}
@@ -729,7 +731,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot(project, generation, "field-presentation-snapshot", scope)
 	rootResourceType := "Observation"
-	occurrenceID := authoringv2.RootOccurrenceID
+	occurrenceID := ws.RootOccurrenceID
 	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
 	if related {
 		rootResourceType = "Patient"
@@ -760,45 +762,45 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogNodes := []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: !related}}
-	catalogEdges := []authoringv2.CatalogEdge{}
+	catalogNodes := []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: !related}}
+	catalogEdges := []ws.CatalogEdge{}
 	if related {
-		catalogNodes = []authoringv2.CatalogNode{
+		catalogNodes = []ws.CatalogNode{
 			{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
 			{ID: "observation", ResourceType: "Observation"},
 		}
-		catalogEdges = []authoringv2.CatalogEdge{{ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"}}
+		catalogEdges = []ws.CatalogEdge{{ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"}}
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: project, ExplorerID: "patients",
+	catalogSnapshot := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: project, ExplorerID: "patients",
 		SourceGeneration: generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
 		Nodes: catalogNodes, Edges: catalogEdges,
-		Candidates: []authoringv2.CatalogCandidate{{
+		Candidates: []ws.CatalogCandidate{{
 			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
 			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, ProjectionModes: []string{"VALUE"},
 			DefaultProjectionMode: "VALUE", ConstructionChoice: &fieldChoice,
 		}},
 	}
 	store := semanticAuthoringStore(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := &workspace.Documents[0]
 	document.RootResourceType = rootResourceType
-	document.Columns = []authoringv2.Column{}
-	document.FixedFilters = []authoringv2.FixedFilter{}
-	document.Actions = []authoringv2.Action{}
+	document.Columns = []ws.Column{}
+	document.FixedFilters = []ws.FixedFilter{}
+	document.Actions = []ws.Action{}
 	if related {
-		document.Route = authoringv2.RouteNode{
-			OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient",
-			Children: []authoringv2.RouteNode{{
-				OccurrenceID: occurrenceID, ResourceType: "Observation", Relationship: "subject_Patient", MatchMode: authoringv2.RouteMatchOptional,
+		document.Route = ws.RouteNode{
+			OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient",
+			Children: []ws.RouteNode{{
+				OccurrenceID: occurrenceID, ResourceType: "Observation", Relationship: "subject_Patient", MatchMode: ws.RouteMatchOptional,
 			}},
 		}
 	} else {
-		document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation", Children: []authoringv2.RouteNode{}}
+		document.Route = ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation", Children: []ws.RouteNode{}}
 	}
 	persistTestWorkspace(t, store, workspace)
 	coverage := semanticarango.SemanticCoverageCandidateResult{
@@ -824,7 +826,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 				fixture.authorizationReads++
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 		},
 		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			fixture.inventoryReads++

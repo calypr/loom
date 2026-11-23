@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -46,7 +48,7 @@ func (s *revisionErrorBackend) GetRevision(context.Context, string) (*explorer.R
 	return nil, s.err
 }
 
-func artifactOpenRecord(receipt *explorer.CompilationReceipt, snapshotToken string) explorer.ArtifactRecord {
+func artifactOpenRecord(receipt *receiptmodel.CompilationReceipt, snapshotToken string) explorer.ArtifactRecord {
 	record := explorer.ArtifactRecord{
 		Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients",
 		ReceiptID: receipt.ID, ExecutionID: "execution-a", DatasetGeneration: receipt.SourceGeneration,

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -101,7 +103,7 @@ func migrationHistoryOrderRaw(t *testing.T, value explorer.DraftRevision, reorde
 }
 
 func TestSaveDraftMigrationReusesEquivalentImmutableHistoryWithReorderedWorkspaceObjects(t *testing.T) {
-	owner := explorer.Explorer{Project: "project-order", ExplorerID: "patients", Title: "Before", ManagementMode: explorer.ManagementInteractive,
+	owner := explorer.Explorer{Project: "project-order", ExplorerID: "patients", Title: "Before", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig:  json.RawMessage(`{"workspace":{"document":{"first":1,"second":2}},"array":[1,2],"integer":9007199254740993}`),
 		DraftVersion: 7, DraftDigest: "sha256:prior", DraftSnapshotToken: "snapshot-prior", DraftSourceGeneration: "generation-prior",
 		DraftAuthorizationScopeDigest: "scope-prior", UpdatedBy: "fixture", UpdatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
@@ -156,7 +158,7 @@ func TestSaveDraftMigrationRejectsSemanticImmutableHistoryChanges(t *testing.T) 
 	}
 	for _, tc := range mutations {
 		t.Run(tc.name, func(t *testing.T) {
-			owner := explorer.Explorer{Project: "project-order", ExplorerID: "patients", Title: "Before", ManagementMode: explorer.ManagementInteractive,
+			owner := explorer.Explorer{Project: "project-order", ExplorerID: "patients", Title: "Before", ManagementMode: viewer.ManagementInteractive,
 				DraftConfig:  json.RawMessage(`{"workspace":{"document":{"first":1,"second":2}},"array":[1,2],"integer":9007199254740993}`),
 				DraftVersion: 7, DraftDigest: "sha256:prior", DraftSnapshotToken: "snapshot-prior", DraftSourceGeneration: "generation-prior",
 				DraftAuthorizationScopeDigest: "scope-prior", UpdatedBy: "fixture", UpdatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}

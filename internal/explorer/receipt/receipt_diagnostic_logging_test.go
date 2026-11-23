@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -25,7 +29,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestCompileExplorerReceiptLogsSafeStructuredSummary(t *testing.T) {
@@ -207,7 +210,7 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileReceiptRequest, *dataframeexecution.Engine, *explorer.Service) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +233,7 @@ func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileRe
 	}, engine, service
 }
 
-func recipeBindingsForDiagnostic(receipt *explorer.CompilationReceipt) recipe.RuntimeBindings {
+func recipeBindingsForDiagnostic(receipt *receiptmodel.CompilationReceipt) recipe.RuntimeBindings {
 	return recipe.RuntimeBindings{
 		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: receipt.SourceGeneration,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, OutputNames: []string{"patients"},

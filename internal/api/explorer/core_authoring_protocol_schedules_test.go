@@ -13,6 +13,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -22,7 +27,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -170,7 +174,7 @@ type coreProtocolReplayStores struct {
 	mode    string
 	fixture *coreProtocolFixture
 
-	receipt func(context.Context, string) (*explorer.CompilationReceipt, bool)
+	receipt func(context.Context, string) (*receiptmodel.CompilationReceipt, bool)
 
 	hasReceipts func(context.Context) bool
 
@@ -184,7 +188,7 @@ func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 	return coreProtocolReplayStores{
 		mode:    "map",
 		fixture: fixture,
-		receipt: func(ctx context.Context, id string) (*explorer.CompilationReceipt, bool) {
+		receipt: func(ctx context.Context, id string) (*receiptmodel.CompilationReceipt, bool) {
 			receipt, err := store.GetCompilationReceiptForExplorer(ctx, coreProtocolReplayProject, coreProtocolReplayExplorerID, id)
 			if err != nil {
 				return nil, false
@@ -214,7 +218,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	seedCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if _, err := graph.Create(seedCtx, explorer.Explorer{
-		Project: coreProtocolReplayProject, ExplorerID: coreProtocolReplayExplorerID, Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: coreProtocolReplayProject, ExplorerID: coreProtocolReplayExplorerID, Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -245,18 +249,18 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			if fixture.beforeCompile != nil {
 				fixture.beforeCompile()
 			}
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, requestProject, requestExplorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, requestProject, requestExplorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, requestProject, requestExplorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -274,7 +278,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	return coreProtocolReplayStores{
 		mode:    coreProtocolReplayStoreNameArango,
 		fixture: fixture,
-		receipt: func(_ context.Context, id string) (*explorer.CompilationReceipt, bool) {
+		receipt: func(_ context.Context, id string) (*receiptmodel.CompilationReceipt, bool) {
 			readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer readCancel()
 			receipt, err := graph.GetCompilationReceiptForExplorer(readCtx, coreProtocolReplayProject, coreProtocolReplayExplorerID, id)
@@ -895,7 +899,7 @@ func TestCoreAuthoringProtocolConcretePrefixReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			currentSeed, err := authoringv2.DecodeCurrentWorkspace(canonicalSeed)
+			currentSeed, err := ws.DecodeCurrentWorkspace(canonicalSeed)
 			if err != nil {
 				t.Fatalf("concrete seed is not current canonical workspace: %v", err)
 			}
@@ -903,7 +907,7 @@ func TestCoreAuthoringProtocolConcretePrefixReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if currentSeed.SemanticsVersion != authoringv2.CurrentSemanticsVersion || canonicalSeedDigest != stores.fixture.initialDigest || expected.SeedDigest != canonicalSeedDigest {
+			if currentSeed.SemanticsVersion != ws.CurrentSemanticsVersion || canonicalSeedDigest != stores.fixture.initialDigest || expected.SeedDigest != canonicalSeedDigest {
 				t.Fatalf("frozen seed must independently match current canonical workspace: semantics=%d fixture=%q canonical=%q frozen=%q", currentSeed.SemanticsVersion, stores.fixture.initialDigest, canonicalSeedDigest, expected.SeedDigest)
 			}
 			got := runCoreProtocolReplayConcreteCase(program, stores)

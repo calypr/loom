@@ -3,11 +3,13 @@ package publicationdb
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
-	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	publicationdata "github.com/calypr/loom/internal/dataframe/publication"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
@@ -167,7 +169,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 				"revisionKey": revision.ID,
 				"project":     project,
 				"explorerId":  revision.ExplorerID,
-				"management":  explorer.ManagementRepository,
+				"management":  viewer.ManagementRepository,
 			})
 			if err != nil {
 				return err
@@ -472,7 +474,7 @@ func settingsVersion(settings *viewBuilderSettingsRow) int64 {
 	return settings.value.Version
 }
 
-func settingsAfterCatalogPublish(current *viewBuilderSettingsRow, project, recipeName, revisionID string) explorer.ViewBuilderSettings {
+func settingsAfterCatalogPublish(current *viewBuilderSettingsRow, project, recipeName, revisionID string) viewer.ViewBuilderSettings {
 	settings := emptyViewBuilderSettings(project)
 	if current != nil {
 		settings = cloneViewBuilderSettings(current.value)
@@ -586,7 +588,7 @@ func planProjectConfigOwners(request explorer.ProjectConfigPublishRequest, proje
 }
 
 func validateProjectConfigOwner(owner explorer.Explorer, project, id, recipeName string) error {
-	if owner.Project != project || owner.ExplorerID != id || owner.ManagementMode != explorer.ManagementRepository || owner.ProjectConfig == nil {
+	if owner.Project != project || owner.ExplorerID != id || owner.ManagementMode != viewer.ManagementRepository || owner.ProjectConfig == nil {
 		return fmt.Errorf("project config owner %q collides with an unmanaged Explorer: %w", id, explorer.ErrDraftConflict)
 	}
 	if owner.ProjectConfig.ID != id || owner.ProjectConfig.RecipeRef.Name != recipeName {
@@ -697,7 +699,7 @@ func writeProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project s
 	definition := plan.publication.Definition
 	owner := explorer.Explorer{
 		Project: project, ExplorerID: definition.ID, Title: definition.Title,
-		ManagementMode: explorer.ManagementRepository, ProjectConfig: &definition,
+		ManagementMode: viewer.ManagementRepository, ProjectConfig: &definition,
 		DraftVersion: 1, DraftDigest: plan.digest,
 		UpdatedBy: plan.publication.Revision.CreatedBy, UpdatedAt: plan.updatedAt,
 	}
@@ -751,7 +753,7 @@ func retireProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project,
 	err := tx.QueryRows(ctx, retireProjectConfigOwnerAQL, 1, map[string]any{
 		"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, owner.value.ExplorerID),
 		"expectedRev": stringValue(owner.doc["_rev"]), "project": project,
-		"explorerId": owner.value.ExplorerID, "management": explorer.ManagementRepository,
+		"explorerId": owner.value.ExplorerID, "management": viewer.ManagementRepository,
 		"recipeName": recipeName, "revisionId": owner.value.ActiveRevisionID,
 		"updatedAt": at,
 	}, func(map[string]any) error { updated = true; return nil })

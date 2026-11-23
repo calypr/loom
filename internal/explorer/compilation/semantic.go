@@ -4,6 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
@@ -14,14 +19,13 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type semanticOccurrence struct {
-	node  authoringv2.RouteNode
+	node  ws.RouteNode
 	graph capability.Node
 	edge  *capability.Edge
 }
@@ -34,7 +38,7 @@ type semanticRecipeNode struct {
 	aggregates   []recipe.Aggregate
 }
 
-func compileSemanticDocument(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot, workspaceOutputIDs []string) (Result, error) {
+func compileSemanticDocument(ctx context.Context, project, explorerID string, document ws.Document, snapshot capability.Snapshot, workspaceOutputIDs []string) (Result, error) {
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
@@ -42,22 +46,22 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err != nil {
 		return Result{}, err
 	}
-	root := occurrences[authoringv2.RootOccurrenceID]
+	root := occurrences[ws.RootOccurrenceID]
 	rowGrain, ok := spec.InferRowGrain(root.graph.ResourceType)
 	if !ok || !root.graph.RowRootEligible {
 		return Result{}, fail("lower", "UNSUPPORTED_ROW_ROOT", "$.rootResourceType", "root resource type is not an eligible recipe row root", map[string]any{"resourceType": root.graph.ResourceType}, nil)
 	}
 	var expansion *recipe.Expansion
 	var groupRows *recipe.GroupRows
-	if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
+	if document.Rows.Kind == ws.RowDefinitionExpanded {
 		compiled, err := compileExpandedRows(document.Rows.Expanded, document.Route, occurrences, snapshot)
 		if err != nil {
 			return Result{}, err
 		}
 		expansion = &compiled
 		rowGrain = spec.RowGrainExpanded
-	} else if document.Rows.Kind == authoringv2.RowDefinitionGroups {
-		if document.Rows.Groups == nil || document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
+	} else if document.Rows.Kind == ws.RowDefinitionGroups {
+		if document.Rows.Groups == nil || document.Rows.Groups.Source.Kind != ws.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
 			return Result{}, fail("lower", "UNSUPPORTED_GROUP_SOURCE", "$.rows.groups.source", "only pinned explicit group revisions can produce rows", nil, nil)
 		}
 		explicit := document.Rows.Groups.Source.Explicit
@@ -79,8 +83,8 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		nodes[id] = &semanticRecipeNode{}
 	}
 	columnTransformations := make([]recipe.ColumnTransformation, 0, len(document.Columns))
-	emitted := make([]explorer.EmittedColumn, 0, len(document.Columns))
-	mappings := make([]explorer.IdentityMapping, 0, len(document.Columns))
+	emitted := make([]viewer.EmittedColumn, 0, len(document.Columns))
+	mappings := make([]receiptmodel.IdentityMapping, 0, len(document.Columns))
 	presentation := PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: make([]PresentationColumn, 0, len(document.Columns))}
 	rowMultiplication := "none"
 	if expansion != nil {
@@ -90,7 +94,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if len(document.Columns) == 0 {
 		structuralSuitability = ""
 	}
-	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: rowMultiplication, Lossless: true, MLReady: true, StructuralSuitability: structuralSuitability, Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
+	contract := receiptmodel.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: rowMultiplication, Lossless: true, MLReady: true, StructuralSuitability: structuralSuitability, Columns: make([]receiptmodel.PublicOutputColumn, 0, len(document.Columns))}
 	columns := semanticColumnCompiler{
 		project: project, explorerID: explorerID, document: document, snapshot: snapshot,
 		occurrences: occurrences, nodes: nodes, expansion: expansion,
@@ -110,7 +114,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			path := strings.TrimPrefix(strings.TrimSpace(projection.FieldPath), "root.")
 			expanded := constructionExpandedFieldOwner(document.Construction, projection, path)
 			candidate, found := semanticFieldCandidate(snapshot, root.graph.ID, path)
-			if projection.OccurrenceID != authoringv2.RootOccurrenceID || !found ||
+			if projection.OccurrenceID != ws.RootOccurrenceID || !found ||
 				strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != path || candidate.LogicalType != projection.LogicalType {
 				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized field on the root resource", map[string]any{"fieldPath": path}, nil)
 			}
@@ -137,7 +141,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			if expanded != nil {
 
 				if !repeated || facts.Shape != fhirschema.RowPathArray || facts.Cardinality != fhirschema.RowCardinalityMany ||
-					expanded.Path != path || expanded.Cardinality != authoringv2.ConstructionExpandedFieldCardinalityMany ||
+					expanded.Path != path || expanded.Cardinality != ws.ConstructionExpandedFieldCardinalityMany ||
 					expanded.LogicalType != projection.LogicalType || expanded.FHIRType != projection.FHIRType {
 					return Result{}, fail("capability", "STALE_EXPANDED_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "signed expanded field no longer names a direct-root many-cardinality non-reference array", map[string]any{"fieldPath": path}, err)
 				}
@@ -148,15 +152,15 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches generated FHIR scalar metadata", map[string]any{"fieldPath": path}, err)
 			}
 			laneField := recipe.Field{
-				Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID), ColumnID: projection.ColumnID,
+				Name: ws.ConstructionSourceProjectionName(projection.ColumnID), ColumnID: projection.ColumnID,
 				Label: projection.Label, FieldRef: projection.FieldPath,
-				Expr: recipe.Expression{Select: semanticAlias(authoringv2.RootOccurrenceID) + "." + path},
+				Expr: recipe.Expression{Select: semanticAlias(ws.RootOccurrenceID) + "." + path},
 			}
 			if expanded != nil {
 
 				laneField.ValueMode = recipe.ValueModeAll
 			}
-			nodes[authoringv2.RootOccurrenceID].fields = append(nodes[authoringv2.RootOccurrenceID].fields, laneField)
+			nodes[ws.RootOccurrenceID].fields = append(nodes[ws.RootOccurrenceID].fields, laneField)
 		}
 	}
 
@@ -164,7 +168,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err != nil {
 		return Result{}, fail("capability", "UNSUPPORTED_CONSTRUCTION_SOURCE_SHAPE", "$.construction.sourceColumns", err.Error(), nil, err)
 	}
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: ws.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[ws.RootOccurrenceID].fields, Pivots: nodes[ws.RootOccurrenceID].pivots, OwnerRecords: nodes[ws.RootOccurrenceID].ownerRecords, Aggregates: nodes[ws.RootOccurrenceID].aggregates, DynamicColumns: nodes[ws.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
 	if expansion != nil {
 		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
 	}
@@ -181,7 +185,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
 }
 
-func mergeContractQuality(contract *explorer.PublicOutputContract, emission explorer.EmittedColumn) {
+func mergeContractQuality(contract *receiptmodel.PublicOutputContract, emission viewer.EmittedColumn) {
 	contract.Lossless = contract.Lossless && emission.Lossless
 	contract.MLReady = contract.MLReady && emission.MLReady
 	if emission.StructuralSuitability == "requires-review" {
@@ -228,8 +232,8 @@ func indexedLabel(label string, coordinates []capability.RepeatedCoordinate) str
 	return strings.Join(parts, " ")
 }
 
-func publicColumnContract(column explorer.EmittedColumn) explorer.PublicOutputColumn {
-	return explorer.PublicOutputColumn{
+func publicColumnContract(column viewer.EmittedColumn) receiptmodel.PublicOutputColumn {
+	return receiptmodel.PublicOutputColumn{
 		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), InputColumns: append([]string(nil), column.InputColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
 		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
 		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...), UnitNormalization: clonePublicUnitNormalization(column.UnitNormalization),
@@ -237,7 +241,7 @@ func publicColumnContract(column explorer.EmittedColumn) explorer.PublicOutputCo
 	}
 }
 
-func publicUnitNormalization(policy *authoringv2.UnitNormalizationPolicy) *explorer.PublicUnitNormalization {
+func publicUnitNormalization(policy *ws.UnitNormalizationPolicy) *viewer.PublicUnitNormalization {
 	if policy == nil {
 		return nil
 	}
@@ -245,23 +249,23 @@ func publicUnitNormalization(policy *authoringv2.UnitNormalizationPolicy) *explo
 	if err != nil {
 		return nil
 	}
-	rules := make([]explorer.PublicUnitRuleIdentity, 0, len(approved.Rules))
+	rules := make([]viewer.PublicUnitRuleIdentity, 0, len(approved.Rules))
 	for _, rule := range approved.Rules {
-		rules = append(rules, explorer.PublicUnitRuleIdentity{ID: rule.ID, Version: rule.Version})
+		rules = append(rules, viewer.PublicUnitRuleIdentity{ID: rule.ID, Version: rule.Version})
 	}
-	return &explorer.PublicUnitNormalization{Target: approved.Target, Rules: rules}
+	return &viewer.PublicUnitNormalization{Target: approved.Target, Rules: rules}
 }
 
-func clonePublicUnitNormalization(input *explorer.PublicUnitNormalization) *explorer.PublicUnitNormalization {
+func clonePublicUnitNormalization(input *viewer.PublicUnitNormalization) *viewer.PublicUnitNormalization {
 	if input == nil {
 		return nil
 	}
 	copy := *input
-	copy.Rules = append([]explorer.PublicUnitRuleIdentity(nil), input.Rules...)
+	copy.Rules = append([]viewer.PublicUnitRuleIdentity(nil), input.Rules...)
 	return &copy
 }
 
-func presentationColumn(source authoringv2.Column, sourceOrder, order int, emission explorer.EmittedColumn) PresentationColumn {
+func presentationColumn(source ws.Column, sourceOrder, order int, emission viewer.EmittedColumn) PresentationColumn {
 	visible := true
 	pinned := false
 	if source.Table != nil {
@@ -289,15 +293,15 @@ func presentationColumn(source authoringv2.Column, sourceOrder, order int, emiss
 	return result
 }
 
-func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, []string, error) {
+func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, []string, error) {
 	byType := map[string][]capability.Node{}
 	for _, node := range snapshot.Nodes {
 		byType[node.ResourceType] = append(byType[node.ResourceType], node)
 	}
 	result := map[string]semanticOccurrence{}
 	order := []string{}
-	var walk func(authoringv2.RouteNode, *semanticOccurrence, string, int, map[string]bool) error
-	walk = func(route authoringv2.RouteNode, parent *semanticOccurrence, path string, depth int, usedEdges map[string]bool) error {
+	var walk func(ws.RouteNode, *semanticOccurrence, string, int, map[string]bool) error
+	walk = func(route ws.RouteNode, parent *semanticOccurrence, path string, depth int, usedEdges map[string]bool) error {
 		if snapshot.Policy.Route.MaxHops > 0 && depth > snapshot.Policy.Route.MaxHops {
 			return fail("route", "ROUTE_TOO_LONG", path, "route exceeds capability route policy", map[string]any{"maxHops": snapshot.Policy.Route.MaxHops, "hops": depth}, nil)
 		}
@@ -353,7 +357,7 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 		current := semanticOccurrence{node: route, graph: graph, edge: edge}
 		result[route.OccurrenceID] = current
 		order = append(order, route.OccurrenceID)
-		children := append([]authoringv2.RouteNode(nil), route.Children...)
+		children := append([]ws.RouteNode(nil), route.Children...)
 		sort.SliceStable(children, func(i, j int) bool { return children[i].OccurrenceID < children[j].OccurrenceID })
 		for i := range children {
 			if err := walk(children[i], &current, fmt.Sprintf("%s.children[%d]", path, i), depth+1, usedEdges); err != nil {
@@ -368,7 +372,7 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 	return result, order, nil
 }
 
-func semanticRouteEdgeMatches(snapshot capability.Snapshot, parent capability.Node, child authoringv2.RouteNode, edge capability.Edge) bool {
+func semanticRouteEdgeMatches(snapshot capability.Snapshot, parent capability.Node, child ws.RouteNode, edge capability.Edge) bool {
 	from, fromFound := snapshot.Node(edge.FromNodeID)
 	to, toFound := snapshot.Node(edge.ToNodeID)
 	direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
@@ -379,15 +383,15 @@ func semanticRouteEdgeMatches(snapshot capability.Snapshot, parent capability.No
 		(direction == "" || direction == "INBOUND" || direction == "OUTBOUND")
 }
 
-func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]semanticOccurrence, nodes map[string]*semanticRecipeNode) []recipe.Traversal {
-	children := append([]authoringv2.RouteNode(nil), route.Children...)
+func semanticTraversals(route ws.RouteNode, occurrences map[string]semanticOccurrence, nodes map[string]*semanticRecipeNode) []recipe.Traversal {
+	children := append([]ws.RouteNode(nil), route.Children...)
 	sort.SliceStable(children, func(i, j int) bool { return children[i].OccurrenceID < children[j].OccurrenceID })
 	result := make([]recipe.Traversal, 0, len(children))
 	for _, child := range children {
 		occurrence := occurrences[child.OccurrenceID]
 		node := nodes[child.OccurrenceID]
 		matchMode := recipe.MatchOptional
-		if child.MatchMode.Normalized() == authoringv2.RouteMatchRequired {
+		if child.MatchMode.Normalized() == ws.RouteMatchRequired {
 			matchMode = recipe.MatchRequired
 		}
 		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), OccurrenceID: child.OccurrenceID, Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: matchMode, Fields: node.fields, Pivots: node.pivots, OwnerRecords: node.ownerRecords, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
@@ -396,7 +400,7 @@ func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]sema
 }
 
 func semanticAlias(occurrenceID string) string {
-	if occurrenceID == authoringv2.RootOccurrenceID {
+	if occurrenceID == ws.RootOccurrenceID {
 		return "root"
 	}
 
@@ -440,14 +444,14 @@ func capabilityProjectionMode(mode string) (capability.ProjectionMode, bool) {
 	}
 }
 
-func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
+func semanticFixedLookup(column ws.Column, resourceType, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
 	empty := ""
 	fieldPath := strings.Trim(strings.TrimSpace(column.Source.FieldPath()), ".")
 	sourcePath, keyPath := "", ""
 	var value recipe.Expression
 	sourceKey := column.Source.LookupMatch()
 	switch column.Source.Kind {
-	case authoringv2.SourceIdentifierBySystem:
+	case ws.SourceIdentifierBySystem:
 		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
 			binding := *column.Source.Lookup.Identifier
 			checked, err := fhirbinding.ValidateIdentifierBinding(resourceType, binding)
@@ -462,7 +466,7 @@ func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, l
 			sourcePath, keyPath = firstNonEmpty(fieldPath, "identifier[]"), "item.system"
 			value = recipe.Expression{Select: "item.value"}
 		}
-	case authoringv2.SourceExtensionByURL:
+	case ws.SourceExtensionByURL:
 		sourcePath, keyPath = firstNonEmpty(fieldPath, "extension[]"), "item.url"
 		value = coalesceString("item.valueString", "item.valueCode", "item.valueInteger", "item.valueDecimal", "item.valueBoolean", "item.valueDate", "item.valueDateTime", "item.valueUri")
 	default:
@@ -472,7 +476,7 @@ func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, l
 	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ValueMode: projectionValueMode(column.Source.ProjectionMode()), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: sourceKey}}, nil
 }
 
-func semanticAggregate(column authoringv2.Column, alias, resourceType string, contributorWhere *recipe.Filter) (recipe.Aggregate, string, error) {
+func semanticAggregate(column ws.Column, alias, resourceType string, contributorWhere *recipe.Filter) (recipe.Aggregate, string, error) {
 	if column.Source.Aggregate == nil {
 		return recipe.Aggregate{}, "", fmt.Errorf("aggregate payload is required")
 	}
@@ -578,7 +582,7 @@ func capabilityCandidate(snapshot capability.Snapshot, nodeID, candidateID strin
 	return capability.Candidate{}, false
 }
 
-func contributorRecipeFilter(resourceType, alias string, candidate capability.Candidate, predicate authoringv2.ContributorPredicate) (recipe.Filter, error) {
+func contributorRecipeFilter(resourceType, alias string, candidate capability.Candidate, predicate ws.ContributorPredicate) (recipe.Filter, error) {
 	path := strings.TrimPrefix(strings.Trim(strings.TrimSpace(candidate.FieldPath), "."), "root.")
 	selector, err := spec.ParseSelector(path)
 	if err != nil {
@@ -594,10 +598,10 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 	if predicate.Value != nil {
 		value := recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
 		switch predicate.Value.Kind {
-		case authoringv2.ContributorString:
+		case ws.ContributorString:
 			stringValue := *predicate.Value.String
 			value.String = &stringValue
-		case authoringv2.ContributorValueCode:
+		case ws.ContributorValueCode:
 			value.Code = &recipe.CodeValue{Code: predicate.Value.Code.Code}
 		default:
 			return recipe.Filter{}, fmt.Errorf("unsupported contributor value kind %q", predicate.Value.Kind)
@@ -610,7 +614,7 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 	return where, nil
 }
 
-func semanticExtensionPivot(column authoringv2.Column, leaf string) (recipe.Pivot, error) {
+func semanticExtensionPivot(column ws.Column, leaf string) (recipe.Pivot, error) {
 	lookup := column.Source.Lookup
 	if lookup == nil || lookup.Extension == nil {
 		return recipe.Pivot{}, fmt.Errorf("ancestor-aware extension lookup requires extension binding")
@@ -626,7 +630,7 @@ func semanticExtensionPivot(column authoringv2.Column, leaf string) (recipe.Pivo
 	}, nil
 }
 
-func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Pivot, error) {
+func semanticCodedValuePivot(column ws.Column, leaf string) (recipe.Pivot, error) {
 	lookup := column.Source.Lookup
 	if lookup == nil || lookup.Binding == nil || lookup.Key == nil {
 		return recipe.Pivot{}, fmt.Errorf("correlated coding lookup requires binding and key")
@@ -669,19 +673,19 @@ func coalesceString(paths ...string) recipe.Expression {
 	return recipe.Expression{Call: "coalesce_string", Args: args}
 }
 
-func constructionExpandedFieldOwner(construction *authoringv2.Construction, projection authoringv2.ConstructionSourceProjection, path string) *authoringv2.ConstructionExpandedFieldSource {
+func constructionExpandedFieldOwner(construction *ws.Construction, projection ws.ConstructionSourceProjection, path string) *ws.ConstructionExpandedFieldSource {
 	if projection.OwnerStepID == "" {
 		return nil
 	}
 	for _, step := range construction.Steps {
-		if step.ID != projection.OwnerStepID || step.Operation.Kind != authoringv2.ConstructionOperationExpand || step.Operation.Expand == nil {
+		if step.ID != projection.OwnerStepID || step.Operation.Kind != ws.ConstructionOperationExpand || step.Operation.Expand == nil {
 			continue
 		}
 		expanded := step.Operation.Expand
 		if expanded.ExpandedField == nil || expanded.InputColumnID != projection.ColumnID {
 			return nil
 		}
-		if err := authoringv2.ValidateConstructionExpandedFieldSource(expanded.ExpandedField); err != nil || expanded.ExpandedField.Path != path {
+		if err := ws.ValidateConstructionExpandedFieldSource(expanded.ExpandedField); err != nil || expanded.ExpandedField.Path != path {
 			return nil
 		}
 		return expanded.ExpandedField
@@ -689,12 +693,12 @@ func constructionExpandedFieldOwner(construction *authoringv2.Construction, proj
 	return nil
 }
 
-func (columns *semanticColumnCompiler) compileAggregate(index int, column authoringv2.Column, occurrence semanticOccurrence, alias string) (string, error) {
+func (columns *semanticColumnCompiler) compileAggregate(index int, column ws.Column, occurrence semanticOccurrence, alias string) (string, error) {
 	document, snapshot := columns.document, columns.snapshot
-	root := columns.occurrences[authoringv2.RootOccurrenceID]
+	root := columns.occurrences[ws.RootOccurrenceID]
 	nodes, explorerID := columns.nodes, columns.explorerID
 	if source := column.Source.Aggregate; source != nil {
-		if source.ContributorWindow != nil && column.OccurrenceID == authoringv2.RootOccurrenceID {
+		if source.ContributorWindow != nil && column.OccurrenceID == ws.RootOccurrenceID {
 			return "", fail("intent", "CONTRIBUTOR_WINDOW_REQUIRES_RELATED_RESOURCE", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow", index), "contributor windows require a related resource occurrence", nil, nil)
 		}
 		operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Operation)))
@@ -703,7 +707,7 @@ func (columns *semanticColumnCompiler) compileAggregate(index int, column author
 		if found {
 			input := capability.AggregateInput{
 				LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
-				HasField: path != "", RelatedResource: column.OccurrenceID != authoringv2.RootOccurrenceID,
+				HasField: path != "", RelatedResource: column.OccurrenceID != ws.RootOccurrenceID,
 				ContributorWindowConfigured: source.ContributorWindow != nil,
 				OrderingConfigured:          source.Ordering != nil,
 				RequiredValuesConfigured:    len(source.RequiredValues) > 0,
@@ -718,7 +722,7 @@ func (columns *semanticColumnCompiler) compileAggregate(index int, column author
 	}
 	var contributorWhere *recipe.Filter
 	if column.Contributor != nil {
-		catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
+		catalog := ws.CatalogFromCapability(snapshot, explorerID)
 		if err := authoringv2.ValidateContributorForCatalog(document, catalog, column.OccurrenceID, column.Source, *column.Contributor); err != nil {
 			return "", fail("intent", "INVALID_CONTRIBUTOR_PREDICATE", fmt.Sprintf("$.columns[%d].contributor", index), err.Error(), map[string]any{"candidateId": column.Contributor.CandidateID}, err)
 		}
@@ -756,7 +760,7 @@ func (columns *semanticColumnCompiler) compileAggregate(index int, column author
 					return "", fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is required for this operation", map[string]any{"operation": operation}, nil)
 				}
 			}
-			transformations := authoringv2.AggregateTransformationCapabilitiesForCapability(snapshot, transformCandidate.ID)
+			transformations := ws.AggregateTransformationCapabilitiesForCapability(snapshot, transformCandidate.ID)
 			if !transformations.Temporal.SupportsTimestamp(occurrence.graph.ResourceType, timestampPath) {
 				return "", fail("capability", "UNADVERTISED_CONTRIBUTOR_WINDOW_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow.timestampPath", index), "contributor window timestamp is not an advertised scalar date_time choice for the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
 			}
@@ -785,7 +789,7 @@ func (columns *semanticColumnCompiler) compileAggregate(index int, column author
 			if !found {
 				return "", fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": aggregatePath}, nil)
 			}
-			transformations := authoringv2.AggregateTransformationCapabilitiesForCapability(snapshot, aggregateCandidate.ID)
+			transformations := ws.AggregateTransformationCapabilitiesForCapability(snapshot, aggregateCandidate.ID)
 			advertised := false
 			for _, preset := range transformations.UnitNormalization.Presets {
 				if preset.PolicyID != policy.PolicyID || preset.Version != policy.Version {

@@ -3,10 +3,11 @@ package ports
 import (
 	"context"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 type ArtifactPublishedReader interface {
@@ -34,4 +35,4 @@ type ExecutionOutput struct {
 	Columns  []publication.PhysicalColumn
 }
 
-type ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error)
+type ReceiptMaterializer func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (Execution, error)

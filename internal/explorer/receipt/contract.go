@@ -14,10 +14,14 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
@@ -105,16 +109,16 @@ func applyReceiptColumnProvenance(output *facade.CompiledRecipeOutput, values ma
 	return nil
 }
 
-func CompileConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine, importedSources ...ports.ConstructionSourceStageCompiler) (explorer.ReceiptConstructionStage, error) {
+func CompileConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine, importedSources ...ports.ConstructionSourceStageCompiler) (receiptmodel.ReceiptConstructionStage, error) {
 	if recipeEngine == nil {
-		return explorer.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the construction source compiler is not configured"}
+		return receiptmodel.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the construction source compiler is not configured"}
 	}
 	if request.Document.Output.ID != request.OutputID {
-		return explorer.ReceiptConstructionStage{}, fmt.Errorf("source-stage document output does not match requested output")
+		return receiptmodel.ReceiptConstructionStage{}, fmt.Errorf("source-stage document output does not match requested output")
 	}
 	if request.Document.ImportedRecipe != nil {
 		if len(importedSources) == 0 {
-			return explorer.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported dataframe source resolution is unavailable"}
+			return receiptmodel.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported dataframe source resolution is unavailable"}
 		}
 		return importedSources[0](ctx, request)
 	}
@@ -123,7 +127,7 @@ func CompileConstructionSourceStage(ctx context.Context, request ports.Construct
 	document.ArchiveRetiredShape = nil
 	translated, err := explorercompilation.Compile(ctx, request.Project, request.ExplorerID, document, request.Authorized.Snapshot)
 	if err != nil {
-		return explorer.ReceiptConstructionStage{}, fmt.Errorf("compile source projection: %w", err)
+		return receiptmodel.ReceiptConstructionStage{}, fmt.Errorf("compile source projection: %w", err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project),
@@ -135,7 +139,7 @@ func CompileConstructionSourceStage(ctx context.Context, request ports.Construct
 	}
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
-		return explorer.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the source projection could not be compiled", Cause: err}
+		return receiptmodel.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the source projection could not be compiled", Cause: err}
 	}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != request.OutputID {
@@ -143,11 +147,11 @@ func CompileConstructionSourceStage(ctx context.Context, request ports.Construct
 		}
 		descriptor, err := facade.DescribeConstructionSourceStage(output.OutputSchema, document.RootResourceType, &output.Plan)
 		if err != nil {
-			return explorer.ReceiptConstructionStage{}, err
+			return receiptmodel.ReceiptConstructionStage{}, err
 		}
 		return explorercompilation.ReceiptConstructionStageFromDescriptor(descriptor)
 	}
-	return explorer.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
+	return receiptmodel.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
 }
 
 func ContractFailure(err error) error {
@@ -183,10 +187,10 @@ func ContractFailure(err error) error {
 }
 
 type ImportedRecipeResolver interface {
-	Resolve(context.Context, string, authoringv2.Workspace, ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error)
+	Resolve(context.Context, string, ws.Workspace, ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error)
 }
 
-func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...ImportedRecipeResolver) (result *explorer.CompilationReceipt, retErr error) {
+func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...ImportedRecipeResolver) (result *receiptmodel.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -224,8 +228,8 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 		return nil, capability.ErrStaleSnapshot
 	}
 	prepareStarted := time.Now()
-	catalog := authoringv2.CatalogFromCapability(snapshot, request.ExplorerID)
-	workspace, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
+	catalog := ws.CatalogFromCapability(snapshot, request.ExplorerID)
+	workspace, err := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 	if err != nil {
 		return nil, &explorercompilation.Error{
 			Stage: "intent", Code: "LEGACY_CONTRIBUTOR_MIGRATION_FAILED", Path: "$.workspace",
@@ -308,11 +312,11 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 	if err != nil {
 		return nil, ContractFailure(err)
 	}
-	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
+	contract, err := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: translated.OutputContracts})
 	if err != nil {
 		return nil, err
 	}
-	contractDigest, err := explorer.CompilationArtifactDigest(contract)
+	contractDigest, err := receiptmodel.CompilationArtifactDigest(contract)
 	if err != nil {
 		return nil, err
 	}
@@ -336,27 +340,27 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 	if err != nil {
 		return nil, fmt.Errorf("build receipt compiled output schemas: %w", err)
 	}
-	var rowDefinitionProposal *explorer.RowDefinitionProposalBinding
+	var rowDefinitionProposal *receiptmodel.RowDefinitionProposalBinding
 	if request.RowDefinitionProposal != nil {
 		binding := *request.RowDefinitionProposal
 		rowDefinitionProposal = &binding
 	}
-	var constructionProposal *explorer.ConstructionProposalBinding
+	var constructionProposal *receiptmodel.ConstructionProposalBinding
 	if request.ConstructionProposal != nil {
 		binding := *request.ConstructionProposal
 		constructionProposal = &binding
 	}
-	var populationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
+	var populationMemberRemovalProposal *receiptmodel.PopulationMemberRemovalProposalBinding
 	if request.PopulationMemberRemovalProposal != nil {
 		binding := *request.PopulationMemberRemovalProposal
 		populationMemberRemovalProposal = &binding
 	}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, ColumnPolicyProposal: CloneColumnPolicyBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: request.SourceRelationshipProposal, RowDefinitionProposal: rowDefinitionProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
-	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
+	receipt := receiptmodel.CompilationReceipt{ReceiptFormatVersion: receiptmodel.CurrentReceiptFormatVersion, CompilerContractVersion: receiptmodel.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]interpretation.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, ColumnPolicyProposal: CloneColumnPolicyBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: request.SourceRelationshipProposal, RowDefinitionProposal: rowDefinitionProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		return nil, err
 	}
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +424,7 @@ func ClassifyRecipeError(err error) error {
 	return err
 }
 
-func PersistValidatedReceipt(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, persist func(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error)) (*explorer.CompilationReceipt, error) {
+func PersistValidatedReceipt(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, persist func(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error)) (*receiptmodel.CompilationReceipt, error) {
 	if _, err := CompileValidatedResolution(ctx, recipeEngine, receipt, bindings); err != nil {
 		id := ""
 		if receipt != nil {
@@ -488,7 +492,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 	for _, presentation := range compiled.Presentations {
 		byOutput[presentation.OutputID] = presentation
 	}
-	tabs := append([]authoringv2.Tab(nil), compiled.Workspace.Tabs...)
+	tabs := append([]ws.Tab(nil), compiled.Workspace.Tabs...)
 	sort.SliceStable(tabs, func(i, j int) bool { return tabs[i].Order < tabs[j].Order })
 	views := make([]explorerconfig.ConfigView, 0, len(tabs))
 	for _, tab := range tabs {
@@ -578,22 +582,22 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 	return json.Marshal(config)
 }
 
-func SemanticWorkspaceDocument(workspace authoringv2.Workspace, outputID string) (authoringv2.Document, bool) {
+func SemanticWorkspaceDocument(workspace ws.Workspace, outputID string) (ws.Document, bool) {
 	for _, document := range workspace.Documents {
 		if document.Output.ID == outputID {
 			return document, true
 		}
 	}
-	return authoringv2.Document{}, false
+	return ws.Document{}, false
 }
 
-func semanticWorkspaceColumn(document authoringv2.Document, column string) (authoringv2.Column, bool) {
+func semanticWorkspaceColumn(document ws.Document, column string) (ws.Column, bool) {
 	for _, authored := range document.Columns {
 		if authored.Column == column {
 			return authored, true
 		}
 	}
-	return authoringv2.Column{}, false
+	return ws.Column{}, false
 }
 
 func firstNonEmptyWorkspaceTitle(values ...string) string {
@@ -605,7 +609,7 @@ func firstNonEmptyWorkspaceTitle(values ...string) string {
 	return "Explorer"
 }
 
-func ValidateResolution(receipt *explorer.CompilationReceipt, resolved *dataframeexecution.Resolved) error {
+func ValidateResolution(receipt *receiptmodel.CompilationReceipt, resolved *dataframeexecution.Resolved) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -667,11 +671,11 @@ func ValidateResolution(receipt *explorer.CompilationReceipt, resolved *datafram
 	return nil
 }
 
-func CompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[string][]explorer.ReceiptCompiledOutputColumn, error) {
+func CompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[string][]receiptmodel.ReceiptCompiledOutputColumn, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("resolved compilation is required")
 	}
-	schemas := make(map[string][]explorer.ReceiptCompiledOutputColumn, len(resolved.Compiled.Outputs))
+	schemas := make(map[string][]receiptmodel.ReceiptCompiledOutputColumn, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {
 		if strings.TrimSpace(output.Name) == "" {
 			return nil, fmt.Errorf("compiled output has an empty name")
@@ -679,9 +683,9 @@ func CompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[string][]
 		if _, duplicate := schemas[output.Name]; duplicate {
 			return nil, fmt.Errorf("compiled output %q appears more than once", output.Name)
 		}
-		columns := make([]explorer.ReceiptCompiledOutputColumn, 0, len(output.OutputSchema))
+		columns := make([]receiptmodel.ReceiptCompiledOutputColumn, 0, len(output.OutputSchema))
 		for _, column := range output.OutputSchema {
-			columns = append(columns, explorer.ReceiptCompiledOutputColumn{
+			columns = append(columns, receiptmodel.ReceiptCompiledOutputColumn{
 				ID: column.ID, Name: column.Name, Label: column.Label, LogicalType: column.Kind,
 				Cardinality: column.Cardinality, Nullable: column.Nullable, Internal: column.Internal, Identity: column.Identity,
 			})
@@ -694,22 +698,22 @@ func CompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[string][]
 	return schemas, nil
 }
 
-func ConstructionStages(resolved *dataframeexecution.Resolved) (map[string][]explorer.ReceiptConstructionStage, error) {
+func ConstructionStages(resolved *dataframeexecution.Resolved) (map[string][]receiptmodel.ReceiptConstructionStage, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("resolved compilation is required")
 	}
-	var stagesByOutput map[string][]explorer.ReceiptConstructionStage
+	var stagesByOutput map[string][]receiptmodel.ReceiptConstructionStage
 	for _, output := range resolved.Compiled.Outputs {
 		if len(output.Stages) == 0 {
 			continue
 		}
 		if stagesByOutput == nil {
-			stagesByOutput = make(map[string][]explorer.ReceiptConstructionStage)
+			stagesByOutput = make(map[string][]receiptmodel.ReceiptConstructionStage)
 		}
 		if _, exists := stagesByOutput[output.Name]; exists {
 			return nil, fmt.Errorf("compiled output %q has duplicate construction stage descriptors", output.Name)
 		}
-		stages := make([]explorer.ReceiptConstructionStage, 0, len(output.Stages))
+		stages := make([]receiptmodel.ReceiptConstructionStage, 0, len(output.Stages))
 		for index, descriptor := range output.Stages {
 			stage, err := explorercompilation.ReceiptConstructionStageFromDescriptor(descriptor)
 			if err != nil {
@@ -725,7 +729,7 @@ func ConstructionStages(resolved *dataframeexecution.Resolved) (map[string][]exp
 	return stagesByOutput, nil
 }
 
-func CompileValidatedResolution(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (dataframeexecution.Resolved, error) {
+func CompileValidatedResolution(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) (dataframeexecution.Resolved, error) {
 	validationBindings := bindings
 	validationBindings.OutputNames = nil
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, receipt.Bundle, validationBindings)
@@ -741,7 +745,7 @@ func CompileValidatedResolution(ctx context.Context, recipeEngine *dataframeexec
 	return resolved, nil
 }
 
-func CloneColumnPolicyBinding(binding *explorer.ColumnPolicyProposalBinding) *explorer.ColumnPolicyProposalBinding {
+func CloneColumnPolicyBinding(binding *receiptmodel.ColumnPolicyProposalBinding) *receiptmodel.ColumnPolicyProposalBinding {
 	if binding == nil {
 		return nil
 	}

@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 )
@@ -18,12 +19,12 @@ func TestImportedRecipeCompilationPreservesSourceOutputAndUsesStructuralSchema(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
 	visible := true
-	document := authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Group members"}, RootResourceType: output.RootResourceType, Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: output.RootResourceType}, Rows: recipeimport.ImportRows(output), ImportedRecipe: &ref, Columns: []authoringv2.Column{{ColumnID: "member_id_source", Column: "member_id", Label: "Member", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: "member_id"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}}
+	document := ws.Document{Kind: ws.Kind, Output: ws.Output{ID: output.Name, Title: "Group members"}, RootResourceType: output.RootResourceType, Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: output.RootResourceType}, Rows: recipeimport.ImportRows(output), ImportedRecipe: &ref, Columns: []ws.Column{{ColumnID: "member_id_source", Column: "member_id", Label: "Member", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: "member_id"}}, Table: &ws.TablePresentation{Visible: &visible}}}}
 	resolvedOutput := output
 	resolved := ResolvedImportedRecipe{Reference: ref, Bundle: bundle, ResolvedBundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Outputs: []recipe.Output{resolvedOutput}}, SourceColumns: []ResolvedImportedSourceColumn{{Column: recipe.StageColumn{ID: "member_id_source", Name: "member_id", Type: "string"}, Cardinality: "required_one", Shape: "scalar", SemanticPath: "member.entity.reference"}}}
-	compiled, err := compileImportedDocument(context.Background(), "project", "explorer", document, authoringv2.CatalogSnapshot{}, capability.Snapshot{}, resolved)
+	compiled, err := compileImportedDocument(context.Background(), "project", "explorer", document, ws.CatalogSnapshot{}, capability.Snapshot{}, resolved)
 	if err != nil {
 		t.Fatalf("compileImportedDocument: %v", err)
 	}
@@ -52,14 +53,14 @@ func TestImportedRecipeRejectsStalePinnedSourceAndEditedInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
-	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{{ImportedRecipe: &ref, Rows: authoringv2.RecordsRowDefinition()}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
+	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	workspace := ws.Workspace{Documents: []ws.Document{{ImportedRecipe: &ref, Rows: ws.RecordsRowDefinition()}}, SemanticsVersion: ws.CurrentSemanticsVersion}
 	input := ResolvedImportedRecipe{Reference: ref, Bundle: bundle, ResolvedBundle: bundle}
-	if err := validateResolvedImportedRecipeCoverage(workspace, authoringv2.CatalogSnapshot{}, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err != nil {
+	if err := validateResolvedImportedRecipeCoverage(workspace, ws.CatalogSnapshot{}, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err != nil {
 		t.Fatalf("valid pin rejected: %v", err)
 	}
 	input.Bundle.Outputs[0].RowGrain = "CHANGED"
-	if err := validateResolvedImportedRecipeCoverage(workspace, authoringv2.CatalogSnapshot{}, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err == nil {
+	if err := validateResolvedImportedRecipeCoverage(workspace, ws.CatalogSnapshot{}, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err == nil {
 		t.Fatal("stale pinned source accepted")
 	}
 }
@@ -71,13 +72,13 @@ func TestImportedRecipePreservesConstructionOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
 	visible := true
 	column := recipe.StageColumn{ID: "resolved_age_id", Name: "age", Label: "Age", Type: "integer"}
 	minimum := int64(18)
-	document := authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType, Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: output.RootResourceType}, Rows: authoringv2.RecordsRowDefinition(), ImportedRecipe: &ref, Columns: []authoringv2.Column{{ColumnID: column.ID, Column: column.Name, Label: column.Label, OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: column.Name}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}, Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{ID: "adults", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: column.ID, Operator: authoringv2.ConstructionFilterGreaterEq, Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterInteger, Integer: &minimum}}}}, Outputs: []authoringv2.StageColumn{{ID: column.ID, Name: column.Name, Label: column.Label, Type: "integer", Table: &authoringv2.TablePresentation{Visible: &visible}}}}}}}
+	document := ws.Document{Kind: ws.Kind, Output: ws.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType, Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: output.RootResourceType}, Rows: ws.RecordsRowDefinition(), ImportedRecipe: &ref, Columns: []ws.Column{{ColumnID: column.ID, Column: column.Name, Label: column.Label, OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: column.Name}}, Table: &ws.TablePresentation{Visible: &visible}}}, Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{ID: "adults", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: column.ID, Operator: ws.ConstructionFilterGreaterEq, Values: []ws.FilterValue{{Kind: ws.ConstructionFilterInteger, Integer: &minimum}}}}, Outputs: []ws.StageColumn{{ID: column.ID, Name: column.Name, Label: column.Label, Type: "integer", Table: &ws.TablePresentation{Visible: &visible}}}}}}}
 	resolved := ResolvedImportedRecipe{Reference: ref, Bundle: bundle, ResolvedBundle: bundle, SourceColumns: []ResolvedImportedSourceColumn{{Column: column, Cardinality: "required_one", Shape: "scalar", SemanticPath: "age"}}}
-	compiled, err := compileImportedDocument(context.Background(), "project", "explorer", document, authoringv2.CatalogSnapshot{}, capability.Snapshot{}, resolved)
+	compiled, err := compileImportedDocument(context.Background(), "project", "explorer", document, ws.CatalogSnapshot{}, capability.Snapshot{}, resolved)
 	if err != nil {
 		t.Fatalf("supported construction overlay rejected: %v", err)
 	}
@@ -102,22 +103,22 @@ func TestImportedRecipeCompilesAdditiveRootColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
 	visible := true
 	importedColumn := recipe.StageColumn{ID: "resolved_age_id", Name: "age", Label: "Age", Type: "integer"}
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType,
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: output.RootResourceType},
-		Rows:  authoringv2.RecordsRowDefinition(), ImportedRecipe: &ref,
-		Columns: []authoringv2.Column{
-			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{ColumnID: "additive_birth_date", Column: "birthDate", Label: "Birth date", LogicalType: "date", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{ColumnID: "additive_given_all", Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType,
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: output.RootResourceType},
+		Rows:  ws.RecordsRowDefinition(), ImportedRecipe: &ref,
+		Columns: []ws.Column{
+			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_birth_date", Column: "birthDate", Label: "Birth date", LogicalType: "date", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_given_all", Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
-	catalog := authoringv2.CatalogSnapshot{
-		Nodes: []authoringv2.CatalogNode{{ID: "node-patient", ResourceType: "Patient"}},
-		Candidates: []authoringv2.CatalogCandidate{
+	catalog := ws.CatalogSnapshot{
+		Nodes: []ws.CatalogNode{{ID: "node-patient", ResourceType: "Patient"}},
+		Candidates: []ws.CatalogCandidate{
 			{ID: "candidate-birth-date", NodeID: "node-patient", FieldPath: "birthDate", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE"},
 			{ID: "candidate-given", NodeID: "node-patient", FieldPath: "name[].given[]", Label: "Given", LogicalType: "string", Cardinality: "many", ProjectionModes: []string{"FIRST", "ALL", "DISTINCT"}, DefaultProjectionMode: "ALL"},
 		},
@@ -164,22 +165,22 @@ func TestImportedRecipeCompilesAdditiveRelatedColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
 	visible := true
 	importedColumn := recipe.StageColumn{ID: "resolved_age_id", Name: "age", Label: "Age", Type: "integer"}
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType,
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "rel_obs", ResourceType: "Observation", Relationship: "subject", CatalogEdgeID: "e-obs", MatchMode: authoringv2.RouteMatchOptional}}},
-		Rows:  authoringv2.RecordsRowDefinition(), ImportedRecipe: &ref,
-		Columns: []authoringv2.Column{
-			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{ColumnID: "additive_status", Column: "status", Label: "Observation status", LogicalType: "string", OccurrenceID: "rel_obs", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "status", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType,
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "rel_obs", ResourceType: "Observation", Relationship: "subject", CatalogEdgeID: "e-obs", MatchMode: ws.RouteMatchOptional}}},
+		Rows:  ws.RecordsRowDefinition(), ImportedRecipe: &ref,
+		Columns: []ws.Column{
+			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_status", Column: "status", Label: "Observation status", LogicalType: "string", OccurrenceID: "rel_obs", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
-	wireCatalog := authoringv2.CatalogSnapshot{
-		Nodes:      []authoringv2.CatalogNode{{ID: "n-patient", ResourceType: "Patient"}, {ID: "n-obs", ResourceType: "Observation"}},
-		Edges:      []authoringv2.CatalogEdge{{ID: "e-obs", FromNodeID: "n-patient", ToNodeID: "n-obs", Label: "subject"}},
-		Candidates: []authoringv2.CatalogCandidate{{ID: "candidate-status", NodeID: "n-obs", FieldPath: "status", Label: "Status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}}},
+	wireCatalog := ws.CatalogSnapshot{
+		Nodes:      []ws.CatalogNode{{ID: "n-patient", ResourceType: "Patient"}, {ID: "n-obs", ResourceType: "Observation"}},
+		Edges:      []ws.CatalogEdge{{ID: "e-obs", FromNodeID: "n-patient", ToNodeID: "n-obs", Label: "subject"}},
+		Candidates: []ws.CatalogCandidate{{ID: "candidate-status", NodeID: "n-obs", FieldPath: "status", Label: "Status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}}},
 	}
 	capabilitySnapshot := capability.Snapshot{
 		Status: capability.StatusReady, Complete: true,
@@ -226,21 +227,21 @@ func TestImportedRecipeAdditiveRelatedColumnToleratesUnobservedOptionalEdge(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
 	visible := true
 	importedColumn := recipe.StageColumn{ID: "resolved_age_id", Name: "age", Label: "Age", Type: "integer"}
-	document := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "rel_obs", ResourceType: "Observation", Relationship: "subject", MatchMode: authoringv2.RouteMatchOptional}}},
-		Rows:  authoringv2.RecordsRowDefinition(), ImportedRecipe: &ref,
-		Columns: []authoringv2.Column{
-			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{ColumnID: "additive_status", Column: "status", Label: "Observation status", LogicalType: "string", OccurrenceID: "rel_obs", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "status", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: output.Name, Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "rel_obs", ResourceType: "Observation", Relationship: "subject", MatchMode: ws.RouteMatchOptional}}},
+		Rows:  ws.RecordsRowDefinition(), ImportedRecipe: &ref,
+		Columns: []ws.Column{
+			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_status", Column: "status", Label: "Observation status", LogicalType: "string", OccurrenceID: "rel_obs", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
-	wireCatalog := authoringv2.CatalogSnapshot{
-		Nodes:      []authoringv2.CatalogNode{{ID: "n-patient", ResourceType: "Patient"}, {ID: "n-obs", ResourceType: "Observation"}},
-		Candidates: []authoringv2.CatalogCandidate{{ID: "candidate-status", NodeID: "n-obs", FieldPath: "status", Label: "Status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}}},
+	wireCatalog := ws.CatalogSnapshot{
+		Nodes:      []ws.CatalogNode{{ID: "n-patient", ResourceType: "Patient"}, {ID: "n-obs", ResourceType: "Observation"}},
+		Candidates: []ws.CatalogCandidate{{ID: "candidate-status", NodeID: "n-obs", FieldPath: "status", Label: "Status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}}},
 	}
 	capabilitySnapshot := capability.Snapshot{
 		Status: capability.StatusReady, Complete: true,

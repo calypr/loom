@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
@@ -12,12 +14,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/compilation"
 )
 
 func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) ports.ReceiptMaterializer {
-	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
+	return func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 		if receipt == nil {
 			return ports.Execution{}, fmt.Errorf("compilation receipt is required")
 		}
@@ -28,7 +29,7 @@ func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication
 		if err != nil {
 			return ports.Execution{}, fmt.Errorf("publication workspace: %w", err)
 		}
-		contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+		contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 		if err != nil {
 			return ports.Execution{}, fmt.Errorf("publication contracts: %w", err)
 		}

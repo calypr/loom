@@ -1,10 +1,6 @@
 package receiptmodel
 
 import (
-	"github.com/calypr/loom/internal/explorer/authoringv2"
-)
-
-import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,8 +8,11 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -986,14 +985,14 @@ func ValidateReceiptRawJSON(raw []byte) error {
 	return validateReceiptRawJSON(raw)
 }
 
-func (receipt CompilationReceipt) CurrentWorkspace() (authoringv2.Workspace, error) {
-	workspace, err := authoringv2.DecodeCurrentWorkspace(receipt.NormalizedBundle)
+func (receipt CompilationReceipt) CurrentWorkspace() (ws.Workspace, error) {
+	workspace, err := ws.DecodeCurrentWorkspace(receipt.NormalizedBundle)
 	if err != nil {
-		return authoringv2.Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	digest, err := workspace.Digest()
 	if err != nil || receipt.IntentDigest == "" || digest != receipt.IntentDigest {
-		return authoringv2.Workspace{}, fmt.Errorf("receipt workspace does not match its intent digest")
+		return ws.Workspace{}, fmt.Errorf("receipt workspace does not match its intent digest")
 	}
 	return workspace, nil
 }

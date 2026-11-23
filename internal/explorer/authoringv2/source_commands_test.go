@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
@@ -27,7 +29,7 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 	if _, _, err := ApplyCommands(workspace, commandCatalog(), "refresh", []Command{command}); err == nil || !strings.Contains(err.Error(), "lifecycle-resolved") {
 		t.Fatalf("unresolved source command error = %v", err)
 	}
-	request := ApplyCommandsRequest{CommandID: "refresh", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot", Commands: []Command{command}}
+	request := ApplyCommandsRequest{CommandID: "refresh", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: "snapshot", Commands: []Command{command}}
 	if err := request.Validate(); err == nil {
 		t.Fatal("source mutation accepted without exact draft identity")
 	}
@@ -38,7 +40,7 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 }
 
 func TestSourceRuleCreateRejectsMismatchedKind(t *testing.T) {
-	var rule SourceRuleCreate
+	var rule ws.SourceRuleCreate
 	raw := `{"kind":"EXTENSION_COLUMN","parameters":{"dynamic":{"name":"identifiers","source":{"select":"root.identifier[]"}}}}`
 	if err := json.Unmarshal([]byte(raw), &rule); err == nil || !strings.Contains(err.Error(), "must match") {
 		t.Fatalf("mismatched source rule error = %v", err)
@@ -75,22 +77,22 @@ func TestImportedGraphAndRowsCannotMutateProjectedDocument(t *testing.T) {
 	}
 	workspace := constructionWorkspace(migrated)
 	document := &workspace.Documents[0]
-	document.ImportedRecipe = &ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Output: document.Output.ID, Digest: strings.Repeat("a", 64)}
+	document.ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Output: document.Output.ID, Digest: strings.Repeat("a", 64)}
 	for i := range document.Columns {
-		document.Columns[i].Source = ColumnSource{Kind: SourceImported, Imported: &ImportedSource{OutputColumn: document.Columns[i].Column}}
+		document.Columns[i].Source = ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: document.Columns[i].Column}}
 	}
 	for _, command := range []Command{
-		{Type: CommandAddRoute, OutputID: document.Output.ID, Payload: &RoutePayload{ParentOccurrenceID: RootOccurrenceID, EdgeID: "edge"}},
-		{Type: CommandUpdateRouteEdge, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID, EdgeID: "edge"}},
-		{Type: CommandSetRouteMatchMode, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired}},
-		{Type: CommandRemoveRoute, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: RootOccurrenceID}},
+		{Type: CommandAddRoute, OutputID: document.Output.ID, Payload: &RoutePayload{ParentOccurrenceID: ws.RootOccurrenceID, EdgeID: "edge"}},
+		{Type: CommandUpdateRouteEdge, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: ws.RootOccurrenceID, EdgeID: "edge"}},
+		{Type: CommandSetRouteMatchMode, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: ws.RootOccurrenceID, MatchMode: ws.RouteMatchRequired}},
+		{Type: CommandRemoveRoute, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: ws.RootOccurrenceID}},
 	} {
 		if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-guard", []Command{command}); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_REQUIRED") {
 			t.Fatalf("projected route mutation error=%v", err)
 		}
 	}
 	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: document.Output.ID, Payload: &ProposalPayload{ProposalID: "receipt"}}
-	if err := command.ResolveRowDefinitionProposal(RecordsRowDefinition()); err != nil {
+	if err := command.ResolveRowDefinitionProposal(ws.RecordsRowDefinition()); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-row-guard", []Command{command}); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_ROWS_REQUIRED") {
@@ -105,9 +107,9 @@ func TestImportedSourceProposalCannotDeleteOrChangeUnrelatedAuthoredWork(t *test
 	}
 	workspace := constructionWorkspace(migrated)
 	document := &workspace.Documents[0]
-	document.ImportedRecipe = &ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Output: document.Output.ID, Digest: strings.Repeat("a", 64)}
+	document.ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Output: document.Output.ID, Digest: strings.Repeat("a", 64)}
 	for i := range document.Columns {
-		document.Columns[i].Source = ColumnSource{Kind: SourceImported, Imported: &ImportedSource{OutputColumn: document.Columns[i].Column}}
+		document.Columns[i].Source = ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: document.Columns[i].Column}}
 	}
 	changed := *document
 	changed.Output.Title = "Changed outside source edit"

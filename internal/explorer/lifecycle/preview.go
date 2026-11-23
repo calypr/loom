@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/proposal"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -88,24 +92,24 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (proposal
 	return result, nil
 }
 
-func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explorer.Explorer) (authoringv2.Workspace, error) {
+func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explorer.Explorer) (ws.Workspace, error) {
 	if owner == nil {
-		return authoringv2.Workspace{}, fmt.Errorf("Explorer owner is required")
+		return ws.Workspace{}, fmt.Errorf("Explorer owner is required")
 	}
 	if len(owner.DraftConfig) != 0 {
-		return authoringv2.DecodeWorkspace(owner.DraftConfig)
+		return ws.DecodeWorkspace(owner.DraftConfig)
 	}
 	if owner.ActiveRevisionID != "" {
 		revision, err := store.ActiveRevision(ctx, owner.Project, owner.ExplorerID)
 		if err != nil {
-			return authoringv2.Workspace{}, err
+			return ws.Workspace{}, err
 		}
 		return store.RevisionWorkspace(ctx, *revision)
 	}
-	return authoringv2.NewWorkspace(owner.Title), nil
+	return ws.NewWorkspace(owner.Title), nil
 }
 
-func verifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) error {
+func verifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -170,7 +174,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, err
 	}
-	baseForCompilation, err := authoringv2.PrepareWorkspaceForCompilation(workspace, catalog)
+	baseForCompilation, err := ws.PrepareWorkspaceForCompilation(workspace, catalog)
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base workspace cannot be normalized for compilation", nil, err)
 	}
@@ -221,7 +225,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	return result, nil
 }
 
-func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (interpretation.PreviewRows, dataframeexecution.PreviewSummary, error) {
+func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) (interpretation.PreviewRows, dataframeexecution.PreviewSummary, error) {
 	rows := interpretation.PreviewRows{ReceiptID: receipt.ID, Rows: make(map[string]map[string]any)}
 	summary, err := s.config.PreviewReceipt(ctx, receipt, bindings, func(row map[string]any) error {
 		value, ok := row["__loom_row_id"]

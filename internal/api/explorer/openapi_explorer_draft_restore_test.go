@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -24,7 +28,7 @@ import (
 
 func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	previous, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	previous, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +55,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	store := explorerfixtures.NewStore()
 	owner := explorer.Explorer{
 		Project: "project-a", ExplorerID: "custom", Title: current.Explorer.Title,
-		ManagementMode: explorer.ManagementInteractive, DraftConfig: currentRaw, DraftVersion: 4, DraftDigest: currentDigest,
+		ManagementMode: viewer.ManagementInteractive, DraftConfig: currentRaw, DraftVersion: 4, DraftDigest: currentDigest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		PreviousDraftRevisionID:       "draft_revision_custom_3", ActiveRevisionID: "active_published",
@@ -80,13 +84,13 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 		},
-		Catalog: authoringv2.CatalogFromCapability,
+		Catalog: ws.CatalogFromCapability,
 	}}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	commandBody := fmt.Sprintf(`{"commandId":"restore-draft-3","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":4,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, currentDigest, owner.PreviousDraftRevisionID)
+		ws.CurrentSemanticsVersion, snapshot.Token, currentDigest, owner.PreviousDraftRevisionID)
 	response := requestJSON(t, app, http.MethodPost, basePath+"/commands", commandBody)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("restore status=%d body=%s", response.StatusCode, response.Body)
@@ -116,10 +120,10 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 			t.Fatalf("reload status=%d body=%s", builder.StatusCode, builder.Body)
 		}
 		var loaded struct {
-			Workspace               *authoringv2.Workspace `json:"workspace"`
-			DraftVersion            int64                  `json:"draftVersion"`
-			DraftDigest             string                 `json:"draftDigest"`
-			PreviousDraftRevisionID string                 `json:"previousDraftRevisionId"`
+			Workspace               *ws.Workspace `json:"workspace"`
+			DraftVersion            int64         `json:"draftVersion"`
+			DraftDigest             string        `json:"draftDigest"`
+			PreviousDraftRevisionID string        `json:"previousDraftRevisionId"`
 		}
 		if err := json.Unmarshal([]byte(builder.Body), &loaded); err != nil {
 			t.Fatal(err)
@@ -145,7 +149,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	assertReload()
 
 	staleCASBody := fmt.Sprintf(`{"commandId":"stale-restore-cas","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":4,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, currentDigest, restored.PreviousDraftRevisionID)
+		ws.CurrentSemanticsVersion, snapshot.Token, currentDigest, restored.PreviousDraftRevisionID)
 	staleCAS := requestJSON(t, app, http.MethodPost, basePath+"/commands", staleCASBody)
 	if staleCAS.StatusCode != http.StatusConflict || !strings.Contains(staleCAS.Body, `"code":"DRAFT_CONFLICT"`) {
 		t.Fatalf("stale restore CAS status=%d body=%s", staleCAS.StatusCode, staleCAS.Body)
@@ -160,7 +164,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	store.DraftRevisions[key] = priorRevision
 	store.Mu.Unlock()
 	staleScopeBody := fmt.Sprintf(`{"commandId":"stale-restore-scope","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":5,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
-		authoringv2.CurrentSemanticsVersion, snapshot.Token, restored.DraftDigest, restored.PreviousDraftRevisionID)
+		ws.CurrentSemanticsVersion, snapshot.Token, restored.DraftDigest, restored.PreviousDraftRevisionID)
 	staleScope := requestJSON(t, app, http.MethodPost, basePath+"/commands", staleScopeBody)
 	if staleScope.StatusCode != http.StatusConflict || !strings.Contains(staleScope.Body, `"code":"STALE_DRAFT_SOURCE_CONTEXT"`) {
 		t.Fatalf("stale restore source scope status=%d body=%s", staleScope.StatusCode, staleScope.Body)

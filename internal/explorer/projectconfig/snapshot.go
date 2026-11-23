@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/dataframe/execution"
@@ -17,10 +19,10 @@ import (
 )
 
 func invalidProjectConfig(format string, args ...any) error {
-	return fmt.Errorf("%w: %s", explorer.ErrInvalidViewBuilder, fmt.Sprintf(format, args...))
+	return fmt.Errorf("%w: %s", viewer.ErrInvalidViewBuilder, fmt.Sprintf(format, args...))
 }
 
-func validateProjectConfigDefinitions(configs []explorer.ProjectConfig) error {
+func validateProjectConfigDefinitions(configs []explorerconfig.ProjectConfig) error {
 	for index, config := range configs {
 		if err := config.Validate(); err != nil {
 			return fmt.Errorf("configs[%d] %q: %w", index, config.ID, err)
@@ -38,7 +40,7 @@ func PrepareViewBuilderCatalogSnapshot(
 	if err != nil {
 		return explorer.Revision{}, err
 	}
-	prepared, err := PrepareProjectConfigs([]explorer.ProjectConfig{initial}, resolved, executionValue, sourceCommit)
+	prepared, err := PrepareProjectConfigs([]explorerconfig.ProjectConfig{initial}, resolved, executionValue, sourceCommit)
 	if err != nil {
 		return explorer.Revision{}, fmt.Errorf("prepare View Builder catalog metadata: %w", err)
 	}
@@ -60,28 +62,28 @@ func PrepareViewBuilderCatalogSnapshot(
 	return revision, nil
 }
 
-func InitialProjectConfigForRecipe(bundle recipe.Bundle) (explorer.ProjectConfig, error) {
+func InitialProjectConfigForRecipe(bundle recipe.Bundle) (explorerconfig.ProjectConfig, error) {
 	if strings.TrimSpace(bundle.Name) == "" || len(bundle.Outputs) == 0 {
-		return explorer.ProjectConfig{}, invalidProjectConfig("initial project config requires a named recipe with outputs")
+		return explorerconfig.ProjectConfig{}, invalidProjectConfig("initial project config requires a named recipe with outputs")
 	}
-	config := explorer.ProjectConfig{
+	config := explorerconfig.ProjectConfig{
 		ID: bundle.Name, Title: bundle.Name,
-		RecipeRef: explorer.ProjectConfigRecipeRef{Name: bundle.Name},
+		RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: bundle.Name},
 		Views:     make([]explorerconfig.ConfigView, 0, len(bundle.Outputs)),
 	}
 	for _, output := range bundle.Outputs {
 		if strings.TrimSpace(output.Name) == "" {
-			return explorer.ProjectConfig{}, invalidProjectConfig("recipe %q contains an unnamed output", bundle.Name)
+			return explorerconfig.ProjectConfig{}, invalidProjectConfig("recipe %q contains an unnamed output", bundle.Name)
 		}
 		config.Views = append(config.Views, explorerconfig.ConfigView{ID: output.Name, Title: output.Name, Output: output.Name})
 	}
 	if err := config.Validate(); err != nil {
-		return explorer.ProjectConfig{}, invalidProjectConfig("initial project config: %v", err)
+		return explorerconfig.ProjectConfig{}, invalidProjectConfig("initial project config: %v", err)
 	}
 	return config, nil
 }
 
-func PrepareViewBuilderConfig(config explorer.ProjectConfig, snapshot explorer.Revision, actor string) (explorer.ProjectConfigPublication, error) {
+func PrepareViewBuilderConfig(config explorerconfig.ProjectConfig, snapshot explorer.Revision, actor string) (explorer.ProjectConfigPublication, error) {
 	if err := config.Validate(); err != nil {
 		return explorer.ProjectConfigPublication{}, invalidProjectConfig("invalid project config: %v", err)
 	}
@@ -96,7 +98,7 @@ func PrepareViewBuilderConfig(config explorer.ProjectConfig, snapshot explorer.R
 	if err != nil {
 		return explorer.ProjectConfigPublication{}, err
 	}
-	definition, err := explorer.CloneProjectConfigDefinition(config)
+	definition, err := explorerconfig.CloneProjectConfigDefinition(config)
 	if err != nil {
 		return explorer.ProjectConfigPublication{}, invalidProjectConfig("clone project config: %v", err)
 	}
@@ -127,11 +129,11 @@ func PrepareViewBuilderConfig(config explorer.ProjectConfig, snapshot explorer.R
 
 func projectConfigRevisionFromSnapshot(
 	snapshot explorer.Revision,
-	definition explorer.ProjectConfig,
+	definition explorerconfig.ProjectConfig,
 	digest string,
 	configJSON json.RawMessage,
 	revisionID string,
-	diagnostics []explorer.Diagnostic,
+	diagnostics []viewer.Diagnostic,
 	actor string,
 ) (explorer.Revision, error) {
 
@@ -149,7 +151,7 @@ func projectConfigRevisionFromSnapshot(
 	revision.AuthoringBundle = nil
 	revision.IntentDigest = digest
 	revision.CompilationReceiptID = ""
-	revision.Diagnostics = append([]explorer.Diagnostic{}, diagnostics...)
+	revision.Diagnostics = append([]viewer.Diagnostic{}, diagnostics...)
 	revision.Status = explorer.RevisionReady
 	revision.CreatedBy = actor
 	revision.ActivatedAt = nil
@@ -158,7 +160,7 @@ func projectConfigRevisionFromSnapshot(
 		readyAt := revision.CreatedAt
 		revision.ReadyAt = &readyAt
 	}
-	revision.Publication = explorer.PublicationMetadata{
+	revision.Publication = viewer.PublicationMetadata{
 		State: string(explorer.RevisionReady), Generation: snapshot.SourceGeneration,
 		ExecutionID: snapshot.Publication.ExecutionID, RevisionID: revisionID,
 		UpdatedAt: snapshot.Publication.UpdatedAt,
@@ -166,17 +168,17 @@ func projectConfigRevisionFromSnapshot(
 	return revision, nil
 }
 
-func projectConfigAvailableFromRevision(revision explorer.Revision, catalog explorer.ViewBuilderCatalog) (map[string]map[string]explorer.EmittedColumn, error) {
-	emittedByOutput := make(map[string]map[string]explorer.EmittedColumn, len(catalog.Frames))
+func projectConfigAvailableFromRevision(revision explorer.Revision, catalog viewer.ViewBuilderCatalog) (map[string]map[string]viewer.EmittedColumn, error) {
+	emittedByOutput := make(map[string]map[string]viewer.EmittedColumn, len(catalog.Frames))
 	for _, emitted := range revision.EmittedColumns {
 		if emittedByOutput[emitted.OutputID] == nil {
-			emittedByOutput[emitted.OutputID] = make(map[string]explorer.EmittedColumn)
+			emittedByOutput[emitted.OutputID] = make(map[string]viewer.EmittedColumn)
 		}
 		emittedByOutput[emitted.OutputID][emitted.PublicColumn] = emitted
 	}
-	available := make(map[string]map[string]explorer.EmittedColumn, len(catalog.Frames))
+	available := make(map[string]map[string]viewer.EmittedColumn, len(catalog.Frames))
 	for _, frame := range catalog.Frames {
-		available[frame.ID] = make(map[string]explorer.EmittedColumn, len(frame.Columns))
+		available[frame.ID] = make(map[string]viewer.EmittedColumn, len(frame.Columns))
 		for _, column := range frame.Columns {
 			emitted, ok := emittedByOutput[frame.ID][column.Name]
 			if !ok {
@@ -188,7 +190,7 @@ func projectConfigAvailableFromRevision(revision explorer.Revision, catalog expl
 	return available, nil
 }
 
-func projectConfigBindingDiagnostics(config explorer.ProjectConfig, public map[string]map[string]explorer.EmittedColumn) []explorer.Diagnostic {
+func projectConfigBindingDiagnostics(config explorerconfig.ProjectConfig, public map[string]map[string]viewer.EmittedColumn) []viewer.Diagnostic {
 	problems := make(map[string][]string, len(config.Views))
 	add := func(view explorerconfig.ConfigView, message string) {
 		problems[view.ID] = append(problems[view.ID], message)
@@ -270,11 +272,11 @@ func projectConfigBindingDiagnostics(config explorer.ProjectConfig, public map[s
 		viewIDs = append(viewIDs, viewID)
 	}
 	sort.Strings(viewIDs)
-	diagnostics := make([]explorer.Diagnostic, 0, len(viewIDs))
+	diagnostics := make([]viewer.Diagnostic, 0, len(viewIDs))
 	for _, viewID := range viewIDs {
 		reasons := problems[viewID]
 		sort.Strings(reasons)
-		diagnostics = append(diagnostics, explorer.Diagnostic{
+		diagnostics = append(diagnostics, viewer.Diagnostic{
 			Severity: "WARNING", Stage: "VIEW_BUILDER", Code: "VIEW_BINDING_UNAVAILABLE",
 			FieldPath: "views." + viewID,
 			Message:   "saved view has bindings unavailable in the current published schema; edit the view to restore it",
@@ -300,7 +302,7 @@ func viewBuilderCatalogRevisionID(executionValue publication.BundleExecution, re
 	return "catalog_" + hex.EncodeToString(sum[:]), nil
 }
 
-func viewBuilderConfigRevisionID(snapshot explorer.Revision, config explorer.ProjectConfig, configDigest, actor string) (string, error) {
+func viewBuilderConfigRevisionID(snapshot explorer.Revision, config explorerconfig.ProjectConfig, configDigest, actor string) (string, error) {
 	identity := struct {
 		Project, ConfigID, ConfigDigest, CatalogRevisionID, ExecutionID, Actor string
 	}{

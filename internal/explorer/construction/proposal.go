@@ -11,6 +11,11 @@ import (
 	"strconv"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -23,7 +28,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func importedSourceChoiceUnavailable(document authoringv2.Document) bool {
+func importedSourceChoiceUnavailable(document ws.Document) bool {
 
 	return document.ImportedRecipe != nil
 }
@@ -40,7 +45,7 @@ func importedSourceRootChoiceInventoryMissing(base Base) bool {
 	return true
 }
 
-func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capability.Snapshot) map[string]string {
+func constructionNodeOccurrences(route ws.RouteNode, snapshot capability.Snapshot) map[string]string {
 	result := map[string]string{}
 	var root capability.Node
 	found := false
@@ -64,8 +69,8 @@ func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capabilit
 
 	result[root.ID] = route.OccurrenceID
 	ambiguous := map[string]struct{}{}
-	var walk func(parent capability.Node, node authoringv2.RouteNode)
-	walk = func(parent capability.Node, node authoringv2.RouteNode) {
+	var walk func(parent capability.Node, node ws.RouteNode)
+	walk = func(parent capability.Node, node ws.RouteNode) {
 		for _, child := range node.Children {
 			var target capability.Node
 			ok := false
@@ -127,7 +132,7 @@ func runConstructionCapabilityBuilders(ctx context.Context, limit int, builders 
 	return errs
 }
 
-func constructionSourceProjectionAvailability(construction authoringv2.Construction, stageID string) ConstructionSourceProjectionAvailability {
+func constructionSourceProjectionAvailability(construction ws.Construction, stageID string) ConstructionSourceProjectionAvailability {
 	availability := ConstructionSourceProjectionAvailability{StageID: stageID}
 	if !constructionRootProjectionCanReachStage(construction, stageID) {
 		availability.ReasonCode = "ROOT_SOURCE_PROJECTION_UNAVAILABLE"
@@ -182,16 +187,16 @@ func constructionWorkspaceInputs(base Base, targetOutputID string) ([]Constructi
 	return inputs, nil
 }
 
-func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
+func constructionCapabilitiesWorkspace(workspace ws.Workspace, targetOutputID string) (ws.Workspace, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
-		return authoringv2.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
+		return ws.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
 	}
 	blocked, err := workspaceOutputConsumerClosure(workspace, targetOutputID)
 	if err != nil {
-		return authoringv2.Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	projected := workspace
-	projected.Documents = make([]authoringv2.Document, 0, len(workspace.Documents))
+	projected.Documents = make([]ws.Document, 0, len(workspace.Documents))
 	outputIDs := make(map[string]struct{}, len(workspace.Documents))
 	for _, document := range workspace.Documents {
 		if document.Output.ID != targetOutputID {
@@ -202,9 +207,9 @@ func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOu
 		projected.Documents = append(projected.Documents, document)
 		outputIDs[document.Output.ID] = struct{}{}
 	}
-	tabs := append([]authoringv2.Tab(nil), workspace.Tabs...)
+	tabs := append([]ws.Tab(nil), workspace.Tabs...)
 	sort.SliceStable(tabs, func(i, j int) bool { return tabs[i].Order < tabs[j].Order })
-	projected.Tabs = make([]authoringv2.Tab, 0, len(projected.Documents))
+	projected.Tabs = make([]ws.Tab, 0, len(projected.Documents))
 	for _, tab := range tabs {
 		if _, included := outputIDs[tab.OutputID]; !included {
 			continue
@@ -213,7 +218,7 @@ func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOu
 		projected.Tabs = append(projected.Tabs, tab)
 	}
 	if workspace.SharedFilters != nil {
-		projected.SharedFilters = make(map[string][]authoringv2.SharedFilterBinding, len(workspace.SharedFilters))
+		projected.SharedFilters = make(map[string][]ws.SharedFilterBinding, len(workspace.SharedFilters))
 		for name, bindings := range workspace.SharedFilters {
 			for _, binding := range bindings {
 				if _, included := outputIDs[binding.OutputID]; included {
@@ -228,7 +233,7 @@ func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOu
 	return projected, nil
 }
 
-func workspaceOutputConsumerClosure(workspace authoringv2.Workspace, targetOutputID string) (map[string]struct{}, error) {
+func workspaceOutputConsumerClosure(workspace ws.Workspace, targetOutputID string) (map[string]struct{}, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return nil, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
 	}
@@ -243,7 +248,7 @@ func workspaceOutputConsumerClosure(workspace authoringv2.Workspace, targetOutpu
 			dependsOnBlocked := false
 			for _, step := range document.Construction.Steps {
 				for _, input := range step.Inputs {
-					if input.Kind != authoringv2.ConstructionInputWorkspaceOutput {
+					if input.Kind != ws.ConstructionInputWorkspaceOutput {
 						continue
 					}
 					if _, dependencyBlocked := blocked[input.OutputID]; dependencyBlocked {
@@ -285,7 +290,7 @@ func constructionCombineCompatibilityKeys(logicalType, cardinality string, nulla
 	return joinKey, appendKey
 }
 
-func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {
+func constructionDocumentIndex(workspace ws.Workspace, outputID string) int {
 	index := -1
 	for candidate := range workspace.Documents {
 		if workspace.Documents[candidate].Output.ID != outputID {
@@ -299,7 +304,7 @@ func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string)
 	return index
 }
 
-func constructionWorkspaceCandidateDigest(workspace authoringv2.Workspace) (string, error) {
+func constructionWorkspaceCandidateDigest(workspace ws.Workspace) (string, error) {
 	encoded, err := json.Marshal(workspace.NormalizePresentationOrders())
 	if err != nil {
 		return "", err
@@ -308,15 +313,15 @@ func constructionWorkspaceCandidateDigest(workspace authoringv2.Workspace) (stri
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func sameConstructionDocument(left, right authoringv2.Document) bool {
+func sameConstructionDocument(left, right ws.Document) bool {
 	left.Construction, right.Construction = nil, nil
 	left.ArchiveRetiredShape, right.ArchiveRetiredShape = nil, nil
 	return reflect.DeepEqual(left, right)
 }
 
-func constructionHasGroupFieldSource(construction authoringv2.Construction) bool {
+func constructionHasGroupFieldSource(construction ws.Construction) bool {
 	for _, step := range construction.Steps {
-		if step.Operation.Kind != authoringv2.ConstructionOperationGroup || step.Operation.Group == nil {
+		if step.Operation.Kind != ws.ConstructionOperationGroup || step.Operation.Group == nil {
 			continue
 		}
 		if groupStepHasRowValueFieldSource(step) {
@@ -331,7 +336,7 @@ func constructionHasGroupFieldSource(construction authoringv2.Construction) bool
 	return false
 }
 
-func checkConstructionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+func checkConstructionProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {
 	if receipt == nil || receipt.ConstructionProposal == nil {
 		return conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt was not prepared", nil, nil)
 	}
@@ -354,42 +359,42 @@ func constructionProposalPivotProbeDiagnostic(stepID, outcome, message string) C
 	}
 }
 
-func constructionProposalCategoryKey(value authoringv2.TableScalar) string {
+func constructionProposalCategoryKey(value ws.TableScalar) string {
 	switch value.Kind {
-	case authoringv2.TableScalarString:
+	case ws.TableScalarString:
 		if value.String == nil {
 			return "STRING:<nil>"
 		}
 		return "STRING:" + strconv.Quote(*value.String)
-	case authoringv2.TableScalarInteger:
+	case ws.TableScalarInteger:
 		if value.Integer == nil {
 			return "INTEGER:<nil>"
 		}
 		return "INTEGER:" + strconv.FormatInt(*value.Integer, 10)
-	case authoringv2.TableScalarDecimal:
+	case ws.TableScalarDecimal:
 		if value.Decimal == nil {
 			return "DECIMAL:<nil>"
 		}
 		return "DECIMAL:" + strconv.FormatFloat(*value.Decimal, 'g', -1, 64)
-	case authoringv2.TableScalarBoolean:
+	case ws.TableScalarBoolean:
 		if value.Boolean == nil {
 			return "BOOLEAN:<nil>"
 		}
 		return "BOOLEAN:" + strconv.FormatBool(*value.Boolean)
-	case authoringv2.TableScalarNull:
+	case ws.TableScalarNull:
 		return "NULL"
-	case authoringv2.TableScalarMissing:
+	case ws.TableScalarMissing:
 		return "MISSING"
 	default:
 		return "UNKNOWN:" + string(value.Kind)
 	}
 }
 
-func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, stepID string) bool {
+func constructionPivotLabelOnlyEdit(base, candidate ws.Construction, stepID string) bool {
 	if base.Version != candidate.Version || !reflect.DeepEqual(base.SourceProjections, candidate.SourceProjections) {
 		return false
 	}
-	before, after := map[string]authoringv2.ConstructionStep{}, map[string]authoringv2.ConstructionStep{}
+	before, after := map[string]ws.ConstructionStep{}, map[string]ws.ConstructionStep{}
 	for _, step := range base.Steps {
 		before[step.ID] = step
 	}
@@ -399,8 +404,8 @@ func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, st
 	if len(before) != len(base.Steps) || len(after) != len(candidate.Steps) {
 		return false
 	}
-	stripLabels := func(step authoringv2.ConstructionStep) authoringv2.ConstructionStep {
-		step.Outputs = append([]authoringv2.StageColumn(nil), step.Outputs...)
+	stripLabels := func(step ws.ConstructionStep) ws.ConstructionStep {
+		step.Outputs = append([]ws.StageColumn(nil), step.Outputs...)
 		for i := range step.Outputs {
 			step.Outputs[i].Label = ""
 		}
@@ -428,7 +433,7 @@ func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, st
 		}
 		active[id] = true
 		for _, input := range next.Inputs {
-			if input.Kind == authoringv2.ConstructionInputStepOutput && !unchanged(input.StepID) {
+			if input.Kind == ws.ConstructionInputStepOutput && !unchanged(input.StepID) {
 				return false
 			}
 		}
@@ -439,11 +444,11 @@ func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, st
 	return unchanged(stepID)
 }
 
-func previewWorkspace(ctx context.Context, store Store, owner *explorer.Explorer) (authoringv2.Workspace, error) {
+func previewWorkspace(ctx context.Context, store Store, owner *explorer.Explorer) (ws.Workspace, error) {
 	return support.PreviewWorkspace(ctx, store, owner)
 }
 
-func verifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) error {
+func verifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) error {
 	return support.VerifyPreviewReceiptIntent(receipt, workspace)
 }
 
@@ -456,16 +461,16 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, err
 	}
 
-	stages := append([]explorer.ReceiptConstructionStage(nil), base.Stages...)
-	if authoringv2.CanPopulateConstructionRows(&base.Construction) && len(stages) > 0 {
+	stages := append([]receiptmodel.ReceiptConstructionStage(nil), base.Stages...)
+	if ws.CanPopulateConstructionRows(&base.Construction) && len(stages) > 0 {
 		last := len(stages) - 1
-		stages[last].Capabilities = append(append([]explorer.ReceiptConstructionOperationChoice(nil), stages[last].Capabilities...), explorer.ReceiptConstructionOperationChoice{Kind: "ROW_VALUES", Supported: true})
+		stages[last].Capabilities = append(append([]receiptmodel.ReceiptConstructionOperationChoice(nil), stages[last].Capabilities...), receiptmodel.ReceiptConstructionOperationChoice{Kind: "ROW_VALUES", Supported: true})
 	}
 
 	if len(stages) == 0 {
 		return ConstructionCapabilitiesResponse{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
-	var selected *explorer.ReceiptConstructionStage
+	var selected *receiptmodel.ReceiptConstructionStage
 	for index := range stages {
 		if stages[index].ID == request.StageID {
 			selected = &stages[index]
@@ -657,35 +662,35 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
-	baseRelatedSources := make(map[string]authoringv2.ConstructionRelatedSource)
-	baseRelatedExpands := make(map[string]authoringv2.ConstructionRelatedExpand)
-	baseRelatedEligibility := make(map[string]authoringv2.ConstructionRelatedEligibility)
-	baseRelatedFields := make(map[string]authoringv2.ConstructionRelatedField)
-	baseCodedGroups := make(map[string]authoringv2.ConstructionCodedGroup)
-	baseCodedPivots := make(map[string]authoringv2.ConstructionCodedPivot)
+	baseRelatedSources := make(map[string]ws.ConstructionRelatedSource)
+	baseRelatedExpands := make(map[string]ws.ConstructionRelatedExpand)
+	baseRelatedEligibility := make(map[string]ws.ConstructionRelatedEligibility)
+	baseRelatedFields := make(map[string]ws.ConstructionRelatedField)
+	baseCodedGroups := make(map[string]ws.ConstructionCodedGroup)
+	baseCodedPivots := make(map[string]ws.ConstructionCodedPivot)
 	for _, step := range base.Construction.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
+		if step.Operation.Kind == ws.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
 			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
 		}
-		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedExpand && step.Operation.RelatedExpand != nil {
+		if step.Operation.Kind == ws.ConstructionOperationRelatedExpand && step.Operation.RelatedExpand != nil {
 			baseRelatedExpands[step.ID] = *step.Operation.RelatedExpand
 		}
-		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedEligibility && step.Operation.RelatedEligibility != nil {
+		if step.Operation.Kind == ws.ConstructionOperationRelatedEligibility && step.Operation.RelatedEligibility != nil {
 			baseRelatedEligibility[step.ID] = *step.Operation.RelatedEligibility
 		}
-		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
+		if step.Operation.Kind == ws.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
 			baseRelatedFields[step.ID] = *step.Operation.RelatedField
 		}
-		if step.Operation.Kind == authoringv2.ConstructionOperationCodedGroup && step.Operation.CodedGroup != nil {
+		if step.Operation.Kind == ws.ConstructionOperationCodedGroup && step.Operation.CodedGroup != nil {
 			baseCodedGroups[step.ID] = *step.Operation.CodedGroup
 		}
-		if step.Operation.Kind == authoringv2.ConstructionOperationCodedPivot && step.Operation.CodedPivot != nil {
+		if step.Operation.Kind == ws.ConstructionOperationCodedPivot && step.Operation.CodedPivot != nil {
 			baseCodedPivots[step.ID] = *step.Operation.CodedPivot
 		}
 	}
 	for _, step := range candidateDocument.Construction.Steps {
 		switch step.Operation.Kind {
-		case authoringv2.ConstructionOperationRelatedSource:
+		case ws.ConstructionOperationRelatedSource:
 			if step.Operation.RelatedSource == nil {
 				continue
 			}
@@ -695,7 +700,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			if err := reauthorizeConstructionRelatedSource(ctx, base, candidateDocument.RootResourceType, *step.Operation.RelatedSource); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
-		case authoringv2.ConstructionOperationRelatedExpand:
+		case ws.ConstructionOperationRelatedExpand:
 			if step.Operation.RelatedExpand == nil {
 				continue
 			}
@@ -705,7 +710,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			if err := reauthorizeConstructionRelatedExpand(ctx, base, candidateDocument.RootResourceType, step, *step.Operation.RelatedExpand); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
-		case authoringv2.ConstructionOperationRelatedEligibility:
+		case ws.ConstructionOperationRelatedEligibility:
 			if step.Operation.RelatedEligibility == nil {
 				continue
 			}
@@ -715,7 +720,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			if err := reauthorizeConstructionRelatedEligibility(ctx, base, candidateDocument.RootResourceType, step, *step.Operation.RelatedEligibility); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
-		case authoringv2.ConstructionOperationRelatedField:
+		case ws.ConstructionOperationRelatedField:
 			if step.Operation.RelatedField == nil {
 				continue
 			}
@@ -728,7 +733,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			if err := reauthorizeConstructionRelatedField(ctx, base, step, *step.Operation.RelatedField); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
-		case authoringv2.ConstructionOperationCodedGroup:
+		case ws.ConstructionOperationCodedGroup:
 			if step.Operation.CodedGroup == nil {
 				continue
 			}
@@ -738,7 +743,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			if err := reauthorizeConstructionCodedGroup(ctx, base, request.OutputID, step, *step.Operation.CodedGroup); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
-		case authoringv2.ConstructionOperationCodedPivot:
+		case ws.ConstructionOperationCodedPivot:
 			if step.Operation.CodedPivot == nil {
 				continue
 			}
@@ -752,13 +757,13 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		}
 	}
 	candidateWorkspace := base.Workspace
-	candidateWorkspace.Documents = append([]authoringv2.Document(nil), base.Workspace.Documents...)
+	candidateWorkspace.Documents = append([]ws.Document(nil), base.Workspace.Documents...)
 	documentIndex := constructionDocumentIndex(candidateWorkspace, request.OutputID)
 	if documentIndex < 0 {
 		return ConstructionProposalResponse{}, conflict("construction-proposal", "OUTPUT_NOT_FOUND", "the proposal output is missing from the candidate workspace", nil, nil)
 	}
 	candidateWorkspace.Documents[documentIndex] = candidateDocument
-	preparedCandidate, err := authoringv2.PrepareWorkspaceForCompilation(candidateWorkspace, s.catalog(base.Snapshot, request.ExplorerID))
+	preparedCandidate, err := ws.PrepareWorkspaceForCompilation(candidateWorkspace, s.catalog(base.Snapshot, request.ExplorerID))
 	if err != nil {
 		return ConstructionProposalResponse{}, fmt.Errorf("prepare construction candidate workspace: %w", err)
 	}
@@ -781,7 +786,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if impact.HasMissingInputs() {
 		return baseResponse, nil
 	}
-	binding := &explorer.ConstructionProposalBinding{
+	binding := &receiptmodel.ConstructionProposalBinding{
 		DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest, OutputID: request.OutputID,
 		ChangedStepID: request.ChangedStepID, RemoveStepIDs: append([]string(nil), impact.RemovedStepIDs...),
 		BaseDocumentDigest: base.BaseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
@@ -809,7 +814,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	return baseResponse, nil
 }
 
-func (s *Service) prepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.Command, *explorer.CompilationReceipt, *AcceptedConstruction, error) {
+func (s *Service) prepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, *AcceptedConstruction, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		return nil, nil, nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
@@ -915,9 +920,9 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt changes authoring fields outside the construction proposal", nil, nil)
 	}
 	expectedWorkspace := current
-	expectedWorkspace.Documents = append([]authoringv2.Document(nil), current.Documents...)
+	expectedWorkspace.Documents = append([]ws.Document(nil), current.Documents...)
 	expectedWorkspace.Documents[baseIndex] = expectedDocument
-	preparedExpected, err := authoringv2.PrepareWorkspaceForCompilation(expectedWorkspace, s.catalog(snapshot, explorerID))
+	preparedExpected, err := ws.PrepareWorkspaceForCompilation(expectedWorkspace, s.catalog(snapshot, explorerID))
 	if err != nil {
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the expected candidate workspace cannot be normalized for compilation", nil, err)
 	}
@@ -935,7 +940,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	preview, err := s.Preview(ctx, PreviewRequest{
 		Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID,
 		Limit: binding.PreviewLimit,
-		SinkFactory: func(previewReceipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(previewReceipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			if sinkFactory == nil {
 				return func(map[string]any) error { return nil }, nil
 			}
@@ -1013,7 +1018,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 		commands[index] = authoringv2.Command{Type: authoringv2.CommandApplyConstructionChoice, OutputID: request.OutputID, Title: title, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form, FrameID: selection.FrameID, RowValuePolicy: selection.RowValuePolicy}}}
 	}
 	applyRequest := authoringv2.ApplyCommandsRequest{
-		CommandID: request.CommandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: request.CommandID, SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: request.SnapshotToken, ExpectedDraftVersion: request.ExpectedDraftVersion,
 		ExpectedDraftDigest: request.ExpectedDraftDigest, Commands: commands,
 	}

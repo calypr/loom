@@ -5,8 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 const (
@@ -39,8 +40,8 @@ type constructionBaseCacheKey struct {
 }
 
 type constructionBaseCacheValue struct {
-	receipt *explorer.CompilationReceipt
-	stages  []explorer.ReceiptConstructionStage
+	receipt *receiptmodel.CompilationReceipt
+	stages  []receiptmodel.ReceiptConstructionStage
 }
 
 type ttlCacheEntry[V any] struct {
@@ -170,7 +171,7 @@ func (c *constructionBaseCache) Put(key constructionBaseCacheKey, Value construc
 	}, c.Entries.now().Add(c.Entries.TTL))
 }
 
-func cloneCachedCompilationReceipt(in *explorer.CompilationReceipt) *explorer.CompilationReceipt {
+func cloneCachedCompilationReceipt(in *receiptmodel.CompilationReceipt) *receiptmodel.CompilationReceipt {
 	if in == nil {
 		return nil
 	}
@@ -178,24 +179,24 @@ func cloneCachedCompilationReceipt(in *explorer.CompilationReceipt) *explorer.Co
 	if err != nil {
 		return nil
 	}
-	out := new(explorer.CompilationReceipt)
+	out := new(receiptmodel.CompilationReceipt)
 	if err := json.Unmarshal(encoded, out); err != nil {
 		return nil
 	}
 	return out
 }
 
-func cloneCachedReceiptConstructionStages(in []explorer.ReceiptConstructionStage) []explorer.ReceiptConstructionStage {
+func cloneCachedReceiptConstructionStages(in []receiptmodel.ReceiptConstructionStage) []receiptmodel.ReceiptConstructionStage {
 	if in == nil {
 		return nil
 	}
-	out := make([]explorer.ReceiptConstructionStage, len(in))
+	out := make([]receiptmodel.ReceiptConstructionStage, len(in))
 	for index := range in {
 		out[index] = in[index]
-		out[index].Columns = append([]explorer.ReceiptConstructionStageColumn(nil), in[index].Columns...)
-		out[index].Capabilities = append([]explorer.ReceiptConstructionOperationChoice(nil), in[index].Capabilities...)
-		out[index].RelatedExpandAnchors = append([]explorer.ReceiptConstructionRelatedExpandAnchor(nil), in[index].RelatedExpandAnchors...)
-		out[index].CodedGroupChoices = append([]explorer.ReceiptConstructionCodedGroupChoice(nil), in[index].CodedGroupChoices...)
+		out[index].Columns = append([]receiptmodel.ReceiptConstructionStageColumn(nil), in[index].Columns...)
+		out[index].Capabilities = append([]receiptmodel.ReceiptConstructionOperationChoice(nil), in[index].Capabilities...)
+		out[index].RelatedExpandAnchors = append([]receiptmodel.ReceiptConstructionRelatedExpandAnchor(nil), in[index].RelatedExpandAnchors...)
+		out[index].CodedGroupChoices = append([]receiptmodel.ReceiptConstructionCodedGroupChoice(nil), in[index].CodedGroupChoices...)
 		if in[index].RelatedExpand != nil {
 			related := *in[index].RelatedExpand
 			related.Route = append([]recipe.ConstructionRelatedRouteStep(nil), in[index].RelatedExpand.Route...)
@@ -207,11 +208,11 @@ func cloneCachedReceiptConstructionStages(in []explorer.ReceiptConstructionStage
 		}
 		if context := in[index].GroupFieldSourceContext; context != nil {
 			cloned := *context
-			cloned.FieldOwners = append([]explorer.ReceiptConstructionGroupFieldOwner(nil), context.FieldOwners...)
+			cloned.FieldOwners = append([]receiptmodel.ReceiptConstructionGroupFieldOwner(nil), context.FieldOwners...)
 			if context.SourceExpansion != nil {
 				expansion := *context.SourceExpansion
-				expansion.Route = append([]explorer.ReceiptConstructionGroupFieldSourceRouteStep(nil), context.SourceExpansion.Route...)
-				expansion.Ancestors = append([]explorer.ReceiptConstructionGroupFieldSourceAncestor(nil), context.SourceExpansion.Ancestors...)
+				expansion.Route = append([]receiptmodel.ReceiptConstructionGroupFieldSourceRouteStep(nil), context.SourceExpansion.Route...)
+				expansion.Ancestors = append([]receiptmodel.ReceiptConstructionGroupFieldSourceAncestor(nil), context.SourceExpansion.Ancestors...)
 				cloned.SourceExpansion = &expansion
 			}
 			out[index].GroupFieldSourceContext = &cloned

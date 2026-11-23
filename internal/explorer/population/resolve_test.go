@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/selection"
 )
@@ -30,9 +31,9 @@ func populationSnapshot() capability.Snapshot {
 
 func TestResolveWorkspacePopulationsRequiresCompleteAuthorizedSelection(t *testing.T) {
 	snapshot := populationSnapshot()
-	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{{
-		Output: authoringv2.Output{ID: "patients"}, RootResourceType: "Patient",
-		Population: &authoringv2.Population{SelectionRevisionID: "selection-a"},
+	workspace := ws.Workspace{Documents: []ws.Document{{
+		Output: ws.Output{ID: "patients"}, RootResourceType: "Patient",
+		Population: &ws.Population{SelectionRevisionID: "selection-a"},
 	}}}
 	completedAt := time.Now().UTC()
 	selected := &selection.SelectionRevision{

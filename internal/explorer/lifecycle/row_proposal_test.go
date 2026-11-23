@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
@@ -25,29 +29,29 @@ type rowProposalChoiceResolver struct{}
 
 type rowProposalChoicePlanner struct{}
 
-func (rowProposalChoicePlanner) ListRowChoices(_ context.Context, _ capability.Snapshot, _ authoringv2.Document) ([]capability.RowChoice, error) {
+func (rowProposalChoicePlanner) ListRowChoices(_ context.Context, _ capability.Snapshot, _ ws.Document) ([]capability.RowChoice, error) {
 	return []capability.RowChoice{
 		{
 			ChoiceID: "field-choice", Kind: capability.RowChoiceFieldGroupKey, Label: "Patient.id", Path: "id",
-			Description: "Patient identifier", ValueType: "STRING", OccurrenceID: authoringv2.RootOccurrenceID,
+			Description: "Patient identifier", ValueType: "STRING", OccurrenceID: ws.RootOccurrenceID,
 		},
 		{
 			ChoiceID: "expanded-choice", Kind: capability.RowChoiceExpandedScope, Label: "Patient.name[]",
 			Path:        "component[].code.coding[]",
-			Description: "Patient name occurrences", ValueType: "ARRAY", OccurrenceID: authoringv2.RootOccurrenceID,
+			Description: "Patient name occurrences", ValueType: "ARRAY", OccurrenceID: ws.RootOccurrenceID,
 		},
 	}, nil
 }
 
 func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request rowdef.RowChoiceResolveRequest) (rowdef.ResolvedRowChoice, error) {
-	if request.Route.OccurrenceID != authoringv2.RootOccurrenceID {
+	if request.Route.OccurrenceID != ws.RootOccurrenceID {
 		return rowdef.ResolvedRowChoice{}, context.Canceled
 	}
 	switch request.ExpectedKind {
 	case rowdef.RowChoiceFieldGroup:
-		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
+		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceFieldGroup, OccurrenceID: ws.RootOccurrenceID, FieldPath: "id"}, nil
 	case rowdef.RowChoiceExpanded:
-		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceExpanded, OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]"}, nil
+		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceExpanded, OccurrenceID: ws.RootOccurrenceID, ScopePath: "component[]"}, nil
 	default:
 		return rowdef.ResolvedRowChoice{}, context.Canceled
 	}
@@ -57,15 +61,15 @@ type rowProposalExplicitGroupResolver struct {
 	proof       explicitgroup.ExplicitGroupRevisionProof
 	listReqs    []explicitgroup.ExplicitGroupRevisionListRequest
 	resolveReqs []explicitgroup.ExplicitGroupRevisionResolveRequest
-	receipts    []*explorer.CompilationReceipt
+	receipts    []*receiptmodel.CompilationReceipt
 }
 
 func (r *rowProposalExplicitGroupResolver) ListExplicitGroupRevisions(_ context.Context, request explicitgroup.ExplicitGroupRevisionListRequest) ([]explicitgroup.ExplicitGroupRevisionChoice, error) {
 	r.listReqs = append(r.listReqs, request)
 	return []explicitgroup.ExplicitGroupRevisionChoice{{
 		RevisionID: "group-revision-1", SourceSelectionRevisionID: "selection-1",
-		GroupCount: 2, MemberCount: 4, UnassignedMemberPolicies: []authoringv2.UnassignedMemberPolicy{
-			authoringv2.UnassignedMemberError, authoringv2.UnassignedMemberExclude, authoringv2.UnassignedMemberGroupAsUnassigned,
+		GroupCount: 2, MemberCount: 4, UnassignedMemberPolicies: []ws.UnassignedMemberPolicy{
+			ws.UnassignedMemberError, ws.UnassignedMemberExclude, ws.UnassignedMemberGroupAsUnassigned,
 		},
 	}}, nil
 }
@@ -86,18 +90,18 @@ func (r *rowProposalExplicitGroupResolver) ResolveExplicitGroupRevision(_ contex
 	return proof, nil
 }
 
-func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof explicitgroup.ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof explicitgroup.ExplicitGroupRevisionProof, receipt *receiptmodel.CompilationReceipt) error {
 	r.receipts = append(r.receipts, receipt)
 	if proof.RevisionID == "" || receipt == nil {
 		return fmt.Errorf("explicit group receipt binding is missing")
 	}
-	workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		return err
 	}
 	document := proposalDocument(workspace, "patients")
-	if document == nil || document.Rows.Kind != authoringv2.RowDefinitionGroups || document.Rows.Groups == nil ||
-		document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil ||
+	if document == nil || document.Rows.Kind != ws.RowDefinitionGroups || document.Rows.Groups == nil ||
+		document.Rows.Groups.Source.Kind != ws.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil ||
 		document.Rows.Groups.Source.Explicit.RevisionID != proof.RevisionID {
 		return fmt.Errorf("compiled workspace does not contain the resolved explicit group revision")
 	}
@@ -109,12 +113,12 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 	resolver := &rowProposalExplicitGroupResolver{}
 	service.config.ExplicitGroupResolver = resolver
 	previews := 0
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previews++
 		if receipt == nil || !bindings.IncludeRowIdentity {
 			t.Fatal("explicit-group preview did not execute a receipt with stable row identities")
 		}
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -123,7 +127,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview receipt has no patients output")
 		}
 		rowID := "patient:1"
-		if document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Explicit != nil {
+		if document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Explicit != nil {
 			rowID = string(document.Rows.Groups.Source.Explicit.RevisionID) + ":group-a"
 		}
 		if err := visit(map[string]any{"__loom_row_id": rowID, "patient_id": "patient-1"}); err != nil {
@@ -133,7 +137,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 	}
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
-		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
@@ -221,12 +225,12 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 	resolver := &rowProposalExplicitGroupResolver{}
 	service.config.ExplicitGroupResolver = resolver
 	previews := 0
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previews++
 		if receipt == nil || !bindings.IncludeRowIdentity {
 			t.Fatal("explicit-group preview did not execute a receipt with stable row identities")
 		}
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -242,7 +246,7 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
-		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
@@ -251,7 +255,7 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 	if proposal.Comparison.Status != rowdef.RowDefinitionComparisonAvailable || previews != 2 || len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 1 {
 		t.Fatalf("cohort proposal did not compile and preview both workspaces: proposal=%#v previews=%d resolves=%d receipts=%d", proposal, previews, len(resolver.resolveReqs), len(resolver.receipts))
 	}
-	candidate, err := authoringv2.DecodeWorkspace(resolver.receipts[0].NormalizedBundle)
+	candidate, err := ws.DecodeWorkspace(resolver.receipts[0].NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,16 +278,16 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	if document == nil || len(document.Columns) == 0 {
 		t.Fatal("row proposal fixture has no source columns")
 	}
-	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{
-		Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{
-			RevisionID: "group-revision-old", UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned,
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
+			RevisionID: "group-revision-old", UnassignedMemberPolicy: ws.UnassignedMemberGroupAsUnassigned,
 		}},
 		AfterStepID: "filter_source",
-		RowValues:   []authoringv2.ExplicitGroupRowValue{{ColumnID: document.Columns[0].ColumnID, Policy: authoringv2.ConstructionRowValueAll}},
+		RowValues:   []ws.ExplicitGroupRowValue{{ColumnID: document.Columns[0].ColumnID, Policy: ws.ConstructionRowValueAll}},
 	}}
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
-		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude,
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude,
 	}}
 	rows, _, err := service.syncRowDefService().ResolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
 	if err != nil {
@@ -291,7 +295,7 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	}
 	if rows.Groups == nil || rows.Groups.Source.Explicit == nil || rows.Groups.Source.Explicit.RevisionID != "group-revision-1" ||
 		rows.Groups.AfterStepID != "filter_source" || len(rows.Groups.RowValues) != 1 ||
-		rows.Groups.RowValues[0].ColumnID != document.Columns[0].ColumnID || rows.Groups.RowValues[0].Policy != authoringv2.ConstructionRowValueAll {
+		rows.Groups.RowValues[0].ColumnID != document.Columns[0].ColumnID || rows.Groups.RowValues[0].Policy != ws.ConstructionRowValueAll {
 		t.Fatalf("policy edit did not change only the pinned source intent: %#v", rows)
 	}
 	document.Rows = rows
@@ -300,24 +304,24 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	}
 }
 
-func addRowProposalSourceFilter(t *testing.T, store *fakeStore, workspace authoringv2.Workspace) {
+func addRowProposalSourceFilter(t *testing.T, store *fakeStore, workspace ws.Workspace) {
 	t.Helper()
 	document := workspace.Documents[0]
 	if len(document.Columns) == 0 {
 		t.Fatal("row proposal fixture has no source columns")
 	}
-	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	outputs := make([]ws.StageColumn, 0, len(document.Columns))
 	for index := range document.Columns {
 		column := &document.Columns[index]
 		if column.ColumnID == "" {
 			column.ColumnID = fmt.Sprintf("row_proposal_source_%d", index)
 		}
-		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		outputs = append(outputs, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "filter_source", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: document.Columns[0].ColumnID, Operator: authoringv2.ConstructionFilterExists,
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "filter_source", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: document.Columns[0].ColumnID, Operator: ws.ConstructionFilterExists,
 		}},
 		Outputs: outputs,
 	}}}
@@ -341,7 +345,7 @@ func TestProposeFieldGroupRejectsUnsupportedSelection(t *testing.T) {
 	service, store, snapshot, _ := rowProposalService(t)
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionFieldGroup, FieldGroup: &rowdef.FieldGroupSelection{
-		RowChoiceID: "opaque-choice-1", MissingKeyPolicy: authoringv2.MissingKeyError,
+		RowChoiceID: "opaque-choice-1", MissingKeyPolicy: ws.MissingKeyError,
 	}}
 	_, err := service.ProposeRowDefinition(context.Background(), request)
 	if lifecycleErrorCode(err) != "FIELD_GROUP_UNSUPPORTED" {
@@ -362,7 +366,7 @@ func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
 	}}
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
-		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	if _, err := service.ProposeRowDefinition(context.Background(), request); err == nil {
 		t.Fatal("accepted explicit group revision from a stale source generation")
@@ -377,9 +381,9 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 	enableRowDefinitionPreview(service)
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
-	compileBindings := make([]*explorer.RowDefinitionProposalBinding, 0, 2)
+	compileBindings := make([]*receiptmodel.RowDefinitionProposalBinding, 0, 2)
 	compile := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compileBindings = append(compileBindings, cloneRowDefinitionProposalBinding(request.RowDefinitionProposal))
 		return compile(ctx, request)
 	}
@@ -423,7 +427,7 @@ func TestProposeRowDefinitionRequiresPreviewConfiguration(t *testing.T) {
 			}
 			compileCalls := 0
 			compile := service.config.CompileReceipt
-			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				compileCalls++
 				return compile(ctx, request)
 			}
@@ -471,8 +475,8 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service, store, snapshot, _ := rowProposalService(t)
 			executorFailure := errors.New("preview backend failed")
-			service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-				workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+			service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+				workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 				if err != nil {
 					return dataframeexecution.PreviewSummary{}, err
 				}
@@ -481,7 +485,7 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 					return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 				}
 				stage := "base"
-				if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
+				if document.Rows.Kind == ws.RowDefinitionExpanded {
 					stage = "candidate"
 				}
 				summary := dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}
@@ -537,8 +541,8 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 	driverDiagnostic := errors.New("AQL: CONSTRUCTION_EXPANSION_EMPTY: construction expand_tags has no items for row patient-1")
 	emptyCollection := dataframeerrors.Wrap(driverDiagnostic, dataframeerrors.CodeConstructionExpansionEmpty, "")
 	backendWrapped := dataframeerrors.Wrap(emptyCollection, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -546,7 +550,7 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
-		if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
+		if document.Rows.Kind == ws.RowDefinitionExpanded {
 			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, Complete: true}, backendWrapped
 		}
 		if !bindings.IncludeRowIdentity {
@@ -558,7 +562,7 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection.Expanded.EmptyCollectionPolicy = authoringv2.EmptyCollectionError
+	request.Selection.Expanded.EmptyCollectionPolicy = ws.EmptyCollectionError
 	_, err := service.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	if lifecycleErrorCode(err) != "EMPTY_COLLECTION_ERROR" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || !errors.Is(err, emptyCollection) || !errors.Is(err, driverDiagnostic) {
@@ -575,8 +579,8 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing.T) {
 	service, store, snapshot, _ := rowProposalService(t)
 	backendFailure := dataframeerrors.Wrap(errors.New("query transport reset"), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -584,7 +588,7 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
-		if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
+		if document.Rows.Kind == ws.RowDefinitionExpanded {
 			return dataframeexecution.PreviewSummary{}, backendFailure
 		}
 		if err := visit(map[string]any{"__loom_row_id": "records:patient-1", "patient_id": "patient-1"}); err != nil {
@@ -593,7 +597,7 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
 	request := rowProposalRequest(store.created, snapshot)
-	request.Selection.Expanded.EmptyCollectionPolicy = authoringv2.EmptyCollectionError
+	request.Selection.Expanded.EmptyCollectionPolicy = ws.EmptyCollectionError
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
@@ -609,8 +613,8 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *testing.T) {
 	service, store, snapshot, _ := rowProposalService(t)
 	featureFailure := dataframeerrors.NewError(dataframeerrors.CodeConstructionRowValueMultipleValues, "")
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -618,7 +622,7 @@ func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *test
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
-		if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
+		if document.Rows.Kind == ws.RowDefinitionExpanded {
 			return dataframeexecution.PreviewSummary{}, featureFailure
 		}
 		if err := visit(map[string]any{"__loom_row_id": "records:patient-1", "patient_id": "patient-1"}); err != nil {
@@ -644,8 +648,8 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 	driverDiagnostic := errors.New("AQL: EXPLICIT_GROUP_UNASSIGNED_MEMBER (while executing)")
 	unassigned := dataframeerrors.Wrap(driverDiagnostic, dataframeerrors.CodeExplicitGroupUnassignedMember, "")
 	backendWrapped := dataframeerrors.Wrap(unassigned, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -654,7 +658,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
 		summary := dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}
-		if document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == authoringv2.GroupSourceExplicit {
+		if document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == ws.GroupSourceExplicit {
 			return summary, backendWrapped
 		}
 		if err := visit(map[string]any{"__loom_row_id": "records:patient-1", "patient_id": "patient-1"}); err != nil {
@@ -664,7 +668,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 	}
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{
-		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
@@ -682,14 +686,14 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
 	service, store, snapshot, workspace := rowProposalService(t)
 	enableRowDefinitionPreview(service)
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 2
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion - 2
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
 	migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
 	draft = migration.CanonicalJSON
-	decoded, err := authoringv2.DecodeWorkspace(draft)
+	decoded, err := ws.DecodeWorkspace(draft)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,11 +711,11 @@ func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
 	if proposal.CandidateWorkspaceDigest == "" {
 		t.Fatal("row-definition proposal omitted the normalized candidate workspace digest")
 	}
-	candidate, err := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	candidate, err := ws.DecodeWorkspace(store.receipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidate.SemanticsVersion != authoringv2.CurrentSemanticsVersion || candidate.Documents[0].Rows.Kind != authoringv2.RowDefinitionExpanded {
+	if candidate.SemanticsVersion != ws.CurrentSemanticsVersion || candidate.Documents[0].Rows.Kind != ws.RowDefinitionExpanded {
 		t.Fatalf("candidate did not preserve metadata normalization and the requested rows: %#v", candidate)
 	}
 	request := rowProposalApplyRequest(store.created, snapshot, proposal.ProposalID, "apply-normalized-row-definition")
@@ -739,7 +743,7 @@ func TestApplyRowDefinitionProposalAllowsCanonicalSourceMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("row-definition proposal rejected canonical source metadata: %v", err)
 	}
-	candidate, err := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	candidate, err := ws.DecodeWorkspace(store.receipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,20 +787,20 @@ func TestApplyRowDefinitionProposalSavesOnceAndReplaysIdempotently(t *testing.T)
 func TestApplyRowDefinitionProposalRejectsTamperingAndNewCASReplay(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*fakeStore, *authoringv2.Workspace, *authoringv2.ApplyCommandsRequest) error
+		mutate func(*fakeStore, *ws.Workspace, *authoringv2.ApplyCommandsRequest) error
 	}{
 		{
 			name: "tampered receipt binding",
-			mutate: func(store *fakeStore, _ *authoringv2.Workspace, _ *authoringv2.ApplyCommandsRequest) error {
+			mutate: func(store *fakeStore, _ *ws.Workspace, _ *authoringv2.ApplyCommandsRequest) error {
 				store.receipt.RowDefinitionProposal.BaseDocumentDigest = "sha256:tampered"
 				return nil
 			},
 		},
 		{
 			name: "replay with new CAS after row-only write",
-			mutate: func(store *fakeStore, workspace *authoringv2.Workspace, request *authoringv2.ApplyCommandsRequest) error {
-				workspace.Documents[0].Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
-					OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+			mutate: func(store *fakeStore, workspace *ws.Workspace, request *authoringv2.ApplyCommandsRequest) error {
+				workspace.Documents[0].Rows = ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{
+					OccurrenceID: ws.RootOccurrenceID, ScopePath: "component", EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent,
 				}}
 				canonical, err := workspace.CanonicalJSON()
 				if err != nil {
@@ -865,11 +869,11 @@ func TestApplyRowDefinitionProposalLeavesDraftUntouchedOnCASConflict(t *testing.
 }
 
 func enableRowDefinitionPreview(service *Service) {
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil || !bindings.IncludeRowIdentity {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview requires a receipt and stable row identities")
 		}
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -878,7 +882,7 @@ func enableRowDefinitionPreview(service *Service) {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
 		identity := "records:patient-1"
-		if document.Rows.Kind == authoringv2.RowDefinitionExpanded && document.Rows.Expanded != nil {
+		if document.Rows.Kind == ws.RowDefinitionExpanded && document.Rows.Expanded != nil {
 			identity = "expanded:" + document.Rows.Expanded.OccurrenceID + ":" + document.Rows.Expanded.ScopePath
 		}
 		if err := visit(map[string]any{"__loom_row_id": identity, "patient_id": "patient-1"}); err != nil {
@@ -888,12 +892,12 @@ func enableRowDefinitionPreview(service *Service) {
 	}
 }
 
-func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot, authoringv2.Workspace) {
+func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot, ws.Workspace) {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "snapshot-row-proposal", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	workspace := lifecycleCandidatePreviewWorkspace()
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
-	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
+	workspace.Documents[0].Rows = ws.RecordsRowDefinition()
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -907,13 +911,13 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 		DraftVersion: 7, DraftDigest: digest,
 	}, copyGet: true}
 	config := testConfig(snapshot)
-	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
 	config.RowChoiceResolver = rowProposalChoiceResolver{}
 	config.RowChoicePlanner = rowProposalChoicePlanner{}
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, config.Capability.Catalog(snapshot, request.ExplorerID))
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+		prepared, prepareErr := ws.PrepareWorkspaceForCompilation(request.Workspace, config.Capability.Catalog(snapshot, request.ExplorerID))
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
@@ -927,11 +931,11 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 			return nil, err
 		}
 		receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -946,20 +950,20 @@ func rowProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot) 
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest, OutputID: "patients",
 		Selection: rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{
-			RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+			RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent,
 		}},
 	}
 }
 
 func rowProposalApplyRequest(owner *explorer.Explorer, snapshot capability.Snapshot, proposalID, commandID string) authoringv2.ApplyCommandsRequest {
 	return authoringv2.ApplyCommandsRequest{
-		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposalID}}},
 	}
 }
 
-func mustCanonical(t *testing.T, workspace authoringv2.Workspace) []byte {
+func mustCanonical(t *testing.T, workspace ws.Workspace) []byte {
 	t.Helper()
 	encoded, err := workspace.CanonicalJSON()
 	if err != nil {

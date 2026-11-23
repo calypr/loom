@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -23,7 +25,7 @@ func TestRowLineageBindsReceiptAndDefaultsToBoundedPage(t *testing.T) {
 	snapshot := rowLineageSnapshot("project-a", "generation-a", "token")
 	receipt := rowLineageReceipt(snapshot)
 	service := rowLineageService(t, snapshot, receipt)
-	service.config.RowLineage = func(_ context.Context, gotReceipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
+	service.config.RowLineage = func(_ context.Context, gotReceipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
 		if gotReceipt.ID != receipt.ID || bindings.DatasetGeneration != receipt.SourceGeneration || request.Output != "patients" || request.RowID != "row-7" || request.Offset != 0 || request.Limit != facade.DefaultRowLineageLimit {
 			t.Fatalf("unexpected lineage invocation: receipt=%#v bindings=%#v request=%#v", gotReceipt, bindings, request)
 		}
@@ -44,7 +46,7 @@ func TestRowLineageMapsMissingFinalRowToNotFound(t *testing.T) {
 	snapshot := rowLineageSnapshot("project-a", "generation-a", "token")
 	receipt := rowLineageReceipt(snapshot)
 	service := rowLineageService(t, snapshot, receipt)
-	service.config.RowLineage = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
+	service.config.RowLineage = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
 		return dataframeexecution.RowLineageResult{}, dataframeexecution.ErrRowLineageRowNotFound
 	}
 	_, err := service.RowLineage(context.Background(), RowLineageRequest{
@@ -60,7 +62,7 @@ func TestRowLineageMapsUnsupportedConstructionCapability(t *testing.T) {
 	snapshot := rowLineageSnapshot("project-a", "generation-a", "token")
 	receipt := rowLineageReceipt(snapshot)
 	service := rowLineageService(t, snapshot, receipt)
-	service.config.RowLineage = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
+	service.config.RowLineage = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
 		return dataframeexecution.RowLineageResult{}, &facade.RowLineageUnsupportedError{Capability: facade.RowLineageCapability{
 			ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: "PIVOT",
 		}}
@@ -82,7 +84,7 @@ func rowLineageSnapshot(project, generation, token string) capability.Snapshot {
 	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema", ShapeDigest: "shape"}, Status: capability.StatusReady, Complete: true, Token: token}
 }
 
-func rowLineageReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
+func rowLineageReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                "native-test",
@@ -90,9 +92,9 @@ func rowLineageReceipt(snapshot capability.Snapshot) *explorer.CompilationReceip
 		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
 	}
 	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
-	return &explorer.CompilationReceipt{
-		ReceiptFormatVersion:     explorer.CurrentReceiptFormatVersion,
-		CompilerContractVersion:  explorer.CurrentCompilerContractVersion,
+	return &receiptmodel.CompilationReceipt{
+		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
+		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
 		Project:                  snapshot.Identity.Project,
 		ExplorerID:               "patients",
 		SnapshotToken:            snapshot.Token,
@@ -106,7 +108,7 @@ func rowLineageReceipt(snapshot capability.Snapshot) *explorer.CompilationReceip
 	}
 }
 
-func rowLineageService(t *testing.T, snapshot capability.Snapshot, receipt *explorer.CompilationReceipt) *Service {
+func rowLineageService(t *testing.T, snapshot capability.Snapshot, receipt *receiptmodel.CompilationReceipt) *Service {
 	t.Helper()
 	service, err := NewService(Config{
 		Store: &explorer.Service{},
@@ -115,10 +117,10 @@ func rowLineageService(t *testing.T, snapshot capability.Snapshot, receipt *expl
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
 		},
-		LookupReceipt: func(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
+		LookupReceipt: func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
 			return receipt, nil
 		},
-		ValidateExecutableReceiptRoute: func(*explorer.CompilationReceipt, string, string) error { return nil },
+		ValidateExecutableReceiptRoute: func(*receiptmodel.CompilationReceipt, string, string) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)

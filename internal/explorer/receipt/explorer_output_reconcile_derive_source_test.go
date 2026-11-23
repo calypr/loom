@@ -5,15 +5,16 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func deriveSourceReconcileFixture(t *testing.T) (authoringv2.Document, facade.CompiledRecipeOutput, capability.Snapshot, authoringv2.ConstructionSourceProjection) {
+func deriveSourceReconcileFixture(t *testing.T) (ws.Document, facade.CompiledRecipeOutput, capability.Snapshot, ws.ConstructionSourceProjection) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
@@ -31,25 +32,25 @@ func deriveSourceReconcileFixture(t *testing.T) (authoringv2.Document, facade.Co
 	projection.ColumnID = "derive-col-birth"
 	projection.OwnerStepID = "derive_step"
 	three := int64(3)
-	projectionName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
-	document := authoringv2.Document{
-		Output:           authoringv2.Output{ID: "patients"},
+	projectionName := ws.ConstructionSourceProjectionName(projection.ColumnID)
+	document := ws.Document{
+		Output:           ws.Output{ID: "patients"},
 		RootResourceType: "Patient",
-		Columns:          []authoringv2.Column{{ColumnID: "patient-col", Column: "patient_id"}},
-		Construction: &authoringv2.Construction{
-			Version:           authoringv2.ConstructionVersion,
-			SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
-			Steps: []authoringv2.ConstructionStep{{
+		Columns:          []ws.Column{{ColumnID: "patient-col", Column: "patient_id"}},
+		Construction: &ws.Construction{
+			Version:           ws.ConstructionVersion,
+			SourceProjections: []ws.ConstructionSourceProjection{projection},
+			Steps: []ws.ConstructionStep{{
 				ID: "derive_step",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
 					ConstructionID:     "derive_step",
 					OutputColumnID:     "derived-total",
-					Operation:          authoringv2.ConstructionDerivedAdd,
-					Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: projection.ColumnID},
-					Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &three}},
-					MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+					Operation:          ws.ConstructionDerivedAdd,
+					Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: projection.ColumnID},
+					Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &three}},
+					MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Type: "string"},
 					{ID: projection.ColumnID, Name: projectionName, Label: projection.Label, Type: projection.LogicalType},
 					{ID: "derived-total", Name: "derived_total", Label: "Derived total", Type: "integer"},
@@ -73,7 +74,7 @@ func TestDeriveSourceProjectionOutputClaimsArithmeticLossFromUnselectedField(t *
 	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, snapshot); err != nil {
 		t.Fatalf("reconcile derive-owned projection: %v", err)
 	}
-	name := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
+	name := ws.ConstructionSourceProjectionName(projection.ColumnID)
 	claimed := authored[name]
 	if !claimed.TypedStageOutput || claimed.ConstructionID != projection.ColumnID {
 		t.Fatalf("derive-owned projection claim = %+v, want the durable derive step identity", claimed)
@@ -125,7 +126,7 @@ func TestDeriveSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 
 	t.Run("projection the derive step does not consume", func(t *testing.T) {
 		document, compiled, snapshot, _ := deriveSourceReconcileFixture(t)
-		document.Construction.Steps[0].Operation.Derive.Left = authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: func() *int64 { v := int64(1); return &v }()}}
+		document.Construction.Steps[0].Operation.Derive.Left = ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: func() *int64 { v := int64(1); return &v }()}}
 		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "it does not consume") {
 			t.Fatalf("unconsumed projection error = %v", err)

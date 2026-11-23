@@ -2,8 +2,11 @@ package publicationdb
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
@@ -11,7 +14,7 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explorer.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
+func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt receiptmodel.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
 	if err := validateReceipt(receipt); err != nil {
 		return nil, err
 	}
@@ -23,18 +26,18 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 	if err != nil {
 		return nil, err
 	}
-	management := explorer.ManagementInteractive
+	management := viewer.ManagementInteractive
 	if revision.ExplorerID == "default" {
-		management = explorer.ManagementRepository
+		management = viewer.ManagementRepository
 	}
 	var out *explorer.Revision
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection, db.CompilationReceiptsCollection, db.ViewBuilderSettingsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
 		if err := tx.QueryRows(txCtx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "doc": receiptDoc}, func(map[string]any) error { return nil }); err != nil {
 			return err
 		}
-		var stored *explorer.CompilationReceipt
+		var stored *receiptmodel.CompilationReceipt
 		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "key": receipt.ID, "project": receipt.Project, "explorerId": receipt.ExplorerID}, func(row map[string]any) error {
-			value, err := db.Decode[explorer.CompilationReceipt](row)
+			value, err := db.Decode[receiptmodel.CompilationReceipt](row)
 			if err != nil {
 				return err
 			}

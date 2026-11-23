@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func applyAddColumn(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyAddColumn(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	candidate, ok := catalogCandidate(catalog, command.CandidateID())
@@ -37,32 +39,32 @@ func applyAddColumn(workspace *Workspace, catalog CatalogSnapshot, commandID str
 	}
 	for i := range workspace.Documents[document].Columns {
 		column := &workspace.Documents[document].Columns[i]
-		if column.OccurrenceID == command.OccurrenceID() && column.Source.Kind == SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
+		if column.OccurrenceID == command.OccurrenceID() && column.Source.Kind == ws.SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
 			applyInitialPresentation(column, presentation, nextTableOrder(workspace.Documents[document]))
 			return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: column.Column}, nil
 		}
 	}
 	columnID := commandGeneratedID("col_", command.OutputID, command.OccurrenceID(), candidate.ID, mode)
-	if command.OccurrenceID() != RootOccurrenceID {
+	if command.OccurrenceID() != ws.RootOccurrenceID {
 		columnID = command.OccurrenceID() + "__" + columnID
 	}
 	label := strings.TrimSpace(command.Title)
 	if label == "" {
 		label = candidate.Label
 	}
-	source := editableSource(command.OccurrenceID(), ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
-	column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID(), Source: source}
+	source := editableSource(command.OccurrenceID(), ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
+	column := ws.Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID(), Source: source}
 	column.ColumnID = stagedSourceColumnID(workspace.Documents[document].Output.ID, commandID, index, command.Type, column.Column)
 	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document]))
 	workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 	return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
 }
 
-func applyAddColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyAddColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source(), "", InitialPresentationTable)
 }
 
-func applyApplyConstructionChoice(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyConstructionChoice(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	resolved := command.ResolvedChoice
 	if resolved == nil || strings.TrimSpace(resolved.CandidateID) == "" || strings.TrimSpace(resolved.LogicalType) == "" {
@@ -77,7 +79,7 @@ func applyApplyConstructionChoice(workspace *Workspace, catalog CatalogSnapshot,
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	document := workspace.Documents[documentPos]
-	if document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+	if document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, fmt.Errorf("table root route is invalid")
 	}
 	targetResourceType := document.RootResourceType
@@ -137,7 +139,7 @@ func applyApplyConstructionChoice(workspace *Workspace, catalog CatalogSnapshot,
 	return applied, nil
 }
 
-func applyAddSemanticSelections(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyAddSemanticSelections(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
 		return result, err
@@ -145,7 +147,7 @@ func applyAddSemanticSelections(workspace *Workspace, catalog CatalogSnapshot, c
 	return applySemanticSelections(workspace, catalog, commandID, index, command)
 }
 
-func applyUpdateColumn(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateColumn(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -170,7 +172,7 @@ func applyUpdateColumn(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applyUpdateConstructionOutput(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateConstructionOutput(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	documentIndex := documentIndex(workspace, command.OutputID)
 	if documentIndex < 0 {
@@ -215,7 +217,7 @@ func applyUpdateConstructionOutput(workspace *Workspace, catalog CatalogSnapshot
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: outputName}, nil
 }
 
-func applyUpdateColumnTransformation(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateColumnTransformation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -242,7 +244,7 @@ func applyUpdateColumnTransformation(workspace *Workspace, catalog CatalogSnapsh
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applySetColumnContributor(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetColumnContributor(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -263,7 +265,7 @@ func applySetColumnContributor(workspace *Workspace, catalog CatalogSnapshot, co
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applyClearColumnContributor(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyClearColumnContributor(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -280,7 +282,7 @@ func applyClearColumnContributor(workspace *Workspace, catalog CatalogSnapshot, 
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applyUpdateColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -307,7 +309,7 @@ func applyUpdateColumnSource(workspace *Workspace, catalog CatalogSnapshot, comm
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applyUpdateColumnRowValuePolicy(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateColumnRowValuePolicy(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if err := command.validate(); err != nil {
 		return result, err
@@ -317,8 +319,8 @@ func applyUpdateColumnRowValuePolicy(workspace *Workspace, catalog CatalogSnapsh
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	document := &workspace.Documents[documentPos]
-	if document.Rows.Kind != RowDefinitionGroups || document.Rows.Groups == nil ||
-		document.Rows.Groups.Source.Kind != GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
+	if document.Rows.Kind != ws.RowDefinitionGroups || document.Rows.Groups == nil ||
+		document.Rows.Groups.Source.Kind != ws.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
 		return result, fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY requires explicit grouped rows")
 	}
 	columnIndex := -1
@@ -355,7 +357,7 @@ func applyUpdateColumnRowValuePolicy(workspace *Workspace, catalog CatalogSnapsh
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: column.Column}, nil
 }
 
-func applyRemoveColumn(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRemoveColumn(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -381,7 +383,7 @@ func applyRemoveColumn(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	return result, nil
 }
 
-func applyRemoveProjectedField(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRemoveProjectedField(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	documentPos := documentIndex(workspace, command.OutputID)
 	if documentPos < 0 {
@@ -401,7 +403,7 @@ func applyRemoveProjectedField(workspace *Workspace, catalog CatalogSnapshot, co
 	if targetIndex < 0 {
 		return result, fmt.Errorf("columnId %q was not found", command.ColumnID())
 	}
-	if current.Columns[targetIndex].Source.Kind != SourceImported {
+	if current.Columns[targetIndex].Source.Kind != ws.SourceImported {
 		if command.resolvedImportedDocument != nil {
 			return result, fmt.Errorf("authored projected field removal cannot replace the document")
 		}
@@ -432,7 +434,7 @@ func applyRemoveProjectedField(workspace *Workspace, catalog CatalogSnapshot, co
 	}
 	foundTarget := false
 	for _, column := range current.Columns {
-		if column.ColumnID == command.ColumnID() && column.Source.Kind == SourceImported {
+		if column.ColumnID == command.ColumnID() && column.Source.Kind == ws.SourceImported {
 			if foundTarget {
 				return result, fmt.Errorf("projected columnId %q is ambiguous", command.ColumnID())
 			}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/discoverycache"
 	"github.com/calypr/loom/internal/dataframe/execution"
@@ -24,7 +26,7 @@ type projectConfigPublisher interface {
 }
 
 type sourcePublicationExplorer interface {
-	GetViewBuilderSettings(context.Context, string) (explorer.ViewBuilderSettings, error)
+	GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error)
 	projectConfigPublisher
 	List(context.Context, string) ([]explorer.Explorer, error)
 }

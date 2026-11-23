@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func projectionMapRoundTrip(t *testing.T, raw []byte) json.RawMessage {
@@ -63,13 +64,13 @@ func TestWorkspaceProjectionSourceKeySurvivesJSONMapRoundTrip(t *testing.T) {
 
 func TestWorkspaceProjectionContentIDSurvivesJSONMapRoundTrip(t *testing.T) {
 	raw := json.RawMessage(` {"z":2,"number":1152921504606846976,"a":{"y":2,"x":1}} `)
-	p := WorkspaceProjection{Source: WorkspaceArtifact{Kind: "revision", Project: "tenant", ID: "id", RawDigest: workspaceBytesDigest(raw)}, Workspace: raw, Digest: "digest"}
+	p := workspacepkg.Projection{Source: workspacepkg.Artifact{Kind: "revision", Project: "tenant", ID: "id", RawDigest: workspaceBytesDigest(raw)}, Workspace: raw, Digest: "digest"}
 	p.ID = p.ContentID()
 	encoded, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded WorkspaceProjection
+	var decoded workspacepkg.Projection
 	if err = json.Unmarshal(projectionMapRoundTrip(t, encoded), &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestWorkspaceProjectionContentIDSurvivesJSONMapRoundTrip(t *testing.T) {
 }
 
 func TestWorkspaceProjectionReorderedValidContentStillAuthenticates(t *testing.T) {
-	w := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Canonical"}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}
+	w := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Canonical"}, Documents: []ws.Document{}, Tabs: []ws.Tab{}}
 	raw, err := w.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -97,8 +98,8 @@ func TestWorkspaceProjectionReorderedValidContentStillAuthenticates(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := WorkspaceArtifact{Kind: "revision", Project: "tenant", ID: "revision", RawDigest: "original-raw"}
-	p := WorkspaceProjection{Source: source, Workspace: raw, Digest: digest}
+	source := workspacepkg.Artifact{Kind: "revision", Project: "tenant", ID: "revision", RawDigest: "original-raw"}
+	p := workspacepkg.Projection{Source: source, Workspace: raw, Digest: digest}
 	p.ID = p.ContentID()
 	p.Workspace = projectionMapRoundTrip(t, raw)
 	if _, err = p.Validate(source); err != nil {

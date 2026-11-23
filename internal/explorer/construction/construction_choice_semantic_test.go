@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -72,7 +74,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	if !ok {
 		t.Fatalf("semantic choice source = %#v", identity.Source)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+	catalogSnapshot := ws.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []ws.CatalogCandidate{{
 		ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Cardinality: primary.Cardinality,
 	}}}
 	for _, option := range choice.Options {
@@ -154,7 +156,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootCatalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+	rootCatalogSnapshot := ws.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []ws.CatalogCandidate{{
 		ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Cardinality: primary.Cardinality,
 		ConstructionChoice: &rootFieldChoice,
 	}}}
@@ -208,7 +210,7 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+	catalogSnapshot := ws.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []ws.CatalogCandidate{{
 		ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Cardinality: candidate.Cardinality,
 		ConstructionChoice: &fieldChoice,
 	}}}
@@ -227,7 +229,7 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Source.Kind != authoringv2.SourceOwnerRecords || resolved.Source.OwnerRecords == nil || resolved.Source.Lookup != nil || resolved.LogicalType != "object" {
+	if resolved.Source.Kind != ws.SourceOwnerRecords || resolved.Source.OwnerRecords == nil || resolved.Source.Lookup != nil || resolved.LogicalType != "object" {
 		t.Fatalf("resolved owner-record source = %#v", resolved)
 	}
 	if resolved.Source.OwnerRecords.Binding.OwnerPath != "component[]" || resolved.Source.OwnerRecords.Key.System != "http://loinc.org" || resolved.Source.OwnerRecords.Key.Code != "8302-2" {

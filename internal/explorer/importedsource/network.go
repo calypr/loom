@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -28,7 +30,7 @@ func isExtensionOutputKey(key string) bool {
 	return err == nil && len(decoded) == 32
 }
 
-func disableExtensionOutput(parameters *authoringv2.ImportedExtensionParameters, key string) (bool, error) {
+func disableExtensionOutput(parameters *ws.ImportedExtensionParameters, key string) (bool, error) {
 	if parameters == nil || !isExtensionOutputKey(key) {
 		return false, fmt.Errorf("extension output key is invalid")
 	}
@@ -48,12 +50,12 @@ func disableExtensionOutput(parameters *authoringv2.ImportedExtensionParameters,
 		}
 		parameters.Outputs[match].Enabled = false
 	} else {
-		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedExtensionOutput{Key: key, Enabled: false})
+		parameters.Outputs = append(parameters.Outputs, ws.ImportedExtensionOutput{Key: key, Enabled: false})
 	}
 	return true, nil
 }
 
-func disableCatalogOutput(parameters *authoringv2.ImportedCatalogParameters, fieldPath string) (bool, error) {
+func disableCatalogOutput(parameters *ws.ImportedCatalogParameters, fieldPath string) (bool, error) {
 	match := -1
 	for index, output := range parameters.Outputs {
 		if output.FieldPath != fieldPath {
@@ -70,12 +72,12 @@ func disableCatalogOutput(parameters *authoringv2.ImportedCatalogParameters, fie
 		}
 		parameters.Outputs[match].Enabled = false
 	} else {
-		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedCatalogOutput{FieldPath: fieldPath, Enabled: false})
+		parameters.Outputs = append(parameters.Outputs, ws.ImportedCatalogOutput{FieldPath: fieldPath, Enabled: false})
 	}
 	return true, nil
 }
 
-func disablePivotOutput(parameters *authoringv2.ImportedPivotParameters, key string) (bool, error) {
+func disablePivotOutput(parameters *ws.ImportedPivotParameters, key string) (bool, error) {
 	match := -1
 	for index, output := range parameters.Outputs {
 		if output.Key != key {
@@ -92,17 +94,17 @@ func disablePivotOutput(parameters *authoringv2.ImportedPivotParameters, key str
 		}
 		parameters.Outputs[match].Enabled = false
 	} else {
-		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedPivotOutput{Key: key, Enabled: false})
+		parameters.Outputs = append(parameters.Outputs, ws.ImportedPivotOutput{Key: key, Enabled: false})
 	}
 	return true, nil
 }
 
 func bindPinnedFieldRemoval(
-	document authoringv2.Document,
+	document ws.Document,
 	original recipe.Output,
 	current importedRecipeResolution,
-	plan authoringv2.ImportedSourcePlan,
-	network *authoringv2.AuthoringNetwork,
+	plan ws.ImportedSourcePlan,
+	network *ws.AuthoringNetwork,
 ) error {
 	if network == nil {
 		return fmt.Errorf("authoring network is required")
@@ -123,11 +125,11 @@ func bindPinnedFieldRemoval(
 	}
 	fieldColumnIDs, err := pinnedFieldBindingIDs(original, schema)
 	fieldSlotsExact := err == nil && recipeimport.VerifyPinnedFieldBindings(plan.FieldBindings, fieldColumnIDs) == nil
-	steps := map[string]authoringv2.ImportedSourceStep{}
+	steps := map[string]ws.ImportedSourceStep{}
 	for _, step := range plan.Steps {
 		steps[step.ID] = step
 	}
-	bindings := map[string]authoringv2.NetworkColumnBinding{}
+	bindings := map[string]ws.NetworkColumnBinding{}
 	bindingCount := map[string]int{}
 	for _, binding := range network.Bindings {
 		bindingCount[binding.ColumnID]++
@@ -137,7 +139,7 @@ func bindPinnedFieldRemoval(
 	}
 	for index := range network.ProjectedFields {
 		field := &network.ProjectedFields[index]
-		if field.Owner != authoringv2.ProjectedFieldOwnerPinned || field.ColumnID == "" {
+		if field.Owner != ws.ProjectedFieldOwnerPinned || field.ColumnID == "" {
 			continue
 		}
 		binding, ok := bindings[field.ColumnID]
@@ -154,8 +156,8 @@ func bindPinnedFieldRemoval(
 		}
 		if binding.OutputKey != "" && supportsPinnedOutputRemoval(step, binding.OutputKey) {
 			field.SourceOutputKey = binding.OutputKey
-			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinnedOutput
-			field.Status = authoringv2.ProjectedFieldStatusExact
+			field.Removal = ws.ProjectedFieldRemovalDisablePinnedOutput
+			field.Status = ws.ProjectedFieldStatusExact
 			continue
 		}
 		if step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters.FieldGroup == nil || !fieldSlotsExact {
@@ -175,14 +177,14 @@ func bindPinnedFieldRemoval(
 		}
 		if !ambiguous && matched != "" {
 			field.SourceFieldID = matched
-			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinned
-			field.Status = authoringv2.ProjectedFieldStatusExact
+			field.Removal = ws.ProjectedFieldRemovalDisablePinned
+			field.Status = ws.ProjectedFieldStatusExact
 		}
 	}
 	return nil
 }
 
-func supportsPinnedOutputRemoval(step authoringv2.ImportedSourceStep, outputKey string) bool {
+func supportsPinnedOutputRemoval(step ws.ImportedSourceStep, outputKey string) bool {
 	if outputKey == "" || step.Parameters == nil {
 		return false
 	}
@@ -200,60 +202,60 @@ func supportsPinnedOutputRemoval(step authoringv2.ImportedSourceStep, outputKey 
 	}
 }
 
-func (r Sources) Network(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
-	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
+func (r Sources) Network(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
+	catalog := ws.CatalogFromCapability(authorized.Snapshot, "")
 	if document.ImportedRecipe == nil {
-		return authoringv2.NetworkForDocument(document, catalog)
+		return ws.NetworkForDocument(document, catalog)
 	}
 	ref := document.ImportedRecipe
 	source, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized, document)
 	if err != nil {
-		return authoringv2.AuthoringNetwork{}, err
+		return ws.AuthoringNetwork{}, err
 	}
 	for _, output := range source.bundle.Outputs {
 		if output.Name == ref.Output {
 			network, err := recipeimport.HydrateNetwork(document, output, catalog)
 			if err != nil {
-				return authoringv2.AuthoringNetwork{}, err
+				return ws.AuthoringNetwork{}, err
 			}
 			for _, compiled := range source.resolved.Compiled.Outputs {
 				if compiled.Name == ref.Output {
 					plan, err := recipeimport.HydrateSourcePlan(output, document.ImportedSource)
 					if err != nil {
-						return authoringv2.AuthoringNetwork{}, err
+						return ws.AuthoringNetwork{}, err
 					}
 					network, err = recipeimport.BindCompiledNetwork(network, compiled.OutputSchema, &plan)
 					if err != nil {
-						return authoringv2.AuthoringNetwork{}, err
+						return ws.AuthoringNetwork{}, err
 					}
-					network.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, network)
+					network.ProjectedFields = ws.ProjectedFieldsForDocument(document, network)
 					if err := bindPinnedFieldRemoval(document, output, source, plan, &network); err != nil {
-						return authoringv2.AuthoringNetwork{}, err
+						return ws.AuthoringNetwork{}, err
 					}
 					return network, nil
 				}
 			}
-			return authoringv2.AuthoringNetwork{}, fmt.Errorf("compiled source output was not found")
+			return ws.AuthoringNetwork{}, fmt.Errorf("compiled source output was not found")
 		}
 	}
-	return authoringv2.AuthoringNetwork{}, fmt.Errorf("pinned source output was not found")
+	return ws.AuthoringNetwork{}, fmt.Errorf("pinned source output was not found")
 }
 
 func (r Sources) RemoveOutput(
 	ctx context.Context,
 	project string,
 	authorized ports.AuthorizedCapability,
-	document authoringv2.Document,
+	document ws.Document,
 	sourceStepID string,
 	outputKey string,
-) (authoringv2.Document, error) {
+) (ws.Document, error) {
 	if document.ImportedRecipe == nil || sourceStepID == "" || strings.TrimSpace(outputKey) == "" {
-		return authoringv2.Document{}, fmt.Errorf("an exact pinned output identity is required")
+		return ws.Document{}, fmt.Errorf("an exact pinned output identity is required")
 	}
 	ref := document.ImportedRecipe
 	resolved, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized, document)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	var original *recipe.Output
 	for index := range resolved.bundle.Outputs {
@@ -263,11 +265,11 @@ func (r Sources) RemoveOutput(
 		}
 	}
 	if original == nil {
-		return authoringv2.Document{}, fmt.Errorf("pinned source output was not found")
+		return ws.Document{}, fmt.Errorf("pinned source output was not found")
 	}
 	plan, err := recipeimport.HydrateSourcePlan(*original, document.ImportedSource)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	var compiledSchema []facade.CompiledOutputColumn
 	for _, compiled := range resolved.resolved.Compiled.Outputs {
@@ -277,15 +279,15 @@ func (r Sources) RemoveOutput(
 		}
 	}
 	if len(compiledSchema) == 0 {
-		return authoringv2.Document{}, fmt.Errorf("pinned output schema is unavailable")
+		return ws.Document{}, fmt.Errorf("pinned output schema is unavailable")
 	}
-	network, err := recipeimport.HydrateNetwork(document, *original, authoringv2.CatalogFromCapability(authorized.Snapshot, ""))
+	network, err := recipeimport.HydrateNetwork(document, *original, ws.CatalogFromCapability(authorized.Snapshot, ""))
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	network, err = recipeimport.BindCompiledNetwork(network, compiledSchema, &plan)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	owners := 0
 	for _, binding := range network.Bindings {
@@ -294,82 +296,82 @@ func (r Sources) RemoveOutput(
 		}
 	}
 	if owners != 1 {
-		return authoringv2.Document{}, fmt.Errorf("pinned output identity is unavailable or ambiguous")
+		return ws.Document{}, fmt.Errorf("pinned output identity is unavailable or ambiguous")
 	}
 	for _, step := range plan.Steps {
 		if step.ID != sourceStepID {
 			continue
 		}
 		if !step.Editable || step.Parameters == nil {
-			return authoringv2.Document{}, fmt.Errorf("pinned output source is not editable")
+			return ws.Document{}, fmt.Errorf("pinned output source is not editable")
 		}
 		parameters := *step.Parameters
 		switch step.Kind {
 		case recipeimport.SourcePlanCatalogProjection:
 			if parameters.Catalog == nil {
-				return authoringv2.Document{}, fmt.Errorf("pinned catalog output parameters are unavailable")
+				return ws.Document{}, fmt.Errorf("pinned catalog output parameters are unavailable")
 			}
 			catalog := *parameters.Catalog
-			catalog.Outputs = append([]authoringv2.ImportedCatalogOutput(nil), catalog.Outputs...)
+			catalog.Outputs = append([]ws.ImportedCatalogOutput(nil), catalog.Outputs...)
 			found, err := disableCatalogOutput(&catalog, outputKey)
 			if err != nil || !found {
 				if err != nil {
-					return authoringv2.Document{}, err
+					return ws.Document{}, err
 				}
-				return authoringv2.Document{}, fmt.Errorf("catalog output key was not found")
+				return ws.Document{}, fmt.Errorf("catalog output key was not found")
 			}
 			parameters.Catalog = &catalog
 		case recipeimport.SourcePlanPivot:
 			if parameters.Pivot == nil {
-				return authoringv2.Document{}, fmt.Errorf("pinned pivot output parameters are unavailable")
+				return ws.Document{}, fmt.Errorf("pinned pivot output parameters are unavailable")
 			}
 			pivot := *parameters.Pivot
-			pivot.Outputs = append([]authoringv2.ImportedPivotOutput(nil), pivot.Outputs...)
+			pivot.Outputs = append([]ws.ImportedPivotOutput(nil), pivot.Outputs...)
 			found, err := disablePivotOutput(&pivot, outputKey)
 			if err != nil || !found {
 				if err != nil {
-					return authoringv2.Document{}, err
+					return ws.Document{}, err
 				}
-				return authoringv2.Document{}, fmt.Errorf("pivot output key was not found")
+				return ws.Document{}, fmt.Errorf("pivot output key was not found")
 			}
 			parameters.Pivot = &pivot
 		case recipeimport.SourcePlanDynamicColumn:
 			if parameters.Dynamic == nil {
-				return authoringv2.Document{}, fmt.Errorf("pinned dynamic output parameters are unavailable")
+				return ws.Document{}, fmt.Errorf("pinned dynamic output parameters are unavailable")
 			}
 			dynamic := *parameters.Dynamic
-			dynamic.Outputs = append([]authoringv2.ImportedDynamicOutput(nil), dynamic.Outputs...)
+			dynamic.Outputs = append([]ws.ImportedDynamicOutput(nil), dynamic.Outputs...)
 			found := -1
 			for index, output := range dynamic.Outputs {
 				if output.Key != outputKey {
 					continue
 				}
 				if found >= 0 {
-					return authoringv2.Document{}, fmt.Errorf("dynamic output key is ambiguous")
+					return ws.Document{}, fmt.Errorf("dynamic output key is ambiguous")
 				}
 				found = index
 			}
 			if found >= 0 {
 				if !dynamic.Outputs[found].Enabled {
-					return authoringv2.Document{}, fmt.Errorf("dynamic output is already disabled")
+					return ws.Document{}, fmt.Errorf("dynamic output is already disabled")
 				}
 				dynamic.Outputs[found].Enabled = false
 			} else {
-				dynamic.Outputs = append(dynamic.Outputs, authoringv2.ImportedDynamicOutput{Key: outputKey, Enabled: false})
+				dynamic.Outputs = append(dynamic.Outputs, ws.ImportedDynamicOutput{Key: outputKey, Enabled: false})
 			}
 			parameters.Dynamic = &dynamic
 		case recipeimport.SourcePlanExtensionColumn:
 			if parameters.Extension == nil || !isExtensionOutputKey(outputKey) {
-				return authoringv2.Document{}, fmt.Errorf("pinned extension output identity is unavailable")
+				return ws.Document{}, fmt.Errorf("pinned extension output identity is unavailable")
 			}
 			extension := *parameters.Extension
-			extension.Outputs = append([]authoringv2.ImportedExtensionOutput(nil), extension.Outputs...)
+			extension.Outputs = append([]ws.ImportedExtensionOutput(nil), extension.Outputs...)
 			if _, err := disableExtensionOutput(&extension, outputKey); err != nil {
-				return authoringv2.Document{}, err
+				return ws.Document{}, err
 			}
 			parameters.Extension = &extension
 		default:
-			return authoringv2.Document{}, fmt.Errorf("pinned source kind %q does not support per-output removal", step.Kind)
+			return ws.Document{}, fmt.Errorf("pinned source kind %q does not support per-output removal", step.Kind)
 		}
 		change := authoringv2.ImportedSourceStepChange{
 			StepID: step.ID, MaxColumns: step.MaxColumns,
@@ -377,47 +379,47 @@ func (r Sources) RemoveOutput(
 		}
 		return r.Edit(ctx, project, authorized, document, &change)
 	}
-	return authoringv2.Document{}, fmt.Errorf("pinned output source step was not found")
+	return ws.Document{}, fmt.Errorf("pinned output source step was not found")
 }
 
 func (r Sources) RemoveField(
 	ctx context.Context,
 	project string,
 	authorized ports.AuthorizedCapability,
-	document authoringv2.Document,
+	document ws.Document,
 	sourceStepID string,
 	sourceFieldID string,
-) (authoringv2.Document, error) {
+) (ws.Document, error) {
 	if document.ImportedRecipe == nil {
-		return authoringv2.Document{}, fmt.Errorf("an imported source is required")
+		return ws.Document{}, fmt.Errorf("an imported source is required")
 	}
 	ref := *document.ImportedRecipe
 	if err := ref.Validate(); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	if r.registry == nil || r.engine == nil || ref.Name != r.defaultName {
-		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
+		return ws.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
-		return authoringv2.Document{}, capability.ErrStaleSnapshot
+		return ws.Document{}, capability.ErrStaleSnapshot
 	}
 	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)
 	if err != nil {
-		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
+		return ws.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	if digest != ref.Digest || entry.Digest != digest {
-		return authoringv2.Document{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
+		return ws.Document{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
 	}
 	var original *recipe.Output
 	for index := range bundle.Outputs {
@@ -427,11 +429,11 @@ func (r Sources) RemoveField(
 		}
 	}
 	if original == nil {
-		return authoringv2.Document{}, fmt.Errorf("pinned source output was not found")
+		return ws.Document{}, fmt.Errorf("pinned source output was not found")
 	}
 	plan, err := recipeimport.HydrateSourcePlan(*original, document.ImportedSource)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return ws.Document{}, err
 	}
 	var updated authoringv2.ImportedSourceStepChange
 	stepFound := false
@@ -440,11 +442,11 @@ func (r Sources) RemoveField(
 			continue
 		}
 		if !step.Editable || step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters == nil || step.Parameters.FieldGroup == nil {
-			return authoringv2.Document{}, fmt.Errorf("pinned field source is not editable")
+			return ws.Document{}, fmt.Errorf("pinned field source is not editable")
 		}
 		parameters := *step.Parameters
 		fieldGroup := *step.Parameters.FieldGroup
-		fieldGroup.Fields = append([]authoringv2.ImportedFieldParameters(nil), step.Parameters.FieldGroup.Fields...)
+		fieldGroup.Fields = append([]ws.ImportedFieldParameters(nil), step.Parameters.FieldGroup.Fields...)
 		fieldFound := false
 		for index := range fieldGroup.Fields {
 			field := &fieldGroup.Fields[index]
@@ -452,16 +454,16 @@ func (r Sources) RemoveField(
 				continue
 			}
 			if fieldFound {
-				return authoringv2.Document{}, fmt.Errorf("pinned source field identity is ambiguous")
+				return ws.Document{}, fmt.Errorf("pinned source field identity is ambiguous")
 			}
 			fieldFound = true
 			if !field.Enabled {
-				return authoringv2.Document{}, fmt.Errorf("pinned source field is already disabled")
+				return ws.Document{}, fmt.Errorf("pinned source field is already disabled")
 			}
 			field.Enabled = false
 		}
 		if !fieldFound {
-			return authoringv2.Document{}, fmt.Errorf("pinned source field was not found")
+			return ws.Document{}, fmt.Errorf("pinned source field was not found")
 		}
 		parameters.FieldGroup = &fieldGroup
 		updated = authoringv2.ImportedSourceStepChange{StepID: step.ID, Parameters: &parameters}
@@ -469,7 +471,7 @@ func (r Sources) RemoveField(
 		break
 	}
 	if !stepFound {
-		return authoringv2.Document{}, fmt.Errorf("pinned field source step was not found")
+		return ws.Document{}, fmt.Errorf("pinned field source step was not found")
 	}
 	return r.Edit(ctx, project, authorized, document, &updated)
 }

@@ -2,10 +2,11 @@ package explorer
 
 import (
 	"github.com/calypr/loom/internal/dataset"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 )
 
 type ProjectConfigPublication struct {
-	Definition ProjectConfig
+	Definition explorerconfig.ProjectConfig
 	Revision   Revision
 }
 

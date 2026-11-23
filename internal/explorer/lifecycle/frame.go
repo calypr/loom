@@ -11,6 +11,10 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -36,8 +40,8 @@ type BrowseFrameSourceOptionsRequest struct {
 
 type FrameSourceForm struct {
 	Form       capability.ConstructionChoiceForm `json:"form"`
-	ZeroPolicy authoringv2.FrameZeroPolicy       `json:"zeroPolicy"`
-	ManyPolicy authoringv2.FrameManyPolicy       `json:"manyPolicy"`
+	ZeroPolicy ws.FrameZeroPolicy                `json:"zeroPolicy"`
+	ManyPolicy ws.FrameManyPolicy                `json:"manyPolicy"`
 	Decision   string                            `json:"decision"`
 }
 
@@ -88,7 +92,7 @@ type frameSourceFamilyCandidate struct {
 type frameSourceBrowse struct {
 	capability        ports.CapabilityResolver
 	semanticInventory func(context.Context, semantic.PageOptions) (semantic.Page, error)
-	currentWorkspace  func(context.Context, string, string) (authoringv2.Workspace, error)
+	currentWorkspace  func(context.Context, string, string) (ws.Workspace, error)
 }
 
 func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
@@ -125,7 +129,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 		return result, err
 	}
 	document := findSemanticOutput(workspace, request.OutputID)
-	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, support.Malformed("frame-source-options", "outputId does not identify a valid row-rooted table", nil)
 	}
 	rootAllowed, resourceAllowed := false, request.ResourceType == ""
@@ -316,8 +320,8 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry)
 
 			continue
 		}
-		plan := authoringv2.ResolveSemanticSelectionPlan(observation)
-		if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
+		plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
+		if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != ws.SourceCodedValue || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
 			continue
 		}
 		binding := plan.Source.Lookup.Binding
@@ -397,17 +401,17 @@ func supportedFrameForms(options []capability.ConstructionChoiceOption) []FrameS
 		if option.Support != capability.ConstructionChoiceSupported {
 			continue
 		}
-		var zero authoringv2.FrameZeroPolicy
-		var many authoringv2.FrameManyPolicy
+		var zero ws.FrameZeroPolicy
+		var many ws.FrameManyPolicy
 		switch option.Form {
 		case capability.ConstructionChoiceValue:
-			zero, many = authoringv2.FrameZeroNull, authoringv2.FrameManyInvalidMultipleValues
+			zero, many = ws.FrameZeroNull, ws.FrameManyInvalidMultipleValues
 		case capability.ConstructionChoiceFirst:
-			zero, many = authoringv2.FrameZeroNull, authoringv2.FrameManyFirst
+			zero, many = ws.FrameZeroNull, ws.FrameManyFirst
 		case capability.ConstructionChoiceAll:
-			zero, many = authoringv2.FrameZeroEmptyList, authoringv2.FrameManyAll
+			zero, many = ws.FrameZeroEmptyList, ws.FrameManyAll
 		case capability.ConstructionChoiceDistinct:
-			zero, many = authoringv2.FrameZeroEmptyList, authoringv2.FrameManyDistinct
+			zero, many = ws.FrameZeroEmptyList, ws.FrameManyDistinct
 		default:
 			continue
 		}
@@ -470,8 +474,8 @@ func (s *Service) prepareFrameSourceCommand(
 	ctx context.Context,
 	project, explorerID string,
 	authorized ports.AuthorizedCapability,
-	workspace authoringv2.Workspace,
-	catalogSnapshot authoringv2.CatalogSnapshot,
+	workspace ws.Workspace,
+	catalogSnapshot ws.CatalogSnapshot,
 	command authoringv2.Command,
 	identity capability.ConstructionChoiceIdentity,
 ) ([]authoringv2.Command, error) {
@@ -479,7 +483,7 @@ func (s *Service) prepareFrameSourceCommand(
 		return nil, support.Malformed("commands", "unsupported frame source command", nil)
 	}
 	document := findSemanticOutput(workspace, command.OutputID)
-	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 	}
 	if identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
@@ -539,7 +543,7 @@ func (s *Service) prepareFrameSourceCommand(
 		command.FrameForm() != capability.ConstructionChoiceAll && command.FrameForm() != capability.ConstructionChoiceDistinct {
 		return nil, invalidFrameSource("frame sources support only VALUE, FIRST, ALL, or DISTINCT forms")
 	}
-	frame, err := authoringv2.NewFrameDefinition(
+	frame, err := ws.NewFrameDefinition(
 		frameSourceTitle(family.Family), frameSourceDescription(family.Family, resolvedRoute),
 		family.Family, resolvedRoute, command.FrameForm(),
 	)

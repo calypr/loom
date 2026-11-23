@@ -1,20 +1,24 @@
 package explorer
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+)
 
 func TestSourceRelationshipProposalBindsExactImmutableReceipt(t *testing.T) {
 	base := testReceipt()
-	base.SourceRelationshipProposal = &SourceRelationshipProposalBinding{DraftVersion: 7, DraftDigest: "sha256:base", OutputID: "out", BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest, SnapshotToken: base.SnapshotToken}
-	id, err := ReceiptID(base)
+	base.SourceRelationshipProposal = &receiptmodel.SourceRelationshipProposalBinding{DraftVersion: 7, DraftDigest: "sha256:base", OutputID: "out", BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest, SnapshotToken: base.SnapshotToken}
+	id, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mutate := range []func(*SourceRelationshipProposalBinding){func(b *SourceRelationshipProposalBinding) { b.DraftVersion++ }, func(b *SourceRelationshipProposalBinding) { b.DraftDigest = "another" }, func(b *SourceRelationshipProposalBinding) { b.OutputID = "other" }, func(b *SourceRelationshipProposalBinding) { b.BaseDocumentDigest = "other" }, func(b *SourceRelationshipProposalBinding) { b.CandidateWorkspaceDigest = "other" }, func(b *SourceRelationshipProposalBinding) { b.SnapshotToken = "other" }} {
+	for _, mutate := range []func(*receiptmodel.SourceRelationshipProposalBinding){func(b *receiptmodel.SourceRelationshipProposalBinding) { b.DraftVersion++ }, func(b *receiptmodel.SourceRelationshipProposalBinding) { b.DraftDigest = "another" }, func(b *receiptmodel.SourceRelationshipProposalBinding) { b.OutputID = "other" }, func(b *receiptmodel.SourceRelationshipProposalBinding) { b.BaseDocumentDigest = "other" }, func(b *receiptmodel.SourceRelationshipProposalBinding) { b.CandidateWorkspaceDigest = "other" }, func(b *receiptmodel.SourceRelationshipProposalBinding) { b.SnapshotToken = "other" }} {
 		changed := base
 		b := *base.SourceRelationshipProposal
 		mutate(&b)
 		changed.SourceRelationshipProposal = &b
-		changedID, err := ReceiptID(changed)
+		changedID, err := receiptmodel.ReceiptID(changed)
 		if err != nil {
 			t.Fatal(err)
 		}

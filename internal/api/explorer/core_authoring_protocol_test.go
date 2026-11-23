@@ -12,6 +12,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -22,7 +27,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -115,7 +119,7 @@ type coreProtocolFixture struct {
 	app           *fiber.App
 	store         *testExplorerStore
 	snapshot      capability.Snapshot
-	workspace     authoringv2.Workspace
+	workspace     ws.Workspace
 	initialDigest string
 	basePath      string
 	beforeCompile func()
@@ -124,11 +128,11 @@ type coreProtocolFixture struct {
 func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer:  authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{ColumnID: "id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
-		Tabs:      []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:  ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{ColumnID: "id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
+		Tabs:      []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -140,7 +144,7 @@ func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 	}
 	store := newTestExplorerStore()
 	if _, err := store.Create(context.Background(), explorer.Explorer{
-		Project: "project-a", ExplorerID: "core-protocol", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "core-protocol", Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -168,18 +172,18 @@ func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			if fixture.beforeCompile != nil {
 				fixture.beforeCompile()
 			}
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -214,7 +218,7 @@ func (f *coreProtocolFixture) saveLabel(commandID, label string, expectedVersion
 		f.t.Fatal(err)
 	}
 	body := fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"UPDATE_COLUMN","outputId":"patients","column":"c_patient","columnValue":%s}]}`,
-		commandID, authoringv2.CurrentSemanticsVersion, f.snapshot.Token, expectedVersion, expectedDigest, columnValue)
+		commandID, ws.CurrentSemanticsVersion, f.snapshot.Token, expectedVersion, expectedDigest, columnValue)
 	response := coreProtocolRequest(f.t, f.app, http.MethodPost, f.basePath+"/commands", body, "builder-command-"+commandID)
 	var ack loomapi.ApplyCommandsResponse
 	if err := json.Unmarshal([]byte(response.Body), &ack); err != nil {
@@ -517,7 +521,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		receiptsBefore := len(fixture.store.Receipts)
 
 		truncated := []byte(`{"apiVersion":"explorer.calypr.org/authoringv2"`)
-		if _, err := authoringv2.DecodeWorkspace(truncated); err == nil {
+		if _, err := ws.DecodeWorkspace(truncated); err == nil {
 			t.Fatal("truncated seed unexpectedly decodes as a workspace")
 		}
 		truncatedVersion, truncatedDigest := coreProtocolSeedStoredDraft(t, fixture, truncated, fixture.initialDigest)
@@ -546,7 +550,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("encode untitled variant: %v", err)
 		}
-		if _, err := authoringv2.DecodeWorkspace(incompleteRaw); err == nil {
+		if _, err := ws.DecodeWorkspace(incompleteRaw); err == nil {
 			t.Fatalf("seeded variant unexpectedly still decodes: %s", incompleteRaw)
 		}
 		incompleteVersion, incompleteDigest := coreProtocolSeedStoredDraft(t, fixture, incompleteRaw, fixture.initialDigest)
@@ -612,7 +616,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		variant, err := authoringv2.DecodeWorkspace(baseline)
+		variant, err := ws.DecodeWorkspace(baseline)
 		if err != nil {
 			t.Fatalf("decode compile-failure variant base: %v", err)
 		}
@@ -622,7 +626,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if _, err := authoringv2.DecodeWorkspace(variantRaw); err != nil {
+		if _, err := ws.DecodeWorkspace(variantRaw); err != nil {
 			t.Fatalf("compiler-rejection variant must stay a decodable draft: %v", err)
 		}
 		variantDigest, err := variant.Digest()

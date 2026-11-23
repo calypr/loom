@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	storepkg "github.com/calypr/loom/internal/store/arango"
 
@@ -34,7 +36,7 @@ func TestReceiptVerifiedAddressComparisonPreservesIntegrity(t *testing.T) {
 				receipt.CompilerContractVersion = ""
 				receipt.CompilationKey = ""
 				var err error
-				receipt.ID, err = explorer.ReceiptID(receipt)
+				receipt.ID, err = receiptmodel.ReceiptID(receipt)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -117,7 +119,7 @@ func TestReceiptStoreReturnsAuthenticatedWinnerMetadata(t *testing.T) {
 }
 
 func TestReceiptStoreLegacyCollisionIsCorrupt(t *testing.T) {
-	receipt := explorer.CompilationReceipt{ID: "old-key", Project: "project-a", ExplorerID: "explorer-a", IntentDigest: "original", Bundle: testReceiptBundle()}
+	receipt := receiptmodel.CompilationReceipt{ID: "old-key", Project: "project-a", ExplorerID: "explorer-a", IntentDigest: "original", Bundle: testReceiptBundle()}
 	other := receipt
 	other.IntentDigest = "different"
 	doc, err := db.Document(other, receipt.ID)
@@ -137,7 +139,7 @@ func TestReceiptStoreRechecksCallerBodyAcrossIO(t *testing.T) {
 	receipt := testCompilationReceipt(t, "intent")
 	receipt.CompiledConfig = json.RawMessage(`{"value":"original"}`)
 	var err error
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

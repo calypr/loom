@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	recipeexec "github.com/calypr/loom/internal/api/dataframe/recipeexec"
@@ -34,7 +36,7 @@ func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 	}
 	revision := explorer.Revision{ID: "revision-a", Project: "project-a", ExplorerID: "files", Status: explorer.RevisionActive,
 		Recipe:      recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "metadata", TranslationVersion: "v1", Outputs: []recipe.Output{{Name: "files", RootResourceType: "DocumentReference", RowGrain: "document"}}},
-		Publication: explorer.PublicationMetadata{State: "ACTIVE", ExecutionID: "execution-a"},
+		Publication: viewer.PublicationMetadata{State: "ACTIVE", ExecutionID: "execution-a"},
 	}
 	store.Mu.Lock()
 	store.Revisions[revision.ID] = revision
@@ -109,7 +111,7 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 	}
 	revision := explorer.Revision{ID: "revision-a", Project: "project-a", ExplorerID: "files", Status: explorer.RevisionActive,
 		Recipe:      recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "metadata", TranslationVersion: "v1", Outputs: []recipe.Output{{Name: "files", RootResourceType: "DocumentReference", RowGrain: "document"}}},
-		Publication: explorer.PublicationMetadata{State: "ACTIVE", ExecutionID: "execution-a"},
+		Publication: viewer.PublicationMetadata{State: "ACTIVE", ExecutionID: "execution-a"},
 	}
 	store.Mu.Lock()
 	store.Revisions[revision.ID] = revision

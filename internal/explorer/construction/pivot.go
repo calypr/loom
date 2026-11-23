@@ -6,8 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -32,9 +33,9 @@ func constructionPivotDiscoveryOutcomeError(stepID string, discovery Constructio
 func constructionPivotDiscoveryEvidence(
 	discovered []ConstructionDiscoveredCategory,
 	groupKeyIDs []string,
-	input []authoringv2.StageColumn,
-) ([]authoringv2.ConstructionPivotDiscoveryCategory, error) {
-	inputByID := make(map[string]authoringv2.StageColumn, len(input))
+	input []ws.StageColumn,
+) ([]ws.ConstructionPivotDiscoveryCategory, error) {
+	inputByID := make(map[string]ws.StageColumn, len(input))
 	for _, column := range input {
 		if column.ID != "" {
 			inputByID[column.ID] = column
@@ -48,24 +49,24 @@ func constructionPivotDiscoveryEvidence(
 		}
 		usedNames[strings.ToLower(column.Name)] = true
 	}
-	evidence := make([]authoringv2.ConstructionPivotDiscoveryCategory, 0, len(discovered))
+	evidence := make([]ws.ConstructionPivotDiscoveryCategory, 0, len(discovered))
 	for _, category := range discovered {
 		label := strings.TrimSpace(category.Label)
 		name := uniqueConstructionPivotOutputName(label, usedNames)
 		usedNames[strings.ToLower(name)] = true
-		evidence = append(evidence, authoringv2.ConstructionPivotDiscoveryCategory{
+		evidence = append(evidence, ws.ConstructionPivotDiscoveryCategory{
 			Key: category.Key, Name: name, Label: label,
 		})
 	}
 	return evidence, nil
 }
 
-func constructionUnresolvedPivotDiscovery(construction *authoringv2.Construction) string {
+func constructionUnresolvedPivotDiscovery(construction *ws.Construction) string {
 	if construction == nil {
 		return ""
 	}
 	for _, step := range construction.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationPivot &&
+		if step.Operation.Kind == ws.ConstructionOperationPivot &&
 			step.Operation.Pivot != nil && step.Operation.Pivot.Discovery != nil {
 			return step.ID
 		}
@@ -105,7 +106,7 @@ func (s constructionRowSources) constructionPivotSourceCapability(
 				enumeration.skip(rowSourceSkipVersion)
 				continue
 			}
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
+			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
 				enumeration.skip(rowSourceSkipRoute)
 				continue
@@ -181,12 +182,12 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 	ctx context.Context,
 	base Base,
 	request ConstructionProposalRequest,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, map[string]bool, error) {
+	candidate ws.Construction,
+) (ws.Construction, map[string]bool, error) {
 	authorizedHelpers := make(map[string]bool)
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
 	applyPivotSources := request.PivotSources != nil && changedIndex >= 0 &&
-		candidate.Steps[changedIndex].Operation.Kind == authoringv2.ConstructionOperationPivot
+		candidate.Steps[changedIndex].Operation.Kind == ws.ConstructionOperationPivot
 	clearOwner := ""
 	if applyPivotSources {
 		clearOwner = request.ChangedStepID
@@ -197,14 +198,14 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 	}
 
 	pivotIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
-	if pivotIndex < 0 || candidate.Steps[pivotIndex].Operation.Kind != authoringv2.ConstructionOperationPivot || candidate.Steps[pivotIndex].Operation.Pivot == nil {
-		return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_REQUIRES_PIVOT", "pivotSources can only be applied to a Pivot step", nil)
+	if pivotIndex < 0 || candidate.Steps[pivotIndex].Operation.Kind != ws.ConstructionOperationPivot || candidate.Steps[pivotIndex].Operation.Pivot == nil {
+		return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_REQUIRES_PIVOT", "pivotSources can only be applied to a Pivot step", nil)
 	}
 	pivotID := request.ChangedStepID
 	if len(request.PivotSources) == 0 {
 		cleared, err := clearConstructionPivotInputs(base.Construction, candidate, pivotID)
 		if err != nil {
-			return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+			return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
 		return cleared, authorizedHelpers, nil
 	}
@@ -214,20 +215,20 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 		anchorStageID = acceptedStageID
 	}
 	if acceptedStageID == "" || anchorStageID == "" {
-		return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_STAGE_UNAVAILABLE", "the Pivot input stage cannot be resolved", nil)
+		return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_STAGE_UNAVAILABLE", "the Pivot input stage cannot be resolved", nil)
 	}
 	if _, found := constructionReceiptStage(base.Stages, acceptedStageID); !found {
-		return authoringv2.Construction{}, nil, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the Pivot source choices are not bound to an accepted stage", nil, nil)
+		return ws.Construction{}, nil, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the Pivot source choices are not bound to an accepted stage", nil, nil)
 	}
 	if _, found := constructionReceiptStage(base.Stages, anchorStageID); !found {
-		return authoringv2.Construction{}, nil, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the Pivot source input anchor is not present in the accepted compilation", nil, nil)
+		return ws.Construction{}, nil, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the Pivot source input anchor is not present in the accepted compilation", nil, nil)
 	}
 
 	resolved := make([]resolvedConstructionPivotSource, 0, len(request.PivotSources))
 	for _, selection := range request.PivotSources {
 		item, err := s.resolveConstructionPivotSource(ctx, base, request, acceptedStageID, anchorStageID, selection)
 		if err != nil {
-			return authoringv2.Construction{}, nil, err
+			return ws.Construction{}, nil, err
 		}
 		resolved = append(resolved, item)
 	}
@@ -237,11 +238,11 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 
 	oldOwned := make(map[string]bool)
 	for _, step := range base.Construction.Steps {
-		if step.OwnerStepID == pivotID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+		if step.OwnerStepID == pivotID && step.Operation.Kind == ws.ConstructionOperationRelatedField {
 			oldOwned[step.ID] = true
 		}
 	}
-	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps)+len(resolved))
+	steps := make([]ws.ConstructionStep, 0, len(candidate.Steps)+len(resolved))
 	for _, step := range candidate.Steps {
 		if oldOwned[step.ID] {
 			continue
@@ -250,10 +251,10 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 	}
 	pivotIndex = constructionStepIndex(steps, pivotID)
 	if pivotIndex < 0 {
-		return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate omits the Pivot being edited", nil)
+		return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate omits the Pivot being edited", nil)
 	}
 
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(resolved))
+	projections := make([]ws.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(resolved))
 	for _, projection := range candidate.SourceProjections {
 		if projection.OwnerStepID != pivotID {
 			projections = append(projections, projection)
@@ -275,9 +276,9 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 
 	for index := 0; index < pivotIndex; index++ {
 		step := &steps[index]
-		if !authoringv2.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
+		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			if hasNewRootPivotSource(resolved) {
-				return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
+				return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
 			}
 			continue
 		}
@@ -285,31 +286,31 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 			if item.root == nil {
 				continue
 			}
-			step.Outputs = appendStageColumnIfAbsent(step.Outputs, authoringv2.StageColumn{
-				ID: item.root.ColumnID, Name: authoringv2.ConstructionSourceProjectionName(item.root.ColumnID),
+			step.Outputs = appendStageColumnIfAbsent(step.Outputs, ws.StageColumn{
+				ID: item.root.ColumnID, Name: ws.ConstructionSourceProjectionName(item.root.ColumnID),
 				Label: item.root.Label, Type: item.root.LogicalType,
 			})
 		}
 	}
 
 	pivot := &steps[pivotIndex]
-	pivotAnchor := authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputSourceProjection}
+	pivotAnchor := ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}
 	if anchorStageID != recipe.ConstructionSourceProjectionID {
-		pivotAnchor = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: anchorStageID}
+		pivotAnchor = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: anchorStageID}
 	}
 	currentInputColumns, err := constructionAuthoringStageColumns(base, steps, anchorStageID, projections)
 	if err != nil {
-		return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+		return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 	}
 	for _, item := range resolved {
 		if item.root != nil {
-			currentInputColumns = appendStageColumnIfAbsent(currentInputColumns, authoringv2.StageColumn{
-				ID: item.root.ColumnID, Name: authoringv2.ConstructionSourceProjectionName(item.root.ColumnID),
+			currentInputColumns = appendStageColumnIfAbsent(currentInputColumns, ws.StageColumn{
+				ID: item.root.ColumnID, Name: ws.ConstructionSourceProjectionName(item.root.ColumnID),
 				Label: item.root.Label, Type: item.root.LogicalType,
 			})
 		}
 	}
-	inserted := make([]authoringv2.ConstructionStep, 0, len(resolved))
+	inserted := make([]ws.ConstructionStep, 0, len(resolved))
 	for _, item := range resolved {
 		if item.related == nil {
 			continue
@@ -317,34 +318,34 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 		helperID := constructionPivotSourceHelperID(pivotID, item.selection.ColumnID)
 		choice, err := capability.NewConstructionRelatedFieldChoice(base.Snapshot.Token, constructionRefStageID(pivotAnchor), sourceCandidate(base.Snapshot, *item.related))
 		if err != nil {
-			return authoringv2.Construction{}, nil, unavailable("construction-proposal", "PIVOT_SOURCE_CHOICE_UNAVAILABLE", "the selected related field could not be reissued for the rebuilt input chain", err)
+			return ws.Construction{}, nil, unavailable("construction-proposal", "PIVOT_SOURCE_CHOICE_UNAVAILABLE", "the selected related field could not be reissued for the rebuilt input chain", err)
 		}
-		step := authoringv2.ConstructionStep{
+		step := ws.ConstructionStep{
 			ID: helperID, OwnerStepID: pivotID,
-			Inputs: []authoringv2.ConstructionInputRef{pivotAnchor},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+			Inputs: []ws.ConstructionInputRef{pivotAnchor},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 				ChoiceID: choice.ChoiceID, Source: *item.related, OutputColumnID: item.selection.ColumnID,
 			}},
-			Outputs: append([]authoringv2.StageColumn(nil), currentInputColumns...),
+			Outputs: append([]ws.StageColumn(nil), currentInputColumns...),
 		}
-		pivotSourceOutput := authoringv2.StageColumn{
+		pivotSourceOutput := ws.StageColumn{
 			ID: item.selection.ColumnID, Name: constructionPivotSourceOutputName(item.selection.ColumnID),
 			Label: item.label, Type: item.related.LogicalType, Nullable: true,
 		}
 		pivotSourceOutput = preserveExistingPivotSourceTable(base.Construction, pivotID, helperID, *item.related, pivotSourceOutput)
 		step.Outputs = appendStageColumnIfAbsent(step.Outputs, pivotSourceOutput)
 		inserted = append(inserted, step)
-		currentInputColumns = append([]authoringv2.StageColumn(nil), step.Outputs...)
-		pivotAnchor = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: helperID}
+		currentInputColumns = append([]ws.StageColumn(nil), step.Outputs...)
+		pivotAnchor = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: helperID}
 		authorizedHelpers[helperID] = true
 	}
 
 	pivot = &steps[pivotIndex]
-	pivot.Inputs = []authoringv2.ConstructionInputRef{pivotAnchor}
+	pivot.Inputs = []ws.ConstructionInputRef{pivotAnchor}
 	steps = append(steps[:pivotIndex], append(inserted, steps[pivotIndex:]...)...)
 	candidate.Steps = steps
 	if err := validatePivotSourceColumns(candidate.Steps, pivotID, resolved); err != nil {
-		return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_COLUMN_MISMATCH", err.Error(), err)
+		return ws.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, authorizedHelpers, nil
 }
@@ -367,9 +368,9 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 			RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
 		})
 		if resolveErr != nil || identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest ||
-			identity.Kind != capability.RowChoiceFieldGroupKey || identity.Occurrence.OccurrenceID != authoringv2.RootOccurrenceID ||
+			identity.Kind != capability.RowChoiceFieldGroupKey || identity.Occurrence.OccurrenceID != ws.RootOccurrenceID ||
 			identity.Path != resolved.FieldPath || identity.Reference || identity.Cardinality != capability.RowChoiceOne || identity.Shape != capability.RowChoiceScalar ||
-			resolved.OccurrenceID != authoringv2.RootOccurrenceID {
+			resolved.OccurrenceID != ws.RootOccurrenceID {
 			return resolvedConstructionPivotSource{}, conflict("construction-proposal", "INVALID_PIVOT_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, resolveErr)
 		}
 		rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
@@ -392,7 +393,7 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 			return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 		}
 		label := constructionFieldDisplayLabel(base.Document.RootResourceType, facts.CanonicalPath, candidate.Label)
-		projection := authoringv2.ConstructionSourceProjection{
+		projection := ws.ConstructionSourceProjection{
 			ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 			FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
 		}
@@ -431,7 +432,7 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 	if source.NodeID != proved.NodeID || source.ResourceType != proved.ResourceType || source.Cardinality != proved.Cardinality {
 		return resolvedConstructionPivotSource{}, unprocessable("construction-proposal", "INVALID_PIVOT_SOURCE_CHOICE", "the selected related field does not match its signed source identity", nil)
 	}
-	related := &authoringv2.ConstructionRelatedFieldSource{
+	related := &ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: proved.ID, NodeID: proved.NodeID,
 		ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
 		LogicalType: proved.LogicalType, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), proved.RepeatedBoundaries...),
@@ -444,8 +445,8 @@ func (s *Service) resolveConstructionPivotDiscoveries(
 	ctx context.Context,
 	base Base,
 	request ConstructionProposalRequest,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, map[string]bool, error) {
+	candidate ws.Construction,
+) (ws.Construction, map[string]bool, error) {
 	resolvedSteps := make(map[string]bool)
 	removed := make(map[string]bool, len(request.RemoveStepIDs))
 	for _, stepID := range request.RemoveStepIDs {
@@ -457,7 +458,7 @@ func (s *Service) resolveConstructionPivotDiscoveries(
 			continue
 		}
 		pivot := step.Operation.Pivot
-		if step.Operation.Kind != authoringv2.ConstructionOperationPivot || pivot == nil || pivot.Discovery == nil {
+		if step.Operation.Kind != ws.ConstructionOperationPivot || pivot == nil || pivot.Discovery == nil {
 			continue
 		}
 		if len(pivot.Categories) != 0 {
@@ -503,7 +504,7 @@ func (s *Service) resolveConstructionPivotDiscoveries(
 			return candidate, nil, unprocessable("construction-proposal", "INVALID_PIVOT_DISCOVERY",
 				fmt.Sprintf("Pivot %s discovery evidence is invalid: %v", step.ID, err), err)
 		}
-		resolved, err := authoringv2.ResolveConstructionPivotDiscovery(step, input, evidence)
+		resolved, err := ws.ResolveConstructionPivotDiscovery(step, input, evidence)
 		if err != nil {
 			return candidate, nil, unprocessable("construction-proposal", "INVALID_PIVOT_DISCOVERY",
 				fmt.Sprintf("Pivot %s discovery could not be resolved: %v", step.ID, err), err)

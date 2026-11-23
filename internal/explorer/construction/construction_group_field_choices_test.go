@@ -7,28 +7,30 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestGroupConsumedFieldBoundariesFollowExactCompiledOccurrencePrefix(t *testing.T) {
-	expansion := &explorer.ReceiptConstructionGroupFieldSourceExpansion{
+	expansion := &receiptmodel.ReceiptConstructionGroupFieldSourceExpansion{
 		OwnerOccurrenceID: "observation-owner",
 		OwnerResourceType: "Observation",
 		Selector:          "component[].extension[]",
-		Ancestors: []explorer.ReceiptConstructionGroupFieldSourceAncestor{
+		Ancestors: []receiptmodel.ReceiptConstructionGroupFieldSourceAncestor{
 			{StepIndex: 0, BoundarySelector: "component[]", ResourceType: "ObservationComponent"},
 		},
 	}
-	ancestor := explorer.ReceiptConstructionGroupFieldOwner{
+	ancestor := receiptmodel.ReceiptConstructionGroupFieldOwner{
 		Role: "ANCESTOR", OccurrenceID: "observation-owner", OwnerResourceType: "Observation",
 		ResourceType: "ObservationComponent", BoundarySelector: "component[]", StepIndex: 0,
 	}
@@ -43,7 +45,7 @@ func TestGroupConsumedFieldBoundariesFollowExactCompiledOccurrencePrefix(t *test
 		t.Fatalf("accepted stale ancestor step index with same apparent role: %#v", got)
 	}
 
-	currentItem := explorer.ReceiptConstructionGroupFieldOwner{
+	currentItem := receiptmodel.ReceiptConstructionGroupFieldOwner{
 		Role: "CURRENT_ITEM", OccurrenceID: "observation-owner", OwnerResourceType: "Observation",
 		ResourceType: "Extension", BoundarySelector: "component[].extension[]",
 	}
@@ -72,8 +74,8 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 	}}
 	oldChoice, err := capability.NewGroupFieldConstructionChoice("snapshot-a", nil, capability.GroupFieldChoiceSource{
 		SourceStageID: "source_projection", SourceShapeID: "shape-old", SourceIdentityColumn: "_key",
-		SourceRole: "ROOT", OwnerOccurrenceID: authoringv2.RootOccurrenceID, OwnerResourceType: "Observation",
-		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation", CandidateID: "status-candidate",
+		SourceRole: "ROOT", OwnerOccurrenceID: ws.RootOccurrenceID, OwnerResourceType: "Observation",
+		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation", CandidateID: "status-candidate",
 		NodeID: "observation-node", CanonicalPath: "status", FHIRType: "code", Cardinality: "ONE", Shape: "SCALAR", ValueKind: "SCALAR",
 	}, snapshot.Candidates[0])
 	if err != nil {
@@ -82,32 +84,32 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 	base := constructionBase{
 		Snapshot:   snapshot,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		Document: authoringv2.Document{
+		Document: ws.Document{
 			RootResourceType: "Observation",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(),
 		},
-		Stages: []explorer.ReceiptConstructionStage{{
+		Stages: []receiptmodel.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			GroupFieldSourceContext: &explorer.ReceiptConstructionGroupFieldSourceContext{
+			GroupFieldSourceContext: &receiptmodel.ReceiptConstructionGroupFieldSourceContext{
 				SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "shape-new", SourceIdentityColumn: "_key",
-				FieldOwners: []explorer.ReceiptConstructionGroupFieldOwner{{
-					Role: "ROOT", OccurrenceID: authoringv2.RootOccurrenceID,
+				FieldOwners: []receiptmodel.ReceiptConstructionGroupFieldOwner{{
+					Role: "ROOT", OccurrenceID: ws.RootOccurrenceID,
 					OwnerResourceType: "Observation", ResourceType: "Observation",
 				}},
 			},
 		}},
 	}
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: "group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys: []authoringv2.ConstructionGroupKey{{
-				FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: oldChoice.ChoiceID},
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys: []ws.ConstructionGroupKey{{
+				FieldSource:    &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: oldChoice.ChoiceID},
 				OutputColumnID: "status-group",
 			}},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "status-group", Name: "status_group", Label: "Status", Type: "string"},
 			{ID: "row-count", Name: "row_count", Label: "Rows", Type: "integer"},
 		},
@@ -127,17 +129,17 @@ func TestMarkSavedGroupFieldChoicesUsesExactGroupInputAndOutputKey(t *testing.T)
 	}
 	choice, err := capability.NewGroupFieldConstructionChoice("snapshot-a", nil, capability.GroupFieldChoiceSource{
 		SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "shape-a", SourceIdentityColumn: "_key",
-		SourceRole: "ROOT", OwnerOccurrenceID: authoringv2.RootOccurrenceID, OwnerResourceType: "Patient",
-		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", CandidateID: candidate.ID,
+		SourceRole: "ROOT", OwnerOccurrenceID: ws.RootOccurrenceID, OwnerResourceType: "Patient",
+		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", CandidateID: candidate.ID,
 		NodeID: candidate.NodeID, CanonicalPath: candidate.FieldPath, FHIRType: "boolean", Cardinality: "ONE", Shape: "SCALAR", ValueKind: "SCALAR",
 	}, candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := constructionBase{Construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
-		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			Keys: []authoringv2.ConstructionGroupKey{{
+	base := constructionBase{Construction: ws.Construction{Steps: []ws.ConstructionStep{{
+		ID: "group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			Keys: []ws.ConstructionGroupKey{{
 				OutputColumnID: "active_key",
 				FieldSource:    constructionGroupFieldBinding(choice.Source.(capability.GroupFieldChoiceSource)),
 			}},
@@ -145,7 +147,7 @@ func TestMarkSavedGroupFieldChoicesUsesExactGroupInputAndOutputKey(t *testing.T)
 	}}}}
 	choices := []ConstructionGroupFieldChoice{{
 		Kind: "FIELD_SOURCE", ValueKind: "SCALAR",
-		FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
+		FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 	}}
 	markSavedGroupFieldChoices(base, recipe.ConstructionSourceProjectionID, "group", choices)
 	if choices[0].MatchedOutputKeyID != "active_key" {
@@ -259,17 +261,17 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		}}, candidates, nil)
 	base := constructionBase{
 		Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		Document: authoringv2.Document{
+		Document: ws.Document{
 			RootResourceType: "Patient",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
+			Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(),
 		},
 	}
-	stage := explorer.ReceiptConstructionStage{
+	stage := receiptmodel.ReceiptConstructionStage{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-		GroupFieldSourceContext: &explorer.ReceiptConstructionGroupFieldSourceContext{
+		GroupFieldSourceContext: &receiptmodel.ReceiptConstructionGroupFieldSourceContext{
 			SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "source-shape", SourceIdentityColumn: "_key",
-			FieldOwners: []explorer.ReceiptConstructionGroupFieldOwner{{
-				Role: "ROOT", OccurrenceID: authoringv2.RootOccurrenceID,
+			FieldOwners: []receiptmodel.ReceiptConstructionGroupFieldOwner{{
+				Role: "ROOT", OccurrenceID: ws.RootOccurrenceID,
 				OwnerResourceType: "Patient", ResourceType: "Patient",
 			}},
 		},
@@ -327,19 +329,19 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		t.Fatalf("signed related Coding choice empty policy = %q, want recipe GROUP policy", got)
 	}
 
-	base.Stages = []explorer.ReceiptConstructionStage{stage}
+	base.Stages = []receiptmodel.ReceiptConstructionStage{stage}
 	service := &Service{}
-	proposal := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: "group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys: []authoringv2.ConstructionGroupKey{
+	proposal := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys: []ws.ConstructionGroupKey{
 				{FieldSource: rootID.FieldSource, OutputColumnID: "patient-id"},
 				{FieldSource: coding.FieldSource, OutputColumnID: "specimen-type"},
 			},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "patient-id", Name: "patient_id", Type: "string"},
 			{ID: "specimen-type", Name: "specimen_type", Type: "string"},
 			{ID: "row-count", Name: "row_count", Type: "integer"},
@@ -465,10 +467,10 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			t.Fatal(err)
 		}
 		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "", "")
-		base.Construction = authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
-			ID: "saved-group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-				Keys: []authoringv2.ConstructionGroupKey{{OutputColumnID: "saved-specimen", FieldSource: constructionGroupFieldBinding(source)}},
+		base.Construction = ws.Construction{Steps: []ws.ConstructionStep{{
+			ID: "saved-group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+				Keys: []ws.ConstructionGroupKey{{OutputColumnID: "saved-specimen", FieldSource: constructionGroupFieldBinding(source)}},
 			}},
 		}}}
 		edited, _, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "saved-group")
@@ -509,7 +511,7 @@ type countingGroupRowChoicePlanner struct {
 	calls int
 }
 
-func (p *countingGroupRowChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (p *countingGroupRowChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	p.calls++
 	return nil, nil
 }
@@ -517,18 +519,18 @@ func (p *countingGroupRowChoicePlanner) ListRowChoices(context.Context, capabili
 func TestConstructionGroupRowValueChoicesSkipCodingRowChoiceDiscovery(t *testing.T) {
 	planner := &countingGroupRowChoicePlanner{}
 	service := &Service{config: Config{RowChoicePlanner: planner}}
-	stage := explorer.ReceiptConstructionStage{
+	stage := receiptmodel.ReceiptConstructionStage{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "__loom_expansion_identity",
-		GroupFieldSourceContext: &explorer.ReceiptConstructionGroupFieldSourceContext{
+		GroupFieldSourceContext: &receiptmodel.ReceiptConstructionGroupFieldSourceContext{
 			SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "shape-expanded", SourceIdentityColumn: "__loom_expansion_identity",
-			SourceExpansion: &explorer.ReceiptConstructionGroupFieldSourceExpansion{
+			SourceExpansion: &receiptmodel.ReceiptConstructionGroupFieldSourceExpansion{
 				OwnerOccurrenceID: "observation-owner", OwnerResourceType: "Observation", Selector: "component[].code.coding[]",
 			},
 		},
 	}
-	base := constructionBase{Construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
-		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{}},
+	base := constructionBase{Construction: ws.Construction{Steps: []ws.ConstructionStep{{
+		ID: "group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{}},
 	}}}}
 
 	choices, err := service.constructionGroupRowValueChoices(context.Background(), base, "observations", stage, "group")
@@ -545,15 +547,15 @@ func TestConstructionGroupRowValueChoicesSkipCodingRowChoiceDiscovery(t *testing
 
 func TestConstructionGroupRelatedFieldChoicesSkipExpandedSource(t *testing.T) {
 	service := &Service{}
-	fieldContext := &explorer.ReceiptConstructionGroupFieldSourceContext{
+	fieldContext := &receiptmodel.ReceiptConstructionGroupFieldSourceContext{
 		SourceStageID: "source_projection", SourceShapeID: "expanded-shape",
-		SourceExpansion: &explorer.ReceiptConstructionGroupFieldSourceExpansion{
+		SourceExpansion: &receiptmodel.ReceiptConstructionGroupFieldSourceExpansion{
 			OwnerOccurrenceID: "observation-owner", OwnerResourceType: "Observation", Selector: "component[]",
 		},
 	}
 	choices := map[string]ConstructionGroupFieldChoice{}
 	incomplete, err := service.appendRelatedGroupFieldChoices(
-		context.Background(), constructionBase{}, explorer.ReceiptConstructionStage{}, fieldContext, nil, choices, "", "",
+		context.Background(), constructionBase{}, receiptmodel.ReceiptConstructionStage{}, fieldContext, nil, choices, "", "",
 	)
 	if err != nil {
 		t.Fatalf("related choices for expanded source: %v", err)
@@ -569,8 +571,8 @@ func TestConstructionGroupRelatedFieldChoicesSkipExpandedSource(t *testing.T) {
 func TestConstructionGroupRelatedFieldChoicesStopCanceledRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := (&Service{}).appendRelatedGroupFieldChoices(ctx, constructionBase{}, explorer.ReceiptConstructionStage{},
-		&explorer.ReceiptConstructionGroupFieldSourceContext{}, nil, map[string]ConstructionGroupFieldChoice{}, "", "")
+	_, err := (&Service{}).appendRelatedGroupFieldChoices(ctx, constructionBase{}, receiptmodel.ReceiptConstructionStage{},
+		&receiptmodel.ReceiptConstructionGroupFieldSourceContext{}, nil, map[string]ConstructionGroupFieldChoice{}, "", "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled discovery error = %v, want context cancellation before route work", err)
 	}
@@ -578,11 +580,11 @@ func TestConstructionGroupRelatedFieldChoicesStopCanceledRequest(t *testing.T) {
 
 func TestConstructionGroupFieldChoicesSortSameLabelBySourceIdentity(t *testing.T) {
 	choices := []ConstructionGroupFieldChoice{
-		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "ROOT", OwnerResourceType: "Observation", OwnerOccurrenceID: "root", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-root"}},
-		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Patient", OwnerOccurrenceID: "patient-owner", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-patient"}},
-		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-b", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-b"}},
-		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-a", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-z"}},
-		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-a", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-a"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "ROOT", OwnerResourceType: "Observation", OwnerOccurrenceID: "root", FieldSource: &ws.ConstructionGroupFieldSource{ChoiceID: "choice-root"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Patient", OwnerOccurrenceID: "patient-owner", FieldSource: &ws.ConstructionGroupFieldSource{ChoiceID: "choice-patient"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-b", FieldSource: &ws.ConstructionGroupFieldSource{ChoiceID: "choice-b"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-a", FieldSource: &ws.ConstructionGroupFieldSource{ChoiceID: "choice-z"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-a", FieldSource: &ws.ConstructionGroupFieldSource{ChoiceID: "choice-a"}},
 	}
 
 	sortConstructionGroupFieldChoices(choices)

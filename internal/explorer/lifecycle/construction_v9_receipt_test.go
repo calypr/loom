@@ -4,16 +4,19 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,8 +36,8 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 
 	compileReceipt := service.config.CompileReceipt
 	catalog := service.catalog(snapshot, store.created.ExplorerID)
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+		prepared, prepareErr := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
@@ -53,7 +56,7 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 	}
 
 	previewCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -61,7 +64,7 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
 	apply := authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-v9-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-v9-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
@@ -69,18 +72,18 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 	if err != nil {
 		t.Fatalf("apply construction with saved v9 CAS: %v", err)
 	}
-	if previewCalls != 1 || response.Workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
+	if previewCalls != 1 || response.Workspace.SemanticsVersion != ws.CurrentSemanticsVersion {
 		t.Fatalf("preview calls=%d, applied semanticsVersion=%d", previewCalls, response.Workspace.SemanticsVersion)
 	}
 	if store.created.DraftVersion != version+1 || store.created.DraftDigest == digest || string(store.created.DraftConfig) == string(originalConfig) {
 		t.Fatal("accepted proposal did not persist the upgraded candidate exactly once")
 	}
-	persisted, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	persisted, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	persistedDigest, err := persisted.Digest()
-	if err != nil || persisted.SemanticsVersion != authoringv2.CurrentSemanticsVersion || persistedDigest != store.created.DraftDigest {
+	if err != nil || persisted.SemanticsVersion != ws.CurrentSemanticsVersion || persistedDigest != store.created.DraftDigest {
 		t.Fatalf("persisted candidate semantics=%d digest=%q ownerDigest=%q err=%v", persisted.SemanticsVersion, persistedDigest, store.created.DraftDigest, err)
 	}
 

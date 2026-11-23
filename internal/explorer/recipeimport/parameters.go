@@ -2,60 +2,61 @@ package recipeimport
 
 import (
 	"fmt"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func sourceParameters(output recipe.Output) map[string]*authoringv2.ImportedSourceParameters {
-	result := map[string]*authoringv2.ImportedSourceParameters{}
+func sourceParameters(output recipe.Output) map[string]*ws.ImportedSourceParameters {
+	result := map[string]*ws.ImportedSourceParameters{}
 	if cloned, err := cloneOutput(output); err == nil {
 		output = cloned
 	}
-	result["output"] = &authoringv2.ImportedSourceParameters{Output: &authoringv2.ImportedOutputParameters{RowGrain: output.RowGrain, CollisionPolicy: output.CollisionPolicy}}
+	result["output"] = &ws.ImportedSourceParameters{Output: &ws.ImportedOutputParameters{RowGrain: output.RowGrain, CollisionPolicy: output.CollisionPolicy}}
 	if x := output.Expand; x != nil {
-		result["expand"] = &authoringv2.ImportedSourceParameters{Expansion: &authoringv2.ImportedExpansionParameters{From: x.From, As: x.As, Ordinality: x.Ordinality, EmptyPolicy: x.EmptyPolicy}}
+		result["expand"] = &ws.ImportedSourceParameters{Expansion: &ws.ImportedExpansionParameters{From: x.From, As: x.As, Ordinality: x.Ordinality, EmptyPolicy: x.EmptyPolicy}}
 	}
 	if x := output.Identity; x != nil && x.Expansion == nil {
-		result["identity"] = &authoringv2.ImportedSourceParameters{Identity: &authoringv2.ImportedIdentityParameters{Name: x.Name, Expr: x.Expr}}
+		result["identity"] = &ws.ImportedSourceParameters{Identity: &ws.ImportedIdentityParameters{Name: x.Name, Expr: x.Expr}}
 	}
 	var scope func(string, []recipe.Field, []recipe.CatalogProjection, []recipe.DynamicColumn, []recipe.ExtensionColumn, []recipe.Pivot, []recipe.Traversal)
 	scope = func(parent string, fields []recipe.Field, catalogs []recipe.CatalogProjection, dynamics []recipe.DynamicColumn, extensions []recipe.ExtensionColumn, pivots []recipe.Pivot, traversals []recipe.Traversal) {
 		if len(fields) > 0 {
-			f := &authoringv2.ImportedFieldGroupParameters{Fields: make([]authoringv2.ImportedFieldParameters, 0, len(fields))}
+			f := &ws.ImportedFieldGroupParameters{Fields: make([]ws.ImportedFieldParameters, 0, len(fields))}
 			for i, x := range fields {
-				f.Fields = append(f.Fields, authoringv2.ImportedFieldParameters{FieldID: sourceIndexPath(parent, "fields", i), Enabled: true, Name: x.Name, Label: x.Label, Expr: x.Expr, Fallbacks: x.Fallbacks, ValueMode: x.ValueMode})
+				f.Fields = append(f.Fields, ws.ImportedFieldParameters{FieldID: sourceIndexPath(parent, "fields", i), Enabled: true, Name: x.Name, Label: x.Label, Expr: x.Expr, Fallbacks: x.Fallbacks, ValueMode: x.ValueMode})
 			}
-			result[sourcePath(parent, "fields")] = &authoringv2.ImportedSourceParameters{FieldGroup: f}
+			result[sourcePath(parent, "fields")] = &ws.ImportedSourceParameters{FieldGroup: f}
 		}
 		for i, x := range catalogs {
-			var outputs []authoringv2.ImportedCatalogOutput
+			var outputs []ws.ImportedCatalogOutput
 			for _, override := range x.OutputOverrides {
-				outputs = append(outputs, authoringv2.ImportedCatalogOutput{FieldPath: override.FieldPath, Enabled: override.Enabled, Name: override.Name})
+				outputs = append(outputs, ws.ImportedCatalogOutput{FieldPath: override.FieldPath, Enabled: override.Enabled, Name: override.Name})
 			}
-			result[sourceIndexPath(parent, "catalogProjections", i)] = &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{Name: x.Name, IncludePaths: x.IncludePaths, ExcludePaths: x.ExcludePaths, Outputs: outputs, Kinds: x.Kinds, Naming: x.Naming}}
+			result[sourceIndexPath(parent, "catalogProjections", i)] = &ws.ImportedSourceParameters{Catalog: &ws.ImportedCatalogParameters{Name: x.Name, IncludePaths: x.IncludePaths, ExcludePaths: x.ExcludePaths, Outputs: outputs, Kinds: x.Kinds, Naming: x.Naming}}
 		}
 		for i, x := range dynamics {
-			var outputs []authoringv2.ImportedDynamicOutput
+			var outputs []ws.ImportedDynamicOutput
 			for _, override := range x.OutputOverrides {
-				outputs = append(outputs, authoringv2.ImportedDynamicOutput{Key: override.Key, Enabled: override.Enabled})
+				outputs = append(outputs, ws.ImportedDynamicOutput{Key: override.Key, Enabled: override.Enabled})
 			}
-			result[sourceIndexPath(parent, "dynamicColumns", i)] = &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Key: x.Key, Value: x.Value, Outputs: outputs}}
+			result[sourceIndexPath(parent, "dynamicColumns", i)] = &ws.ImportedSourceParameters{Dynamic: &ws.ImportedDynamicParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Key: x.Key, Value: x.Value, Outputs: outputs}}
 		}
 		for i, x := range extensions {
-			var outputs []authoringv2.ImportedExtensionOutput
+			var outputs []ws.ImportedExtensionOutput
 			for _, override := range x.OutputOverrides {
-				outputs = append(outputs, authoringv2.ImportedExtensionOutput{Key: override.Key, Enabled: override.Enabled})
+				outputs = append(outputs, ws.ImportedExtensionOutput{Key: override.Key, Enabled: override.Enabled})
 			}
-			result[sourceIndexPath(parent, "extensionColumns", i)] = &authoringv2.ImportedSourceParameters{Extension: &authoringv2.ImportedExtensionParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Outputs: outputs}}
+			result[sourceIndexPath(parent, "extensionColumns", i)] = &ws.ImportedSourceParameters{Extension: &ws.ImportedExtensionParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Outputs: outputs}}
 		}
 		for i, x := range pivots {
-			var outputs []authoringv2.ImportedPivotOutput
+			var outputs []ws.ImportedPivotOutput
 			for _, override := range x.OutputOverrides {
-				outputs = append(outputs, authoringv2.ImportedPivotOutput{Key: override.Key, Enabled: override.Enabled, Name: cloneOptionalString(override.Name)})
+				outputs = append(outputs, ws.ImportedPivotOutput{Key: override.Key, Enabled: override.Enabled, Name: cloneOptionalString(override.Name)})
 			}
-			p := &authoringv2.ImportedPivotParameters{Name: x.Name, ValueFallbacks: x.ValueFallbacks, ItemResourceType: x.ItemResourceType, Columns: x.Columns, ColumnAliases: x.ColumnAliases, Outputs: outputs}
+			p := &ws.ImportedPivotParameters{Name: x.Name, ValueFallbacks: x.ValueFallbacks, ItemResourceType: x.ItemResourceType, Columns: x.Columns, ColumnAliases: x.ColumnAliases, Outputs: outputs}
 			if x.Discovery != nil {
-				p.Discovery = &authoringv2.ImportedPivotDiscoveryParameters{Family: x.Discovery.Family, Path: x.Discovery.Path}
+				p.Discovery = &ws.ImportedPivotDiscoveryParameters{Family: x.Discovery.Family, Path: x.Discovery.Path}
 			}
 			if expressionPresent(x.ColumnExpr) {
 				e := x.ColumnExpr
@@ -69,11 +70,11 @@ func sourceParameters(output recipe.Output) map[string]*authoringv2.ImportedSour
 				e := x.ItemSource
 				p.ItemSource = &e
 			}
-			result[sourceIndexPath(parent, "pivots", i)] = &authoringv2.ImportedSourceParameters{Pivot: p}
+			result[sourceIndexPath(parent, "pivots", i)] = &ws.ImportedSourceParameters{Pivot: p}
 		}
 		for i, x := range traversals {
 			id := sourceIndexPath(parent, "traversals", i)
-			result[id] = &authoringv2.ImportedSourceParameters{Traversal: &authoringv2.ImportedTraversalParameters{Name: x.Name, ToResourceType: x.ToResourceType, Alias: x.Alias, From: x.From}}
+			result[id] = &ws.ImportedSourceParameters{Traversal: &ws.ImportedTraversalParameters{Name: x.Name, ToResourceType: x.ToResourceType, Alias: x.Alias, From: x.From}}
 			scope(id, x.Fields, x.CatalogProjections, x.DynamicColumns, x.ExtensionColumns, x.Pivots, x.Traversals)
 		}
 	}
@@ -84,7 +85,7 @@ func expressionPresent(e recipe.Expression) bool {
 	return e.Select != "" || e.Call != "" || e.Literal != nil || e.Document != nil
 }
 
-func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2.ImportedSourceStep) error {
+func applyParameterOverrides(output *recipe.Output, steps map[string]ws.ImportedSourceStep) error {
 	if p := steps["output"].Parameters; p != nil && p.Output != nil {
 		output.RowGrain = p.Output.RowGrain
 		output.CollisionPolicy = p.Output.CollisionPolicy
@@ -269,7 +270,7 @@ func ImportedFieldSlots(output recipe.Output) []ImportedFieldSlot {
 	walk("", "", output.Fields, output.Traversals)
 	return slots
 }
-func applyFieldBindings(output *recipe.Output, bindings []authoringv2.ImportedSourceFieldBinding) error {
+func applyFieldBindings(output *recipe.Output, bindings []ws.ImportedSourceFieldBinding) error {
 	ids := map[string]string{}
 	for _, b := range bindings {
 		ids[b.FieldID] = b.ColumnID

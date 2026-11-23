@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
@@ -68,7 +70,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 		return result, err
 	}
 	document := findSemanticOutput(workspace, request.OutputID)
-	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, malformed("construction-choices", "outputId does not identify a valid row-rooted table", nil)
 	}
 	var candidate capability.Candidate
@@ -99,7 +101,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 		if !found || semanticEntry.Observation.Source.Type != candidate.ResourceType {
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "semantic binding and candidate resource do not match", nil)
 		}
-		plan := authoringv2.ResolveSemanticSelectionPlan(semanticEntry.Observation)
+		plan := semanticauthoring.ResolveSemanticSelectionPlan(semanticEntry.Observation)
 		if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil {
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "semantic source has no supported typed compiler binding", nil)
 		}
@@ -175,34 +177,34 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 	return result, nil
 }
 
-func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (authoringv2.Workspace, error) {
+func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (ws.Workspace, error) {
 	project = projectid.Canonical(project)
 	owner, err := s.getOwner(ctx, project, explorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
-		return authoringv2.Workspace{}, notFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
+		return ws.Workspace{}, notFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
 	if err != nil {
-		return authoringv2.Workspace{}, persistenceFailure("construction-choices", "the current Explorer workspace could not be loaded", err)
+		return ws.Workspace{}, persistenceFailure("construction-choices", "the current Explorer workspace could not be loaded", err)
 	}
 	if len(owner.DraftConfig) != 0 {
-		workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
+		workspace, decodeErr := ws.DecodeWorkspace(owner.DraftConfig)
 		if decodeErr != nil {
-			return authoringv2.Workspace{}, conflict("construction-choices", "DRAFT_STATE_INVALID", "the saved Explorer draft is invalid", nil, decodeErr)
+			return ws.Workspace{}, conflict("construction-choices", "DRAFT_STATE_INVALID", "the saved Explorer draft is invalid", nil, decodeErr)
 		}
 		return workspace, nil
 	}
 	if owner.ActiveRevisionID != "" {
 		active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
 		if activeErr != nil {
-			return authoringv2.Workspace{}, persistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
+			return ws.Workspace{}, persistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
 		}
 		workspace, decodeErr := s.store.RevisionWorkspace(ctx, *active)
 		if decodeErr != nil {
-			return authoringv2.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace is invalid", nil, decodeErr)
+			return ws.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace is invalid", nil, decodeErr)
 		}
 		return workspace, nil
 	}
-	return authoringv2.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the Explorer has no V2 authoring workspace", nil, nil)
+	return ws.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the Explorer has no V2 authoring workspace", nil, nil)
 }
 
 func (s constructionRouteFlow) resolveConstructionSearchSemanticEntry(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semantic.Entry, string, error) {

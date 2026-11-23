@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -81,7 +82,7 @@ func prepareInterpretation(t *testing.T) interpretation.InterpretationRevision {
 	t.Helper()
 	revision, err := interpretation.PrepareInterpretationRevision(interpretation.InterpretationRevision{
 		Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "lifecycle",
-		CreatedAt: time.Unix(1, 0).UTC(), Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: interpretation.InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
+		CreatedAt: time.Unix(1, 0).UTC(), Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
 	})
 	if err != nil {
 		t.Fatal(err)

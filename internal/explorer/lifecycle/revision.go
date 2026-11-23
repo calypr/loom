@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/interpretation"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -46,7 +47,7 @@ func validateCreateInterpretationFromColumnRequest(request CreateInterpretationR
 	return nil
 }
 
-func configuredColumn(document *authoringv2.Document, name string) *authoringv2.Column {
+func configuredColumn(document *ws.Document, name string) *ws.Column {
 	if document == nil {
 		return nil
 	}
@@ -66,56 +67,56 @@ func singletonInterpretationDimension(value string) []string {
 	return []string{value}
 }
 
-func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, request CreateInterpretationRevisionFromColumnRequest) (explorer.InterpretationRevision, error) {
+func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, request CreateInterpretationRevisionFromColumnRequest) (interpretation.InterpretationRevision, error) {
 	if err := validateCreateInterpretationFromColumnRequest(request); err != nil {
-		return explorer.InterpretationRevision{}, support.Malformed("interpretation-create", err.Error(), err)
+		return interpretation.InterpretationRevision{}, support.Malformed("interpretation-create", err.Error(), err)
 	}
 	if s.config.Capability.ForCompilation == nil {
-		return explorer.InterpretationRevision{}, support.Unavailable("interpretation-create", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+		return interpretation.InterpretationRevision{}, support.Unavailable("interpretation-create", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	project, err := explorer.CanonicalInterpretationProject(request.Project)
+	project, err := interpretation.CanonicalInterpretationProject(request.Project)
 	if err != nil {
-		return explorer.InterpretationRevision{}, support.Malformed("interpretation-create", err.Error(), err)
+		return interpretation.InterpretationRevision{}, support.Malformed("interpretation-create", err.Error(), err)
 	}
 	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
-		return explorer.InterpretationRevision{}, err
+		return interpretation.InterpretationRevision{}, err
 	}
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return explorer.InterpretationRevision{}, support.Conflict("interpretation-create", "DRAFT_CONFLICT", "the Explorer draft changed; reload before creating a mapping", nil, explorer.ErrDraftConflict)
+		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "DRAFT_CONFLICT", "the Explorer draft changed; reload before creating a mapping", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := previewWorkspace(ctx, s.store, owner)
 	if err != nil {
-		return explorer.InterpretationRevision{}, support.Conflict("interpretation-create", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be resolved", nil, err)
+		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be resolved", nil, err)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != project {
-		return explorer.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return explorer.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
 	document := findSemanticOutput(workspace, request.OutputID)
 	if document == nil {
-		return explorer.InterpretationRevision{}, support.NotFound("interpretation-create", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
+		return interpretation.InterpretationRevision{}, support.NotFound("interpretation-create", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
 	}
 	column := configuredColumn(document, request.Column)
 	if column == nil {
-		return explorer.InterpretationRevision{}, support.NotFound("interpretation-create", "COLUMN_NOT_FOUND", "the requested column does not exist in this table", nil)
+		return interpretation.InterpretationRevision{}, support.NotFound("interpretation-create", "COLUMN_NOT_FOUND", "the requested column does not exist in this table", nil)
 	}
-	if column.Interpretation != nil && column.Interpretation.Kind == authoringv2.FeatureInterpretationPinned {
-		return explorer.InterpretationRevision{}, support.Conflict("interpretation-create", "INTERPRETATION_ALREADY_PINNED", "create a mapping from an unpinned saved column", nil, nil)
+	if column.Interpretation != nil && column.Interpretation.Kind == ws.FeatureInterpretationPinned {
+		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "INTERPRETATION_ALREADY_PINNED", "create a mapping from an unpinned saved column", nil, nil)
 	}
 	resolution, err := explorercompilation.ResolveInterpretationCandidate(*document, *column, authorized.Snapshot)
 	if err != nil {
-		return explorer.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_COLUMN_ROUTE", "the configured column route no longer resolves in this authorized snapshot", nil, err)
+		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_COLUMN_ROUTE", "the configured column route no longer resolves in this authorized snapshot", nil, err)
 	}
 	match, ready := resolution.Match()
 	if !ready {
-		return explorer.InterpretationRevision{}, support.Unprocessable("interpretation-create", "INTERPRETATION_SOURCE_UNAVAILABLE", fmt.Sprintf("the configured column source is %s: %s", resolution.State(), resolution.Reason()), nil)
+		return interpretation.InterpretationRevision{}, support.Unprocessable("interpretation-create", "INTERPRETATION_SOURCE_UNAVAILABLE", fmt.Sprintf("the configured column source is %s: %s", resolution.State(), resolution.Reason()), nil)
 	}
 
-	definition := explorer.InterpretationFeatureDefinition{Source: column.Source.Normalized()}
+	definition := interpretation.InterpretationFeatureDefinition{Source: column.Source.Normalized()}
 	if column.Contributor != nil {
 		contributor := column.Contributor.Normalized()
 		definition.Contributor = &contributor
@@ -123,14 +124,14 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 	candidate := match.StructuralCandidate
 	return s.CreateInterpretationRevision(ctx, interpretation.CreateInterpretationRevisionRequest{
 		Project: request.Project, LibraryID: request.LibraryID, ParentRevisionID: request.ParentRevisionID,
-		Applicability: explorer.InterpretationApplicability{
+		Applicability: interpretation.InterpretationApplicability{
 			ResourceTypes: singletonInterpretationDimension(candidate.ResourceType),
 			LogicalTypes:  singletonInterpretationDimension(candidate.LogicalType),
 			Cardinalities: singletonInterpretationDimension(candidate.Cardinality),
 		},
-		Rules: []explorer.InterpretationRule{{
+		Rules: []interpretation.InterpretationRule{{
 			ID: "rule",
-			Match: explorer.InterpretationStructuralMatch{
+			Match: interpretation.InterpretationStructuralMatch{
 				ResourceType: candidate.ResourceType, SourceProfile: candidate.SourceProfile, SourceCanonical: candidate.SourceCanonical,
 				OwningScope: candidate.OwningScope, System: candidate.System, Code: candidate.Code,
 				ExtensionURLPath: append([]string(nil), candidate.ExtensionURLPath...), LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,

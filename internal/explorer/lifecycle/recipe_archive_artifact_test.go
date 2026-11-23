@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -48,11 +50,11 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	receipt.ResolvedRecipeDigest = receipt.RecipeDigest
-	receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = explorer.ReceiptID(*receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +71,7 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 	}
 	previewCalled := false
 	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader,
-		PreviewReceipt: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalled = true
 			return dataframeexecution.PreviewSummary{}, nil
 		},

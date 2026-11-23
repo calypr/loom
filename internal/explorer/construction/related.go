@@ -6,10 +6,12 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -36,20 +38,20 @@ type savedRelatedGroupRoute struct {
 func savedRelatedGroupRoutes(
 	base Base,
 	groupStepID string,
-	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
+	fieldContext *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	anchor constructionGroupRelatedAnchor,
 ) []savedRelatedGroupRoute {
 	if groupStepID == "" || fieldContext == nil {
 		return nil
 	}
-	var group *authoringv2.ConstructionStep
+	var group *ws.ConstructionStep
 	for index := range base.Construction.Steps {
 		if base.Construction.Steps[index].ID == groupStepID {
 			group = &base.Construction.Steps[index]
 			break
 		}
 	}
-	if group == nil || group.Operation.Kind != authoringv2.ConstructionOperationGroup || group.Operation.Group == nil {
+	if group == nil || group.Operation.Kind != ws.ConstructionOperationGroup || group.Operation.Group == nil {
 		return nil
 	}
 	inputStageID, ok := constructionGroupInputStageID(*group)
@@ -144,8 +146,8 @@ func firstProvenRelatedGroupRoute(
 
 func groupFieldCompilerContext(
 	base Base,
-	stage explorer.ReceiptConstructionStage,
-	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
+	stage receiptmodel.ReceiptConstructionStage,
+	fieldContext *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 ) (*facade.CompiledGroupFieldSourceContext, error) {
 	if fieldContext == nil || stage.ID != fieldContext.SourceStageID || fieldContext.SourceShapeID == "" ||
 		base.Document.Route.OccurrenceID == "" || base.Document.RootResourceType == "" {
@@ -208,7 +210,7 @@ func resolveRelatedGroupSource(
 }
 
 func groupFieldSourceChoiceFromRelated(
-	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
+	fieldContext *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	related recipe.ConstructionGroupRelatedOccurrenceFieldSource,
 	sourceShapeID, nodeID, fhirType, cardinality, shape, rowChoiceID, codingSelector string,
 ) capability.GroupFieldChoiceSource {
@@ -305,8 +307,8 @@ func relatedCodingFieldLabel(index *fhirschema.Index, resourceType, selector str
 func (s *Service) appendRelatedGroupFieldChoices(
 	ctx context.Context,
 	base Base,
-	stage explorer.ReceiptConstructionStage,
-	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
+	stage receiptmodel.ReceiptConstructionStage,
+	fieldContext *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	index *fhirschema.Index,
 	choicesByID map[string]ConstructionGroupFieldChoice,
 	targetGroupStepID string,
@@ -406,7 +408,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 					if choiceErr == nil {
 						label := firstNonEmpty(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
 						choicesByID[choice.ChoiceID] = ConstructionGroupFieldChoice{
-							Kind: "FIELD_SOURCE", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
+							Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 							ValueKind: "SCALAR", Label: label, ScopeLabel: routeLabel, ValueType: candidate.LogicalType,
 							SourceStageID: fieldContext.SourceStageID, SourceShapeID: sourceShapeID,
 							CandidateID: candidate.ID, SourceRole: "RELATED_OCCURRENCE", OccurrenceID: related.TargetOccurrenceID,
@@ -439,7 +441,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				}
 				label := relatedCodingFieldLabel(index, candidate.ResourceType, selector.path)
 				choicesByID[choice.ChoiceID] = ConstructionGroupFieldChoice{
-					Kind: "FIELD_SOURCE", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
+					Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 					ValueKind: "CODING_IDENTITY", Label: label, ScopeLabel: routeLabel, ValueType: "string",
 					SourceStageID: fieldContext.SourceStageID, SourceShapeID: sourceShapeID,
 					SourceRole: "RELATED_OCCURRENCE", OccurrenceID: related.TargetOccurrenceID, ResourceType: "Coding",

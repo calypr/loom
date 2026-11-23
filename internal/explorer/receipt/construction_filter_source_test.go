@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -13,7 +15,6 @@ import (
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
@@ -46,52 +47,52 @@ func filterSourceF1Snapshot() capability.Snapshot {
 	return snapshot
 }
 
-func filterSourceF1HonestProjection() authoringv2.ConstructionSourceProjection {
-	return authoringv2.ConstructionSourceProjection{
+func filterSourceF1HonestProjection() ws.ConstructionSourceProjection {
+	return ws.ConstructionSourceProjection{
 		ColumnID: filterSourceF1Column, OwnerStepID: filterSourceF1OwnerStep,
-		OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: filterSourceF1HonestField,
+		OccurrenceID: ws.RootOccurrenceID, FieldPath: filterSourceF1HonestField,
 		FHIRType: "integer", LogicalType: "integer", Label: "Multiple birth integer",
 	}
 }
 
-func filterSourceF1Workspace(t *testing.T, snapshot capability.Snapshot, projection authoringv2.ConstructionSourceProjection) authoringv2.Workspace {
+func filterSourceF1Workspace(t *testing.T, snapshot capability.Snapshot, projection ws.ConstructionSourceProjection) ws.Workspace {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	columns := make([]ws.StageColumn, 0, len(document.Columns)+1)
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	columns = append(columns, authoringv2.StageColumn{
-		ID: projection.ColumnID, Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID),
+	columns = append(columns, ws.StageColumn{
+		ID: projection.ColumnID, Name: ws.ConstructionSourceProjectionName(projection.ColumnID),
 		Label: projection.Label, Type: projection.LogicalType,
 	})
-	document.Construction.Steps = []authoringv2.ConstructionStep{{
+	document.Construction.Steps = []ws.ConstructionStep{{
 		ID:     filterSourceF1OwnerStep,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind: authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{
-				ColumnID: projection.ColumnID, Operator: authoringv2.ConstructionFilterEquals,
-				Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceHTTPBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind: ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{
+				ColumnID: projection.ColumnID, Operator: ws.ConstructionFilterEquals,
+				Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceHTTPBool(true)}},
 			},
 		},
 		Outputs: columns,
 	}}
-	document.Construction.SourceProjections = []authoringv2.ConstructionSourceProjection{projection}
+	document.Construction.SourceProjections = []ws.ConstructionSourceProjection{projection}
 	workspace.Documents[0] = document
-	catalog := authoringv2.CatalogFromCapability(snapshot, "custom")
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalog)
+	catalog := ws.CatalogFromCapability(snapshot, "custom")
+	workspace, err = ws.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate durable filter-source workspace: %v", err)
 	}
@@ -100,7 +101,7 @@ func filterSourceF1Workspace(t *testing.T, snapshot capability.Snapshot, project
 
 func filterSourceHTTPBool(value bool) *bool { return &value }
 
-func filterSourceF1Compile(t *testing.T, snapshot capability.Snapshot) (authoringv2.Workspace, dataframeexecution.Resolved) {
+func filterSourceF1Compile(t *testing.T, snapshot capability.Snapshot) (ws.Workspace, dataframeexecution.Resolved) {
 	t.Helper()
 	workspace := filterSourceF1Workspace(t, snapshot, filterSourceF1HonestProjection())
 	translated, err := explorercompilation.CompileWorkspace(context.Background(), "project-a", "custom", workspace, snapshot, explorercompilation.ResolvedInputs{})
@@ -121,7 +122,7 @@ func filterSourceF1Compile(t *testing.T, snapshot capability.Snapshot) (authorin
 	return workspace, resolved
 }
 
-func filterSourceF1Refuse(t *testing.T, tampered authoringv2.ConstructionSourceProjection, want string) {
+func filterSourceF1Refuse(t *testing.T, tampered ws.ConstructionSourceProjection, want string) {
 	t.Helper()
 	snapshot := filterSourceF1Snapshot()
 	_, resolved := filterSourceF1Compile(t, snapshot)

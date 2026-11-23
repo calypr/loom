@@ -3,10 +3,12 @@ package authoringv2
 import (
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func (c *Command) ResolveFrameSource(frame FrameDefinition) error {
+func (c *Command) ResolveFrameSource(frame ws.FrameDefinition) error {
 	if c == nil || c.Type != CommandSetFrameSource && c.Type != CommandReplaceFrameSource {
 		return fmt.Errorf("a frame source can only be resolved for SET_FRAME_SOURCE or REPLACE_FRAME_SOURCE")
 	}
@@ -21,7 +23,7 @@ func (c *Command) ResolveFrameSource(frame FrameDefinition) error {
 	return nil
 }
 
-func applyFrameSourceCommand(workspace *Workspace, command Command) (CommandResult, error) {
+func applyFrameSourceCommand(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	documentIndexValue := documentIndex(workspace, command.OutputID)
 	if documentIndexValue < 0 {
@@ -73,7 +75,7 @@ func applyFrameSourceCommand(workspace *Workspace, command Command) (CommandResu
 	return result, nil
 }
 
-func removeFrameSource(document *Document, workspace *Workspace, outputID, frameID string) (CommandResult, error) {
+func removeFrameSource(document *ws.Document, workspace *ws.Workspace, outputID, frameID string) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: outputID}
 	frameIndex := -1
 	for index := range document.Frames {
@@ -101,7 +103,7 @@ func removeFrameSource(document *Document, workspace *Workspace, outputID, frame
 	return result, nil
 }
 
-func frameExists(frames []FrameDefinition, frameID string) bool {
+func frameExists(frames []ws.FrameDefinition, frameID string) bool {
 	for _, frame := range frames {
 		if frame.ID == frameID {
 			return true

@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -166,7 +167,7 @@ func cloneRecipeOutput(output recipe.Output) (recipe.Output, error) {
 	return clone, nil
 }
 
-func importedCompileInputs(snapshot capability.Snapshot, route authoringv2.RouteNode) (capability.Snapshot, authoringv2.RouteNode) {
+func importedCompileInputs(snapshot capability.Snapshot, route ws.RouteNode) (capability.Snapshot, ws.RouteNode) {
 	cloned := snapshot.Clone()
 	rootID := importedRootNode(&cloned, route.ResourceType)
 	walkImportedRoute(&cloned, rootID, &route)
@@ -204,7 +205,7 @@ func importedChildNode(snapshot *capability.Snapshot, resourceType string) strin
 	return id
 }
 
-func walkImportedRoute(snapshot *capability.Snapshot, parentID string, node *authoringv2.RouteNode) {
+func walkImportedRoute(snapshot *capability.Snapshot, parentID string, node *ws.RouteNode) {
 	for index := range node.Children {
 		child := &node.Children[index]
 		childID := importedChildNode(snapshot, child.ResourceType)
@@ -224,7 +225,7 @@ func walkImportedRoute(snapshot *capability.Snapshot, parentID string, node *aut
 	}
 }
 
-func importedRouteEdges(snapshot capability.Snapshot, parentID string, child *authoringv2.RouteNode) []capability.Edge {
+func importedRouteEdges(snapshot capability.Snapshot, parentID string, child *ws.RouteNode) []capability.Edge {
 	var matches []capability.Edge
 	for _, edge := range snapshot.Edges {
 		if edge.ID == "" || edge.FromNodeID != parentID || edge.Label != child.Relationship || edge.BlockedReason != "" {

@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/selection"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/google/uuid"
 )
@@ -24,7 +24,7 @@ type Store interface {
 
 type Config struct {
 	Store      Store
-	Repository explorer.ExplicitGroupRepository
+	Repository explorerselection.ExplicitGroupRepository
 	Capability ports.CapabilityResolver
 	Now        func() time.Time
 }
@@ -107,14 +107,14 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 	if project == "" || strings.TrimSpace(request.ExplorerID) == "" || selectionID == "" || snapshotToken == "" || idempotencyKey == "" || len(idempotencyKey) > 256 || len(request.Groups) == 0 || len(request.Groups) > explicitGroupMaxCount {
 		return result, support.Malformed("explicit-groups", "a source selection, idempotency key, and one or more groups are required", nil)
 	}
-	definitions := make([]explorer.ExplicitGroupDefinition, len(request.Groups))
-	requestedByKey := make(map[string][]explorer.ExplicitGroupID)
+	definitions := make([]explorerselection.ExplicitGroupDefinition, len(request.Groups))
+	requestedByKey := make(map[string][]explorerselection.ExplicitGroupID)
 	relationCount := 0
 	for i, group := range request.Groups {
 		if len(strings.TrimSpace(group.ID)) > 256 || len(strings.TrimSpace(group.Label)) > 256 {
 			return result, support.Malformed("explicit-groups", "group identities and names must be at most 256 characters", nil)
 		}
-		definitions[i] = explorer.ExplicitGroupDefinition{ID: explorer.ExplicitGroupID(group.ID), Label: group.Label, Ordinal: group.Ordinal}
+		definitions[i] = explorerselection.ExplicitGroupDefinition{ID: explorerselection.ExplicitGroupID(group.ID), Label: group.Label, Ordinal: group.Ordinal}
 		if group.MemberIDs == nil {
 			return result, support.Malformed("explicit-groups", "each group must include a memberIds array (which may be empty)", nil)
 		}
@@ -132,10 +132,10 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 			if relationCount > explicitGroupMaxRelations {
 				return result, support.Unprocessable("explicit-groups", "EXPLICIT_GROUP_LIMIT_EXCEEDED", "explicit group membership exceeds the relation limit", nil)
 			}
-			requestedByKey[memberID] = append(requestedByKey[memberID], explorer.ExplicitGroupID(group.ID))
+			requestedByKey[memberID] = append(requestedByKey[memberID], explorerselection.ExplicitGroupID(group.ID))
 		}
 	}
-	canonicalDefinitions, err := explorer.CanonicalExplicitGroupDefinitions(definitions)
+	canonicalDefinitions, err := explorerselection.CanonicalExplicitGroupDefinitions(definitions)
 	if err != nil {
 		return result, support.Malformed("explicit-groups", "group definitions are invalid", err)
 	}
@@ -163,13 +163,13 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection is incomplete or corrupt", nil, err)
 	}
 	if source.Project != project || source.Generation != generation || source.ScopeDigest != scopeDigest {
-		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SOURCE", "the source selection is outside the active project, generation, or authorization scope", nil, explorer.ErrExplicitGroupRevisionStaleSource)
+		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SOURCE", "the source selection is outside the active project, generation, or authorization scope", nil, explorerselection.ErrExplicitGroupRevisionStaleSource)
 	}
 	if digest, count, _, digestErr := s.config.Store.DigestSelectionMembers(ctx, project, selectionID); digestErr != nil || digest != source.MembershipDigest || count != source.MemberCount {
 		if digestErr != nil {
 			return result, support.PersistenceFailure("explicit-groups", "the source selection membership could not be read", digestErr)
 		}
-		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection membership no longer matches its immutable header", nil, explorer.ErrExplicitGroupRevisionStaleSource)
+		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection membership no longer matches its immutable header", nil, explorerselection.ErrExplicitGroupRevisionStaleSource)
 	}
 
 	refsByKey := make(map[string]selection.ResourceRef, len(requestedByKey))
@@ -185,11 +185,11 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 				return err
 			}
 			if member.MemberKey == "" {
-				return explorer.ErrCorruptExplicitGroupRevision
+				return explorerselection.ErrCorruptExplicitGroupRevision
 			}
 			if _, wanted := requestedByKey[member.MemberKey]; wanted {
 				if _, duplicate := refsByKey[member.MemberKey]; duplicate {
-					return explorer.ErrCorruptExplicitGroupRevision
+					return explorerselection.ErrCorruptExplicitGroupRevision
 				}
 				refsByKey[member.MemberKey] = member.Ref
 			}
@@ -207,8 +207,8 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_FOREIGN_MEMBER", "every group member must belong to the exact source selection", nil, nil)
 	}
 
-	memberships := make([]explorer.ExplicitGroupMembership, 0, relationCount)
-	memberCounts := make(map[explorer.ExplicitGroupID]int64, len(canonicalDefinitions))
+	memberships := make([]explorerselection.ExplicitGroupMembership, 0, relationCount)
+	memberCounts := make(map[explorerselection.ExplicitGroupID]int64, len(canonicalDefinitions))
 	for _, group := range request.Groups {
 		for _, memberID := range group.MemberIDs {
 			key := strings.TrimSpace(memberID)
@@ -216,30 +216,30 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 			if !ok {
 				return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_FOREIGN_MEMBER", "every group member must belong to the exact source selection", nil, nil)
 			}
-			groupID := explorer.ExplicitGroupID(strings.TrimSpace(group.ID))
-			memberships = append(memberships, explorer.ExplicitGroupMembership{GroupID: groupID, Ref: ref})
+			groupID := explorerselection.ExplicitGroupID(strings.TrimSpace(group.ID))
+			memberships = append(memberships, explorerselection.ExplicitGroupMembership{GroupID: groupID, Ref: ref})
 			memberCounts[groupID]++
 		}
 	}
 
-	header := explorer.ExplicitGroupRevision{
-		ID: explorer.ExplicitGroupRevisionIDFor(project, idempotencyKey), Project: project,
+	header := explorerselection.ExplicitGroupRevision{
+		ID: explorerselection.ExplicitGroupRevisionIDFor(project, idempotencyKey), Project: project,
 		Generation: generation, ScopeDigest: scopeDigest, ResourceType: source.ResourceType,
 		SourceSelectionRevisionID: source.ID, SourceMembershipDigest: source.MembershipDigest,
-		State: explorer.ExplicitGroupRevisionStaging, IdempotencyKey: idempotencyKey, CreatedAt: s.now().UTC(),
+		State: explorerselection.ExplicitGroupRevisionStaging, IdempotencyKey: idempotencyKey, CreatedAt: s.now().UTC(),
 	}
 	if err := header.Validate(); err != nil {
 		return result, support.Malformed("explicit-groups", "explicit group revision identity is invalid", err)
 	}
-	definitionDigest, err := explorer.ExplicitGroupDefinitionDigest(canonicalDefinitions)
+	definitionDigest, err := explorerselection.ExplicitGroupDefinitionDigest(canonicalDefinitions)
 	if err != nil {
 		return result, support.Malformed("explicit-groups", "group definitions are invalid", err)
 	}
-	canonicalMemberships, err := explorer.CanonicalExplicitGroupMemberships(header, canonicalDefinitions, memberships)
+	canonicalMemberships, err := explorerselection.CanonicalExplicitGroupMemberships(header, canonicalDefinitions, memberships)
 	if err != nil {
 		return result, support.Malformed("explicit-groups", "group memberships are invalid", err)
 	}
-	membershipDigest, err := explorer.ExplicitGroupMembershipDigest(header, canonicalDefinitions, canonicalMemberships)
+	membershipDigest, err := explorerselection.ExplicitGroupMembershipDigest(header, canonicalDefinitions, canonicalMemberships)
 	if err != nil {
 		return result, support.Malformed("explicit-groups", "group memberships are invalid", err)
 	}
@@ -248,14 +248,14 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 	if err != nil {
 		return result, normalizeExplicitGroupError(err)
 	}
-	if started.State == explorer.ExplicitGroupRevisionComplete {
+	if started.State == explorerselection.ExplicitGroupRevisionComplete {
 		if started.DefinitionDigest != definitionDigest || started.MembershipDigest != membershipDigest || started.GroupCount != int64(len(canonicalDefinitions)) || started.MemberCount != int64(len(canonicalMemberships)) {
-			return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_IDEMPOTENCY_CONFLICT", "the idempotency key is already bound to different group intent", nil, explorer.ErrExplicitGroupRevisionConflict)
+			return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_IDEMPOTENCY_CONFLICT", "the idempotency key is already bound to different group intent", nil, explorerselection.ErrExplicitGroupRevisionConflict)
 		}
 		return explicitGroupCreateResult(*started, canonicalDefinitions, memberCounts), nil
 	}
-	if started.State != explorer.ExplicitGroupRevisionStaging {
-		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_CONFLICT", "the explicit group revision is not writable", nil, explorer.ErrExplicitGroupRevisionConflict)
+	if started.State != explorerselection.ExplicitGroupRevisionStaging {
+		return result, support.Conflict("explicit-groups", "EXPLICIT_GROUP_CONFLICT", "the explicit group revision is not writable", nil, explorerselection.ErrExplicitGroupRevisionConflict)
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -281,7 +281,7 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 		return abort(normalizeExplicitGroupError(err))
 	}
 	if actualDefinition != definitionDigest || actualMembership != membershipDigest || groupCount != int64(len(canonicalDefinitions)) || memberCount != int64(len(canonicalMemberships)) {
-		return abort(support.Conflict("explicit-groups", "EXPLICIT_GROUP_STAGING_INCOMPLETE", "the staged group set did not match the requested complete membership", nil, explorer.ErrExplicitGroupRevisionIncomplete))
+		return abort(support.Conflict("explicit-groups", "EXPLICIT_GROUP_STAGING_INCOMPLETE", "the staged group set did not match the requested complete membership", nil, explorerselection.ErrExplicitGroupRevisionIncomplete))
 	}
 	completed, err := s.config.Repository.CompleteExplicitGroupRevision(writeCtx, header.ID, writerToken, definitionDigest, membershipDigest, groupCount, memberCount, s.now().UTC())
 	if err != nil {
@@ -290,7 +290,7 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 	return explicitGroupCreateResult(*completed, canonicalDefinitions, memberCounts), nil
 }
 
-func explicitGroupCreateResult(revision explorer.ExplicitGroupRevision, groups []explorer.ExplicitGroupDefinition, memberCounts map[explorer.ExplicitGroupID]int64) ExplicitGroupCreateResult {
+func explicitGroupCreateResult(revision explorerselection.ExplicitGroupRevision, groups []explorerselection.ExplicitGroupDefinition, memberCounts map[explorerselection.ExplicitGroupID]int64) ExplicitGroupCreateResult {
 	result := ExplicitGroupCreateResult{
 		RevisionID: string(revision.ID), SourceSelectionRevisionID: revision.SourceSelectionRevisionID,
 		GroupCount: revision.GroupCount, MemberCount: revision.MemberCount, CreatedAt: revision.CreatedAt,
@@ -311,17 +311,17 @@ func normalizeExplicitGroupError(err error) error {
 		return err
 	}
 	switch {
-	case errors.Is(err, explorer.ErrExplicitGroupRevisionConflict):
+	case errors.Is(err, explorerselection.ErrExplicitGroupRevisionConflict):
 		return support.Conflict("explicit-groups", "EXPLICIT_GROUP_CONFLICT", "explicit group revision conflicts with existing immutable intent", nil, err)
-	case errors.Is(err, explorer.ErrExplicitGroupRevisionIncomplete), errors.Is(err, selection.ErrSelectionIncomplete):
+	case errors.Is(err, explorerselection.ErrExplicitGroupRevisionIncomplete), errors.Is(err, selection.ErrSelectionIncomplete):
 		return support.Conflict("explicit-groups", "EXPLICIT_GROUP_INCOMPLETE", "explicit group or source selection is incomplete", nil, err)
-	case errors.Is(err, explorer.ErrExplicitGroupRevisionStaleSource), errors.Is(err, selection.ErrSelectionStaleScope), errors.Is(err, selection.ErrResourceRefScopeMismatch):
+	case errors.Is(err, explorerselection.ErrExplicitGroupRevisionStaleSource), errors.Is(err, selection.ErrSelectionStaleScope), errors.Is(err, selection.ErrResourceRefScopeMismatch):
 		return support.Conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SOURCE", "explicit group source selection is stale or mismatched", nil, err)
-	case errors.Is(err, explorer.ErrExplicitGroupMemberNotInSelection):
+	case errors.Is(err, explorerselection.ErrExplicitGroupMemberNotInSelection):
 		return support.Conflict("explicit-groups", "EXPLICIT_GROUP_FOREIGN_MEMBER", "every group member must belong to the exact source selection", nil, err)
 	case errors.Is(err, selection.ErrSelectionNotFound):
 		return support.NotFound("explicit-groups", "EXPLICIT_GROUP_SOURCE_NOT_FOUND", "source selection was not found", err)
-	case errors.Is(err, explorer.ErrExplicitGroupRevisionNotFound):
+	case errors.Is(err, explorerselection.ErrExplicitGroupRevisionNotFound):
 		return support.NotFound("explicit-groups", "EXPLICIT_GROUP_NOT_FOUND", "explicit group revision was not found", err)
 	default:
 		return support.PersistenceFailure("explicit-groups", "explicit group authoring failed", err)

@@ -3,18 +3,22 @@ package explorer
 import (
 	"encoding/json"
 	"errors"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func testReceipt() CompilationReceipt {
-	r := CompilationReceipt{
-		ReceiptFormatVersion:     CompilationReceiptFormatVersion,
-		CompilerContractVersion:  CompilationReceiptCompilerContractVersion,
+func testReceipt() receiptmodel.CompilationReceipt {
+	r := receiptmodel.CompilationReceipt{
+		ReceiptFormatVersion:     receiptmodel.CompilationReceiptFormatVersion,
+		CompilerContractVersion:  receiptmodel.CompilationReceiptCompilerContractVersion,
 		Project:                  "project-a",
 		ExplorerID:               "explorer-a",
 		IntentDigest:             "sha256:intent",
@@ -30,24 +34,24 @@ func testReceipt() CompilationReceipt {
 		CompiledConfig:           json.RawMessage(`{"views":[]}`),
 		PublicOutputContract:     json.RawMessage(`{"outputs":[{"outputId":"out","columns":[],"lossless":true,"mlReady":true}]}`),
 		OutputColumnProvenance:   map[string]map[string]string{"out": {"__loom_row_id": "EXPLICIT"}},
-		Warnings:                 []CompilationWarning{{Code: "EMPTY_OUTPUT", Message: "output has no selected fields"}},
+		Warnings:                 []receiptmodel.CompilationWarning{{Code: "EMPTY_OUTPUT", Message: "output has no selected fields"}},
 	}
 	r.ResolvedRecipeDigest, _ = r.Bundle.Digest()
-	r.OutputContractDigest, _ = CompilationArtifactDigest(r.PublicOutputContract)
-	r.CompilationKey, _ = CompilationKey(r)
+	r.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(r.PublicOutputContract)
+	r.CompilationKey, _ = receiptmodel.CompilationKey(r)
 	return r
 }
 
 func TestCompilationReceiptIdentityExcludesMutableMetadata(t *testing.T) {
 	base := testReceipt()
-	id, err := ReceiptID(base)
+	id, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	base.ID = "some-other-id"
 	base.RequestID = "request-2"
 	base.CreatedAt = time.Now().UTC()
-	got, err := ReceiptID(base)
+	got, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,12 +62,12 @@ func TestCompilationReceiptIdentityExcludesMutableMetadata(t *testing.T) {
 
 func TestCompilationReceiptIdentityIncludesDurableColumnProvenance(t *testing.T) {
 	base := testReceipt()
-	first, err := ReceiptID(base)
+	first, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	base.OutputColumnProvenance["out"]["__loom_row_id"] = "DISCOVERED"
-	second, err := ReceiptID(base)
+	second, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,28 +79,32 @@ func TestCompilationReceiptIdentityIncludesDurableColumnProvenance(t *testing.T)
 func TestCompilationReceiptIdentityIncludesRowDefinitionProposalBinding(t *testing.T) {
 	base := testReceipt()
 	base.IntentDigest = "sha256:candidate"
-	base.RowDefinitionProposal = &RowDefinitionProposalBinding{
+	base.RowDefinitionProposal = &receiptmodel.RowDefinitionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
 		SnapshotToken: base.SnapshotToken,
 	}
-	base.CompilationKey, _ = CompilationKey(base)
-	first, err := ReceiptID(base)
+	base.CompilationKey, _ = receiptmodel.CompilationKey(base)
+	first, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mutations := []struct {
 		name   string
-		change func(*RowDefinitionProposalBinding)
+		change func(*receiptmodel.RowDefinitionProposalBinding)
 	}{
-		{name: "draft version", change: func(binding *RowDefinitionProposalBinding) { binding.DraftVersion++ }},
-		{name: "draft digest", change: func(binding *RowDefinitionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
-		{name: "output", change: func(binding *RowDefinitionProposalBinding) { binding.OutputID = "other" }},
-		{name: "base document", change: func(binding *RowDefinitionProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
-		{name: "candidate workspace", change: func(binding *RowDefinitionProposalBinding) {
+		{name: "draft version", change: func(binding *receiptmodel.RowDefinitionProposalBinding) { binding.DraftVersion++ }},
+		{name: "draft digest", change: func(binding *receiptmodel.RowDefinitionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
+		{name: "output", change: func(binding *receiptmodel.RowDefinitionProposalBinding) { binding.OutputID = "other" }},
+		{name: "base document", change: func(binding *receiptmodel.RowDefinitionProposalBinding) {
+			binding.BaseDocumentDigest = "sha256:other-document"
+		}},
+		{name: "candidate workspace", change: func(binding *receiptmodel.RowDefinitionProposalBinding) {
 			binding.CandidateWorkspaceDigest = "sha256:other-candidate"
 		}},
-		{name: "snapshot", change: func(binding *RowDefinitionProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
+		{name: "snapshot", change: func(binding *receiptmodel.RowDefinitionProposalBinding) {
+			binding.SnapshotToken = "sha256:other-snapshot"
+		}},
 	}
 	for _, test := range mutations {
 		t.Run(test.name, func(t *testing.T) {
@@ -104,12 +112,12 @@ func TestCompilationReceiptIdentityIncludesRowDefinitionProposalBinding(t *testi
 			binding := *base.RowDefinitionProposal
 			test.change(&binding)
 			changed.RowDefinitionProposal = &binding
-			key, keyErr := CompilationKey(changed)
+			key, keyErr := receiptmodel.CompilationKey(changed)
 			if keyErr != nil {
 				t.Fatal(keyErr)
 			}
 			changed.CompilationKey = key
-			id, idErr := ReceiptID(changed)
+			id, idErr := receiptmodel.ReceiptID(changed)
 			if idErr != nil {
 				t.Fatal(idErr)
 			}
@@ -123,26 +131,30 @@ func TestCompilationReceiptIdentityIncludesRowDefinitionProposalBinding(t *testi
 func TestCompilationReceiptIdentityIncludesTableShapeProposalBinding(t *testing.T) {
 	base := testReceipt()
 	base.IntentDigest = "sha256:candidate"
-	base.TableShapeProposal = &TableShapeProposalBinding{
+	base.TableShapeProposal = &receiptmodel.TableShapeProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
 		SnapshotToken: base.SnapshotToken,
 	}
-	base.CompilationKey, _ = CompilationKey(base)
-	first, err := ReceiptID(base)
+	base.CompilationKey, _ = receiptmodel.CompilationKey(base)
+	first, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mutations := []struct {
 		name   string
-		change func(*TableShapeProposalBinding)
+		change func(*receiptmodel.TableShapeProposalBinding)
 	}{
-		{name: "draft version", change: func(binding *TableShapeProposalBinding) { binding.DraftVersion++ }},
-		{name: "draft digest", change: func(binding *TableShapeProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
-		{name: "output", change: func(binding *TableShapeProposalBinding) { binding.OutputID = "other" }},
-		{name: "base document", change: func(binding *TableShapeProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
-		{name: "candidate workspace", change: func(binding *TableShapeProposalBinding) { binding.CandidateWorkspaceDigest = "sha256:other-candidate" }},
-		{name: "snapshot", change: func(binding *TableShapeProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
+		{name: "draft version", change: func(binding *receiptmodel.TableShapeProposalBinding) { binding.DraftVersion++ }},
+		{name: "draft digest", change: func(binding *receiptmodel.TableShapeProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
+		{name: "output", change: func(binding *receiptmodel.TableShapeProposalBinding) { binding.OutputID = "other" }},
+		{name: "base document", change: func(binding *receiptmodel.TableShapeProposalBinding) {
+			binding.BaseDocumentDigest = "sha256:other-document"
+		}},
+		{name: "candidate workspace", change: func(binding *receiptmodel.TableShapeProposalBinding) {
+			binding.CandidateWorkspaceDigest = "sha256:other-candidate"
+		}},
+		{name: "snapshot", change: func(binding *receiptmodel.TableShapeProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
 	}
 	for _, test := range mutations {
 		t.Run(test.name, func(t *testing.T) {
@@ -150,12 +162,12 @@ func TestCompilationReceiptIdentityIncludesTableShapeProposalBinding(t *testing.
 			binding := *base.TableShapeProposal
 			test.change(&binding)
 			changed.TableShapeProposal = &binding
-			key, keyErr := CompilationKey(changed)
+			key, keyErr := receiptmodel.CompilationKey(changed)
 			if keyErr != nil {
 				t.Fatal(keyErr)
 			}
 			changed.CompilationKey = key
-			id, idErr := ReceiptID(changed)
+			id, idErr := receiptmodel.ReceiptID(changed)
 			if idErr != nil {
 				t.Fatal(idErr)
 			}
@@ -169,7 +181,7 @@ func TestCompilationReceiptIdentityIncludesTableShapeProposalBinding(t *testing.
 func TestCompilationReceiptRejectsInvalidRowDefinitionProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
-	receipt.RowDefinitionProposal = &RowDefinitionProposalBinding{
+	receipt.RowDefinitionProposal = &receiptmodel.RowDefinitionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
 		SnapshotToken: receipt.SnapshotToken,
@@ -182,31 +194,37 @@ func TestCompilationReceiptRejectsInvalidRowDefinitionProposalBinding(t *testing
 func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testing.T) {
 	base := testReceipt()
 	base.IntentDigest = "sha256:candidate"
-	base.ConstructionProposal = &ConstructionProposalBinding{
+	base.ConstructionProposal = &receiptmodel.ConstructionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", ChangedStepID: "step-2",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
 		SnapshotToken: base.SnapshotToken, PreviewLimit: 100,
 	}
-	base.CompilationKey, _ = CompilationKey(base)
-	first, err := ReceiptID(base)
+	base.CompilationKey, _ = receiptmodel.CompilationKey(base)
+	first, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mutations := []struct {
 		name   string
-		change func(*ConstructionProposalBinding)
+		change func(*receiptmodel.ConstructionProposalBinding)
 	}{
-		{name: "draft version", change: func(binding *ConstructionProposalBinding) { binding.DraftVersion++ }},
-		{name: "draft digest", change: func(binding *ConstructionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
-		{name: "output", change: func(binding *ConstructionProposalBinding) { binding.OutputID = "other" }},
-		{name: "step", change: func(binding *ConstructionProposalBinding) { binding.ChangedStepID = "other-step" }},
-		{name: "removed steps", change: func(binding *ConstructionProposalBinding) { binding.RemoveStepIDs = []string{"downstream"} }},
-		{name: "base document", change: func(binding *ConstructionProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
-		{name: "candidate workspace", change: func(binding *ConstructionProposalBinding) {
+		{name: "draft version", change: func(binding *receiptmodel.ConstructionProposalBinding) { binding.DraftVersion++ }},
+		{name: "draft digest", change: func(binding *receiptmodel.ConstructionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
+		{name: "output", change: func(binding *receiptmodel.ConstructionProposalBinding) { binding.OutputID = "other" }},
+		{name: "step", change: func(binding *receiptmodel.ConstructionProposalBinding) { binding.ChangedStepID = "other-step" }},
+		{name: "removed steps", change: func(binding *receiptmodel.ConstructionProposalBinding) {
+			binding.RemoveStepIDs = []string{"downstream"}
+		}},
+		{name: "base document", change: func(binding *receiptmodel.ConstructionProposalBinding) {
+			binding.BaseDocumentDigest = "sha256:other-document"
+		}},
+		{name: "candidate workspace", change: func(binding *receiptmodel.ConstructionProposalBinding) {
 			binding.CandidateWorkspaceDigest = "sha256:other-candidate"
 		}},
-		{name: "snapshot", change: func(binding *ConstructionProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
-		{name: "preview limit", change: func(binding *ConstructionProposalBinding) { binding.PreviewLimit++ }},
+		{name: "snapshot", change: func(binding *receiptmodel.ConstructionProposalBinding) {
+			binding.SnapshotToken = "sha256:other-snapshot"
+		}},
+		{name: "preview limit", change: func(binding *receiptmodel.ConstructionProposalBinding) { binding.PreviewLimit++ }},
 	}
 	for _, test := range mutations {
 		t.Run(test.name, func(t *testing.T) {
@@ -214,12 +232,12 @@ func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testin
 			binding := *base.ConstructionProposal
 			test.change(&binding)
 			changed.ConstructionProposal = &binding
-			key, keyErr := CompilationKey(changed)
+			key, keyErr := receiptmodel.CompilationKey(changed)
 			if keyErr != nil {
 				t.Fatal(keyErr)
 			}
 			changed.CompilationKey = key
-			id, idErr := ReceiptID(changed)
+			id, idErr := receiptmodel.ReceiptID(changed)
 			if idErr != nil {
 				t.Fatal(idErr)
 			}
@@ -233,12 +251,12 @@ func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testin
 func TestCompilationReceiptAcceptsRemovalOnlyConstructionProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
-	receipt.ConstructionProposal = &ConstructionProposalBinding{
+	receipt.ConstructionProposal = &receiptmodel.ConstructionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", RemoveStepIDs: []string{"last-step"},
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: receipt.IntentDigest,
 		SnapshotToken: receipt.SnapshotToken, PreviewLimit: 100,
 	}
-	receipt.CompilationKey, _ = CompilationKey(receipt)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(receipt)
 	if err := receipt.Validate(); err != nil {
 		t.Fatalf("validate removal-only construction proposal binding: %v", err)
 	}
@@ -251,7 +269,7 @@ func TestCompilationReceiptAcceptsRemovalOnlyConstructionProposalBinding(t *test
 func TestCompilationReceiptRejectsInvalidTableShapeProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
-	receipt.TableShapeProposal = &TableShapeProposalBinding{
+	receipt.TableShapeProposal = &receiptmodel.TableShapeProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
 		SnapshotToken: receipt.SnapshotToken,
@@ -264,7 +282,7 @@ func TestCompilationReceiptRejectsInvalidTableShapeProposalBinding(t *testing.T)
 func TestCompilationReceiptRejectsInvalidConstructionProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
-	receipt.ConstructionProposal = &ConstructionProposalBinding{
+	receipt.ConstructionProposal = &receiptmodel.ConstructionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", ChangedStepID: "step-2",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
 		SnapshotToken: receipt.SnapshotToken, PreviewLimit: 100,
@@ -275,7 +293,7 @@ func TestCompilationReceiptRejectsInvalidConstructionProposalBinding(t *testing.
 }
 
 func TestConstructionProposalValidationPreservesErrorOrder(t *testing.T) {
-	binding := ConstructionProposalBinding{
+	binding := receiptmodel.ConstructionProposalBinding{
 		DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base",
 		CandidateWorkspaceDigest: "stale", SnapshotToken: "snapshot", PreviewLimit: 10,
 	}
@@ -287,41 +305,41 @@ func TestConstructionProposalValidationPreservesErrorOrder(t *testing.T) {
 
 func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testing.T) {
 	base := testReceipt()
-	base.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
+	base.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": {
 		{
 			ID:      recipe.ConstructionSourceProjectionID,
-			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
-			Capabilities: []ReceiptConstructionOperationChoice{
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
+			Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{
 				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "CODED_PIVOT", Supported: true}, {Kind: "EXPAND", Supported: true}, {Kind: "RELATED_SOURCE", Supported: true},
 			},
 		},
 		{
 			ID: "filter_step", InputStageID: recipe.ConstructionSourceProjectionID,
 			Operation: "FILTER", RowIdentityColumn: "row_id",
-			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
-			Capabilities: []ReceiptConstructionOperationChoice{
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
+			Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{
 				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true},
 			},
 		},
 	}}
-	base.CompilationKey, _ = CompilationKey(base)
+	base.CompilationKey, _ = receiptmodel.CompilationKey(base)
 	if err := base.Validate(); err != nil {
 		t.Fatalf("valid stage descriptors failed receipt validation: %v", err)
 	}
-	first, err := ReceiptID(base)
+	first, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	changed := base
-	changed.ConstructionStages = map[string][]ReceiptConstructionStage{"out": append([]ReceiptConstructionStage(nil), base.ConstructionStages["out"]...)}
-	changed.ConstructionStages["out"][1].Columns = append([]ReceiptConstructionStageColumn(nil), base.ConstructionStages["out"][1].Columns...)
+	changed.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": append([]receiptmodel.ReceiptConstructionStage(nil), base.ConstructionStages["out"]...)}
+	changed.ConstructionStages["out"][1].Columns = append([]receiptmodel.ReceiptConstructionStageColumn(nil), base.ConstructionStages["out"][1].Columns...)
 	changed.ConstructionStages["out"][1].Columns[0].Cardinality = "many"
-	key, err := CompilationKey(changed)
+	key, err := receiptmodel.CompilationKey(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	changed.CompilationKey = key
-	id, err := ReceiptID(changed)
+	id, err := receiptmodel.ReceiptID(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,15 +350,15 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 
 func TestReceiptCompiledOutputSchemaAllowsUnlabeledInternalIdentityColumn(t *testing.T) {
 	bundle := testReceipt().Bundle
-	schemas := map[string][]ReceiptCompiledOutputColumn{"out": {
+	schemas := map[string][]receiptmodel.ReceiptCompiledOutputColumn{"out": {
 		{Name: "construction_row_id", LogicalType: "string", Cardinality: "required_one", Internal: true, Identity: true},
 		{ID: "field", Name: "field", Label: "Field", LogicalType: "string", Cardinality: "optional_one"},
 	}}
-	if err := validateReceiptCompiledOutputSchemas(schemas, bundle); err != nil {
+	if err := receiptmodel.ValidateReceiptCompiledOutputSchemas(schemas, bundle); err != nil {
 		t.Fatalf("validate internal unlabeled identity column: %v", err)
 	}
 	schemas["out"][0].Internal = false
-	if err := validateReceiptCompiledOutputSchemas(schemas, bundle); err == nil {
+	if err := receiptmodel.ValidateReceiptCompiledOutputSchemas(schemas, bundle); err == nil {
 		t.Fatal("accepted an unlabeled public compiled column")
 	}
 }
@@ -363,16 +381,16 @@ func TestReceiptConstructionStagesAcceptsExactTerminalCombineRoot(t *testing.T) 
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionCombineOp, Combine: &combine},
 		Outputs:   []recipe.StageColumn{{ID: "combined_value", Name: "value", Label: "Value", Type: "string"}},
 	}}}
-	stages := map[string][]ReceiptConstructionStage{"out": {{
+	stages := map[string][]receiptmodel.ReceiptConstructionStage{"out": {{
 		ID: "append_sources", Operation: "APPEND",
-		Columns: []ReceiptConstructionStageColumn{{ID: "combined_value", Name: "value", Label: "Value", Type: "string"}},
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "combined_value", Name: "value", Label: "Value", Type: "string"}},
 	}}}
-	if err := validateReceiptConstructionStages(stages, bundle); err != nil {
+	if err := receiptmodel.ValidateReceiptConstructionStages(stages, bundle); err != nil {
 		t.Fatalf("validate exact terminal Combine stage: %v", err)
 	}
 
 	stages["out"][0].ID = "other_step"
-	if err := validateReceiptConstructionStages(stages, bundle); err == nil {
+	if err := receiptmodel.ValidateReceiptConstructionStages(stages, bundle); err == nil {
 		t.Fatal("accepted Combine root stage that does not match the exact recipe step ID")
 	}
 	badBundle := bundle
@@ -383,18 +401,18 @@ func TestReceiptConstructionStagesAcceptsExactTerminalCombineRoot(t *testing.T) 
 	badConstruction.Steps[0].Inputs[1].RevisionID = " "
 	badBundle.Outputs[0].Construction = &badConstruction
 	stages["out"][0].ID = "append_sources"
-	if err := validateReceiptConstructionStages(stages, badBundle); err == nil {
+	if err := receiptmodel.ValidateReceiptConstructionStages(stages, badBundle); err == nil {
 		t.Fatal("accepted an external Combine stage whose exact source revision is invalid")
 	}
 }
 
 func TestReceiptConstructionStagesRejectsMissingSourceProjectionForNonCombine(t *testing.T) {
 	bundle := testReceipt().Bundle
-	for _, stage := range []ReceiptConstructionStage{
+	for _, stage := range []receiptmodel.ReceiptConstructionStage{
 		{ID: "filter_step", Operation: "FILTER"},
 		{ID: "append_step", Operation: "APPEND"},
 	} {
-		if err := validateReceiptConstructionStages(map[string][]ReceiptConstructionStage{"out": {stage}}, bundle); err == nil {
+		if err := receiptmodel.ValidateReceiptConstructionStages(map[string][]receiptmodel.ReceiptConstructionStage{"out": {stage}}, bundle); err == nil {
 			t.Fatalf("accepted unbound root operation %#v without its implicit source projection", stage)
 		}
 	}
@@ -402,16 +420,16 @@ func TestReceiptConstructionStagesRejectsMissingSourceProjectionForNonCombine(t 
 
 func TestCompilationReceiptAcceptsGroupRowsValuesCapability(t *testing.T) {
 	receipt := testReceipt()
-	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
+	receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": {
 		{ID: recipe.ConstructionSourceProjectionID},
 		{
 			ID: "group_rows", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP_ROWS",
-			Columns:      []ReceiptConstructionStageColumn{{ID: "group_id", Name: "group_id", Label: "Group ID"}},
-			Capabilities: []ReceiptConstructionOperationChoice{{Kind: "ROW_VALUES", Supported: true}},
+			Columns:      []receiptmodel.ReceiptConstructionStageColumn{{ID: "group_id", Name: "group_id", Label: "Group ID"}},
+			Capabilities: []receiptmodel.ReceiptConstructionOperationChoice{{Kind: "ROW_VALUES", Supported: true}},
 		},
 	}}
 	var err error
-	receipt.CompilationKey, err = CompilationKey(receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,9 +440,9 @@ func TestCompilationReceiptAcceptsGroupRowsValuesCapability(t *testing.T) {
 
 func TestCompilationReceiptRejectsUnknownConstructionStageColumnCardinality(t *testing.T) {
 	receipt := testReceipt()
-	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {{
+	receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": {{
 		ID:      recipe.ConstructionSourceProjectionID,
-		Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Cardinality: "MANY"}},
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Cardinality: "MANY"}},
 	}}}
 	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted a construction stage column with an unknown cardinality")
@@ -433,9 +451,9 @@ func TestCompilationReceiptRejectsUnknownConstructionStageColumnCardinality(t *t
 
 func TestCompilationReceiptAcceptsLegacyConstructionStagesWithoutCardinality(t *testing.T) {
 	receipt := testReceipt()
-	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {{
+	receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": {{
 		ID:      recipe.ConstructionSourceProjectionID,
-		Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
 	}}}
 	columnJSON, err := json.Marshal(receipt.ConstructionStages["out"][0].Columns[0])
 	if err != nil {
@@ -448,11 +466,11 @@ func TestCompilationReceiptAcceptsLegacyConstructionStagesWithoutCardinality(t *
 	if _, present := columnProperties["cardinality"]; present {
 		t.Fatalf("legacy column JSON added cardinality: %s", columnJSON)
 	}
-	receipt.CompilationKey, err = CompilationKey(receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +481,7 @@ func TestCompilationReceiptAcceptsLegacyConstructionStagesWithoutCardinality(t *
 
 func TestCompilationReceiptRejectsBrokenConstructionStageChain(t *testing.T) {
 	receipt := testReceipt()
-	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
+	receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": {
 		{ID: recipe.ConstructionSourceProjectionID},
 		{ID: "derive_step", InputStageID: "unknown", Operation: "DERIVE"},
 	}}
@@ -483,12 +501,12 @@ func TestCompilationReceiptRejectsV2V7Contract(t *testing.T) {
 
 func TestCompilationKeyChangesWithScopeAndCompilerContract(t *testing.T) {
 	base := testReceipt()
-	first, err := CompilationKey(base)
+	first, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	base.AuthorizationScopeDigest = "sha256:other-scope"
-	second, err := CompilationKey(base)
+	second, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +515,7 @@ func TestCompilationKeyChangesWithScopeAndCompilerContract(t *testing.T) {
 	}
 	base = testReceipt()
 	base.CompilerContractVersion = "loom.explorer.compiler/next"
-	third, err := CompilationKey(base)
+	third, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,12 +526,12 @@ func TestCompilationKeyChangesWithScopeAndCompilerContract(t *testing.T) {
 
 func TestCompilationKeyIncludesResolvedInputsIdentity(t *testing.T) {
 	base := testReceipt()
-	first, err := CompilationKey(base)
+	first, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	base.ResolvedInputsDigest = "sha256:resolved-inputs"
-	second, err := CompilationKey(base)
+	second, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,16 +541,16 @@ func TestCompilationKeyIncludesResolvedInputsIdentity(t *testing.T) {
 }
 
 func TestCompilationReceiptValidateRejectsArtifactlessLegacyReceipt(t *testing.T) {
-	r := CompilationReceipt{Project: "project-a", ExplorerID: "explorer-a", ID: "receipt_legacy"}
-	if err := r.Validate(); !errors.Is(err, ErrReceiptRecompileRequired) {
-		t.Fatalf("error=%v, want %v", err, ErrReceiptRecompileRequired)
+	r := receiptmodel.CompilationReceipt{Project: "project-a", ExplorerID: "explorer-a", ID: "receipt_legacy"}
+	if err := r.Validate(); !errors.Is(err, receiptmodel.ErrReceiptRecompileRequired) {
+		t.Fatalf("error=%v, want %v", err, receiptmodel.ErrReceiptRecompileRequired)
 	}
 }
 
 func TestCompilationReceiptValidateID(t *testing.T) {
 	r := testReceipt()
 	var err error
-	r.ID, err = ReceiptID(r)
+	r.ID, err = receiptmodel.ReceiptID(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,8 +569,8 @@ func TestCompilationReceiptPreservesHistoricalContractReaders(t *testing.T) {
 			r := testReceipt()
 			r.CompilerContractVersion = version
 			r.ShapeDigest = ""
-			r.CompilationKey, _ = CompilationKey(r)
-			r.ID, _ = ReceiptID(r)
+			r.CompilationKey, _ = receiptmodel.CompilationKey(r)
+			r.ID, _ = receiptmodel.ReceiptID(r)
 			if err := r.Validate(); err != nil {
 				t.Fatal(err)
 			}
@@ -562,21 +580,21 @@ func TestCompilationReceiptPreservesHistoricalContractReaders(t *testing.T) {
 
 func TestReceiptContractSupportedForExecutionOnlyCurrent(t *testing.T) {
 	r := testReceipt()
-	if !ReceiptContractSupportedForExecution(r) {
+	if !receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("current receipt was not executable")
 	}
-	currentKey, err := CompilationKey(r)
+	currentKey, err := receiptmodel.CompilationKey(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	v20 := r
 	v20.CompilerContractVersion = legacyCompilationReceiptV20CompilerContractVersion
-	v20.CompilationKey, _ = CompilationKey(v20)
-	v20.ID, _ = ReceiptID(v20)
+	v20.CompilationKey, _ = receiptmodel.CompilationKey(v20)
+	v20.ID, _ = receiptmodel.ReceiptID(v20)
 	if err := v20.Validate(); err != nil {
 		t.Fatalf("v20 generic receipt must remain readable: %v", err)
 	}
-	if ReceiptContractSupportedForExecution(v20) {
+	if receiptmodel.ReceiptContractSupportedForExecution(v20) {
 		t.Fatal("v20 execution must require recompilation")
 	}
 	if v20.CompilationKey == currentKey {
@@ -584,63 +602,63 @@ func TestReceiptContractSupportedForExecutionOnlyCurrent(t *testing.T) {
 	}
 	v19 := r
 	v19.CompilerContractVersion = legacyCompilationReceiptV19CompilerContractVersion
-	v19.CompilationKey, _ = CompilationKey(v19)
-	v19.ID, _ = ReceiptID(v19)
+	v19.CompilationKey, _ = receiptmodel.CompilationKey(v19)
+	v19.ID, _ = receiptmodel.ReceiptID(v19)
 	if err := v19.Validate(); err != nil {
 		t.Fatalf("v19 must remain readable: %v", err)
 	}
-	if ReceiptContractSupportedForExecution(v19) {
+	if receiptmodel.ReceiptContractSupportedForExecution(v19) {
 		t.Fatal("v19 execution must require recompilation")
 	}
 	if v19.CompilationKey == currentKey {
 		t.Fatal("v20 must invalidate v19 compilation cache")
 	}
 	r.CompilerContractVersion = legacyCompilationReceiptV18CompilerContractVersion
-	r.CompilationKey, _ = CompilationKey(r)
-	r.ID, _ = ReceiptID(r)
+	r.CompilationKey, _ = receiptmodel.CompilationKey(r)
+	r.ID, _ = receiptmodel.ReceiptID(r)
 	if err := r.Validate(); err != nil {
 		t.Fatalf("v18 receipt must remain readable for recompile: %v", err)
 	}
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("v18 receipt without source cardinality authentication was executable")
 	}
 	if r.CompilationKey == currentKey {
 		t.Fatal("recompile reused the old fingerprint contract cache key")
 	}
 	r.CompilerContractVersion = legacyCompilationReceiptV17CompilerContractVersion
-	r.CompilationKey, _ = CompilationKey(r)
-	r.ID, _ = ReceiptID(r)
+	r.CompilationKey, _ = receiptmodel.CompilationKey(r)
+	r.ID, _ = receiptmodel.ReceiptID(r)
 	if err := r.Validate(); err != nil {
 		t.Fatalf("v17 receipt must remain readable for recompile: %v", err)
 	}
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("v17 receipt with stale list schema was executable")
 	}
 	r.CompilerContractVersion = legacyCompilationReceiptV16CompilerContractVersion
-	r.CompilationKey, _ = CompilationKey(r)
-	r.ID, _ = ReceiptID(r)
+	r.CompilationKey, _ = receiptmodel.CompilationKey(r)
+	r.ID, _ = receiptmodel.ReceiptID(r)
 	if err := r.Validate(); err != nil {
 		t.Fatalf("v16 receipt must remain readable for recompile: %v", err)
 	}
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("v16 receipt with stale list schema was executable")
 	}
 	r.ReceiptFormatVersion = previousCompilationReceiptFormatVersion
 	r.CompilerContractVersion = previousCompilationReceiptCompilerContractVersion
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("previous receipt without current fingerprints was executable")
 	}
 	r.ReceiptFormatVersion = legacyCompilationReceiptFormatVersion
 	r.CompilerContractVersion = "loom.explorer.compiler/v12"
-	if ReceiptContractSupportedForExecution(r) {
+	if receiptmodel.ReceiptContractSupportedForExecution(r) {
 		t.Fatal("older receipt was executable")
 	}
 }
 
 func TestCompilationReceiptPreservesAndAuthenticatesFrozenInterpretation(t *testing.T) {
-	revision, err := PrepareInterpretationRevision(InterpretationRevision{
+	revision, err := interpretation.PrepareInterpretationRevision(interpretation.InterpretationRevision{
 		Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "frozen", CreatedAt: time.Unix(1, 0).UTC(),
-		Rules: []InterpretationRule{{ID: "rule", Match: InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
+		Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -648,12 +666,12 @@ func TestCompilationReceiptPreservesAndAuthenticatesFrozenInterpretation(t *test
 	receipt := testReceipt()
 	receipt.ReceiptFormatVersion = 3
 	receipt.CompilerContractVersion = "loom.explorer.compiler/v13"
-	receipt.ResolvedInterpretations = []ResolvedInterpretation{{OutputID: "out", Column: "value", OccurrenceID: "base", Revision: revision, SelectedRuleID: "rule", Definition: revision.Rules[0].Definition}}
-	receipt.CompilationKey, err = CompilationKey(receipt)
+	receipt.ResolvedInterpretations = []interpretation.ResolvedInterpretation{{OutputID: "out", Column: "value", OccurrenceID: "base", Revision: revision, SelectedRuleID: "rule", Definition: revision.Rules[0].Definition}}
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +692,7 @@ func TestCompilationReceiptPreservesAndAuthenticatesFrozenInterpretation(t *test
 func TestCompilationReceiptCurrentContractRequiresShapeDigest(t *testing.T) {
 	r := testReceipt()
 	r.ShapeDigest = ""
-	r.CompilationKey, _ = CompilationKey(r)
+	r.CompilationKey, _ = receiptmodel.CompilationKey(r)
 	if err := r.Validate(); err == nil {
 		t.Fatal("accepted a current receipt without a generation shape digest")
 	}
@@ -682,14 +700,14 @@ func TestCompilationReceiptCurrentContractRequiresShapeDigest(t *testing.T) {
 
 func TestCompilationReceiptValidateRejectsForgedCompilationArtifacts(t *testing.T) {
 	r := testReceipt()
-	r.ID, _ = ReceiptID(r)
+	r.ID, _ = receiptmodel.ReceiptID(r)
 	r.CompilationKey = "compile_forged"
 	if err := r.Validate(); err == nil {
 		t.Fatal("accepted a forged compilation key")
 	}
 	r = testReceipt()
 	r.PublicOutputContract = json.RawMessage(`{"outputs":[{"id":"forged"}]}`)
-	r.ID, _ = ReceiptID(r)
+	r.ID, _ = receiptmodel.ReceiptID(r)
 	if err := r.Validate(); err == nil {
 		t.Fatal("accepted a public output contract with a stale digest")
 	}
@@ -697,7 +715,7 @@ func TestCompilationReceiptValidateRejectsForgedCompilationArtifacts(t *testing.
 
 func TestCompilationReceiptJSONRoundTripKeepsIdentity(t *testing.T) {
 	r := testReceipt()
-	first, err := ReceiptID(r)
+	first, err := receiptmodel.ReceiptID(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -705,11 +723,11 @@ func TestCompilationReceiptJSONRoundTripKeepsIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded CompilationReceipt
+	var decoded receiptmodel.CompilationReceipt
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	second, err := ReceiptID(decoded)
+	second, err := receiptmodel.ReceiptID(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,27 +738,27 @@ func TestCompilationReceiptJSONRoundTripKeepsIdentity(t *testing.T) {
 
 func TestFinalOutputSchemaIsReceiptContentButNotCompileRequestIdentity(t *testing.T) {
 	base := testReceipt()
-	base.CompiledOutputSchemas = map[string][]ReceiptCompiledOutputColumn{
+	base.CompiledOutputSchemas = map[string][]receiptmodel.ReceiptCompiledOutputColumn{
 		"out": {{ID: "patient-id", Name: "patient_id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one"}},
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatalf("validate compiler-final schema receipt: %v", err)
 	}
-	firstKey, err := CompilationKey(base)
+	firstKey, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstID, err := ReceiptID(base)
+	firstID, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	base.CompiledOutputSchemas["out"][0].Label = "Resolved Patient ID"
-	secondKey, err := CompilationKey(base)
+	secondKey, err := receiptmodel.CompilationKey(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondID, err := ReceiptID(base)
+	secondID, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +773,7 @@ func TestFinalOutputSchemaIsReceiptContentButNotCompileRequestIdentity(t *testin
 func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testing.T) {
 	base := testReceipt()
 	base.IntentDigest = "sha256:candidate"
-	base.PopulationMemberRemovalProposal = &PopulationMemberRemovalProposalBinding{
+	base.PopulationMemberRemovalProposal = &receiptmodel.PopulationMemberRemovalProposalBinding{
 		DraftVersion: 4, DraftDigest: "sha256:draft", OutputID: "out", BaseDocumentDigest: "sha256:document",
 		BaseSelectionRevisionID: "selection-base", BaseMembershipDigest: "sha256:base-members", BaseMemberCount: 2,
 		CandidateSelectionRevisionID: "selection-candidate", CandidateMembershipDigest: "sha256:candidate-members", CandidateMemberCount: 1,
@@ -765,8 +783,8 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 	if err := base.PopulationMemberRemovalProposal.Validate(base.IntentDigest, base.SnapshotToken, base.Project, base.SourceGeneration); err != nil {
 		t.Fatal(err)
 	}
-	base.CompilationKey, _ = CompilationKey(base)
-	first, err := ReceiptID(base)
+	base.CompilationKey, _ = receiptmodel.CompilationKey(base)
+	first, err := receiptmodel.ReceiptID(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,11 +792,11 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 	binding := *base.PopulationMemberRemovalProposal
 	binding.CandidateSelectionRevisionID = "selection-other"
 	changed.PopulationMemberRemovalProposal = &binding
-	changed.CompilationKey, err = CompilationKey(changed)
+	changed.CompilationKey, err = receiptmodel.CompilationKey(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ReceiptID(changed)
+	second, err := receiptmodel.ReceiptID(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,16 +806,22 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 
 	invalid := []struct {
 		name   string
-		change func(*PopulationMemberRemovalProposalBinding)
+		change func(*receiptmodel.PopulationMemberRemovalProposalBinding)
 	}{
-		{"candidate count", func(b *PopulationMemberRemovalProposalBinding) { b.CandidateMemberCount = 0 }},
-		{"candidate selection", func(b *PopulationMemberRemovalProposalBinding) {
+		{"candidate count", func(b *receiptmodel.PopulationMemberRemovalProposalBinding) { b.CandidateMemberCount = 0 }},
+		{"candidate selection", func(b *receiptmodel.PopulationMemberRemovalProposalBinding) {
 			b.CandidateSelectionRevisionID = b.BaseSelectionRevisionID
 		}},
-		{"wrong project", func(b *PopulationMemberRemovalProposalBinding) { b.RemovedMember.Project = "other-project" }},
-		{"wrong generation", func(b *PopulationMemberRemovalProposalBinding) { b.RemovedMember.Generation = "old-generation" }},
-		{"stale snapshot", func(b *PopulationMemberRemovalProposalBinding) { b.SnapshotToken = "other-snapshot" }},
-		{"wrong candidate workspace", func(b *PopulationMemberRemovalProposalBinding) { b.CandidateWorkspaceDigest = "sha256:other" }},
+		{"wrong project", func(b *receiptmodel.PopulationMemberRemovalProposalBinding) {
+			b.RemovedMember.Project = "other-project"
+		}},
+		{"wrong generation", func(b *receiptmodel.PopulationMemberRemovalProposalBinding) {
+			b.RemovedMember.Generation = "old-generation"
+		}},
+		{"stale snapshot", func(b *receiptmodel.PopulationMemberRemovalProposalBinding) { b.SnapshotToken = "other-snapshot" }},
+		{"wrong candidate workspace", func(b *receiptmodel.PopulationMemberRemovalProposalBinding) {
+			b.CandidateWorkspaceDigest = "sha256:other"
+		}},
 	}
 	for _, test := range invalid {
 		t.Run(test.name, func(t *testing.T) {
@@ -811,7 +835,7 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 }
 
 func TestPopulationMemberProposalValidationPreservesErrorOrder(t *testing.T) {
-	binding := PopulationMemberRemovalProposalBinding{
+	binding := receiptmodel.PopulationMemberRemovalProposalBinding{
 		DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base",
 		BaseSelectionRevisionID: "same", BaseMembershipDigest: "base-members", BaseMemberCount: 2,
 		CandidateSelectionRevisionID: "same", CandidateMembershipDigest: "candidate-members", CandidateMemberCount: 1,

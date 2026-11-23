@@ -3,7 +3,8 @@ package population
 import (
 	"fmt"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/projectid"
@@ -44,7 +45,7 @@ func ValidateRemovalSelection(base, candidate *selection.SelectionRevision, remo
 	return nil
 }
 
-func RemovalRouteMatches(populationRoute []authoringv2.PopulationRouteStep, signedRoute []capability.ConstructionRouteStep) bool {
+func RemovalRouteMatches(populationRoute []ws.PopulationRouteStep, signedRoute []capability.ConstructionRouteStep) bool {
 	if len(populationRoute) != len(signedRoute) {
 		return false
 	}

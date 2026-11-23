@@ -4,15 +4,16 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func unpivotSourceReconcileFixture(t *testing.T) (authoringv2.Document, facade.CompiledRecipeOutput, capability.Snapshot, authoringv2.ConstructionSourceProjection) {
+func unpivotSourceReconcileFixture(t *testing.T) (ws.Document, facade.CompiledRecipeOutput, capability.Snapshot, ws.ConstructionSourceProjection) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
@@ -29,28 +30,28 @@ func unpivotSourceReconcileFixture(t *testing.T) (authoringv2.Document, facade.C
 	projection := facts
 	projection.ColumnID = "unpivot-col-birth"
 	projection.OwnerStepID = "melt_step"
-	projectionName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
-	keyScalar := func(value string) authoringv2.TableScalar {
-		kind := authoringv2.TableScalarString
-		return authoringv2.TableScalar{Kind: kind, String: &value}
+	projectionName := ws.ConstructionSourceProjectionName(projection.ColumnID)
+	keyScalar := func(value string) ws.TableScalar {
+		kind := ws.TableScalarString
+		return ws.TableScalar{Kind: kind, String: &value}
 	}
-	document := authoringv2.Document{
-		Output:           authoringv2.Output{ID: "patients"},
+	document := ws.Document{
+		Output:           ws.Output{ID: "patients"},
 		RootResourceType: "Patient",
-		Columns:          []authoringv2.Column{{ColumnID: "patient-col", Column: "patient_id"}},
-		Construction: &authoringv2.Construction{
-			Version:           authoringv2.ConstructionVersion,
-			SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
-			Steps: []authoringv2.ConstructionStep{
+		Columns:          []ws.Column{{ColumnID: "patient-col", Column: "patient_id"}},
+		Construction: &ws.Construction{
+			Version:           ws.ConstructionVersion,
+			SourceProjections: []ws.ConstructionSourceProjection{projection},
+			Steps: []ws.ConstructionStep{
 				{
 					ID: "derive_step",
-					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-						ConstructionID: "derive_step", OutputColumnID: "derived-total", Operation: authoringv2.ConstructionDerivedAdd,
-						Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger}},
-						Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger}},
-						MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+					Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+						ConstructionID: "derive_step", OutputColumnID: "derived-total", Operation: ws.ConstructionDerivedAdd,
+						Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger}},
+						Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger}},
+						MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 					}},
-					Outputs: []authoringv2.StageColumn{
+					Outputs: []ws.StageColumn{
 						{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Type: "string"},
 						{ID: projection.ColumnID, Name: projectionName, Label: projection.Label, Type: projection.LogicalType},
 						{ID: "derived-total", Name: "derived_total", Label: "Derived total", Type: "integer"},
@@ -58,14 +59,14 @@ func unpivotSourceReconcileFixture(t *testing.T) (authoringv2.Document, facade.C
 				},
 				{
 					ID: "melt_step",
-					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+					Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 						ConstructionID:      "melt_step",
-						Inputs:              []authoringv2.ConstructionUnpivotInput{{ColumnID: projection.ColumnID, Key: keyScalar("variant-a")}, {ColumnID: "derived-total", Key: keyScalar("variant-b")}},
+						Inputs:              []ws.ConstructionUnpivotInput{{ColumnID: projection.ColumnID, Key: keyScalar("variant-a")}, {ColumnID: "derived-total", Key: keyScalar("variant-b")}},
 						KeyOutputColumnID:   "unpivot-key",
 						ValueOutputColumnID: "unpivot-value",
-						NullRowPolicy:       authoringv2.ConstructionUnpivotDrop,
+						NullRowPolicy:       ws.ConstructionUnpivotDrop,
 					}},
-					Outputs: []authoringv2.StageColumn{
+					Outputs: []ws.StageColumn{
 						{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Type: "string"},
 						{ID: "unpivot-key", Name: "unpivot_key", Label: "Variant", Type: "string"},
 						{ID: "unpivot-value", Name: "unpivot_value", Label: "Value", Type: "integer"},
@@ -90,7 +91,7 @@ func TestUnpivotSourceMeltClaimsUnselectedFieldQualityWithoutAuthoringTheSlot(t 
 	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, snapshot); err != nil {
 		t.Fatalf("reconcile unpivot-owned projection: %v", err)
 	}
-	slotName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
+	slotName := ws.ConstructionSourceProjectionName(projection.ColumnID)
 	if _, claimed := authored[slotName]; claimed {
 		t.Fatalf("a consumed melt slot was claimed as an authored output: %#v", authored[slotName])
 	}
@@ -174,7 +175,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 	t.Run("carrier step must declare the slot it carries", func(t *testing.T) {
 		document, compiled, snapshot, projection := unpivotSourceReconcileFixture(t)
 		carrier := &document.Construction.Steps[0]
-		kept := make([]authoringv2.StageColumn, 0, len(carrier.Outputs))
+		kept := make([]ws.StageColumn, 0, len(carrier.Outputs))
 		for _, output := range carrier.Outputs {
 			if output.ID != projection.ColumnID {
 				kept = append(kept, output)
@@ -188,35 +189,35 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 	})
 }
 
-func unpivotMeltFirstReconcileFixture(t *testing.T) (authoringv2.Document, facade.CompiledRecipeOutput, capability.Snapshot) {
+func unpivotMeltFirstReconcileFixture(t *testing.T) (ws.Document, facade.CompiledRecipeOutput, capability.Snapshot) {
 	t.Helper()
 	base, _, snapshot, projection := unpivotSourceReconcileFixture(t)
-	projectionName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
-	keyScalar := func(value string) authoringv2.TableScalar {
-		kind := authoringv2.TableScalarString
-		return authoringv2.TableScalar{Kind: kind, String: &value}
+	projectionName := ws.ConstructionSourceProjectionName(projection.ColumnID)
+	keyScalar := func(value string) ws.TableScalar {
+		kind := ws.TableScalarString
+		return ws.TableScalar{Kind: kind, String: &value}
 	}
-	document := authoringv2.Document{
-		Output:           authoringv2.Output{ID: "patients"},
+	document := ws.Document{
+		Output:           ws.Output{ID: "patients"},
 		RootResourceType: "Patient",
-		Columns: []authoringv2.Column{
+		Columns: []ws.Column{
 			{ColumnID: "patient-col", Column: "patient_id"},
 			{ColumnID: "note-col", Column: "note"},
 		},
-		Construction: &authoringv2.Construction{
-			Version:           authoringv2.ConstructionVersion,
-			SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
-			Steps: []authoringv2.ConstructionStep{{
+		Construction: &ws.Construction{
+			Version:           ws.ConstructionVersion,
+			SourceProjections: []ws.ConstructionSourceProjection{projection},
+			Steps: []ws.ConstructionStep{{
 				ID:     "melt_step",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID:      "melt_step",
-					Inputs:              []authoringv2.ConstructionUnpivotInput{{ColumnID: projection.ColumnID, Key: keyScalar("variant-a")}, {ColumnID: "note-col", Key: keyScalar("variant-b")}},
+					Inputs:              []ws.ConstructionUnpivotInput{{ColumnID: projection.ColumnID, Key: keyScalar("variant-a")}, {ColumnID: "note-col", Key: keyScalar("variant-b")}},
 					KeyOutputColumnID:   "unpivot-key",
 					ValueOutputColumnID: "unpivot-value",
-					NullRowPolicy:       authoringv2.ConstructionUnpivotDrop,
+					NullRowPolicy:       ws.ConstructionUnpivotDrop,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Type: "string"},
 					{ID: "unpivot-key", Name: "unpivot_key", Label: "Variant", Type: "string"},
 					{ID: "unpivot-value", Name: "unpivot_value", Label: "Value", Type: "integer"},

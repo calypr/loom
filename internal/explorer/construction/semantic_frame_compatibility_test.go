@@ -4,7 +4,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -23,10 +24,10 @@ func TestCodedPivotSourcePreservesPriorPrimaryOnlyFamily(t *testing.T) {
 		EdgeID: "patient-observations", FromNodeID: "patient", ToNodeID: "observation",
 		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject", MatchMode: "optional",
 	}}
-	current := &authoringv2.ConstructionCodedPivotSource{
+	current := &ws.ConstructionCodedPivotSource{
 		Family: currentFamily, CandidateID: "candidate-stage", NodeID: "observation", FieldPath: "valueCodeableConcept.text", Route: route,
 	}
-	pinned := &authoringv2.ConstructionCodedPivotSource{
+	pinned := &ws.ConstructionCodedPivotSource{
 		Family: priorFamily, CandidateID: current.CandidateID, NodeID: current.NodeID, FieldPath: current.FieldPath, Route: append([]capability.ConstructionRouteStep(nil), route...),
 	}
 	if !codedPivotSourceMatchesPinnedPrior(current, pinned, observation) {
@@ -35,15 +36,15 @@ func TestCodedPivotSourcePreservesPriorPrimaryOnlyFamily(t *testing.T) {
 
 	mutations := []struct {
 		name   string
-		mutate func(*authoringv2.ConstructionCodedPivotSource)
+		mutate func(*ws.ConstructionCodedPivotSource)
 	}{
-		{name: "route", mutate: func(source *authoringv2.ConstructionCodedPivotSource) { source.Route[0].Relationship = "encounter" }},
-		{name: "candidate", mutate: func(source *authoringv2.ConstructionCodedPivotSource) { source.CandidateID = "other-candidate" }},
-		{name: "field path", mutate: func(source *authoringv2.ConstructionCodedPivotSource) { source.FieldPath = "valueQuantity.value" }},
-		{name: "legacy fallback", mutate: func(source *authoringv2.ConstructionCodedPivotSource) {
+		{name: "route", mutate: func(source *ws.ConstructionCodedPivotSource) { source.Route[0].Relationship = "encounter" }},
+		{name: "candidate", mutate: func(source *ws.ConstructionCodedPivotSource) { source.CandidateID = "other-candidate" }},
+		{name: "field path", mutate: func(source *ws.ConstructionCodedPivotSource) { source.FieldPath = "valueQuantity.value" }},
+		{name: "legacy fallback", mutate: func(source *ws.ConstructionCodedPivotSource) {
 			source.Family.ValueFallbacks = []string{"valueCodeableConcept.coding[].display"}
 		}},
-		{name: "legacy binding id", mutate: func(source *authoringv2.ConstructionCodedPivotSource) { source.Family.BindingID = "tampered" }},
+		{name: "legacy binding id", mutate: func(source *ws.ConstructionCodedPivotSource) { source.Family.BindingID = "tampered" }},
 	}
 	for _, test := range mutations {
 		t.Run(test.name, func(t *testing.T) {

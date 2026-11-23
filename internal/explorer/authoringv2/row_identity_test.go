@@ -3,16 +3,18 @@ package authoringv2
 import (
 	"reflect"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestDescribeRowIdentityKeepsNetworkEligibilitySeparateFromRows(t *testing.T) {
-	document := Document{Output: Output{ID: "subjects"}, RootResourceType: "ResearchSubject", Rows: RecordsRowDefinition(), Route: RouteNode{
-		OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []RouteNode{
-			{OccurrenceID: "observations", ResourceType: "Observation", CatalogEdgeID: "observation-subject", MatchMode: RouteMatchOptional},
-			{OccurrenceID: "specimens", ResourceType: "Specimen", CatalogEdgeID: "specimen-subject", MatchMode: RouteMatchRequired},
+	document := ws.Document{Output: ws.Output{ID: "subjects"}, RootResourceType: "ResearchSubject", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{
+		OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []ws.RouteNode{
+			{OccurrenceID: "observations", ResourceType: "Observation", CatalogEdgeID: "observation-subject", MatchMode: ws.RouteMatchOptional},
+			{OccurrenceID: "specimens", ResourceType: "Specimen", CatalogEdgeID: "specimen-subject", MatchMode: ws.RouteMatchRequired},
 		},
 	}}
-	plan := DescribeRowIdentity(document)
+	plan := ws.DescribeRowIdentity(document)
 	if len(plan.Stages) != 1 || plan.Stages[0].Identity.Kind != "RECORD" || !plan.Stages[0].MayExcludeRows {
 		t.Fatalf("network changed row identity or hid required-match row loss: %#v", plan)
 	}
@@ -27,14 +29,14 @@ func TestDescribeRowIdentityKeepsNetworkEligibilitySeparateFromRows(t *testing.T
 }
 
 func TestDescribeRelatedExpansionUsesInputRowPairsAndExactAnchor(t *testing.T) {
-	document := Document{Output: Output{ID: "subjects"}, RootResourceType: "ResearchSubject", Route: RouteNode{OccurrenceID: "base"}, Rows: RecordsRowDefinition(), Construction: &Construction{Version: 1, Steps: []ConstructionStep{
-		{ID: "observations", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}, Operation: ConstructionOperation{Kind: ConstructionOperationRelatedExpand, RelatedExpand: &ConstructionRelatedExpand{
-			AnchorColumnID: "subject-id", TargetResourceType: "Observation", RelatedRecordColumnID: "observation-id", EmptyPolicy: ConstructionExpandEmptyPreserveParent,
+	document := ws.Document{Output: ws.Output{ID: "subjects"}, RootResourceType: "ResearchSubject", Route: ws.RouteNode{OccurrenceID: "base"}, Rows: ws.RecordsRowDefinition(), Construction: &ws.Construction{Version: 1, Steps: []ws.ConstructionStep{
+		{ID: "observations", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{
+			AnchorColumnID: "subject-id", TargetResourceType: "Observation", RelatedRecordColumnID: "observation-id", EmptyPolicy: ws.ConstructionExpandEmptyPreserveParent,
 		}}},
-		{ID: "values", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "observations"}}, Operation: ConstructionOperation{Kind: ConstructionOperationRelatedSource}},
-		{ID: "required", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "values"}}, Operation: ConstructionOperation{Kind: ConstructionOperationRelatedEligibility}},
+		{ID: "values", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "observations"}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedSource}},
+		{ID: "required", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "values"}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedEligibility}},
 	}}}
-	plan := DescribeRowIdentity(document)
+	plan := ws.DescribeRowIdentity(document)
 	identity := plan.Stages[1].Identity
 	if identity.Kind != "RELATED_RECORD_PAIR" || identity.Scope != "PER_INPUT_ROW" || identity.InputStageID != "source_projection" || identity.AnchorColumnID != "subject-id" || identity.RelatedRecordColumnID != "observation-id" {
 		t.Fatalf("related expansion lost pair identity or retargeted anchor: %#v", identity)
@@ -42,27 +44,27 @@ func TestDescribeRelatedExpansionUsesInputRowPairsAndExactAnchor(t *testing.T) {
 	if !reflect.DeepEqual(plan.Stages[2].Identity, identity) || !reflect.DeepEqual(plan.Stages[3].Identity, identity) || !plan.Stages[3].MayExcludeRows {
 		t.Fatalf("later values/filter changed grain: %#v", plan.Stages)
 	}
-	if plan.SourceDefinition.Kind != RowDefinitionRecords {
+	if plan.SourceDefinition.Kind != ws.RowDefinitionRecords {
 		t.Fatal("construction expansion rewrote source Rows")
 	}
 }
 
 func TestDescribeRowIdentityGroupRetainsCompleteOrderedTuple(t *testing.T) {
-	document := Document{Rows: RecordsRowDefinition(), Construction: &Construction{Steps: []ConstructionStep{{ID: "group", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
-		Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{MissingKeyPolicy: ConstructionGroupMissingKeyExclude, Keys: []ConstructionGroupKey{
+	document := ws.Document{Rows: ws.RecordsRowDefinition(), Construction: &ws.Construction{Steps: []ws.ConstructionStep{{ID: "group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{MissingKeyPolicy: ws.ConstructionGroupMissingKeyExclude, Keys: []ws.ConstructionGroupKey{
 			{InputColumnID: "gender", OutputColumnID: "key-gender"}, {InputColumnID: "site", OutputColumnID: "key-site"},
 		}}}}}}}
-	stage := DescribeRowIdentity(document).Stages[1]
+	stage := ws.DescribeRowIdentity(document).Stages[1]
 	if stage.Identity.Kind != "KEY_TUPLE" || !reflect.DeepEqual(stage.Identity.KeyColumnIDs, []string{"key-gender", "key-site"}) || stage.Identity.MissingPolicy != "EXCLUDE" || !stage.MayExcludeRows {
 		t.Fatalf("incomplete grouping identity: %#v", stage)
 	}
 }
 
 func TestDescribeRowIdentityDistinguishesSourceAndConstructionItems(t *testing.T) {
-	document := Document{Rows: RowDefinition{Kind: RowDefinitionExpanded, Expanded: &ExpandedRows{OccurrenceID: "patient-a", ScopePath: "name", EmptyCollectionPolicy: EmptyCollectionPreserveParent}}, Construction: &Construction{Steps: []ConstructionStep{
-		{ID: "expand", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}, Operation: ConstructionOperation{Kind: ConstructionOperationExpand, Expand: &ConstructionExpand{InputColumnID: "given", EmptyPolicy: ConstructionExpandEmptyExclude}}},
+	document := ws.Document{Rows: ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{OccurrenceID: "patient-a", ScopePath: "name", EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent}}, Construction: &ws.Construction{Steps: []ws.ConstructionStep{
+		{ID: "expand", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationExpand, Expand: &ws.ConstructionExpand{InputColumnID: "given", EmptyPolicy: ws.ConstructionExpandEmptyExclude}}},
 	}}}
-	plan := DescribeRowIdentity(document)
+	plan := ws.DescribeRowIdentity(document)
 	if plan.Stages[0].Identity.Kind != "SOURCE_ITEM" || plan.Stages[0].Identity.OccurrenceID != "patient-a" || plan.Stages[0].Identity.ScopePath != "name" || plan.Stages[0].Identity.MissingPolicy != "PRESERVE_PARENT" {
 		t.Fatalf("lost item source: %#v", plan)
 	}
@@ -72,13 +74,13 @@ func TestDescribeRowIdentityDistinguishesSourceAndConstructionItems(t *testing.T
 }
 
 func TestDescribeRowIdentityExplicitGroupsAndUnavailableSourceFieldGroup(t *testing.T) {
-	document := Document{Rows: RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{RevisionID: "cohort-v1", UnassignedMemberPolicy: UnassignedMemberExclude}}}}}
-	stage := DescribeRowIdentity(document).Stages[0]
+	document := ws.Document{Rows: ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{RevisionID: "cohort-v1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}}}}}
+	stage := ws.DescribeRowIdentity(document).Stages[0]
 	if stage.Identity.Kind != "NAMED_GROUP" || stage.Identity.GroupRevisionID != "cohort-v1" || stage.Identity.MissingPolicy != "EXCLUDE" {
 		t.Fatalf("named group identity lost: %#v", stage)
 	}
-	document.Rows.Groups.Source = GroupSource{Kind: GroupSourceField, Field: &FieldGroupSource{OccurrenceID: "base", FieldPath: "gender", MissingKeyPolicy: MissingKeyExclude}}
-	stage = DescribeRowIdentity(document).Stages[0]
+	document.Rows.Groups.Source = ws.GroupSource{Kind: ws.GroupSourceField, Field: &ws.FieldGroupSource{OccurrenceID: "base", FieldPath: "gender", MissingKeyPolicy: ws.MissingKeyExclude}}
+	stage = ws.DescribeRowIdentity(document).Stages[0]
 	if stage.Identity.Kind != "UNSUPPORTED" || stage.UnsupportedReason == "" {
 		t.Fatal("advertised rejected source FIELD grouping")
 	}
@@ -86,7 +88,7 @@ func TestDescribeRowIdentityExplicitGroupsAndUnavailableSourceFieldGroup(t *test
 
 func TestImportedPreserveRootChangeRequiresSourceRootOverlay(t *testing.T) {
 	workspace := rowChangeWorkspace()
-	workspace.Documents[0].ImportedRecipe = &ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "immutable", Output: "patients"}
+	workspace.Documents[0].ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "immutable", Output: "patients"}
 	assessment, err := AssessRowChange(workspace, rowChangeCatalog(), RowChangeRequest{OutputID: "patients", RootNodeID: "encounter", RootOccurrenceID: "encounter"})
 	if err != nil {
 		t.Fatal(err)
@@ -97,13 +99,13 @@ func TestImportedPreserveRootChangeRequiresSourceRootOverlay(t *testing.T) {
 }
 
 func TestNestedRequiredBelowOptionalDoesNotClaimRootRowLoss(t *testing.T) {
-	document := Document{Rows: RecordsRowDefinition(), Route: RouteNode{OccurrenceID: "base", Children: []RouteNode{{OccurrenceID: "optional-patient", MatchMode: RouteMatchOptional, Children: []RouteNode{{OccurrenceID: "required-observation", MatchMode: RouteMatchRequired}}}}}}
-	plan := DescribeRowIdentity(document)
+	document := ws.Document{Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: "base", Children: []ws.RouteNode{{OccurrenceID: "optional-patient", MatchMode: ws.RouteMatchOptional, Children: []ws.RouteNode{{OccurrenceID: "required-observation", MatchMode: ws.RouteMatchRequired}}}}}}
+	plan := ws.DescribeRowIdentity(document)
 	if plan.Stages[0].MayExcludeRows || plan.Relationships[1].MayExcludeRows {
 		t.Fatalf("required descendant below optional parent misreported source exclusion: %#v", plan)
 	}
-	document.Route.Children[0].MatchMode = RouteMatchRequired
-	plan = DescribeRowIdentity(document)
+	document.Route.Children[0].MatchMode = ws.RouteMatchRequired
+	plan = ws.DescribeRowIdentity(document)
 	if !plan.Stages[0].MayExcludeRows || !plan.Relationships[1].MayExcludeRows {
 		t.Fatalf("complete required prefix failed to report exclusion: %#v", plan)
 	}
@@ -112,7 +114,7 @@ func TestNestedRequiredBelowOptionalDoesNotClaimRootRowLoss(t *testing.T) {
 func TestRowChangeSameResourceTypeRespectsSelectedOccurrence(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	catalog := rowChangeCatalog()
-	workspace.Documents[0].Route.Children[0].Children = []RouteNode{{OccurrenceID: "patient-again", ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"}}
+	workspace.Documents[0].Route.Children[0].Children = []ws.RouteNode{{OccurrenceID: "patient-again", ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"}}
 	request := RowChangeRequest{OutputID: "patients", RootNodeID: "patient", RootOccurrenceID: "patient-again"}
 	assessment, err := AssessRowChange(workspace, catalog, request)
 	if err != nil {
@@ -124,7 +126,7 @@ func TestRowChangeSameResourceTypeRespectsSelectedOccurrence(t *testing.T) {
 	if assessment.Proposal != nil && assessment.Proposal.RootOccurrenceID != "patient-again" {
 		t.Fatalf("selected occurrence retargeted: %#v", assessment)
 	}
-	workspace.Documents[0].ImportedRecipe = &ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "immutable", Output: "patients"}
+	workspace.Documents[0].ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "immutable", Output: "patients"}
 	assessment, err = AssessRowChange(workspace, catalog, request)
 	if err != nil {
 		t.Fatal(err)

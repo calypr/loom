@@ -8,9 +8,11 @@ import (
 	"strings"
 	"unicode"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -155,12 +157,12 @@ func rowSourceChoiceIsStaleVersion(choice capability.RowChoice, snapshot capabil
 	return identity.SnapshotToken != snapshot.Token || identity.SchemaDigest != snapshot.Identity.SchemaDigest
 }
 
-func constructionRootProjectionCanReachStage(construction authoringv2.Construction, stageID string) bool {
+func constructionRootProjectionCanReachStage(construction ws.Construction, stageID string) bool {
 	if stageID == recipe.ConstructionSourceProjectionID {
 		return true
 	}
 	for _, step := range construction.Steps {
-		if !authoringv2.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
+		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			return false
 		}
 		if step.ID == stageID {
@@ -170,16 +172,16 @@ func constructionRootProjectionCanReachStage(construction authoringv2.Constructi
 	return false
 }
 
-func constructionReceiptStage(stages []explorer.ReceiptConstructionStage, stageID string) (explorer.ReceiptConstructionStage, bool) {
+func constructionReceiptStage(stages []receiptmodel.ReceiptConstructionStage, stageID string) (receiptmodel.ReceiptConstructionStage, bool) {
 	for _, stage := range stages {
 		if stage.ID == stageID {
 			return stage, true
 		}
 	}
-	return explorer.ReceiptConstructionStage{}, false
+	return receiptmodel.ReceiptConstructionStage{}, false
 }
 
-func constructionStageSupportsRelatedField(stage explorer.ReceiptConstructionStage) bool {
+func constructionStageSupportsRelatedField(stage receiptmodel.ReceiptConstructionStage) bool {
 	for _, item := range stage.Capabilities {
 		if item.Kind == "RELATED_FIELD" {
 			return item.Supported
@@ -201,7 +203,7 @@ func constructionFHIRScalarType(resourceType, path string) string {
 	return facts.FHIRType
 }
 
-func constructionOwnedRootProjectionColumnID(construction authoringv2.Construction, stageID, path string) string {
+func constructionOwnedRootProjectionColumnID(construction ws.Construction, stageID, path string) string {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) ||
 			constructionPivotInputStageID(construction, projection.OwnerStepID) != stageID {
@@ -212,10 +214,10 @@ func constructionOwnedRootProjectionColumnID(construction authoringv2.Constructi
 	return ""
 }
 
-func constructionOwnedRelatedFieldColumnID(construction authoringv2.Construction, stageID string, candidate capability.Candidate) string {
+func constructionOwnedRelatedFieldColumnID(construction ws.Construction, stageID string, candidate capability.Candidate) string {
 	ownerID := ""
 	for _, step := range construction.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationPivot && constructionStepInputStageID(step) == stageID {
+		if step.Operation.Kind == ws.ConstructionOperationPivot && constructionStepInputStageID(step) == stageID {
 			ownerID = step.ID
 			break
 		}
@@ -224,7 +226,7 @@ func constructionOwnedRelatedFieldColumnID(construction authoringv2.Construction
 		return ""
 	}
 	for _, step := range construction.Steps {
-		if step.OwnerStepID != ownerID || step.Operation.Kind != authoringv2.ConstructionOperationRelatedField || step.Operation.RelatedField == nil {
+		if step.OwnerStepID != ownerID || step.Operation.Kind != ws.ConstructionOperationRelatedField || step.Operation.RelatedField == nil {
 			continue
 		}
 		source := step.Operation.RelatedField.Source
@@ -236,7 +238,7 @@ func constructionOwnedRelatedFieldColumnID(construction authoringv2.Construction
 	return ""
 }
 
-func constructionPivotInputStageID(construction authoringv2.Construction, pivotID string) string {
+func constructionPivotInputStageID(construction ws.Construction, pivotID string) string {
 	for _, step := range construction.Steps {
 		if step.ID == pivotID {
 			return constructionStepInputStageID(step)
@@ -245,21 +247,21 @@ func constructionPivotInputStageID(construction authoringv2.Construction, pivotI
 	return ""
 }
 
-func constructionStepInputStageID(step authoringv2.ConstructionStep) string {
+func constructionStepInputStageID(step ws.ConstructionStep) string {
 	if len(step.Inputs) != 1 {
 		return ""
 	}
 	switch step.Inputs[0].Kind {
-	case authoringv2.ConstructionInputSourceProjection:
+	case ws.ConstructionInputSourceProjection:
 		return recipe.ConstructionSourceProjectionID
-	case authoringv2.ConstructionInputStepOutput:
+	case ws.ConstructionInputStepOutput:
 		return step.Inputs[0].StepID
 	default:
 		return ""
 	}
 }
 
-func constructionStepIndex(steps []authoringv2.ConstructionStep, id string) int {
+func constructionStepIndex(steps []ws.ConstructionStep, id string) int {
 	for index, step := range steps {
 		if step.ID == id {
 			return index
@@ -274,17 +276,17 @@ func constructionPivotSourceHelperID(pivotID, columnID string) string {
 }
 
 func preserveExistingPivotSourceTable(
-	construction authoringv2.Construction,
+	construction ws.Construction,
 	pivotID, helperID string,
-	source authoringv2.ConstructionRelatedFieldSource,
-	output authoringv2.StageColumn,
-) authoringv2.StageColumn {
+	source ws.ConstructionRelatedFieldSource,
+	output ws.StageColumn,
+) ws.StageColumn {
 	index := constructionStepIndex(construction.Steps, helperID)
 	if index < 0 {
 		return output
 	}
 	previous := construction.Steps[index]
-	if previous.OwnerStepID != pivotID || previous.Operation.Kind != authoringv2.ConstructionOperationRelatedField ||
+	if previous.OwnerStepID != pivotID || previous.Operation.Kind != ws.ConstructionOperationRelatedField ||
 		previous.Operation.RelatedField == nil || previous.Operation.RelatedField.OutputColumnID != output.ID ||
 		!reflect.DeepEqual(previous.Operation.RelatedField.Source, source) {
 		return output
@@ -330,27 +332,27 @@ func constructionFieldDisplayLabel(resourceType, path string, displayCandidates 
 
 type resolvedConstructionPivotSource struct {
 	selection ConstructionPivotSourceSelection
-	root      *authoringv2.ConstructionSourceProjection
-	related   *authoringv2.ConstructionRelatedFieldSource
+	root      *ws.ConstructionSourceProjection
+	related   *ws.ConstructionRelatedFieldSource
 	choiceID  string
 	label     string
 }
 
-func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate authoringv2.Construction, skipOwnerID string) authoringv2.Construction {
+func preserveConstructionOwnedInputs(base ws.Construction, candidate ws.Construction, skipOwnerID string) ws.Construction {
 	present := make(map[string]bool, len(candidate.Steps))
 	for _, step := range candidate.Steps {
 		present[step.ID] = true
 	}
 	for baseIndex, owner := range base.Steps {
-		if owner.ID == skipOwnerID || owner.Operation.Kind != authoringv2.ConstructionOperationPivot || constructionStepIndex(candidate.Steps, owner.ID) < 0 {
+		if owner.ID == skipOwnerID || owner.Operation.Kind != ws.ConstructionOperationPivot || constructionStepIndex(candidate.Steps, owner.ID) < 0 {
 			continue
 		}
 		if constructionOwnerInputsClearedFromCandidate(base, candidate, owner.ID) {
 			continue
 		}
-		missing := make([]authoringv2.ConstructionStep, 0)
+		missing := make([]ws.ConstructionStep, 0)
 		for _, step := range base.Steps[:baseIndex] {
-			if step.OwnerStepID == owner.ID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && !present[step.ID] {
+			if step.OwnerStepID == owner.ID && step.Operation.Kind == ws.ConstructionOperationRelatedField && !present[step.ID] {
 				missing = append(missing, step)
 				present[step.ID] = true
 			}
@@ -368,10 +370,10 @@ func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate au
 	return candidate
 }
 
-func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, candidate authoringv2.Construction, ownerID string) bool {
+func constructionOwnerInputsClearedFromCandidate(base ws.Construction, candidate ws.Construction, ownerID string) bool {
 	baseInputs := 0
 	for _, step := range base.Steps {
-		if step.OwnerStepID == ownerID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+		if step.OwnerStepID == ownerID && step.Operation.Kind == ws.ConstructionOperationRelatedField {
 			baseInputs++
 		}
 	}
@@ -384,7 +386,7 @@ func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, 
 		return false
 	}
 	for _, step := range candidate.Steps {
-		if step.OwnerStepID == ownerID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+		if step.OwnerStepID == ownerID && step.Operation.Kind == ws.ConstructionOperationRelatedField {
 			return false
 		}
 	}
@@ -396,15 +398,15 @@ func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, 
 	return true
 }
 
-func constructionRootFieldAlreadyProjected(document authoringv2.Document, steps []authoringv2.ConstructionStep, projections []authoringv2.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
+func constructionRootFieldAlreadyProjected(document ws.Document, steps []ws.ConstructionStep, projections []ws.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
 	slot := strings.TrimSpace(fieldPath)
 	if slot == "" {
 		return false
 	}
 	for _, column := range document.Columns {
 		if column.ColumnID == "" || column.ColumnID == slotColumnID ||
-			column.OccurrenceID != authoringv2.RootOccurrenceID ||
-			column.Source.Kind != authoringv2.SourceField || column.Source.Field == nil {
+			column.OccurrenceID != ws.RootOccurrenceID ||
+			column.Source.Kind != ws.SourceField || column.Source.Field == nil {
 			continue
 		}
 		if column.Column == "_key" || strings.HasPrefix(column.Column, "__loom_") {
@@ -425,7 +427,7 @@ func constructionRootFieldAlreadyProjected(document authoringv2.Document, steps 
 	return false
 }
 
-func constructionStepCarriesSourceLane(steps []authoringv2.ConstructionStep, stepID string) bool {
+func constructionStepCarriesSourceLane(steps []ws.ConstructionStep, stepID string) bool {
 	if stepID == "" {
 		return false
 	}
@@ -433,24 +435,24 @@ func constructionStepCarriesSourceLane(steps []authoringv2.ConstructionStep, ste
 		if step.ID != stepID {
 			continue
 		}
-		return step.Operation.Kind == authoringv2.ConstructionOperationDerive ||
-			step.Operation.Kind == authoringv2.ConstructionOperationFilter ||
-			step.Operation.Kind == authoringv2.ConstructionOperationUnpivot
+		return step.Operation.Kind == ws.ConstructionOperationDerive ||
+			step.Operation.Kind == ws.ConstructionOperationFilter ||
+			step.Operation.Kind == ws.ConstructionOperationUnpivot
 	}
 	return false
 }
 
-func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivotID string) (authoringv2.Construction, error) {
+func clearConstructionPivotInputs(base, candidate ws.Construction, pivotID string) (ws.Construction, error) {
 	pivotIndex := constructionStepIndex(candidate.Steps, pivotID)
 	if pivotIndex < 0 {
-		return authoringv2.Construction{}, fmt.Errorf("the edited Pivot step is missing")
+		return ws.Construction{}, fmt.Errorf("the edited Pivot step is missing")
 	}
 	anchorStageID := constructionOwnerAnchorStageID(base, pivotID)
 	if anchorStageID == "" {
 		anchorStageID = constructionStepInputStageID(candidate.Steps[pivotIndex])
 	}
 	if anchorStageID == "" {
-		return authoringv2.Construction{}, fmt.Errorf("the owned Pivot input anchor is unavailable")
+		return ws.Construction{}, fmt.Errorf("the owned Pivot input anchor is unavailable")
 	}
 	oldProjectionIDs := make(map[string]bool)
 	for _, projection := range base.SourceProjections {
@@ -458,9 +460,9 @@ func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivo
 			oldProjectionIDs[projection.ColumnID] = true
 		}
 	}
-	steps := make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
+	steps := make([]ws.ConstructionStep, 0, len(candidate.Steps))
 	for _, step := range candidate.Steps {
-		if step.OwnerStepID == pivotID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+		if step.OwnerStepID == pivotID && step.Operation.Kind == ws.ConstructionOperationRelatedField {
 			continue
 		}
 		if constructionStepIndex(candidate.Steps, step.ID) < pivotIndex {
@@ -476,9 +478,9 @@ func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivo
 	}
 	pivotIndex = constructionStepIndex(steps, pivotID)
 	pivot := &steps[pivotIndex]
-	pivot.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}
+	pivot.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}
 	if anchorStageID != recipe.ConstructionSourceProjectionID {
-		pivot.Inputs[0] = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: anchorStageID}
+		pivot.Inputs[0] = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: anchorStageID}
 	}
 	projections := candidate.SourceProjections[:0]
 	for _, projection := range candidate.SourceProjections {
@@ -490,36 +492,36 @@ func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivo
 	return candidate, nil
 }
 
-func constructionOwnerAnchorStageID(construction authoringv2.Construction, pivotID string) string {
+func constructionOwnerAnchorStageID(construction ws.Construction, pivotID string) string {
 	for _, step := range construction.Steps {
-		if step.OwnerStepID == pivotID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+		if step.OwnerStepID == pivotID && step.Operation.Kind == ws.ConstructionOperationRelatedField {
 			return constructionStepInputStageID(step)
 		}
 	}
 	return ""
 }
 
-func constructionRefStageID(input authoringv2.ConstructionInputRef) string {
-	if input.Kind == authoringv2.ConstructionInputSourceProjection {
+func constructionRefStageID(input ws.ConstructionInputRef) string {
+	if input.Kind == ws.ConstructionInputSourceProjection {
 		return recipe.ConstructionSourceProjectionID
 	}
 	return input.StepID
 }
 
-func constructionAuthoringStageColumns(base Base, steps []authoringv2.ConstructionStep, stageID string, projections []authoringv2.ConstructionSourceProjection) ([]authoringv2.StageColumn, error) {
+func constructionAuthoringStageColumns(base Base, steps []ws.ConstructionStep, stageID string, projections []ws.ConstructionSourceProjection) ([]ws.StageColumn, error) {
 	if stageID != recipe.ConstructionSourceProjectionID {
 		if index := constructionStepIndex(steps, stageID); index >= 0 {
-			return append([]authoringv2.StageColumn(nil), steps[index].Outputs...), nil
+			return append([]ws.StageColumn(nil), steps[index].Outputs...), nil
 		}
 	}
 	if stage, found := constructionReceiptStage(base.Stages, stageID); found {
-		result := make([]authoringv2.StageColumn, 0, len(stage.Columns)+len(projections))
+		result := make([]ws.StageColumn, 0, len(stage.Columns)+len(projections))
 		for _, column := range stage.Columns {
-			result = append(result, authoringv2.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type})
+			result = append(result, ws.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type})
 		}
 		for _, projection := range projections {
-			result = appendStageColumnIfAbsent(result, authoringv2.StageColumn{
-				ID: projection.ColumnID, Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID),
+			result = appendStageColumnIfAbsent(result, ws.StageColumn{
+				ID: projection.ColumnID, Name: ws.ConstructionSourceProjectionName(projection.ColumnID),
 				Label: projection.Label, Type: projection.LogicalType,
 			})
 		}
@@ -528,7 +530,7 @@ func constructionAuthoringStageColumns(base Base, steps []authoringv2.Constructi
 	return nil, fmt.Errorf("stage %q is not available", stageID)
 }
 
-func appendStageColumnIfAbsent(columns []authoringv2.StageColumn, column authoringv2.StageColumn) []authoringv2.StageColumn {
+func appendStageColumnIfAbsent(columns []ws.StageColumn, column ws.StageColumn) []ws.StageColumn {
 	for _, current := range columns {
 		if current.ID == column.ID {
 			return columns
@@ -542,7 +544,7 @@ func constructionPivotSourceOutputName(columnID string) string {
 	return "__pivot_source_" + hex.EncodeToString(digest[:8])
 }
 
-func hasPivotSourceProjection(projections []authoringv2.ConstructionSourceProjection, columnID string) bool {
+func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, columnID string) bool {
 	for _, projection := range projections {
 		if projection.ColumnID == columnID {
 			return true
@@ -575,12 +577,12 @@ func uniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType
 	return result, found
 }
 
-func sourceCandidate(snapshot capability.Snapshot, source authoringv2.ConstructionRelatedFieldSource) capability.Candidate {
+func sourceCandidate(snapshot capability.Snapshot, source ws.ConstructionRelatedFieldSource) capability.Candidate {
 	candidate, _ := uniqueCapabilityCandidate(snapshot, source.CandidateID)
 	return candidate
 }
 
-func validatePivotSourceColumns(steps []authoringv2.ConstructionStep, pivotID string, sources []resolvedConstructionPivotSource) error {
+func validatePivotSourceColumns(steps []ws.ConstructionStep, pivotID string, sources []resolvedConstructionPivotSource) error {
 	index := constructionStepIndex(steps, pivotID)
 	if index < 0 || steps[index].Operation.Pivot == nil {
 		return fmt.Errorf("the selected Pivot step is unavailable")

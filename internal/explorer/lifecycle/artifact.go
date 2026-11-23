@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -280,7 +283,7 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	return reader, opened, nil
 }
 
-func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*explorer.CompilationReceipt, *explorer.Revision, ports.AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
+func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*receiptmodel.CompilationReceipt, *explorer.Revision, ports.AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
 	revision, err := s.store.GetRevision(ctx, request.RevisionID)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
@@ -367,8 +370,8 @@ func (s *Service) artifactMaxBytes() int64 {
 	return defaultArtifactMaxBytes
 }
 
-func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string) (artifactformat.ArtifactDescriptor, []artifactformat.ArtifactColumn, error) {
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+func artifactDescriptor(receipt *receiptmodel.CompilationReceipt, materialization dataframepublished.Materialization, outputID string) (artifactformat.ArtifactDescriptor, []artifactformat.ArtifactColumn, error) {
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		return artifactformat.ArtifactDescriptor{}, nil, err
 	}
@@ -391,7 +394,7 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 			physical[name] = column
 		}
 	}
-	emissions := make(map[string]explorer.EmittedColumn, len(receipt.EmittedColumns))
+	emissions := make(map[string]viewer.EmittedColumn, len(receipt.EmittedColumns))
 	for _, emission := range receipt.EmittedColumns {
 		if emission.OutputID != outputID {
 			continue
@@ -456,8 +459,8 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 	return descriptor, columns, nil
 }
 
-func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string, contract explorer.PublicOutputContract) (artifactformat.ArtifactDescriptor, []artifactformat.ArtifactColumn, error) {
-	contractColumns := make(map[string]explorer.PublicOutputColumn, len(contract.Columns))
+func groupArtifactDescriptor(receipt *receiptmodel.CompilationReceipt, materialization dataframepublished.Materialization, outputID string, contract receiptmodel.PublicOutputContract) (artifactformat.ArtifactDescriptor, []artifactformat.ArtifactColumn, error) {
+	contractColumns := make(map[string]receiptmodel.PublicOutputColumn, len(contract.Columns))
 	for _, public := range contract.Columns {
 		contractColumns[strings.TrimSpace(public.Column)] = public
 	}
@@ -584,7 +587,7 @@ func artifactColumnsContainRowIdentity(descriptor artifactformat.ArtifactDescrip
 	return false
 }
 
-func artifactQualityReport(revision explorer.Revision, outputID string, receipt explorer.CompilationReceipt) (publication.QualityReport, error) {
+func artifactQualityReport(revision explorer.Revision, outputID string, receipt receiptmodel.CompilationReceipt) (publication.QualityReport, error) {
 	var found *publication.QualityReport
 	for i := range revision.QualityReports {
 		if revision.QualityReports[i].Output == outputID {
@@ -621,7 +624,7 @@ func artifactQualityReport(revision explorer.Revision, outputID string, receipt 
 	return *found, nil
 }
 
-func artifactMetadata(receipt *explorer.CompilationReceipt, revision *explorer.Revision, materialization dataframepublished.Materialization, outputID string, quality publication.QualityReport) (json.RawMessage, json.RawMessage, json.RawMessage, json.RawMessage, error) {
+func artifactMetadata(receipt *receiptmodel.CompilationReceipt, revision *explorer.Revision, materialization dataframepublished.Materialization, outputID string, quality publication.QualityReport) (json.RawMessage, json.RawMessage, json.RawMessage, json.RawMessage, error) {
 	archiveRecipe, err := receipt.Bundle.ArchiveCanonicalJSON()
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -659,7 +662,7 @@ func artifactMetadata(receipt *explorer.CompilationReceipt, revision *explorer.R
 	return selectionRaw, interpretations, provenance, qualityRaw, nil
 }
 
-func validateArtifactMaterialization(materialization dataframepublished.Materialization, revision explorer.Revision, receipt explorer.CompilationReceipt, scope authscope.ReadScope, outputID string) error {
+func validateArtifactMaterialization(materialization dataframepublished.Materialization, revision explorer.Revision, receipt receiptmodel.CompilationReceipt, scope authscope.ReadScope, outputID string) error {
 	if projectid.Canonical(materialization.Project) != projectid.Canonical(receipt.Project) || materialization.DatasetGeneration != receipt.SourceGeneration || materialization.ReceiptID != receipt.ID || materialization.Revision != revision.Publication.ExecutionID || materialization.Name == "" || outputID == "" {
 		return fmt.Errorf("materialization identity does not match receipt/revision")
 	}
@@ -673,14 +676,14 @@ func validateArtifactMaterialization(materialization dataframepublished.Material
 	return nil
 }
 
-func validateArtifactReceiptIdentity(record explorer.ArtifactRecord, receipt *explorer.CompilationReceipt) error {
+func validateArtifactReceiptIdentity(record explorer.ArtifactRecord, receipt *receiptmodel.CompilationReceipt) error {
 	if receipt == nil || record.ReceiptID != receipt.ID || record.Project != projectid.Canonical(receipt.Project) || record.DatasetGeneration != receipt.SourceGeneration || record.AuthorizationScopeDigest != receipt.AuthorizationScopeDigest || record.SnapshotToken != receipt.SnapshotToken {
 		return fmt.Errorf("artifact record does not match receipt")
 	}
 	return nil
 }
 
-func validateArtifactRevisionReceipt(revision explorer.Revision, receipt explorer.CompilationReceipt) error {
+func validateArtifactRevisionReceipt(revision explorer.Revision, receipt receiptmodel.CompilationReceipt) error {
 	if revision.CompilationReceiptID != receipt.ID || revision.SourceGeneration != receipt.SourceGeneration || projectid.Canonical(revision.Project) != projectid.Canonical(receipt.Project) {
 		return fmt.Errorf("revision does not match receipt")
 	}

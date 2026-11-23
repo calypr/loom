@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func (c *Command) ResolveColumnPolicyProposal(columnID, projectionMode string) error {
@@ -93,7 +95,7 @@ func (c Command) validateUpdateColumnRowValuePolicy() error {
 	if !commandFieldsPresent(c.OutputID, c.Column()) {
 		return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY requires outputId and column")
 	}
-	if c.RowValuePolicy() != ConstructionRowValueAll && c.RowValuePolicy() != ConstructionRowValueOne {
+	if c.RowValuePolicy() != ws.ConstructionRowValueAll && c.RowValuePolicy() != ws.ConstructionRowValueOne {
 		return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY rowValuePolicy must be ALL or ONE")
 	}
 	if c.SourceOutputID() != "" || c.Title != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
@@ -350,24 +352,24 @@ func (c Command) validateAddRoute() error {
 }
 
 func (c Command) validateUpdateRouteEdge() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), c.EdgeID()) || c.OccurrenceID() == RootOccurrenceID {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), c.EdgeID()) || c.OccurrenceID() == ws.RootOccurrenceID {
 		return fmt.Errorf("UPDATE_ROUTE_EDGE requires a non-root occurrenceId and edgeId")
 	}
 	return nil
 }
 
 func (c Command) validateSetRouteMatchMode() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), string(c.MatchMode())) || c.OccurrenceID() == RootOccurrenceID {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), string(c.MatchMode())) || c.OccurrenceID() == ws.RootOccurrenceID {
 		return fmt.Errorf("SET_ROUTE_MATCH_MODE requires a non-root occurrenceId and matchMode")
 	}
-	if c.MatchMode() != RouteMatchOptional && c.MatchMode() != RouteMatchRequired {
+	if c.MatchMode() != ws.RouteMatchOptional && c.MatchMode() != ws.RouteMatchRequired {
 		return fmt.Errorf("SET_ROUTE_MATCH_MODE matchMode must be OPTIONAL or REQUIRED")
 	}
 	return nil
 }
 
 func (c Command) validateRemoveRoute() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID()) || c.OccurrenceID() == RootOccurrenceID {
+	if !commandFieldsPresent(c.OutputID, c.OccurrenceID()) || c.OccurrenceID() == ws.RootOccurrenceID {
 		return fmt.Errorf("REMOVE_ROUTE requires a non-root occurrenceId")
 	}
 	return nil

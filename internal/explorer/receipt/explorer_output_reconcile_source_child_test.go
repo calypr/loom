@@ -4,11 +4,12 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -25,26 +26,26 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 
 	tests := []struct {
 		name       string
-		step       authoringv2.ConstructionStep
+		step       ws.ConstructionStep
 		outputIDs  []string
 		inputNames []string
 	}{
 		{
 			name: "Pivot",
-			step: authoringv2.ConstructionStep{
+			step: ws.ConstructionStep{
 				ID: "pivot_family",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 					ConstructionID: "pivot_family", GroupKeyIDs: []string{"family_slot"},
 					CategoryColumnID: childID, ValueColumnID: childID,
-					Categories: []authoringv2.ConstructionPivotCategory{{
-						Key:            authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: sourceChildTestStringPointer("Smith")},
+					Categories: []ws.ConstructionPivotCategory{{
+						Key:            ws.TableScalar{Kind: ws.TableScalarString, String: sourceChildTestStringPointer("Smith")},
 						OutputColumnID: "family_smith",
 					}},
-					DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-					MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-					UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+					DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+					MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "family_slot", Name: "family", Label: "Family"},
 					{ID: "family_smith", Name: "family_smith", Label: "Family Smith"},
 				},
@@ -54,18 +55,18 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 		},
 		{
 			name: "Unpivot",
-			step: authoringv2.ConstructionStep{
+			step: ws.ConstructionStep{
 				ID: "unpivot_family",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID: "unpivot_family",
-					Inputs: []authoringv2.ConstructionUnpivotInput{{
+					Inputs: []ws.ConstructionUnpivotInput{{
 						ColumnID: childID,
-						Key:      authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: sourceChildTestStringPointer("name[].family [0]")},
+						Key:      ws.TableScalar{Kind: ws.TableScalarString, String: sourceChildTestStringPointer("name[].family [0]")},
 					}},
 					KeyOutputColumnID: "field_key", ValueOutputColumnID: "field_value",
-					NullRowPolicy: authoringv2.ConstructionUnpivotPreserve,
+					NullRowPolicy: ws.ConstructionUnpivotPreserve,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "family_slot", Name: "family", Label: "Family"},
 					{ID: "field_key", Name: "field_key", Label: "Field"},
 					{ID: "field_value", Name: "field_value", Label: "Value"},
@@ -78,10 +79,10 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			document := authoringv2.Document{
-				Output:       authoringv2.Output{ID: "patients"},
-				Columns:      []authoringv2.Column{{ColumnID: "family_slot", Column: "family"}},
-				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{test.step}},
+			document := ws.Document{
+				Output:       ws.Output{ID: "patients"},
+				Columns:      []ws.Column{{ColumnID: "family_slot", Column: "family"}},
+				Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{test.step}},
 			}
 			compiled := facade.CompiledRecipeOutput{Stages: []facade.CompiledStageDescriptor{{
 				ID:      recipe.ConstructionSourceProjectionID,

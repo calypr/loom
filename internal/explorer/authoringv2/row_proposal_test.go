@@ -5,11 +5,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestApplyRowDefinitionProposalValidatesClosedCommand(t *testing.T) {
 	base := ApplyCommandsRequest{
-		CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion,
+		CommandID: "command-1", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft",
 		Commands: []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}},
 	}
@@ -49,19 +51,19 @@ func TestApplyRowDefinitionProposalValidatesClosedCommand(t *testing.T) {
 
 func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 	catalog := commandCatalog()
-	workspace := rowDefinitionTestWorkspace(RecordsRowDefinition())
-	workspace, err := MigrateLegacyContributors(workspace, catalog)
+	workspace := rowDefinitionTestWorkspace(ws.RecordsRowDefinition())
+	workspace, err := ws.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
 	original, err := cloneWorkspace(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
-		Source: GroupSource{Kind: GroupSourceField, Field: &FieldGroupSource{
-			OccurrenceID: RootOccurrenceID, FieldPath: "active", MissingKeyPolicy: MissingKeyError,
+	rows := ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceField, Field: &ws.FieldGroupSource{
+			OccurrenceID: ws.RootOccurrenceID, FieldPath: "active", MissingKeyPolicy: ws.MissingKeyError,
 		}},
 	}}
 	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
@@ -86,13 +88,13 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected.Documents[0].Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
-		Source: GroupSource{Kind: GroupSourceField, Field: &FieldGroupSource{
-			OccurrenceID: RootOccurrenceID, FieldPath: "active", MissingKeyPolicy: MissingKeyError,
+	expected.Documents[0].Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{Kind: ws.GroupSourceField, Field: &ws.FieldGroupSource{
+			OccurrenceID: ws.RootOccurrenceID, FieldPath: "active", MissingKeyPolicy: ws.MissingKeyError,
 		}},
 	}}
 	if !reflect.DeepEqual(got, expected) {
-		t.Fatalf("proposal changed more than Document.Rows\n got: %#v\nwant: %#v", got, expected)
+		t.Fatalf("proposal changed more than ws.Document.Rows\n got: %#v\nwant: %#v", got, expected)
 	}
 	if !reflect.DeepEqual(workspace, original) {
 		t.Fatal("pure reducer mutated the input workspace")
@@ -100,7 +102,7 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 }
 
 func TestApplyRowDefinitionProposalRequiresLifecycleResolution(t *testing.T) {
-	workspace := rowDefinitionTestWorkspace(RecordsRowDefinition())
+	workspace := rowDefinitionTestWorkspace(ws.RecordsRowDefinition())
 	before, err := cloneWorkspace(workspace)
 	if err != nil {
 		t.Fatal(err)

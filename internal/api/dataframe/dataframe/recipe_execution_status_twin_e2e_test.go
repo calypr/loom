@@ -42,9 +42,9 @@ const (
 const twinRowCount = int64(7373737)
 
 const (
-	twinHandlerFile = "openapi_handlers.go"
-	twinAdapterFile = "recipe_execution_reader.go"
-	twinReaderFile  = "../recipeexec/recipe_execution.go"
+	twinHandlerFile = "openapihandlers.go"
+	twinAdapterFile = "recipeexecutionreader.go"
+	twinReaderFile  = "../recipeexec/recipeexecution.go"
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
 

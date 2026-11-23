@@ -4,12 +4,13 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func constructionRecipePlanForScalarTest(t *testing.T, operation authoringv2.ConstructionOperation, sources, outputs []recipe.StageColumn) *recipeplan.RecipePlan {
+func constructionRecipePlanForScalarTest(t *testing.T, operation ws.ConstructionOperation, sources, outputs []recipe.StageColumn) *recipeplan.RecipePlan {
 	t.Helper()
 	mapped, err := recipeConstructionOperation(operation)
 	if err != nil {
@@ -25,7 +26,7 @@ func constructionRecipePlanForScalarTest(t *testing.T, operation authoringv2.Con
 				RootResourceType: "Patient",
 				RowGrain:         "patient",
 				Construction: &recipe.Construction{
-					Version:       authoringv2.ConstructionVersion,
+					Version:       ws.ConstructionVersion,
 					SourceColumns: sources,
 					Steps: []recipe.ConstructionStep{
 						{
@@ -46,22 +47,22 @@ func constructionRecipePlanForScalarTest(t *testing.T, operation authoringv2.Con
 }
 func TestRecipeConstructionPreservesAuthoredPivotAndUnpivotIdentity(t *testing.T) {
 	zero := int64(0)
-	operation := authoringv2.ConstructionOperation{
-		Kind: authoringv2.ConstructionOperationPivot,
-		Pivot: &authoringv2.ConstructionPivot{
+	operation := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationPivot,
+		Pivot: &ws.ConstructionPivot{
 			ConstructionID:   "pivot_construction",
 			GroupKeyIDs:      []string{"cohort_id", "site_id"},
 			CategoryColumnID: "measure_id",
 			ValueColumnID:    "value_id",
-			Categories: []authoringv2.ConstructionPivotCategory{
+			Categories: []ws.ConstructionPivotCategory{
 				{
-					Key:            authoringv2.TableScalar{Kind: authoringv2.TableScalarInteger, Integer: &zero},
+					Key:            ws.TableScalar{Kind: ws.TableScalarInteger, Integer: &zero},
 					OutputColumnID: "baseline_id",
 				},
 			},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateSum,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedExcludeWithEvidence,
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateSum,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedExcludeWithEvidence,
 		},
 	}
 	sources := []recipe.StageColumn{
@@ -84,23 +85,23 @@ func TestRecipeConstructionPreservesAuthoredPivotAndUnpivotIdentity(t *testing.T
 		t.Fatalf("pivot names/labels changed: %#v", steps[0].Outputs)
 	}
 	firstKey, secondKey := "first", "second"
-	unpivotOperation := authoringv2.ConstructionOperation{
-		Kind: authoringv2.ConstructionOperationUnpivot,
-		Unpivot: &authoringv2.ConstructionUnpivot{
+	unpivotOperation := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationUnpivot,
+		Unpivot: &ws.ConstructionUnpivot{
 			ConstructionID: "unpivot_construction",
-			Inputs: []authoringv2.ConstructionUnpivotInput{
+			Inputs: []ws.ConstructionUnpivotInput{
 				{
 					ColumnID: "baseline_id",
-					Key:      authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &firstKey},
+					Key:      ws.TableScalar{Kind: ws.TableScalarString, String: &firstKey},
 				},
 				{
 					ColumnID: "followup_id",
-					Key:      authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &secondKey},
+					Key:      ws.TableScalar{Kind: ws.TableScalarString, String: &secondKey},
 				},
 			},
 			KeyOutputColumnID:   "visit_id",
 			ValueOutputColumnID: "result_id",
-			NullRowPolicy:       authoringv2.ConstructionUnpivotPreserve,
+			NullRowPolicy:       ws.ConstructionUnpivotPreserve,
 		},
 	}
 	unpivotSources := []recipe.StageColumn{
@@ -120,20 +121,20 @@ func TestRecipeConstructionPreservesAuthoredPivotAndUnpivotIdentity(t *testing.T
 
 }
 func TestRecipeConstructionPreservesNullAndMissingPivotKeysThroughSemanticPlan(t *testing.T) {
-	operation := authoringv2.ConstructionOperation{
-		Kind: authoringv2.ConstructionOperationPivot,
-		Pivot: &authoringv2.ConstructionPivot{
+	operation := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationPivot,
+		Pivot: &ws.ConstructionPivot{
 			ConstructionID:   "pivot_sentinels",
 			GroupKeyIDs:      []string{"cohort_id"},
 			CategoryColumnID: "measure_id",
 			ValueColumnID:    "value_id",
-			Categories: []authoringv2.ConstructionPivotCategory{
-				{Key: authoringv2.TableScalar{Kind: authoringv2.TableScalarNull}, OutputColumnID: "null_id"},
-				{Key: authoringv2.TableScalar{Kind: authoringv2.TableScalarMissing}, OutputColumnID: "missing_id"},
+			Categories: []ws.ConstructionPivotCategory{
+				{Key: ws.TableScalar{Kind: ws.TableScalarNull}, OutputColumnID: "null_id"},
+				{Key: ws.TableScalar{Kind: ws.TableScalarMissing}, OutputColumnID: "missing_id"},
 			},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 		},
 	}
 	sources := []recipe.StageColumn{
@@ -165,16 +166,16 @@ func TestRecipeConstructionPreservesNullAndMissingPivotKeysThroughSemanticPlan(t
 	}
 }
 func TestRecipeConstructionRejectsNullAndMissingUnpivotKeys(t *testing.T) {
-	for _, kind := range []authoringv2.TableScalarKind{authoringv2.TableScalarNull, authoringv2.TableScalarMissing} {
+	for _, kind := range []ws.TableScalarKind{ws.TableScalarNull, ws.TableScalarMissing} {
 		t.Run(string(kind), func(t *testing.T) {
-			operation := authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationUnpivot,
-				Unpivot: &authoringv2.ConstructionUnpivot{
+			operation := ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationUnpivot,
+				Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID:      "unpivot_sentinel",
-					Inputs:              []authoringv2.ConstructionUnpivotInput{{ColumnID: "value_id", Key: authoringv2.TableScalar{Kind: kind}}},
+					Inputs:              []ws.ConstructionUnpivotInput{{ColumnID: "value_id", Key: ws.TableScalar{Kind: kind}}},
 					KeyOutputColumnID:   "name_id",
 					ValueOutputColumnID: "result_id",
-					NullRowPolicy:       authoringv2.ConstructionUnpivotDrop,
+					NullRowPolicy:       ws.ConstructionUnpivotDrop,
 				},
 			}
 			if _, err := recipeConstructionOperation(operation); err == nil {

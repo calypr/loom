@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -37,13 +39,13 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 		ExplorerID:       "patients",
 		Recipe:           recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", FieldRef: "Patient.id"}}}}},
 		SourceGeneration: "generation-a",
-		Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{
+		Dataset: viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{
 			Name: "patients", State: "ACTIVE", Queryable: true, Selector: &selector,
 			Columns: []publication.PhysicalColumn{{Name: "patient_id", LogicalType: "string", ClickHouse: "String"}},
 		}}},
-		EmittedColumns:       []explorer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"}},
+		EmittedColumns:       []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"}},
 		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":false,"chartable":false}]}]}`),
-		Publication:          explorer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a"},
+		Publication:          viewer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a"},
 		Status:               explorer.RevisionActive,
 	}
 	store.Mu.Lock()
@@ -59,11 +61,11 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
 	}
-	var state explorer.ExplorerStateV1
+	var state viewer.ExplorerStateV1
 	if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.APIVersion != explorer.ExplorerStateV1APIVersion || state.Kind != explorer.ExplorerStateV1Kind {
+	if state.APIVersion != viewer.ExplorerStateV1APIVersion || state.Kind != viewer.ExplorerStateV1Kind {
 		t.Fatalf("state identity = %q/%q", state.APIVersion, state.Kind)
 	}
 	if state.Runtime == nil {
@@ -92,7 +94,7 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 			Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
 		},
 		SourceGeneration: "generation-a",
-		Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{
+		Dataset: viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{
 			Name: "patients", State: "ACTIVE", Queryable: true, Selector: &selector,
 			Columns: []publication.PhysicalColumn{
 				{Name: "mean_weight", LogicalType: "decimal", ClickHouse: "Decimal"},
@@ -100,13 +102,13 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 				{Name: "patient_id", LogicalType: "string", ClickHouse: "String"},
 			},
 		}}},
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 			{OutputID: "patients", EmissionID: "em_mean_weight", PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", ResultUnit: weightUnit},
 			{OutputID: "patients", EmissionID: "em_bmi", PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: bmiUnit},
 			{OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"},
 		},
 		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"mean_weight","label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}},{"column":"bmi","label":"BMI","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg/m2"}},{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":false,"chartable":false}]}]}`),
-		Publication:          explorer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a"},
+		Publication:          viewer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a"},
 		Status:               explorer.RevisionActive,
 	}
 	store := newTestExplorerStore()
@@ -130,14 +132,14 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
 	}
-	var state explorer.ExplorerStateV1
+	var state viewer.ExplorerStateV1
 	if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
 		t.Fatal(err)
 	}
 	if state.Runtime == nil || len(state.Runtime.Outputs) != 1 || len(state.Runtime.Outputs[0].Columns) != 3 {
 		t.Fatalf("runtime = %#v", state.Runtime)
 	}
-	columns := make(map[string]explorer.ExplorerRuntimeColumnV1, len(state.Runtime.Outputs[0].Columns))
+	columns := make(map[string]viewer.ExplorerRuntimeColumnV1, len(state.Runtime.Outputs[0].Columns))
 	for _, column := range state.Runtime.Outputs[0].Columns {
 		columns[column.Column] = column
 	}
@@ -190,11 +192,11 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: selector.Recipe, TranslationVersion: selector.TranslationVersion,
 			Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", FieldRef: "Patient.id"}}}},
 		},
-		Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{
+		Dataset: viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{
 			Name: "patients", State: "ACTIVE", Queryable: true, Selector: &selector,
 			Columns: []publication.PhysicalColumn{{Name: "patient_id", LogicalType: "string", ClickHouse: "String"}},
 		}}},
-		EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"}},
+		EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"}},
 		Status:         explorer.RevisionActive,
 	}
 	for _, test := range []struct {
@@ -256,11 +258,11 @@ func TestExplorerStateRouteReturnsExplicitUnpublishedProjection(t *testing.T) {
 	if raw, ok := wire["runtime"]; !ok || string(raw) != "null" {
 		t.Fatalf("runtime = %s, want explicit null", raw)
 	}
-	var state explorer.ExplorerStateV1
+	var state viewer.ExplorerStateV1
 	if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.Runtime != nil || state.Generated.Publication.State != explorer.ExplorerRuntimeV1NotPublished {
+	if state.Runtime != nil || state.Generated.Publication.State != viewer.ExplorerRuntimeV1NotPublished {
 		t.Fatalf("unpublished state = %#v", state)
 	}
 }

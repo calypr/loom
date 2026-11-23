@@ -2,16 +2,17 @@ package recipeimport
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func validateRuleAddition(kind, resourceType string, params *authoringv2.ImportedSourceParameters) error {
+func validateRuleAddition(kind, resourceType string, params *ws.ImportedSourceParameters) error {
 	switch kind {
 	case SourcePlanDynamicColumn:
 		return validateDynamicRuleAddition(resourceType, params.Dynamic)
@@ -24,7 +25,7 @@ func validateRuleAddition(kind, resourceType string, params *authoringv2.Importe
 	}
 }
 
-func validateDynamicRuleAddition(resourceType string, rule *authoringv2.ImportedDynamicParameters) error {
+func validateDynamicRuleAddition(resourceType string, rule *ws.ImportedDynamicParameters) error {
 	if err := validateRuleName(rule.Name); err != nil {
 		return err
 	}
@@ -99,7 +100,7 @@ func validateItemExpression(expression recipe.Expression) error {
 	return validateItemExpression(expression.Args[0])
 }
 
-func validateExtensionRuleAddition(resourceType string, rule *authoringv2.ImportedExtensionParameters) error {
+func validateExtensionRuleAddition(resourceType string, rule *ws.ImportedExtensionParameters) error {
 	if err := validateRuleName(rule.Name); err != nil {
 		return err
 	}
@@ -115,8 +116,8 @@ func validateExtensionRuleAddition(resourceType string, rule *authoringv2.Import
 	return fhirbinding.ValidateExtensionOwnerPath(resourceType, path)
 }
 
-func validateCatalogRuleAddition(resourceType string, rule *authoringv2.ImportedCatalogParameters) error {
-	if err := catalogRuleProjection(rule, authoringv2.MaxImportedRuleColumns).Validate(); err != nil {
+func validateCatalogRuleAddition(resourceType string, rule *ws.ImportedCatalogParameters) error {
+	if err := catalogRuleProjection(rule, ws.MaxImportedRuleColumns).Validate(); err != nil {
 		return err
 	}
 	for _, paths := range [][]string{rule.IncludePaths, rule.ExcludePaths} {
@@ -129,7 +130,7 @@ func validateCatalogRuleAddition(resourceType string, rule *authoringv2.Imported
 	return nil
 }
 
-func catalogRuleProjection(rule *authoringv2.ImportedCatalogParameters, limit int) recipe.CatalogProjection {
+func catalogRuleProjection(rule *ws.ImportedCatalogParameters, limit int) recipe.CatalogProjection {
 	projection := recipe.CatalogProjection{
 		Name: rule.Name, IncludePaths: rule.IncludePaths, ExcludePaths: rule.ExcludePaths,
 		Kinds: rule.Kinds, Naming: rule.Naming, MaxColumns: limit,

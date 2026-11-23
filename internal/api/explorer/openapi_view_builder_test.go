@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -21,19 +23,19 @@ import (
 type viewBuilderHTTPStore struct {
 	*testExplorerStore
 	explorer.ViewBuilderRepository
-	settings explorer.ViewBuilderSettings
+	settings viewer.ViewBuilderSettings
 	fault    error
 	writes   int
 }
 
-func (s *viewBuilderHTTPStore) GetViewBuilderSettings(context.Context, string) (explorer.ViewBuilderSettings, error) {
+func (s *viewBuilderHTTPStore) GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error) {
 	return s.settings, s.fault
 }
 func (s *viewBuilderHTTPStore) AdoptViewBuilderCatalogs(context.Context, string) error {
 	s.writes++
 	return nil
 }
-func (s *viewBuilderHTTPStore) SaveViewBuilderDefaults(context.Context, string, explorer.ViewBuilderDefaultsRequest) error {
+func (s *viewBuilderHTTPStore) SaveViewBuilderDefaults(context.Context, string, viewer.ViewBuilderDefaultsRequest) error {
 	s.writes++
 	return nil
 }
@@ -57,7 +59,7 @@ func viewBuilderTestApp(t *testing.T, store *viewBuilderHTTPStore, writeFault, r
 }
 
 func TestViewBuilderHTTPReadOnlyAndWriteAuthorization(t *testing.T) {
-	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: explorer.ViewBuilderSettings{Catalogs: map[string]string{}}}
+	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
 	app := viewBuilderTestApp(t, store, authscope.ErrForbidden, nil)
 	result := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/view-builder", "")
 	if result.StatusCode != http.StatusOK || !viewBuilderCanEditFalse(t, result.Body) {
@@ -79,7 +81,7 @@ func TestViewBuilderHTTPReadOnlyAndWriteAuthorization(t *testing.T) {
 }
 
 func TestViewBuilderHTTPStorageFailuresAndMalformedRequests(t *testing.T) {
-	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: explorer.ViewBuilderSettings{Catalogs: map[string]string{}}}
+	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
 	app := viewBuilderTestApp(t, store, nil, nil)
 	store.fault = errors.New("private database failure with credentials")
 	result := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/view-builder", "")
@@ -139,7 +141,7 @@ func TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct(t *testin
 }
 
 func TestViewBuilderScopedEditorCapability(t *testing.T) {
-	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: explorer.ViewBuilderSettings{Catalogs: map[string]string{}}}
+	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
 	service, err := explorer.NewService(store)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +186,7 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 	}
 	store := &viewBuilderHTTPStore{
 		testExplorerStore: explorerfixtures.NewStore(),
-		settings:          explorer.ViewBuilderSettings{Catalogs: map[string]string{}},
+		settings:          viewer.ViewBuilderSettings{Catalogs: map[string]string{}},
 	}
 	service, err := explorer.NewService(store)
 	if err != nil {
@@ -233,7 +235,7 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 
 	unscopedStore := &viewBuilderHTTPStore{
 		testExplorerStore: explorerfixtures.NewStore(),
-		settings:          explorer.ViewBuilderSettings{Catalogs: map[string]string{}},
+		settings:          viewer.ViewBuilderSettings{Catalogs: map[string]string{}},
 	}
 	unscopedApp := viewBuilderTestApp(t, unscopedStore, nil, nil)
 	status, canEdit = func() (int, bool) {

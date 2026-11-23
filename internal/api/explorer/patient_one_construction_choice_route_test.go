@@ -10,6 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
@@ -23,7 +27,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
@@ -46,7 +49,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var document authoringv2.Document
+	var document ws.Document
 	if err := json.Unmarshal(rawDocument, &document); err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +59,13 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		t.Fatalf("retained fixture no longer contains the captured empty-key Patient Group: %#v", document)
 	}
 
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	workspace.Explorer.Title = document.Output.Title
-	workspace.Documents = []authoringv2.Document{document}
-	workspace.Tabs = []authoringv2.Tab{{
+	workspace.Documents = []ws.Document{document}
+	workspace.Tabs = []ws.Tab{{
 		ID: "patient-one-captured-tab", Title: document.Output.Title, OutputID: document.Output.ID, Order: 0, Visible: true,
 	}}
 	workspace = workspace.NormalizePresentationOrders()
@@ -100,7 +103,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		nil,
 	)
 
-	catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
+	catalog := ws.CatalogFromCapability(snapshot, explorerID)
 	var choiceID string
 	for _, candidate := range catalog.Candidates {
 		if candidate.ID == "c_patient_id" && candidate.FieldPath == "id" && candidate.ConstructionChoice != nil {
@@ -189,9 +192,9 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			receipt, err := receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 			if err != nil {
 				return nil, err
@@ -204,7 +207,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 			}
 			return receipt, nil
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, err := receiptapi.CompileValidatedResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
 				previewResolutionErr = err
@@ -284,7 +287,7 @@ type jsonRoundTripPatientOneReceiptStore struct {
 	*testExplorerStore
 }
 
-func (s *jsonRoundTripPatientOneReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (s *jsonRoundTripPatientOneReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
 	raw, err := json.Marshal(receipt)
 	if err != nil {
 		return nil, err
@@ -298,7 +301,7 @@ func (s *jsonRoundTripPatientOneReceiptStore) InsertCompilationReceipt(ctx conte
 	if err != nil {
 		return nil, err
 	}
-	var stored explorer.CompilationReceipt
+	var stored receiptmodel.CompilationReceipt
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		return nil, err
 	}

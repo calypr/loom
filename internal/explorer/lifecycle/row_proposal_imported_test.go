@@ -5,25 +5,27 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t *testing.T) {
 	for _, selection := range []rowdef.RowDefinitionSelection{
 		{Kind: rowdef.RowDefinitionSelectionRecords},
-		{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent}},
-		{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-v1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude}},
+		{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent}},
+		{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-v1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}},
 	} {
 		t.Run(string(selection.Kind), func(t *testing.T) {
 			service, store, snapshot, workspace := rowProposalService(t)
-			workspace.Documents[0].ImportedRecipe = &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
+			workspace.Documents[0].ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
 			for i := range workspace.Documents[0].Columns {
 				column := &workspace.Documents[0].Columns[i]
-				column.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: column.Column}}
+				column.Source = ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: column.Column}}
 			}
 			raw, err := workspace.CanonicalJSON()
 			if err != nil {
@@ -38,7 +40,7 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			original := string(raw)
 			version := store.created.DraftVersion
 			compileCalls := 0
-			service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				compileCalls++
 				t.Error("rejected projected source row edit reached compiler")
 				return nil, nil

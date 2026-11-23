@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 const tableShapeWorkspaceMigrationVersion = "wp17_tableshape_v1"
@@ -26,33 +27,33 @@ func (target workspaceMigrationTarget) version() string {
 	return workspaceMigrationVersion
 }
 
-func (target workspaceMigrationTarget) projectionKey(source explorer.WorkspaceArtifact) string {
+func (target workspaceMigrationTarget) projectionKey(source workspacepkg.Artifact) string {
 	if target == tableShapeConstructionTarget {
 		return source.Key() + "_wp17"
 	}
 	return source.Key()
 }
 
-func (target workspaceMigrationTarget) migrate(raw []byte, catalog authoringv2.CatalogSnapshot) (authoringv2.StoredWorkspaceMigration, error) {
+func (target workspaceMigrationTarget) migrate(raw []byte, catalog ws.CatalogSnapshot) (ws.StoredWorkspaceMigration, error) {
 	if target == tableShapeConstructionTarget {
-		return authoringv2.MigrateStoredTableShapeWorkspace(raw, catalog)
+		return ws.MigrateStoredTableShapeWorkspace(raw, catalog)
 	}
-	return authoringv2.MigrateStoredWorkspace(raw, catalog)
+	return ws.MigrateStoredWorkspace(raw, catalog)
 }
 
-func (target workspaceMigrationTarget) validateProjection(projection explorer.WorkspaceProjection, source explorer.WorkspaceArtifact) error {
+func (target workspaceMigrationTarget) validateProjection(projection workspacepkg.Projection, source workspacepkg.Artifact) error {
 	if target == workspaceEncodingTarget {
 		if projection.Source != source || projection.ID == "" || projection.ID != projection.ContentID() {
 			return fmt.Errorf("workspace projection does not match its immutable source")
 		}
-		workspace, err := authoringv2.VerifyStoredWorkspaceForMigration(projection.Workspace, projection.Digest)
+		workspace, err := ws.VerifyStoredWorkspaceForMigration(projection.Workspace, projection.Digest)
 		if err != nil {
 			return err
 		}
-		if workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
+		if workspace.SemanticsVersion != ws.CurrentSemanticsVersion {
 			return fmt.Errorf("workspace encoding projection is not current")
 		}
-		canonical, err := authoringv2.CanonicalStoredWorkspaceForMigration(workspace)
+		canonical, err := ws.CanonicalStoredWorkspaceForMigration(workspace)
 		if err != nil {
 			return err
 		}

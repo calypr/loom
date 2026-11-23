@@ -13,22 +13,28 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	legacyRaw := wp17Fixture(t, "pivot-derived-chain.input.json")
-	legacyMigration, err := authoringv2.MigrateStoredTableShapeWorkspace(legacyRaw, authoringv2.CatalogSnapshot{})
+	legacyMigration, err := ws.MigrateStoredTableShapeWorkspace(legacyRaw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	mixedRaw := wp17MixedWorkspace(t, legacyRaw)
-	mixedMigration, err := authoringv2.MigrateStoredTableShapeWorkspace(mixedRaw, authoringv2.CatalogSnapshot{})
+	mixedMigration, err := ws.MigrateStoredTableShapeWorkspace(mixedRaw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +127,7 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 		if wp17HasTableShape(t, after.DraftConfig) {
 			t.Fatalf("mutable owner %s still contains TableShape", before.ExplorerID)
 		}
-		if _, err := authoringv2.DecodeCurrentWorkspace(after.DraftConfig); err != nil {
+		if _, err := ws.DecodeCurrentWorkspace(after.DraftConfig); err != nil {
 			t.Fatalf("migrated owner %s fails current decoder: %v", before.ExplorerID, err)
 		}
 		var wantWorkspace []byte
@@ -165,7 +171,7 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiptID, err := explorer.ReceiptID(*migratedReceipt)
+	receiptID, err := receiptmodel.ReceiptID(*migratedReceipt)
 	if err != nil || receiptID != receipt.ID || migratedReceipt.ID != receipt.ID {
 		t.Fatalf("old receipt content identity changed: id=%q recomputed=%q err=%v", migratedReceipt.ID, receiptID, err)
 	}
@@ -227,7 +233,7 @@ func wp17MixedWorkspace(t *testing.T, legacy []byte) []byte {
 	return mixed
 }
 
-func wp17LegacyReceipt(t *testing.T, owner explorer.Explorer, workspace []byte, digest string) explorer.CompilationReceipt {
+func wp17LegacyReceipt(t *testing.T, owner explorer.Explorer, workspace []byte, digest string) receiptmodel.CompilationReceipt {
 	t.Helper()
 	receipt := workspaceMigrationReceipt(t, owner, workspace, digest, "wp17-old-table-reshape")
 	const oldRecipe = `{"recipeSchemaVersion":1,"name":"wp17-old-reshape","translationVersion":"legacy-test","outputs":[{"name":"out","rootResourceType":"Patient","rowGrain":"patient","tableReshape":{"kind":"UNPIVOT","unpivot":{"constructionId":"legacy_unpivot","inputs":[{"column":"measurement","key":{"kind":"STRING","string":"measurement"}}],"keyOutput":"kind","keyLabel":"Kind","valueOutput":"value","valueLabel":"Value","nullRowPolicy":"PRESERVE"}}}]}`
@@ -245,9 +251,9 @@ func wp17LegacyReceipt(t *testing.T, owner explorer.Explorer, workspace []byte, 
 	if err := receipt.Bundle.Validate(); err == nil {
 		t.Fatal("retired recipe admitted by current validator")
 	}
-	receipt.CompilationKey, _ = explorer.CompilationKey(receipt)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(receipt)
 	var err error
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,9 +263,9 @@ func wp17LegacyReceipt(t *testing.T, owner explorer.Explorer, workspace []byte, 
 	return receipt
 }
 
-func wp17InsertBaseProjection(t *testing.T, ctx context.Context, client *store.Client, source explorer.WorkspaceArtifact, raw []byte) explorer.WorkspaceProjection {
+func wp17InsertBaseProjection(t *testing.T, ctx context.Context, client *store.Client, source workspacepkg.Artifact, raw []byte) workspacepkg.Projection {
 	t.Helper()
-	base, err := authoringv2.MigrateStoredWorkspace(raw, authoringv2.CatalogSnapshot{})
+	base, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +294,7 @@ func wp17AssertOwnerHistoryProjection(t *testing.T, ctx context.Context, client 
 	}
 }
 
-func wp17AssertConstructionProjection(t *testing.T, ctx context.Context, client *store.Client, adapter *Store, source explorer.WorkspaceArtifact, expected []byte, base explorer.WorkspaceProjection) {
+func wp17AssertConstructionProjection(t *testing.T, ctx context.Context, client *store.Client, adapter *Store, source workspacepkg.Artifact, expected []byte, base workspacepkg.Projection) {
 	t.Helper()
 	constructionKey := tableShapeConstructionTarget.projectionKey(source)
 	construction := wp17ReadProjection(t, ctx, client, constructionKey)
@@ -311,11 +317,11 @@ func wp17AssertConstructionProjection(t *testing.T, ctx context.Context, client 
 	}
 }
 
-func wp17ReadProjection(t *testing.T, ctx context.Context, client *store.Client, key string) explorer.WorkspaceProjection {
+func wp17ReadProjection(t *testing.T, ctx context.Context, client *store.Client, key string) workspacepkg.Projection {
 	t.Helper()
-	var result *explorer.WorkspaceProjection
+	var result *workspacepkg.Projection
 	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceProjectionCollection, "key": key}, func(row map[string]any) error {
-		value, err := db.Decode[explorer.WorkspaceProjection](row)
+		value, err := db.Decode[workspacepkg.Projection](row)
 		result = &value
 		return err
 	}); err != nil {
@@ -462,7 +468,7 @@ func wp17Count(t *testing.T, ctx context.Context, client *store.Client, collecti
 func TestTableShapeProjectionLookupFailsClosedAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw := wp17Fixture(t, "pivot-derived-chain.input.json")
-	migration, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migration, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +522,7 @@ func TestTableShapeProjectionLookupFailsClosedAgainstArango(t *testing.T) {
 func TestTableShapeMigrationCASFailureRollsBackExactRevisionHistoryAndProjectionAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw := wp17Fixture(t, "pivot-derived-chain.input.json")
-	migration, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migration, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +579,7 @@ func TestTableShapeMigrationCASFailureRollsBackExactRevisionHistoryAndProjection
 
 func TestWP17MixedWorkspaceFixture(t *testing.T) {
 	raw := wp17MixedWorkspace(t, wp17Fixture(t, "pivot-derived-chain.input.json"))
-	migration, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migration, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,13 +591,13 @@ func TestWP17MixedWorkspaceFixture(t *testing.T) {
 func TestWP17RawFixturesAndLegacyRecipeAreValid(t *testing.T) {
 	for _, name := range []string{"pivot-derived-chain.input.json", "explicit-pivot.input.json", "typed-unpivot.input.json"} {
 		raw := wp17Fixture(t, name)
-		migration, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+		migration, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 		if err != nil || len(migration.CanonicalJSON) == 0 {
 			t.Fatalf("fixture %s migration=%#v err=%v", name, migration, err)
 		}
 	}
 	raw := wp17Fixture(t, "pivot-derived-chain.input.json")
-	migration, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migration, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,7 +611,7 @@ func TestWP17RawFixturesAndLegacyRecipeAreValid(t *testing.T) {
 func TestTableShapeMigrationRejectsConflictingImmutableHistoryAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw := wp17Fixture(t, "pivot-derived-chain.input.json")
-	migration, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migration, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,11 +652,11 @@ func TestTableShapeMigrationLargeIntegerProjectionAgainstArango(t *testing.T) {
 		t.Fatal("missing integer fixture")
 	}
 	raw = bytes.Replace(raw, []byte(`"integer":10`), []byte(`"integer":9007199254740993`), 1)
-	migrated, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := explorer.WorkspaceArtifact{Kind: "draft-revision", Project: "precision", ExplorerID: "precision", ID: "history", RawDigest: "original", IntentDigest: migrated.OriginalCanonicalDigest}
+	source := workspacepkg.Artifact{Kind: "draft-revision", Project: "precision", ExplorerID: "precision", ID: "history", RawDigest: "original", IntentDigest: migrated.OriginalCanonicalDigest}
 	projection := newWorkspaceProjection(source, migrated)
 	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{workspaceProjectionCollectionSpec()}}); err != nil {
 		t.Fatal(err)
@@ -680,11 +686,11 @@ func TestTableShapeMigrationLargeIntegerProjectionAgainstArango(t *testing.T) {
 func TestTableShapeMigrationLargeIntegerOwnerAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw := bytes.Replace(wp17Fixture(t, "typed-unpivot.input.json"), []byte(`"integer":10`), []byte(`"integer":9007199254740993`), 1)
-	migrated, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := explorer.Explorer{Project: "project-wp17-precision", ExplorerID: "large-integer", Title: "Exact integer", ManagementMode: explorer.ManagementInteractive, DraftVersion: 7, DraftDigest: migrated.OriginalCanonicalDigest, DraftConfig: raw, DraftSnapshotToken: "snapshot-precision", DraftSourceGeneration: "generation-precision", DraftAuthorizationScopeDigest: "scope-precision"}
+	owner := explorer.Explorer{Project: "project-wp17-precision", ExplorerID: "large-integer", Title: "Exact integer", ManagementMode: viewer.ManagementInteractive, DraftVersion: 7, DraftDigest: migrated.OriginalCanonicalDigest, DraftConfig: raw, DraftSnapshotToken: "snapshot-precision", DraftSourceGeneration: "generation-precision", DraftAuthorizationScopeDigest: "scope-precision"}
 	doc, err := db.MigrationDocument(owner, explorerKey(owner.Project, owner.ExplorerID))
 	if err != nil {
 		t.Fatal(err)
@@ -740,7 +746,7 @@ func TestTableShapeMigrationLargeIntegerOwnerAgainstArango(t *testing.T) {
 func TestTableShapeArchivedLargeIntegerReceiptAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw := wp17Fixture(t, "typed-unpivot.input.json")
-	migrated, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,11 +768,11 @@ func TestTableShapeArchivedLargeIntegerReceiptAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +811,7 @@ func TestTableShapeArchivedLargeIntegerReceiptAgainstArango(t *testing.T) {
 func TestTableShapeMigrationReusesJSONHistoryWithoutRewritingAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	raw := wp17Fixture(t, "typed-unpivot.input.json")
-	migrated, err := authoringv2.MigrateStoredTableShapeWorkspace(raw, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredTableShapeWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}

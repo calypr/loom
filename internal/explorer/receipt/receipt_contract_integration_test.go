@@ -1,8 +1,6 @@
 package receipt
 
 import (
-	"github.com/calypr/loom/internal/explorer/construction"
-	"github.com/calypr/loom/internal/explorer/proposal"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +8,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
+	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
@@ -87,7 +92,7 @@ func TestClassifyReceiptRecipeErrorSanitizesInvalidRelatedSourceAnchor(t *testin
 
 func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,18 +100,18 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	two := int64(2)
 	one := int64(1)
 	document := &workspace.Documents[0]
-	document.Columns = append(document.Columns, authoringv2.Column{
+	document.Columns = append(document.Columns, ws.Column{
 		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
-		Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &order},
+		Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}},
+		Table:  &ws.TablePresentation{Visible: &visible, Order: &order},
 	})
-	started, err := authoringv2.StartDocumentConstruction(*document)
+	started, err := ws.StartDocumentConstruction(*document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	*document = started
-	receipttest.AppendDeriveFixture(document, "scale_patient_count", authoringv2.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, authoringv2.ConstructionDerivedMultiply, receipttest.ColumnOperand(document.Columns[1].ColumnID), receipttest.IntegerOperand(&two), authoringv2.ConstructionMissingInputError)
-	receipttest.AppendDeriveFixture(document, "add_one", authoringv2.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, authoringv2.ConstructionDerivedAdd, receipttest.ColumnOperand("scaled_patient_count"), receipttest.IntegerOperand(&one), authoringv2.ConstructionMissingInputError)
+	receipttest.AppendDeriveFixture(document, "scale_patient_count", ws.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, ws.ConstructionDerivedMultiply, receipttest.ColumnOperand(document.Columns[1].ColumnID), receipttest.IntegerOperand(&two), ws.ConstructionMissingInputError)
+	receipttest.AppendDeriveFixture(document, "add_one", ws.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("scaled_patient_count"), receipttest.IntegerOperand(&one), ws.ConstructionMissingInputError)
 
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:  recipetest.Registry{},
@@ -127,7 +132,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile receipt with an authored derived column: %v", err)
 	}
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +151,12 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if !reflect.DeepEqual(doubled.InputColumns, []string{"patient_count"}) || !reflect.DeepEqual(doubled.AuthoredColumns, []string{"patient_count"}) {
 		t.Fatalf("chained derived source inputs/roots = %#v/%#v", doubled.InputColumns, doubled.AuthoredColumns)
 	}
-	wantConstructed := []explorer.EmittedColumn{
+	wantConstructed := []viewer.EmittedColumn{
 		{EmissionID: "construction:scale_patient_count:scaled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"patient_count"}, ConstructionID: "scale_patient_count", PublicColumn: "scaled_patient_count", Label: "Scaled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 		{EmissionID: "construction:add_one:doubled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"patient_count"}, ConstructionID: "add_one", PublicColumn: "doubled_patient_count", Label: "Doubled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 	}
-	if !reflect.DeepEqual([]explorer.EmittedColumn{scaled, doubled}, wantConstructed) {
-		t.Fatalf("constructed output metadata = %#v, want %#v", []explorer.EmittedColumn{scaled, doubled}, wantConstructed)
+	if !reflect.DeepEqual([]viewer.EmittedColumn{scaled, doubled}, wantConstructed) {
+		t.Fatalf("constructed output metadata = %#v, want %#v", []viewer.EmittedColumn{scaled, doubled}, wantConstructed)
 	}
 	contract := contracts.Outputs[0]
 	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"AGGREGATE_REDUCTION", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED", "TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS"}) {
@@ -190,7 +195,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		}},
 		nil,
 	)
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,32 +207,32 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	document.Columns[0].ColumnID = "source_c7df487a53e218785ad00f6bd656f320"
 	document.Columns[0].Column = "col_26a18d9205b062fde575cdf7"
 	document.Columns[0].Label = "Original Specimen ID"
-	document, err = authoringv2.StartDocumentConstruction(document)
+	document, err = ws.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	sourceID := "b7cad184-db67-5542-a975-10fffa3e89e7"
-	document.Construction.Steps = []authoringv2.ConstructionStep{{
-		ID: "qa-source-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind: authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterEquals,
-				Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterString, String: &sourceID}}},
+	document.Construction.Steps = []ws.ConstructionStep{{
+		ID: "qa-source-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind: ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterEquals,
+				Values: []ws.FilterValue{{Kind: ws.ConstructionFilterString, String: &sourceID}}},
 		},
 		Outputs: columns,
 	}}
-	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{
-		Source: authoringv2.GroupSource{
-			Kind:     authoringv2.GroupSourceExplicit,
-			Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned},
+	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+		Source: ws.GroupSource{
+			Kind:     ws.GroupSourceExplicit,
+			Explicit: &ws.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: ws.UnassignedMemberGroupAsUnassigned},
 		},
 		AfterStepID: "qa-source-filter",
 	}}
-	document.Population = &authoringv2.Population{SelectionRevisionID: "selection_fddd4c3ae159949b4c7f0c7c0e80b713739ae4f390d8d4ebc3944723f4060fc5", Route: []authoringv2.PopulationRouteStep{}}
+	document.Population = &ws.Population{SelectionRevisionID: "selection_fddd4c3ae159949b4c7f0c7c0e80b713739ae4f390d8d4ebc3944723f4060fc5", Route: []ws.PopulationRouteStep{}}
 	workspace.Documents[0] = document
 	workspace.Tabs[0].OutputID = "specimens"
 	if err := workspace.Validate(); err != nil {
@@ -249,7 +254,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		ResolvedInputs: explorercompilation.ResolvedInputs{Populations: []explorercompilation.ResolvedPopulation{{
 			OutputID: "specimens", SelectionRevisionID: "selection_fddd4c3ae159949b4c7f0c7c0e80b713739ae4f390d8d4ebc3944723f4060fc5", MembershipDigest: "sha256:selection-members-qa",
-			MemberCount: 2, ResourceType: "Specimen", Route: []authoringv2.PopulationRouteStep{},
+			MemberCount: 2, ResourceType: "Specimen", Route: []ws.PopulationRouteStep{},
 		}}},
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
@@ -271,7 +276,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if len(compiledSchemas) == 0 {
 		t.Fatal("receipt omitted lowerer's finalized output schema")
 	}
-	var compiledColumn *explorer.ReceiptCompiledOutputColumn
+	var compiledColumn *receiptmodel.ReceiptCompiledOutputColumn
 	for index := range compiledSchemas {
 		if compiledSchemas[index].ID == "group_id" {
 			compiledColumn = &compiledSchemas[index]
@@ -339,7 +344,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		}},
 		nil,
 	)
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,14 +357,14 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	document.Columns[0].Label = "Specimen ID"
 	workspace.Tabs[0].OutputID = "specimens"
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	baseWorkspace := workspace
 	document = workspace.Documents[0]
-	document, err = authoringv2.StartDocumentConstruction(document)
+	document, err = ws.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,25 +376,25 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		codeID    = "coded_code"
 		countID   = "source_count"
 	)
-	groupOutputs := []authoringv2.StageColumn{
+	groupOutputs := []ws.StageColumn{
 		{ID: systemID, Name: "system", Label: "System", Type: "string", Nullable: true},
 		{ID: versionID, Name: "version", Label: "Version", Type: "string", Nullable: true},
 		{ID: codeID, Name: "code", Label: "Code", Type: "string", Nullable: true},
 		{ID: countID, Name: "source_count", Label: "Distinct source records", Type: "integer"},
 	}
-	document.Construction.Steps = []authoringv2.ConstructionStep{
+	document.Construction.Steps = []ws.ConstructionStep{
 		{
 			ID:     stepID,
-			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationCodedGroup,
-				CodedGroup: &authoringv2.ConstructionCodedGroup{
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationCodedGroup,
+				CodedGroup: &ws.ConstructionCodedGroup{
 					ConstructionID: stepID,
-					Source: authoringv2.ConstructionCodedGroupSource{
+					Source: ws.ConstructionCodedGroupSource{
 						OccurrenceID: "base", ResourceType: "Specimen", CodingPath: "type.coding[]",
 						FHIRType: "Coding", Cardinality: "MANY", Shape: "ARRAY",
 					},
-					MissingKeyPolicy:     authoringv2.ConstructionGroupMissingKeyGroup,
+					MissingKeyPolicy:     ws.ConstructionGroupMissingKeyGroup,
 					SystemOutputColumnID: systemID, VersionOutputColumnID: versionID,
 					CodeOutputColumnID: codeID, DistinctSourceCountOutputColumnID: countID,
 				},
@@ -398,10 +403,10 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		},
 		{
 			ID:     "filter_coded_rows",
-			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: stepID}},
-			Operation: authoringv2.ConstructionOperation{
-				Kind:   authoringv2.ConstructionOperationFilter,
-				Filter: &authoringv2.ConstructionFilter{ColumnID: codeID, Operator: authoringv2.ConstructionFilterExists},
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: stepID}},
+			Operation: ws.ConstructionOperation{
+				Kind:   ws.ConstructionOperationFilter,
+				Filter: &ws.ConstructionFilter{ColumnID: codeID, Operator: ws.ConstructionFilterExists},
 			},
 			Outputs: groupOutputs,
 		},
@@ -441,12 +446,12 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
 			ForExecution:   func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
-			Catalog:        authoringv2.CatalogFromCapability,
+			Catalog:        ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"system": "https://example.org", "version": nil, "code": "TUMOR", "source_count": 1}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
@@ -464,7 +469,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if err != nil {
 		t.Fatalf("compile CODED_GROUP proposal through receipt reconciliation: %v", err)
 	}
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +546,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		t.Fatalf("proposal receipt did not pass coded outputs through reconciliation: %#v", proposalReceipt.EmittedColumns)
 	}
 	_, err = application.ApplyCommands(context.Background(), "project-a", "custom", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-coded-group", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-coded-group", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "specimens", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "test")
@@ -552,7 +557,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := authoringv2.DecodeWorkspace(updated.DraftConfig)
+	accepted, err := ws.DecodeWorkspace(updated.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,44 +581,44 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 
 func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, ws.Column{
 		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+		Source: ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}},
 	})
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	outputs := make([]ws.StageColumn, 0, len(document.Columns)+1)
 	for _, column := range document.Columns {
-		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		outputs = append(outputs, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	countID := document.Columns[1].ColumnID
-	outputs = append(outputs, authoringv2.StageColumn{ID: "scaled_count_id", Name: "scaled_count", Label: "Scaled count", Type: "integer"})
+	outputs = append(outputs, ws.StageColumn{ID: "scaled_count_id", Name: "scaled_count", Label: "Scaled count", Type: "integer"})
 	one := int64(1)
-	document.Construction.Steps = []authoringv2.ConstructionStep{{
-		ID: "derive_count", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind: authoringv2.ConstructionOperationDerive,
-			Derive: &authoringv2.ConstructionDerive{
-				ConstructionID: "derive_count", OutputColumnID: "scaled_count_id", Operation: authoringv2.ConstructionDerivedAdd,
-				Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: countID},
-				Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &one}},
-				MissingInputPolicy: authoringv2.ConstructionMissingInputError,
+	document.Construction.Steps = []ws.ConstructionStep{{
+		ID: "derive_count", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind: ws.ConstructionOperationDerive,
+			Derive: &ws.ConstructionDerive{
+				ConstructionID: "derive_count", OutputColumnID: "scaled_count_id", Operation: ws.ConstructionDerivedAdd,
+				Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: countID},
+				Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &one}},
+				MissingInputPolicy: ws.ConstructionMissingInputError,
 			},
 		},
 		Outputs: outputs,
 	}}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate typed derived construction: %v", err)
 	}
@@ -636,14 +641,14 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 	if err != nil {
 		t.Fatalf("compile and reconcile typed derived construction output: %v", err)
 	}
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
 		t.Fatalf("validate typed construction public output contract: %v", err)
 	}
-	var scaled *explorer.EmittedColumn
+	var scaled *viewer.EmittedColumn
 	for index := range receipt.EmittedColumns {
 		if receipt.EmittedColumns[index].PublicColumn == "scaled_count" {
 			scaled = &receipt.EmittedColumns[index]
@@ -657,7 +662,7 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 
 func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,7 +681,7 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := &explorer.RowDefinitionProposalBinding{
+	binding := &receiptmodel.RowDefinitionProposalBinding{
 		DraftVersion:             3,
 		DraftDigest:              "sha256:draft",
 		OutputID:                 "patients",
@@ -705,11 +710,11 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 	withoutBinding.RowDefinitionProposal = nil
 	withoutBinding.CompilationKey = ""
 	withoutBinding.ID = ""
-	keyWithoutBinding, err := explorer.CompilationKey(withoutBinding)
+	keyWithoutBinding, err := receiptmodel.CompilationKey(withoutBinding)
 	if err != nil {
 		t.Fatal(err)
 	}
-	idWithoutBinding, err := explorer.ReceiptID(withoutBinding)
+	idWithoutBinding, err := receiptmodel.ReceiptID(withoutBinding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,11 +903,11 @@ func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := explorer.CompilationReceipt{
+	receipt := receiptmodel.CompilationReceipt{
 		Bundle: base.Bundle, RecipeDigest: base.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: base.ResolvedSchemaDigest, OutputFingerprints: baseFingerprints,
 		OutputColumnProvenance: provenance, ConstructionStages: stages,
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 			{OutputID: "specimens", PublicColumn: "specimen_id"},
 			{OutputID: "specimens", PublicColumn: "variable"},
 			{OutputID: "specimens", PublicColumn: "value"},
@@ -912,7 +917,7 @@ func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored explorer.CompilationReceipt
+	var stored receiptmodel.CompilationReceipt
 	if err := json.Unmarshal(rawReceipt, &stored); err != nil {
 		t.Fatal(err)
 	}
@@ -931,14 +936,14 @@ func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T)
 
 func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTies(t *testing.T) {
 	compiled := explorercompilation.WorkspaceResult{
-		Workspace: authoringv2.Workspace{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-			Explorer:  authoringv2.ExplorerMetadata{Title: "Stable"},
-			Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Out"}}},
-			Tabs:      []authoringv2.Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
+		Workspace: ws.Workspace{
+			APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+			Explorer:  ws.ExplorerMetadata{Title: "Stable"},
+			Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Out"}}},
+			Tabs:      []ws.Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
 		},
 		Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Outputs: []recipe.Output{{Name: "out"}}},
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 			{EmissionID: "column_b", OutputID: "out", PublicColumn: "column_b"},
 			{EmissionID: "column_a", OutputID: "out", PublicColumn: "column_a"},
 		},
@@ -972,29 +977,29 @@ func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTie
 
 func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	template := workspace.Documents[0]
 	emptyTarget := template
-	emptyTarget.Output = authoringv2.Output{ID: "empty_target", Title: "Empty target"}
-	emptyTarget.Columns = []authoringv2.Column{}
-	emptyTarget, err = authoringv2.StartDocumentConstruction(emptyTarget)
+	emptyTarget.Output = ws.Output{ID: "empty_target", Title: "Empty target"}
+	emptyTarget.Columns = []ws.Column{}
+	emptyTarget, err = ws.StartDocumentConstruction(emptyTarget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptyTarget.Construction.Steps = []authoringv2.ConstructionStep{}
-	workspace.Documents = []authoringv2.Document{emptyTarget}
-	workspace.Tabs = []authoringv2.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}}
+	emptyTarget.Construction.Steps = []ws.ConstructionStep{}
+	workspace.Documents = []ws.Document{emptyTarget}
+	workspace.Tabs = []ws.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}}
 	for index := 1; index <= 3; index++ {
 		document := template
-		document.Output = authoringv2.Output{ID: fmt.Sprintf("source_%d", index), Title: fmt.Sprintf("Source %d", index)}
-		document.Columns = append([]authoringv2.Column(nil), template.Columns...)
+		document.Output = ws.Output{ID: fmt.Sprintf("source_%d", index), Title: fmt.Sprintf("Source %d", index)}
+		document.Columns = append([]ws.Column(nil), template.Columns...)
 		document.Columns[0].ColumnID = fmt.Sprintf("source_column_%d", index)
 		document.Columns[0].Column = fmt.Sprintf("patient_id_%d", index)
 		workspace.Documents = append(workspace.Documents, document)
-		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: fmt.Sprintf("tab_source_%d", index), Title: fmt.Sprintf("Source %d", index), OutputID: document.Output.ID, Order: index, Visible: true})
+		workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: fmt.Sprintf("tab_source_%d", index), Title: fmt.Sprintf("Source %d", index), OutputID: document.Output.ID, Order: index, Visible: true})
 	}
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate empty target plus source siblings: %v", err)
@@ -1018,7 +1023,7 @@ func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t
 	if err != nil {
 		t.Fatalf("compile and persist receipt for empty target with sibling inputs: %v", err)
 	}
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1079,54 +1084,54 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		return ExactPublishedCombineInputSchemas(ctx, output, bindings, reader, withPins, nil)
 	}
 
-	document := authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Output:           authoringv2.Output{ID: "combined", Title: "Combined"},
+	document := ws.Document{
+		Kind:             ws.Kind,
+		Rows:             ws.RecordsRowDefinition(),
+		Output:           ws.Output{ID: "combined", Title: "Combined"},
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 			ID: "append_sources",
-			Inputs: []authoringv2.ConstructionInputRef{
-				{Kind: authoringv2.ConstructionInputTableRevision, TableID: left.TableID, RevisionID: left.RevisionID, OutputID: left.OutputID},
-				{Kind: authoringv2.ConstructionInputTableRevision, TableID: right.TableID, RevisionID: right.RevisionID, OutputID: right.OutputID},
-				{Kind: authoringv2.ConstructionInputTableRevision, TableID: sparse.TableID, RevisionID: sparse.RevisionID, OutputID: sparse.OutputID},
+			Inputs: []ws.ConstructionInputRef{
+				{Kind: ws.ConstructionInputTableRevision, TableID: left.TableID, RevisionID: left.RevisionID, OutputID: left.OutputID},
+				{Kind: ws.ConstructionInputTableRevision, TableID: right.TableID, RevisionID: right.RevisionID, OutputID: right.OutputID},
+				{Kind: ws.ConstructionInputTableRevision, TableID: sparse.TableID, RevisionID: sparse.RevisionID, OutputID: sparse.OutputID},
 			},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-				Kind: authoringv2.ConstructionCombineAppend,
-				Projections: []authoringv2.ConstructionCombineProjection{
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+				Kind: ws.ConstructionCombineAppend,
+				Projections: []ws.ConstructionCombineProjection{
 					{OutputColumnID: "display-name", InputIndex: 0, InputColumnID: "left-display-name"},
 					{OutputColumnID: "display-name", InputIndex: 1, InputColumnID: "right-display-name"},
 				},
 			}},
-			Outputs: []authoringv2.StageColumn{{ID: "display-name", Name: "display_name", Label: "Display name", Type: "string", Nullable: true}},
+			Outputs: []ws.StageColumn{{ID: "display-name", Name: "display_name", Label: "Display name", Type: "string", Nullable: true}},
 		}}},
 	}
-	templateWorkspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	templateWorkspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
 	sourceIDs := []string{left.OutputID, right.OutputID, sparse.OutputID}
-	sourceDocuments := make([]authoringv2.Document, 0, len(sourceIDs))
-	tabs := make([]authoringv2.Tab, 0, len(sourceIDs)+1)
+	sourceDocuments := make([]ws.Document, 0, len(sourceIDs))
+	tabs := make([]ws.Tab, 0, len(sourceIDs)+1)
 	for index, outputID := range sourceIDs {
 		source := templateWorkspace.Documents[0]
-		source.Output = authoringv2.Output{ID: outputID, Title: outputID}
-		source.Columns = append([]authoringv2.Column(nil), source.Columns...)
+		source.Output = ws.Output{ID: outputID, Title: outputID}
+		source.Columns = append([]ws.Column(nil), source.Columns...)
 		source.Columns[0].ColumnID = fmt.Sprintf("source_column_%d", index+1)
 		source.Columns[0].Column = fmt.Sprintf("patient_id_%d", index+1)
-		source, err = authoringv2.StartDocumentConstruction(source)
+		source, err = ws.StartDocumentConstruction(source)
 		if err != nil {
 			t.Fatalf("upgrade non-Combine source output %q: %v", outputID, err)
 		}
 		sourceDocuments = append(sourceDocuments, source)
-		tabs = append(tabs, authoringv2.Tab{ID: fmt.Sprintf("%s-tab", outputID), Title: outputID, OutputID: outputID, Order: index, Visible: true})
+		tabs = append(tabs, ws.Tab{ID: fmt.Sprintf("%s-tab", outputID), Title: outputID, OutputID: outputID, Order: index, Visible: true})
 	}
 	documents := append(sourceDocuments, document)
-	tabs = append(tabs, authoringv2.Tab{ID: "combined-tab", Title: "Combined", OutputID: "combined", Order: len(tabs), Visible: true})
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer:  authoringv2.ExplorerMetadata{Title: "Combined"},
+	tabs = append(tabs, ws.Tab{ID: "combined-tab", Title: "Combined", OutputID: "combined", Order: len(tabs), Visible: true})
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:  ws.ExplorerMetadata{Title: "Combined"},
 		Documents: documents,
 		Tabs:      tabs,
 	}
@@ -1208,7 +1213,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	if !reflect.DeepEqual(step.Inputs, wantInputs) || step.Operation.Combine == nil || !reflect.DeepEqual(step.Operation.Combine.Projections, wantProjections) {
 		t.Fatalf("receipt lost typed exact APPEND bindings: inputs=%#v combine=%#v", step.Inputs, step.Operation.Combine)
 	}
-	var combinedEmissions []explorer.EmittedColumn
+	var combinedEmissions []viewer.EmittedColumn
 	for _, emitted := range receipt.EmittedColumns {
 		if emitted.OutputID == "combined" {
 			combinedEmissions = append(combinedEmissions, emitted)
@@ -1223,7 +1228,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		emitted.LogicalType != "string" || emitted.Cardinality != "optional_one" || !emitted.Nullable {
 		t.Fatalf("reconciled sparse APPEND emission = %#v", emitted)
 	}
-	var finalSchema *explorer.ReceiptCompiledOutputColumn
+	var finalSchema *receiptmodel.ReceiptCompiledOutputColumn
 	for index := range receipt.CompiledOutputSchemas["combined"] {
 		column := &receipt.CompiledOutputSchemas["combined"][index]
 		if column.ID == "display-name" {
@@ -1234,7 +1239,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	if finalSchema == nil || finalSchema.Name != emitted.PublicColumn || finalSchema.LogicalType != "string" || finalSchema.Cardinality != "optional_one" || !finalSchema.Nullable {
 		t.Fatalf("receipt compiler-final sparse schema = %#v", receipt.CompiledOutputSchemas["combined"])
 	}
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
 		t.Fatal(err)
 	}

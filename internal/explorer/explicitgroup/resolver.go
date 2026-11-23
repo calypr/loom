@@ -3,15 +3,17 @@ package explicitgroup
 import (
 	"context"
 	"fmt"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
 )
 
 type explicitGroupRevisionStore interface {
-	explorer.ExplicitGroupRepository
+	explorerselection.ExplicitGroupRepository
 	GetSelection(context.Context, string, string) (*explorerselection.SelectionRevision, error)
 }
 
@@ -38,7 +40,7 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 		return nil, err
 	}
 	if request.PinnedRevisionID != "" && !hasExplicitGroupRevision(revisions, request.PinnedRevisionID) {
-		pinned, err := r.store.GetExplicitGroupRevision(ctx, project, explorer.ExplicitGroupRevisionID(request.PinnedRevisionID))
+		pinned, err := r.store.GetExplicitGroupRevision(ctx, project, explorerselection.ExplicitGroupRevisionID(request.PinnedRevisionID))
 		if err != nil {
 			return nil, fmt.Errorf("load pinned explicit group revision %q: %w", request.PinnedRevisionID, err)
 		}
@@ -60,16 +62,16 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 			RevisionID: string(revision.ID), SourceSelectionRevisionID: revision.SourceSelectionRevisionID,
 			GroupCount: revision.GroupCount, MemberCount: revision.MemberCount,
 			CreatedAt: revision.CreatedAt,
-			UnassignedMemberPolicies: []authoringv2.UnassignedMemberPolicy{
-				authoringv2.UnassignedMemberError, authoringv2.UnassignedMemberExclude,
-				authoringv2.UnassignedMemberGroupAsUnassigned,
+			UnassignedMemberPolicies: []ws.UnassignedMemberPolicy{
+				ws.UnassignedMemberError, ws.UnassignedMemberExclude,
+				ws.UnassignedMemberGroupAsUnassigned,
 			},
 		})
 	}
 	return choices, nil
 }
 
-func hasExplicitGroupRevision(revisions []explorer.ExplicitGroupRevision, revisionID string) bool {
+func hasExplicitGroupRevision(revisions []explorerselection.ExplicitGroupRevision, revisionID string) bool {
 	for _, revision := range revisions {
 		if string(revision.ID) == revisionID {
 			return true
@@ -83,7 +85,7 @@ func (r repositoryExplicitGroupRevisionResolver) ResolveExplicitGroupRevision(ct
 	if err := request.Snapshot.ValidateToken(request.Snapshot.Token); err != nil {
 		return ExplicitGroupRevisionProof{}, err
 	}
-	revision, err := r.store.GetExplicitGroupRevision(ctx, project, explorer.ExplicitGroupRevisionID(request.RevisionID))
+	revision, err := r.store.GetExplicitGroupRevision(ctx, project, explorerselection.ExplicitGroupRevisionID(request.RevisionID))
 	if err != nil {
 		return ExplicitGroupRevisionProof{}, err
 	}
@@ -99,15 +101,15 @@ func (r repositoryExplicitGroupRevisionResolver) ResolveExplicitGroupRevision(ct
 		SourceGeneration: revision.Generation, AuthorizationScopeDigest: revision.ScopeDigest,
 		RootResourceType: revision.ResourceType, SelectionRevisionID: revision.SourceSelectionRevisionID,
 		SelectionMembershipDigest: revision.SourceMembershipDigest, DefinitionDigest: revision.DefinitionDigest,
-		MembershipDigest: revision.MembershipDigest, Complete: revision.State == explorer.ExplicitGroupRevisionComplete,
+		MembershipDigest: revision.MembershipDigest, Complete: revision.State == explorerselection.ExplicitGroupRevisionComplete,
 	}, nil
 }
 
-func (repositoryExplicitGroupRevisionResolver) ValidateCompilationReceipt(_ context.Context, proof ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+func (repositoryExplicitGroupRevisionResolver) ValidateCompilationReceipt(_ context.Context, proof ExplicitGroupRevisionProof, receipt *receiptmodel.CompilationReceipt) error {
 	if receipt == nil {
 		return fmt.Errorf("explicit group compilation receipt is missing")
 	}
-	workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		return fmt.Errorf("decode explicit group compilation workspace: %w", err)
 	}
@@ -119,8 +121,8 @@ func (repositoryExplicitGroupRevisionResolver) ValidateCompilationReceipt(_ cont
 		if outputID != "" && document.Output.ID != outputID {
 			continue
 		}
-		if document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil &&
-			document.Rows.Groups.Source.Kind == authoringv2.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil &&
+		if document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil &&
+			document.Rows.Groups.Source.Kind == ws.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil &&
 			document.Rows.Groups.Source.Explicit.RevisionID == proof.RevisionID {
 			return nil
 		}

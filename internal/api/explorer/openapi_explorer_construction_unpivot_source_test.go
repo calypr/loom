@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -19,7 +23,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -79,65 +82,65 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 			Observed:            true, Populated: true, ObservedDocumentCount: 135,
 		},
 	)
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	derivedColumn := authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}
+	derivedColumn := ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}
 	three := int64(3)
-	keyScalar := func(value string) authoringv2.TableScalar {
-		kind := authoringv2.TableScalarString
-		return authoringv2.TableScalar{Kind: kind, String: &value}
+	keyScalar := func(value string) ws.TableScalar {
+		kind := ws.TableScalarString
+		return ws.TableScalar{Kind: kind, String: &value}
 	}
-	document.Construction.Steps = []authoringv2.ConstructionStep{
+	document.Construction.Steps = []ws.ConstructionStep{
 		{
 			ID:     "derive_step",
-			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationDerive,
-				Derive: &authoringv2.ConstructionDerive{
-					ConstructionID: "derive_step", OutputColumnID: "derived_total", Operation: authoringv2.ConstructionDerivedAdd,
-					Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &three}},
-					Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &three}},
-					MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationDerive,
+				Derive: &ws.ConstructionDerive{
+					ConstructionID: "derive_step", OutputColumnID: "derived_total", Operation: ws.ConstructionDerivedAdd,
+					Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &three}},
+					Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &three}},
+					MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 				},
 			},
-			Outputs: append(append([]authoringv2.StageColumn(nil), columns...), derivedColumn),
+			Outputs: append(append([]ws.StageColumn(nil), columns...), derivedColumn),
 		},
 		{
 			ID:     "unpivot_step",
-			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive_step"}},
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationUnpivot,
-				Unpivot: &authoringv2.ConstructionUnpivot{
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive_step"}},
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationUnpivot,
+				Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID: "unpivot_step",
-					Inputs: []authoringv2.ConstructionUnpivotInput{
+					Inputs: []ws.ConstructionUnpivotInput{
 						{ColumnID: "derived_total", Key: keyScalar("variant-a")},
 					},
 					KeyOutputColumnID:   "unpivot_key",
 					ValueOutputColumnID: "unpivot_value",
-					NullRowPolicy:       authoringv2.ConstructionUnpivotDrop,
+					NullRowPolicy:       ws.ConstructionUnpivotDrop,
 				},
 			},
-			Outputs: append(append([]authoringv2.StageColumn(nil), columns...),
-				authoringv2.StageColumn{ID: "unpivot_key", Name: "unpivot_key", Label: "Variant", Type: "string"},
-				authoringv2.StageColumn{ID: "unpivot_value", Name: "unpivot_value", Label: "Value", Type: "integer"}),
+			Outputs: append(append([]ws.StageColumn(nil), columns...),
+				ws.StageColumn{ID: "unpivot_key", Name: "unpivot_key", Label: "Variant", Type: "string"},
+				ws.StageColumn{ID: "unpivot_value", Name: "unpivot_value", Label: "Value", Type: "integer"}),
 		},
 	}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
+	workspace, err = ws.MigrateLegacyContributors(workspace, ws.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = ws.MigrateLosslessDefaults(workspace, ws.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate staged unpivot-source workspace: %v", err)
 	}
@@ -184,17 +187,17 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("unexpected unpivot-source candidate preview receipt/bindings: %#v / %#v", receipt, bindings)
 			}
@@ -272,30 +275,30 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 	choiceID := *birth.ChoiceID
 
 	projectionColumnID := "unpivot_source_birth"
-	meltStep := func(includeSigned bool) authoringv2.ConstructionStep {
-		inputs := []authoringv2.ConstructionUnpivotInput{{ColumnID: "derived_total", Key: keyScalar("variant-a")}}
-		outputs := append(append([]authoringv2.StageColumn(nil), columns...),
-			authoringv2.StageColumn{ID: "unpivot_key", Name: "unpivot_key", Label: "Variant", Type: "string"},
-			authoringv2.StageColumn{ID: "unpivot_value", Name: "unpivot_value", Label: "Value", Type: "integer"})
+	meltStep := func(includeSigned bool) ws.ConstructionStep {
+		inputs := []ws.ConstructionUnpivotInput{{ColumnID: "derived_total", Key: keyScalar("variant-a")}}
+		outputs := append(append([]ws.StageColumn(nil), columns...),
+			ws.StageColumn{ID: "unpivot_key", Name: "unpivot_key", Label: "Variant", Type: "string"},
+			ws.StageColumn{ID: "unpivot_value", Name: "unpivot_value", Label: "Value", Type: "integer"})
 		if includeSigned {
-			inputs = append(inputs, authoringv2.ConstructionUnpivotInput{ColumnID: projectionColumnID, Key: keyScalar("variant-b")})
+			inputs = append(inputs, ws.ConstructionUnpivotInput{ColumnID: projectionColumnID, Key: keyScalar("variant-b")})
 		}
-		return authoringv2.ConstructionStep{
+		return ws.ConstructionStep{
 			ID:     "unpivot_step",
-			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive_step"}},
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationUnpivot,
-				Unpivot: &authoringv2.ConstructionUnpivot{
+			Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive_step"}},
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationUnpivot,
+				Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID: "unpivot_step", Inputs: inputs,
 					KeyOutputColumnID: "unpivot_key", ValueOutputColumnID: "unpivot_value",
-					NullRowPolicy: authoringv2.ConstructionUnpivotDrop,
+					NullRowPolicy: ws.ConstructionUnpivotDrop,
 				},
 			},
 			Outputs: outputs,
 		}
 	}
 	carrierStep := document.Construction.Steps[0]
-	candidateConstruction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrierStep, meltStep(true)}}
+	candidateConstruction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrierStep, meltStep(true)}}
 	candidateJSON, err := json.Marshal(candidateConstruction)
 	if err != nil {
 		t.Fatal(err)
@@ -388,26 +391,26 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		snapshot.Token, digest,
 		func() string {
 
-			incompatibleMelt := authoringv2.ConstructionStep{
+			incompatibleMelt := ws.ConstructionStep{
 				ID:     "unpivot_step",
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive_step"}},
-				Operation: authoringv2.ConstructionOperation{
-					Kind: authoringv2.ConstructionOperationUnpivot,
-					Unpivot: &authoringv2.ConstructionUnpivot{
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive_step"}},
+				Operation: ws.ConstructionOperation{
+					Kind: ws.ConstructionOperationUnpivot,
+					Unpivot: &ws.ConstructionUnpivot{
 						ConstructionID: "unpivot_step",
-						Inputs: []authoringv2.ConstructionUnpivotInput{
+						Inputs: []ws.ConstructionUnpivotInput{
 							{ColumnID: columns[0].ID, Key: keyScalar("variant-a")},
 							{ColumnID: projectionColumnID, Key: keyScalar("variant-b")},
 						},
 						KeyOutputColumnID: "unpivot_key", ValueOutputColumnID: "unpivot_value",
-						NullRowPolicy: authoringv2.ConstructionUnpivotDrop,
+						NullRowPolicy: ws.ConstructionUnpivotDrop,
 					},
 				},
-				Outputs: append(append([]authoringv2.StageColumn(nil), columns[1:]...),
-					authoringv2.StageColumn{ID: "unpivot_key", Name: "unpivot_key", Label: "Variant", Type: "string"},
-					authoringv2.StageColumn{ID: "unpivot_value", Name: "unpivot_value", Label: "Value", Type: "integer"}),
+				Outputs: append(append([]ws.StageColumn(nil), columns[1:]...),
+					ws.StageColumn{ID: "unpivot_key", Name: "unpivot_key", Label: "Variant", Type: "string"},
+					ws.StageColumn{ID: "unpivot_value", Name: "unpivot_value", Label: "Value", Type: "integer"}),
 			}
-			incompatible := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrierStep, incompatibleMelt}}
+			incompatible := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrierStep, incompatibleMelt}}
 			encoded, encodeErr := json.Marshal(incompatible)
 			if encodeErr != nil {
 				t.Fatal(encodeErr)
@@ -470,7 +473,7 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 		},
 	)
 	snapshot.Candidates = append(snapshot.Candidates, extra...)
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,17 +522,17 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
@@ -603,24 +606,24 @@ func (e *unpivotMeltFirstEnv) meltFirstCompiledColumnID(t *testing.T, authorName
 	return ""
 }
 
-func unpivotMeltFirstConstruction(publicColumnID, stepID, signedColumnID string, includeSigned bool) authoringv2.Construction {
-	scalar := func(value string) authoringv2.TableScalar {
-		kind := authoringv2.TableScalarString
-		return authoringv2.TableScalar{Kind: kind, String: &value}
+func unpivotMeltFirstConstruction(publicColumnID, stepID, signedColumnID string, includeSigned bool) ws.Construction {
+	scalar := func(value string) ws.TableScalar {
+		kind := ws.TableScalarString
+		return ws.TableScalar{Kind: kind, String: &value}
 	}
 	mkey, mval := stepID+"_key", stepID+"_value"
-	inputs := []authoringv2.ConstructionUnpivotInput{{ColumnID: publicColumnID, Key: scalar("public")}}
+	inputs := []ws.ConstructionUnpivotInput{{ColumnID: publicColumnID, Key: scalar("public")}}
 	if includeSigned {
-		inputs = append(inputs, authoringv2.ConstructionUnpivotInput{ColumnID: signedColumnID, Key: scalar("signed")})
+		inputs = append(inputs, ws.ConstructionUnpivotInput{ColumnID: signedColumnID, Key: scalar("signed")})
 	}
-	return authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	return ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 			ConstructionID: stepID, Inputs: inputs, KeyOutputColumnID: mkey, ValueOutputColumnID: mval,
-			NullRowPolicy: authoringv2.ConstructionUnpivotDrop,
+			NullRowPolicy: ws.ConstructionUnpivotDrop,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: mkey, Name: mkey, Label: "Variable", Type: "string"},
 			{ID: mval, Name: mval, Label: "Value", Type: "string"},
 		},
@@ -703,13 +706,13 @@ func unpivotPlannerSignedChoice(t *testing.T, snapshot capability.Snapshot, path
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := authoringv2.Document{RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}}
+	document := ws.Document{RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}}
 	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
 			return choice.ChoiceID
 		}
 	}

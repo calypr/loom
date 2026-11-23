@@ -12,10 +12,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/rowdef"
@@ -62,7 +66,7 @@ func semanticFrameCompatibilityObservation(kind string) semantic.Observation {
 
 func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capability.SemanticFrameFamily {
 	t.Helper()
-	plan := authoringv2.ResolveSemanticSelectionPlan(entry.Observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
 		t.Fatalf("semantic compatibility fixture is not compiler-addable: %#v", plan)
 	}
@@ -125,17 +129,17 @@ func filterSourceSnapshot(token string) capability.Snapshot {
 	)
 }
 
-func filterSourceDocument() authoringv2.Document {
-	return authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: filterSourceOutput, Title: "Body structures"},
+func filterSourceDocument() ws.Document {
+	return ws.Document{
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: filterSourceOutput, Title: "Body structures"},
 		RootResourceType: filterSourceRootType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: filterSourceRootType},
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: filterSourceRootType},
+		Rows:             ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{
 			ColumnID: filterSourceIdentity, Column: "body_structure_id", Label: "Body structure ID",
-			LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 		}},
 	}
 }
@@ -159,31 +163,31 @@ func filterSourceService(t *testing.T) *Service {
 	return &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
 }
 
-func filterSourceBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
+func filterSourceBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
 	return constructionBase{
 		Document:     filterSourceDocument(),
 		Construction: construction,
 		Snapshot:     snapshot,
 		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		Stages: []explorer.ReceiptConstructionStage{{
+		Stages: []receiptmodel.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			Columns: []explorer.ReceiptConstructionStageColumn{
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{
 				{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			},
 		}},
 	}
 }
 
-func filterSourceGroupStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func filterSourceGroupStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     "group-first",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: "group-first", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: filterSourceIdentity, OutputColumnID: "group_key"}},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "rows"}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group-first", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys:       []ws.ConstructionGroupKey{{InputColumnID: filterSourceIdentity, OutputColumnID: "group_key"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "rows"}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 		},
@@ -195,19 +199,19 @@ type staleRowSourceChoicePlanner struct {
 	issued capability.Snapshot
 }
 
-func (p staleRowSourceChoicePlanner) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document authoringv2.Document) ([]capability.RowChoice, error) {
+func (p staleRowSourceChoicePlanner) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document ws.Document) ([]capability.RowChoice, error) {
 	return p.inner.ListRowChoices(ctx, p.issued, document)
 }
 
 type emptyRowSourceChoicePlanner struct{}
 
-func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	return nil, nil
 }
 
 type failingRowSourcePlanner struct{ err error }
 
-func (p failingRowSourcePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+func (p failingRowSourcePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
 	return nil, p.err
 }
 
@@ -230,8 +234,8 @@ func rowSourceLaneCandidate(node, resourceType, id, path, logicalType, cardinali
 	}
 }
 
-func lifecycleTestStringScalar(value string) authoringv2.TableScalar {
-	return authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &value}
+func lifecycleTestStringScalar(value string) ws.TableScalar {
+	return ws.TableScalar{Kind: ws.TableScalarString, String: &value}
 }
 
 func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
@@ -254,24 +258,24 @@ func schemaFieldsTestSnapshot(scope authscope.ReadScope, candidates []capability
 	}, nil, candidates, nil)
 }
 
-func filterSourceIdentityColumns() []authoringv2.StageColumn {
-	return []authoringv2.StageColumn{{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"}}
+func filterSourceIdentityColumns() []ws.StageColumn {
+	return []ws.StageColumn{{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"}}
 }
 
-func filterSourceProjectionColumn() authoringv2.StageColumn {
-	return authoringv2.StageColumn{
-		ID: filterSourceColumn, Name: authoringv2.ConstructionSourceProjectionName(filterSourceColumn),
+func filterSourceProjectionColumn() ws.StageColumn {
+	return ws.StageColumn{
+		ID: filterSourceColumn, Name: ws.ConstructionSourceProjectionName(filterSourceColumn),
 		Label: "BodyStructure.active", Type: "boolean",
 	}
 }
 
-func filterSourceFilterStep(columnID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func filterSourceFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     "filter-active",
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: columnID, Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
 		}},
 		Outputs: outputs,
 	}
@@ -286,7 +290,7 @@ func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path stri
 		t.Fatal(err)
 	}
 	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
 			return choice
 		}
 	}
@@ -313,19 +317,19 @@ type constructionReceiptColumn struct {
 	construction         string
 }
 
-func nativeConstructionReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
+func nativeConstructionReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                "native-test",
 		TranslationVersion:  "test",
 		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
 	}
-	emitted := []explorer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
+	emitted := []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
 	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
 	bundleDigest, _ := bundle.Digest()
-	workspace := authoringv2.NewWorkspace("Patients")
-	workspace.Documents = []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: authoringv2.RecordsRowDefinition(), Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
-	workspace.Tabs = []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	workspace := ws.NewWorkspace("Patients")
+	workspace.Documents = []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
+	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
 	normalized, err := workspace.CanonicalJSON()
 	if err != nil {
 		panic(err)
@@ -334,9 +338,9 @@ func nativeConstructionReceipt(snapshot capability.Snapshot) *explorer.Compilati
 	if err != nil {
 		panic(err)
 	}
-	receipt := &explorer.CompilationReceipt{
-		ReceiptFormatVersion:     explorer.CurrentReceiptFormatVersion,
-		CompilerContractVersion:  explorer.CurrentCompilerContractVersion,
+	receipt := &receiptmodel.CompilationReceipt{
+		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
+		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
 		Project:                  snapshot.Identity.Project,
 		ExplorerID:               "patients",
 		IntentDigest:             intentDigest,
@@ -355,13 +359,13 @@ func nativeConstructionReceipt(snapshot capability.Snapshot) *explorer.Compilati
 		EmittedColumns:           emitted,
 		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
 	}
-	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(contract)
-	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
-	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 	return receipt
 }
 
-func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace authoringv2.Workspace) *explorer.CompilationReceipt {
+func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace ws.Workspace) *receiptmodel.CompilationReceipt {
 	receipt := nativeConstructionReceipt(snapshot)
 	receipt.IntentDigest, _ = workspace.Digest()
 	receipt.NormalizedBundle, _ = workspace.CanonicalJSON()
@@ -375,28 +379,28 @@ func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace author
 		{name: "text_value", label: "Text value", logical: "string"},
 		{name: "overflow", label: "Overflow category", logical: "string"},
 	}
-	public := explorer.PublicOutputContract{OutputID: "patients", Columns: make([]explorer.PublicOutputColumn, 0, len(columns))}
-	receipt.EmittedColumns = make([]explorer.EmittedColumn, 0, len(columns))
+	public := receiptmodel.PublicOutputContract{OutputID: "patients", Columns: make([]receiptmodel.PublicOutputColumn, 0, len(columns))}
+	receipt.EmittedColumns = make([]viewer.EmittedColumn, 0, len(columns))
 	provenance := make(map[string]string, len(columns))
 	for index, column := range columns {
 		constructionID := column.construction
-		public.Columns = append(public.Columns, explorer.PublicOutputColumn{
+		public.Columns = append(public.Columns, receiptmodel.PublicOutputColumn{
 			Column: column.name, ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
 			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
 		})
-		receipt.EmittedColumns = append(receipt.EmittedColumns, explorer.EmittedColumn{
+		receipt.EmittedColumns = append(receipt.EmittedColumns, viewer.EmittedColumn{
 			EmissionID: fmt.Sprintf("em_%02d", index), OutputID: "patients", PublicColumn: column.name,
 			ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
 			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
 		})
 		provenance[column.name] = "EXPLICIT"
 	}
-	contract, _ := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{public}})
+	contract, _ := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{public}})
 	receipt.PublicOutputContract = contract
-	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(contract)
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
 	receipt.OutputFingerprints = map[string]string{"patients": "fingerprint-" + receipt.IntentDigest}
 	receipt.OutputColumnProvenance = map[string]map[string]string{"patients": provenance}
-	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
-	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 	return receipt
 }

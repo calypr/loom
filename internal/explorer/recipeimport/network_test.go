@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	recipeschema "github.com/calypr/loom/internal/dataframe/recipe/schema"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	recipeschema "github.com/calypr/loom/internal/dataframe/recipe/schema"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestNetworkHydratesAllDefaultOutputsWithoutChangingSource(t *testing.T) {
@@ -39,8 +40,8 @@ func TestNetworkHydratesAllDefaultOutputsWithoutChangingSource(t *testing.T) {
 			t.Fatal(err)
 		}
 		var want []string
-		var walk func(authoringv2.RouteNode)
-		walk = func(r authoringv2.RouteNode) {
+		var walk func(ws.RouteNode)
+		walk = func(r ws.RouteNode) {
 			want = append(want, r.OccurrenceID)
 			for _, c := range r.Children {
 				walk(c)
@@ -69,16 +70,16 @@ func TestNetworkHydratesAllDefaultOutputsWithoutChangingSource(t *testing.T) {
 
 func TestRelationshipOverlayPreservesPinAndOccurrenceBindingsAfterRemoval(t *testing.T) {
 	output := recipe.Output{Name: "subjects", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, Traversals: []recipe.Traversal{{Name: "subject", ToResourceType: "Patient"}, {Name: "individual", ToResourceType: "Patient"}}}
-	catalog := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient", ResourceType: "Patient"}}, Edges: []authoringv2.CatalogEdge{{ID: "edge_subject", FromNodeID: "subject", ToNodeID: "patient", Label: "subject"}, {ID: "edge_individual", FromNodeID: "subject", ToNodeID: "patient", Label: "individual"}}}
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient", ResourceType: "Patient"}}, Edges: []ws.CatalogEdge{{ID: "edge_subject", FromNodeID: "subject", ToNodeID: "patient", Label: "subject"}, {ID: "edge_individual", FromNodeID: "subject", ToNodeID: "patient", Label: "individual"}}}
 	original, err := ImportRoute(output, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan := SourcePlan(output)
-	plan.Relationships = &authoringv2.ImportedRelationshipOverlay{Removals: []string{original.Children[0].OccurrenceID}, MatchOverrides: []authoringv2.ImportedRelationshipMatch{{OccurrenceID: original.Children[1].OccurrenceID, MatchMode: authoringv2.RouteMatchRequired}}}
+	plan.Relationships = &ws.ImportedRelationshipOverlay{Removals: []string{original.Children[0].OccurrenceID}, MatchOverrides: []ws.ImportedRelationshipMatch{{OccurrenceID: original.Children[1].OccurrenceID, MatchMode: ws.RouteMatchRequired}}}
 	raw, _ := json.Marshal(output)
 	encoded, _ := json.Marshal(plan)
-	var restored authoringv2.ImportedSourcePlan
+	var restored ws.ImportedSourcePlan
 	if err := json.Unmarshal(encoded, &restored); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestRelationshipOverlayPreservesPinAndOccurrenceBindingsAfterRemoval(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(route.Children) != 1 || route.Children[0].OccurrenceID != original.Children[1].OccurrenceID || route.Children[0].MatchMode != authoringv2.RouteMatchRequired {
+	if len(route.Children) != 1 || route.Children[0].OccurrenceID != original.Children[1].OccurrenceID || route.Children[0].MatchMode != ws.RouteMatchRequired {
 		t.Fatalf("removal retargeted remaining occurrence: %+v", route)
 	}
 	after, _ := json.Marshal(output)
@@ -107,9 +108,9 @@ func TestRelationshipOverlayPreservesPinAndOccurrenceBindingsAfterRemoval(t *tes
 
 func TestRelationshipOverlayReauthorizesAdditionAndRejectsAmbiguousCatalog(t *testing.T) {
 	output := recipe.Output{Name: "subjects", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}}
-	catalog := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient", ResourceType: "Patient"}}, Edges: []authoringv2.CatalogEdge{{ID: "edge", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}, Candidates: []authoringv2.CatalogCandidate{{ID: "patient_id", NodeID: "patient", FieldPath: "id", Label: "ID", ProjectionModes: []string{"VALUE"}}}}
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient", ResourceType: "Patient"}}, Edges: []ws.CatalogEdge{{ID: "edge", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}, Candidates: []ws.CatalogCandidate{{ID: "patient_id", NodeID: "patient", FieldPath: "id", Label: "ID", ProjectionModes: []string{"VALUE"}}}}
 	plan := SourcePlan(output)
-	plan.Relationships = &authoringv2.ImportedRelationshipOverlay{Additions: []authoringv2.ImportedRelationship{{OccurrenceID: "project_patient", ParentOccurrenceID: "base", CatalogEdgeID: "edge", Relationship: "subject", ResourceType: "Patient", StorageDirection: "OUTBOUND", MatchMode: authoringv2.RouteMatchOptional, Fields: []authoringv2.ImportedRelationshipField{{CandidateID: "patient_id", ColumnID: "patient_ids", Column: "patient_ids", FieldPath: "id", Label: "ID", ValueMode: "ALL"}}}}}
+	plan.Relationships = &ws.ImportedRelationshipOverlay{Additions: []ws.ImportedRelationship{{OccurrenceID: "project_patient", ParentOccurrenceID: "base", CatalogEdgeID: "edge", Relationship: "subject", ResourceType: "Patient", StorageDirection: "OUTBOUND", MatchMode: ws.RouteMatchOptional, Fields: []ws.ImportedRelationshipField{{CandidateID: "patient_id", ColumnID: "patient_ids", Column: "patient_ids", FieldPath: "id", Label: "ID", ValueMode: "ALL"}}}}}
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestRelationshipOverlayReauthorizesAdditionAndRejectsAmbiguousCatalog(t *te
 		t.Fatal("accepted unauthorized edge")
 	}
 	plan.Relationships.Additions[0].CatalogEdgeID = "edge"
-	catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{ID: "parallel", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "INBOUND"})
+	catalog.Edges = append(catalog.Edges, ws.CatalogEdge{ID: "parallel", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "INBOUND"})
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous edge not diagnosed: %v", err)
 	}
@@ -235,16 +236,16 @@ func TestDefaultCompiledNetworkBindsEveryPublicColumn(t *testing.T) {
 
 func TestRelationshipOverlayRejectsCatalogDepthAndAuthoredCycles(t *testing.T) {
 	output := recipe.Output{Name: "subjects", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment"}
-	catalog := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient", ResourceType: "Patient"}}, Edges: []authoringv2.CatalogEdge{{ID: "out", FromNodeID: "subject", ToNodeID: "patient", Label: "subject_Patient"}, {ID: "back", FromNodeID: "patient", ToNodeID: "subject", Label: "subject_Patient"}}}
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient", ResourceType: "Patient"}}, Edges: []ws.CatalogEdge{{ID: "out", FromNodeID: "subject", ToNodeID: "patient", Label: "subject_Patient"}, {ID: "back", FromNodeID: "patient", ToNodeID: "subject", Label: "subject_Patient"}}}
 	plan := SourcePlan(output)
-	plan.Relationships = &authoringv2.ImportedRelationshipOverlay{Additions: []authoringv2.ImportedRelationship{{OccurrenceID: "project_patient", ParentOccurrenceID: "base", CatalogEdgeID: "out", Relationship: "subject_Patient", ResourceType: "Patient", MatchMode: authoringv2.RouteMatchOptional}}}
+	plan.Relationships = &ws.ImportedRelationshipOverlay{Additions: []ws.ImportedRelationship{{OccurrenceID: "project_patient", ParentOccurrenceID: "base", CatalogEdgeID: "out", Relationship: "subject_Patient", ResourceType: "Patient", MatchMode: ws.RouteMatchOptional}}}
 	limit := 0
 	catalog.RoutePolicy.MaxHops = &limit
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
 		t.Fatalf("depth limit not enforced: %v", err)
 	}
 	catalog.RoutePolicy.MaxHops = nil
-	plan.Relationships.Additions = append(plan.Relationships.Additions, authoringv2.ImportedRelationship{OccurrenceID: "project_cycle", ParentOccurrenceID: "project_patient", CatalogEdgeID: "back", Relationship: "subject_Patient", ResourceType: "ResearchSubject", MatchMode: authoringv2.RouteMatchOptional})
+	plan.Relationships.Additions = append(plan.Relationships.Additions, ws.ImportedRelationship{OccurrenceID: "project_cycle", ParentOccurrenceID: "project_patient", CatalogEdgeID: "back", Relationship: "subject_Patient", ResourceType: "ResearchSubject", MatchMode: ws.RouteMatchOptional})
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err == nil || !strings.Contains(err.Error(), "cyclic") {
 		t.Fatalf("authored cycle not rejected: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestImportRowsPreservesPinnedExplicitGroups(t *testing.T) {
 	if err := got.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	expected := authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "revision_one", UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned}}, AfterStepID: "group_input", RowValues: []authoringv2.ExplicitGroupRowValue{{ColumnID: "contributor_id", Policy: authoringv2.ConstructionRowValueAll}, {ColumnID: "single_status", Policy: authoringv2.ConstructionRowValueOne}}}}
+	expected := ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{RevisionID: "revision_one", UnassignedMemberPolicy: ws.UnassignedMemberGroupAsUnassigned}}, AfterStepID: "group_input", RowValues: []ws.ExplicitGroupRowValue{{ColumnID: "contributor_id", Policy: ws.ConstructionRowValueAll}, {ColumnID: "single_status", Policy: ws.ConstructionRowValueOne}}}}
 	if !reflect.DeepEqual(got, expected) {
 		t.Fatalf("explicit group source semantics lost: %#v", got)
 	}
@@ -267,10 +268,10 @@ func TestImportRowsPreservesPinnedExplicitGroups(t *testing.T) {
 }
 
 func TestNetworkRequiredUnderOptionalCannotExcludeSourceRows(t *testing.T) {
-	root := authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Observation", Children: []authoringv2.RouteNode{{OccurrenceID: "optional_patient", ResourceType: "Patient", Relationship: "subject_Patient", MatchMode: authoringv2.RouteMatchOptional, Children: []authoringv2.RouteNode{{OccurrenceID: "required_child", ResourceType: "Condition", Relationship: "subject_Patient", MatchMode: authoringv2.RouteMatchRequired}}}}}
-	d := authoringv2.Document{Output: authoringv2.Output{ID: "observations"}, Route: root, Rows: authoringv2.RecordsRowDefinition()}
-	catalog := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "obs", ResourceType: "Observation", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}, {ID: "condition", ResourceType: "Condition"}}, Edges: []authoringv2.CatalogEdge{{ID: "patient_edge", FromNodeID: "obs", ToNodeID: "patient", Label: "subject_Patient"}, {ID: "condition_edge", FromNodeID: "patient", ToNodeID: "condition", Label: "subject_Patient"}}}
-	n, err := authoringv2.NetworkForDocument(d, catalog)
+	root := ws.RouteNode{OccurrenceID: "base", ResourceType: "Observation", Children: []ws.RouteNode{{OccurrenceID: "optional_patient", ResourceType: "Patient", Relationship: "subject_Patient", MatchMode: ws.RouteMatchOptional, Children: []ws.RouteNode{{OccurrenceID: "required_child", ResourceType: "Condition", Relationship: "subject_Patient", MatchMode: ws.RouteMatchRequired}}}}}
+	d := ws.Document{Output: ws.Output{ID: "observations"}, Route: root, Rows: ws.RecordsRowDefinition()}
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "obs", ResourceType: "Observation", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}, {ID: "condition", ResourceType: "Condition"}}, Edges: []ws.CatalogEdge{{ID: "patient_edge", FromNodeID: "obs", ToNodeID: "patient", Label: "subject_Patient"}, {ID: "condition_edge", FromNodeID: "patient", ToNodeID: "condition", Label: "subject_Patient"}}}
+	n, err := ws.NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +284,7 @@ func TestNetworkRequiredUnderOptionalCannotExcludeSourceRows(t *testing.T) {
 	bundle := recipe.Bundle{Outputs: []recipe.Output{output}}
 	sourcePlan := SourcePlan(output)
 	imported := d
-	imported.ImportedRecipe = &authoringv2.ImportedRecipeRef{Output: "observations"}
+	imported.ImportedRecipe = &ws.ImportedRecipeRef{Output: "observations"}
 	imported.ImportedSource = &sourcePlan
 	importedNetwork, err := HydrateNetwork(imported, output, catalogForBundle(bundle))
 	if err != nil {
@@ -294,8 +295,8 @@ func TestNetworkRequiredUnderOptionalCannotExcludeSourceRows(t *testing.T) {
 			t.Fatalf("imported optional ancestor cannot exclude root rows: %+v", o)
 		}
 	}
-	d.Route.Children[0].MatchMode = authoringv2.RouteMatchRequired
-	n, err = authoringv2.NetworkForDocument(d, catalog)
+	d.Route.Children[0].MatchMode = ws.RouteMatchRequired
+	n, err = ws.NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,10 +315,10 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 		legacy.Steps[i].SourceKey = ""
 	}
 	removePinnedTestStep(t, &legacy, "fields")
-	legacy.Relationships = &authoringv2.ImportedRelationshipOverlay{}
+	legacy.Relationships = &ws.ImportedRelationshipOverlay{}
 	for _, s := range pristine.Steps {
 		if s.Kind == SourcePlanTraversal {
-			legacy.Relationships.MatchOverrides = []authoringv2.ImportedRelationshipMatch{{OccurrenceID: s.OccurrenceID, MatchMode: authoringv2.RouteMatchRequired}}
+			legacy.Relationships.MatchOverrides = []ws.ImportedRelationshipMatch{{OccurrenceID: s.OccurrenceID, MatchMode: ws.RouteMatchRequired}}
 			break
 		}
 	}
@@ -350,9 +351,9 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 }
 
 func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
-	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
+	network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
 	columns := []facade.CompiledOutputColumn{{ID: "id", Name: "id", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection}}}
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", Kind: SourcePlanCatalogProjection, Title: "First", Summary: "First", Editable: true}, {ID: "catalogProjections[1]", Kind: SourcePlanCatalogProjection, Title: "Second", Summary: "Second", Editable: true}}}
+	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "catalogProjections[0]", Kind: SourcePlanCatalogProjection, Title: "First", Summary: "First", Editable: true}, {ID: "catalogProjections[1]", Kind: SourcePlanCatalogProjection, Title: "Second", Summary: "Second", Editable: true}}}
 	if _, err := BindCompiledNetwork(network, columns, &plan); err == nil || !strings.Contains(err.Error(), "SOURCE_PROVENANCE_AMBIGUOUS") {
 		t.Fatalf("ambiguous catalog provenance was guessed: %v", err)
 	}
@@ -367,9 +368,9 @@ func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 }
 
 func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
-	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
+	network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
 	columns := []facade.CompiledOutputColumn{{ID: "gender", Name: "gender", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection, SourceKey: "populated_fields", OutputKey: "gender"}}}
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Editable: true}}}
+	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
@@ -380,9 +381,9 @@ func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
 }
 
 func TestCompiledNetworkFamilyKeysSurviveDiscoveryPruning(t *testing.T) {
-	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
+	network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
 	columns := []facade.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second", OutputKey: "urn:loinc|8480-6"}}}
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Editable: true}}}
+	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +411,7 @@ func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}}
+	n := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}}
 	columns := compiled.Outputs[0].OutputSchema
 	sourceKeys := map[string]string{}
 	for i := range columns {
@@ -419,7 +420,7 @@ func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 			continue
 		}
 		c.ID = fmt.Sprintf("column_%d", i)
-		n.Bindings = append(n.Bindings, authoringv2.NetworkColumnBinding{ColumnID: c.ID, Status: "UNKNOWN"})
+		n.Bindings = append(n.Bindings, ws.NetworkColumnBinding{ColumnID: c.ID, Status: "UNKNOWN"})
 		if c.SourceOrigin == nil {
 			t.Fatalf("extension %s lacks origin", c.Name)
 		}
@@ -449,9 +450,9 @@ func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 
 func TestRelationshipOverlayRequiresExactParentCatalogNode(t *testing.T) {
 	output := recipe.Output{Name: "subjects", RootResourceType: "ResearchSubject", RowGrain: "resource", Traversals: []recipe.Traversal{{Name: "subject", ToResourceType: "Patient", OccurrenceID: "patient_scope"}}}
-	catalog := authoringv2.CatalogSnapshot{Nodes: []authoringv2.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient_a", ResourceType: "Patient"}, {ID: "patient_b", ResourceType: "Patient"}, {ID: "observation", ResourceType: "Observation"}, {ID: "specimen", ResourceType: "Specimen"}}, Edges: []authoringv2.CatalogEdge{{ID: "subject_to_a", FromNodeID: "subject", ToNodeID: "patient_a", Label: "subject"}, {ID: "observations", FromNodeID: "patient_b", ToNodeID: "observation", Label: "observations"}, {ID: "specimens", FromNodeID: "observation", ToNodeID: "specimen", Label: "specimens"}}}
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject"}, {ID: "patient_a", ResourceType: "Patient"}, {ID: "patient_b", ResourceType: "Patient"}, {ID: "observation", ResourceType: "Observation"}, {ID: "specimen", ResourceType: "Specimen"}}, Edges: []ws.CatalogEdge{{ID: "subject_to_a", FromNodeID: "subject", ToNodeID: "patient_a", Label: "subject"}, {ID: "observations", FromNodeID: "patient_b", ToNodeID: "observation", Label: "observations"}, {ID: "specimens", FromNodeID: "observation", ToNodeID: "specimen", Label: "specimens"}}}
 	plan := SourcePlan(output)
-	plan.Relationships = &authoringv2.ImportedRelationshipOverlay{Additions: []authoringv2.ImportedRelationship{{OccurrenceID: "project_observation", ParentOccurrenceID: "patient_scope", CatalogEdgeID: "observations", Relationship: "observations", ResourceType: "Observation", MatchMode: authoringv2.RouteMatchOptional}}}
+	plan.Relationships = &ws.ImportedRelationshipOverlay{Additions: []ws.ImportedRelationship{{OccurrenceID: "project_observation", ParentOccurrenceID: "patient_scope", CatalogEdgeID: "observations", Relationship: "observations", ResourceType: "Observation", MatchMode: ws.RouteMatchOptional}}}
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err == nil {
 		t.Fatal("accepted an edge from patient_b under occurrence reached through patient_a")
 	}
@@ -459,7 +460,7 @@ func TestRelationshipOverlayRequiresExactParentCatalogNode(t *testing.T) {
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err != nil {
 		t.Fatalf("correct exact parent rejected: %v", err)
 	}
-	plan.Relationships.Additions = append(plan.Relationships.Additions, authoringv2.ImportedRelationship{OccurrenceID: "project_specimen", ParentOccurrenceID: "project_observation", CatalogEdgeID: "specimens", Relationship: "specimens", ResourceType: "Specimen", MatchMode: authoringv2.RouteMatchOptional})
+	plan.Relationships.Additions = append(plan.Relationships.Additions, ws.ImportedRelationship{OccurrenceID: "project_specimen", ParentOccurrenceID: "project_observation", CatalogEdgeID: "specimens", Relationship: "specimens", ResourceType: "Specimen", MatchMode: ws.RouteMatchOptional})
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err != nil {
 		t.Fatalf("nested addition lost exact incoming target node: %v", err)
 	}
@@ -467,7 +468,7 @@ func TestRelationshipOverlayRequiresExactParentCatalogNode(t *testing.T) {
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err == nil {
 		t.Fatal("nested addition accepted a different exact parent node")
 	}
-	catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: "subject_copy", ResourceType: "ResearchSubject"})
+	catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: "subject_copy", ResourceType: "ResearchSubject"})
 	if err := ValidateRelationshipOverlay(output, &plan, catalog); err == nil || !strings.Contains(err.Error(), "SOURCE_PARENT_AMBIGUOUS") {
 		t.Fatalf("ambiguous root catalog identity not diagnosed: %v", err)
 	}

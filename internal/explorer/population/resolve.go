@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -17,7 +18,7 @@ type SelectionReader interface {
 	GetSelection(context.Context, string, string) (*selection.SelectionRevision, error)
 }
 
-func ResolveWorkspacePopulations(ctx context.Context, project string, workspace authoringv2.Workspace, snapshot capability.Snapshot, scopeDigest string, selections SelectionReader) (explorercompilation.ResolvedInputs, error) {
+func ResolveWorkspacePopulations(ctx context.Context, project string, workspace ws.Workspace, snapshot capability.Snapshot, scopeDigest string, selections SelectionReader) (explorercompilation.ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := explorercompilation.ResolvedInputs{}
 	for index, document := range workspace.Documents {

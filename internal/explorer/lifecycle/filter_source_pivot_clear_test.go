@@ -5,6 +5,10 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 
@@ -12,7 +16,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -31,30 +34,30 @@ const (
 	rs05ValueCol     = "public-value"
 )
 
-func rs05RootProjection(columnID, ownerStepID string) authoringv2.ConstructionSourceProjection {
-	return authoringv2.ConstructionSourceProjection{
-		ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: authoringv2.RootOccurrenceID,
+func rs05RootProjection(columnID, ownerStepID string) ws.ConstructionSourceProjection {
+	return ws.ConstructionSourceProjection{
+		ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
 	}
 }
 
-func rs05PivotStep(id string, groupKeys ...string) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05PivotStep(id string, groupKeys ...string) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     id,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			ConstructionID: id, GroupKeyIDs: groupKeys,
 			CategoryColumnID: rs05CategoryCol, ValueColumnID: rs05ValueCol,
-			Categories:             []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "pval", Name: "pval", Label: "pval", Type: "string"}},
+		Outputs: []ws.StageColumn{{ID: "pval", Name: "pval", Label: "pval", Type: "string"}},
 	}
 }
 
-func rs05CountOwned(projections []authoringv2.ConstructionSourceProjection, ownerStepID string) int {
+func rs05CountOwned(projections []ws.ConstructionSourceProjection, ownerStepID string) int {
 	count := 0
 	for _, projection := range projections {
 		if projection.OwnerStepID == ownerStepID {
@@ -64,7 +67,7 @@ func rs05CountOwned(projections []authoringv2.ConstructionSourceProjection, owne
 	return count
 }
 
-func rs05HasProjection(projections []authoringv2.ConstructionSourceProjection, columnID, ownerStepID string) bool {
+func rs05HasProjection(projections []ws.ConstructionSourceProjection, columnID, ownerStepID string) bool {
 	for _, projection := range projections {
 		if projection.ColumnID == columnID && projection.OwnerStepID == ownerStepID {
 			return true
@@ -73,138 +76,138 @@ func rs05HasProjection(projections []authoringv2.ConstructionSourceProjection, c
 	return false
 }
 
-func rs05HasOwnedHelper(steps []authoringv2.ConstructionStep, ownerID string) bool {
+func rs05HasOwnedHelper(steps []ws.ConstructionStep, ownerID string) bool {
 	for _, step := range steps {
 		if step.ID == rs05HelperID && step.OwnerStepID == ownerID &&
-			step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+			step.Operation.Kind == ws.ConstructionOperationRelatedField {
 			return true
 		}
 	}
 	return false
 }
 
-func rs05CloneConstruction(c authoringv2.Construction) authoringv2.Construction {
+func rs05CloneConstruction(c ws.Construction) ws.Construction {
 	out := c
-	out.Steps = append([]authoringv2.ConstructionStep(nil), c.Steps...)
+	out.Steps = append([]ws.ConstructionStep(nil), c.Steps...)
 	for index := range out.Steps {
 		step := out.Steps[index]
 		if step.Inputs != nil {
-			step.Inputs = append([]authoringv2.ConstructionInputRef(nil), step.Inputs...)
+			step.Inputs = append([]ws.ConstructionInputRef(nil), step.Inputs...)
 		}
 		if step.Outputs != nil {
-			step.Outputs = append([]authoringv2.StageColumn(nil), step.Outputs...)
+			step.Outputs = append([]ws.StageColumn(nil), step.Outputs...)
 		}
 		out.Steps[index] = step
 	}
 	if c.SourceProjections != nil {
-		out.SourceProjections = append([]authoringv2.ConstructionSourceProjection(nil), c.SourceProjections...)
+		out.SourceProjections = append([]ws.ConstructionSourceProjection(nil), c.SourceProjections...)
 	} else {
 		out.SourceProjections = nil
 	}
 	return out
 }
 
-func rs05OtherHelperStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05OtherHelperStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID: rs05Helper2ID, OwnerStepID: rs05OtherPivotID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 			ChoiceID: "seed-choice-two", OutputColumnID: rs05OtherColumn,
-			Source: authoringv2.ConstructionRelatedFieldSource{
+			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: "seed-cand", NodeID: filterSourceRootNode,
 				ResourceType: filterSourceRootType, Path: filterSourceField,
 				Cardinality: "optional_one", LogicalType: "boolean",
 			},
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "public-key", Name: "public_key", Label: "Public key", Type: "string"},
+		Outputs: []ws.StageColumn{{ID: "public-key", Name: "public_key", Label: "Public key", Type: "string"},
 			{ID: rs05OtherColumn, Name: "pv_two_col", Label: "BodyStructure.active", Type: "boolean", Nullable: true}},
 	}
 }
 
-func rs05HelperStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05HelperStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID: rs05HelperID, OwnerStepID: rs05PivotID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
 			ChoiceID: "seed-choice", OutputColumnID: rs05HelperColumn,
-			Source: authoringv2.ConstructionRelatedFieldSource{
+			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: "seed-cand", NodeID: filterSourceRootNode,
 				ResourceType: filterSourceRootType, Path: filterSourceField,
 				Cardinality: "optional_one", LogicalType: "boolean",
 			},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			{ID: rs05HelperColumn, Name: "pv_col", Label: "BodyStructure.active", Type: "boolean", Nullable: true},
 		},
 	}
 }
 
-func rs05SeedPivotStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05SeedPivotStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     rs05PivotID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: rs05HelperID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05HelperID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			ConstructionID: rs05PivotID, GroupKeyIDs: []string{filterSourceIdentity},
 			CategoryColumnID: rs05HelperColumn, ValueColumnID: "pval",
-			Categories:             []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			{ID: "pval", Name: "pval", Label: "pval", Type: "integer"},
 		},
 	}
 }
 
-func rs05SeedFilterStep(columnID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05SeedFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     rs05FilterID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: columnID, Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
 		}},
 		Outputs: outputs,
 	}
 }
 
-func rs05SeedDurable() authoringv2.Construction {
-	return authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+func rs05SeedDurable() ws.Construction {
+	return ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05SeedFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 			rs05HelperStep(),
 			rs05SeedPivotStep(),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05RootProjection(rs05HelperColumn, rs05PivotID)},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05HelperColumn, rs05PivotID)},
 	}
 }
 
-func rs05SeedCleared() authoringv2.Construction {
-	return authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+func rs05SeedCleared() ws.Construction {
+	return ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05SeedFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 			rs05SeedPivotStep(),
 		},
 	}
 }
 
-func rs05FilterOwnedDurable() authoringv2.Construction {
+func rs05FilterOwnedDurable() ws.Construction {
 	durable := rs05SeedDurable()
 	durable.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
 	durable.SourceProjections = append(durable.SourceProjections, rs05FilterOwnedProjection())
 	return durable
 }
 
-func rs05FilterOwnedProjection() authoringv2.ConstructionSourceProjection {
+func rs05FilterOwnedProjection() ws.ConstructionSourceProjection {
 	return rs05RootProjection(filterSourceColumn, rs05FilterID)
 }
 
-func rs05AssertionPivotCleared(t *testing.T, name string, prepared authoringv2.Construction) {
+func rs05AssertionPivotCleared(t *testing.T, name string, prepared ws.Construction) {
 	t.Helper()
 	if rs05HasOwnedHelper(prepared.Steps, rs05PivotID) {
 		t.Errorf("REGRESSION [%s]: preparation RE-ADDED the cleared pivot-owned RELATED_FIELD helper step %s", name, rs05HelperID)
@@ -289,17 +292,17 @@ func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-set-pivot-clear")
 	service := filterSourceService(t)
-	baseConstruction := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	baseConstruction := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05SeedFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 			rs05PivotStep(rs05OtherPivotID, "public-key"),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05RootProjection(rs05OtherColumn, rs05OtherPivotID)},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05OtherColumn, rs05OtherPivotID)},
 	}
-	candidate := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	candidate := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn())),
 			rs05PivotStep(rs05OtherPivotID, "public-key"),
 		},
@@ -318,7 +321,7 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 	}
 }
 
-func rs05IndexOwned(projections []authoringv2.ConstructionSourceProjection, ownerStepID string) int {
+func rs05IndexOwned(projections []ws.ConstructionSourceProjection, ownerStepID string) int {
 	for index, projection := range projections {
 		if projection.OwnerStepID == ownerStepID {
 			return index
@@ -339,25 +342,25 @@ func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
 	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
 	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
 		var err error
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
 		store.receipt = receipt
 		return receipt, nil
 	}
-	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil {
 			return dataframeexecution.PreviewSummary{}, context.Canceled
 		}
@@ -366,39 +369,39 @@ func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 	return service, store, snapshot
 }
 
-func rs05ProposeSaveDraft(t *testing.T, store *fakeStore, construction authoringv2.Construction) {
+func rs05ProposeSaveDraft(t *testing.T, store *fakeStore, construction ws.Construction) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
-	document := authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: "patients", Title: "Body structures"},
+	workspace.SemanticsVersion = ws.CurrentSemanticsVersion
+	document := ws.Document{
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: "patients", Title: "Body structures"},
 		RootResourceType: filterSourceRootType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: filterSourceRootType},
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: filterSourceRootType},
+		Rows:             ws.RecordsRowDefinition(),
+		Columns: []ws.Column{
 			{
 				ColumnID: filterSourceIdentity, Column: "body_structure_id", Label: "Body structure ID",
-				LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 			},
 			{
 				ColumnID: rs05CategoryCol, Column: "public_category", Label: "Public category",
-				LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 			},
 			{
 				ColumnID: rs05ValueCol, Column: "public_value", Label: "Public value",
-				LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "description", ProjectionMode: "VALUE"}},
+				LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "description", ProjectionMode: "VALUE"}},
 			},
 		},
 		Construction: &construction,
 	}
-	workspace.Documents = []authoringv2.Document{document}
+	workspace.Documents = []ws.Document{document}
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate rs05 propose draft: %v", err)
 	}
@@ -413,60 +416,60 @@ func rs05ProposeSaveDraft(t *testing.T, store *fakeStore, construction authoring
 	store.created.DraftConfig, store.created.DraftDigest = draft, digest
 }
 
-func rs05PublicOutputs(withPcol bool) []authoringv2.StageColumn {
-	outputs := []authoringv2.StageColumn{
+func rs05PublicOutputs(withPcol bool) []ws.StageColumn {
+	outputs := []ws.StageColumn{
 		{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 		{ID: rs05CategoryCol, Name: "public_category", Label: "Public category", Type: "string"},
 		{ID: rs05ValueCol, Name: "public_value", Label: "Public value", Type: "string"},
 	}
 	if withPcol {
-		outputs = append(outputs, authoringv2.StageColumn{
-			ID: rs05OldColumn, Name: authoringv2.ConstructionSourceProjectionName(rs05OldColumn), Label: "BodyStructure.active", Type: "boolean"})
+		outputs = append(outputs, ws.StageColumn{
+			ID: rs05OldColumn, Name: ws.ConstructionSourceProjectionName(rs05OldColumn), Label: "BodyStructure.active", Type: "boolean"})
 	}
 	return outputs
 }
 
-func rs05ProposeFilterStep(columnID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05ProposeFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     rs05FilterID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: columnID, Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
 		}},
 		Outputs: outputs,
 	}
 }
 
-func rs05ProposePivotStep(groupKeys ...string) authoringv2.ConstructionStep {
-	outputs := make([]authoringv2.StageColumn, 0, len(groupKeys)+1)
+func rs05ProposePivotStep(groupKeys ...string) ws.ConstructionStep {
+	outputs := make([]ws.StageColumn, 0, len(groupKeys)+1)
 	for _, key := range groupKeys {
 		keyType, keyName := "string", key
 		switch key {
 		case rs05OldColumn:
 			keyType = "boolean"
-			keyName = authoringv2.ConstructionSourceProjectionName(rs05OldColumn)
+			keyName = ws.ConstructionSourceProjectionName(rs05OldColumn)
 		case filterSourceIdentity:
 			keyName = "body_structure_id"
 		}
-		outputs = append(outputs, authoringv2.StageColumn{ID: key, Name: keyName, Label: key, Type: keyType})
+		outputs = append(outputs, ws.StageColumn{ID: key, Name: keyName, Label: key, Type: keyType})
 	}
-	outputs = append(outputs, authoringv2.StageColumn{ID: "pval", Name: "pval", Label: "pval", Type: "string"})
-	return authoringv2.ConstructionStep{
+	outputs = append(outputs, ws.StageColumn{ID: "pval", Name: "pval", Label: "pval", Type: "string"})
+	return ws.ConstructionStep{
 		ID:     rs05PivotID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: rs05FilterID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05FilterID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			ConstructionID: rs05PivotID, GroupKeyIDs: groupKeys, CategoryColumnID: rs05CategoryCol, ValueColumnID: rs05ValueCol,
-			Categories:             []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 		}},
 		Outputs: outputs,
 	}
 }
 
-func rs05ProposeRequest(store *explorer.Explorer, snapshot capability.Snapshot, changedStepID string, candidate authoringv2.Construction) construction.ConstructionProposalRequest {
+func rs05ProposeRequest(store *explorer.Explorer, snapshot capability.Snapshot, changedStepID string, candidate ws.Construction) construction.ConstructionProposalRequest {
 	return construction.ConstructionProposalRequest{
 		Project: store.Project, ExplorerID: store.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.DraftVersion, ExpectedDraftDigest: store.DraftDigest,
@@ -476,19 +479,19 @@ func rs05ProposeRequest(store *explorer.Explorer, snapshot capability.Snapshot, 
 
 func TestProposeConstructionFilterEditDoesNotRestoreClearedPivotSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceIdentity, rs05PublicOutputs(true)),
 			rs05ProposePivotStep(filterSourceIdentity, rs05OldColumn),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05RootProjection(rs05OldColumn, rs05PivotID)},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05OldColumn, rs05PivotID)},
 	}
 	rs05ProposeSaveDraft(t, store, durable)
 	acceptedBefore := string(store.created.DraftConfig)
-	cleared := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	cleared := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceIdentity, rs05PublicOutputs(false)),
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
@@ -515,18 +518,18 @@ func TestProposeConstructionFilterEditDoesNotRestoreClearedPivotSourceInput(t *t
 
 func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceIdentity, rs05PublicOutputs(true)),
 			rs05ProposePivotStep(filterSourceIdentity, rs05OldColumn),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05RootProjection(rs05OldColumn, rs05PivotID)},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05OldColumn, rs05PivotID)},
 	}
 	rs05ProposeSaveDraft(t, store, durable)
-	cleared := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	cleared := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceColumn, append(rs05PublicOutputs(false), filterSourceProjectionColumn())),
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
@@ -550,24 +553,24 @@ func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput
 
 func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceColumn, append(rs05PublicOutputs(true), filterSourceProjectionColumn())),
 			rs05ProposePivotStep(filterSourceIdentity, rs05OldColumn),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{
+		SourceProjections: []ws.ConstructionSourceProjection{
 			rs05RootProjection(rs05OldColumn, rs05PivotID), rs05FilterOwnedProjection(),
 		},
 	}
 	rs05ProposeSaveDraft(t, store, durable)
-	cleared := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	cleared := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceColumn, append(rs05PublicOutputs(false), filterSourceProjectionColumn())),
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05FilterOwnedProjection()},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05FilterOwnedProjection()},
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05PivotID, cleared)
 	request.PivotSources = []construction.ConstructionPivotSourceSelection{}
@@ -588,9 +591,9 @@ func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T
 
 func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
-	clearedDurable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	clearedDurable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceIdentity, rs05PublicOutputs(false)),
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
@@ -604,15 +607,15 @@ func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T)
 	if proposal.PreviewStatus != "PREVIEW_PENDING" || len(proposal.CandidateConstruction.SourceProjections) != 0 {
 		t.Fatalf("cleared-durable proposal = %#v, want a clean previewable candidate", proposal)
 	}
-	if reflect.DeepEqual(proposal.CandidateConstruction.Steps, []authoringv2.ConstructionStep(nil)) {
+	if reflect.DeepEqual(proposal.CandidateConstruction.Steps, []ws.ConstructionStep(nil)) {
 		t.Fatal("control lost the candidate steps")
 	}
 }
 
 func rs05BaseWithHelperStage(base constructionBase) constructionBase {
-	base.Stages = append(append([]explorer.ReceiptConstructionStage(nil), base.Stages...), explorer.ReceiptConstructionStage{
+	base.Stages = append(append([]receiptmodel.ReceiptConstructionStage(nil), base.Stages...), receiptmodel.ReceiptConstructionStage{
 		ID: rs05HelperID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_FIELD",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			{ID: rs05HelperColumn, Name: "pv_col", Label: "BodyStructure.active", Type: "boolean"},
 		},
@@ -625,29 +628,29 @@ const (
 	rs05DeriveColumn = "derive-private-input"
 )
 
-func rs05DeriveLaneStep(literal int64) authoringv2.ConstructionStep {
+func rs05DeriveLaneStep(literal int64) ws.ConstructionStep {
 	value := literal
-	return authoringv2.ConstructionStep{
+	return ws.ConstructionStep{
 		ID:     rs05DeriveID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
 			ConstructionID:     rs05DeriveID,
 			OutputColumnID:     "derived_total",
-			Operation:          authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &value}},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: func() *int64 { three := int64(3); return &three }()}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+			Operation:          ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &value}},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: func() *int64 { three := int64(3); return &three }()}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 		},
 	}
 }
 
-func rs05DeriveOwnedProjection() authoringv2.ConstructionSourceProjection {
-	return authoringv2.ConstructionSourceProjection{
-		ColumnID: rs05DeriveColumn, OwnerStepID: rs05DeriveID, OccurrenceID: authoringv2.RootOccurrenceID,
+func rs05DeriveOwnedProjection() ws.ConstructionSourceProjection {
+	return ws.ConstructionSourceProjection{
+		ColumnID: rs05DeriveColumn, OwnerStepID: rs05DeriveID, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: filterSourceField, FHIRType: "integer", LogicalType: "integer", Label: "BodyStructure.precedence",
 	}
 }
@@ -683,17 +686,17 @@ func TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput(t *testing.T) {
 func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-set-derive-clear")
 	service := filterSourceService(t)
-	baseConstruction := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	baseConstruction := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05SeedFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
 			rs05DeriveLaneStep(2),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05DeriveOwnedProjection()},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05DeriveOwnedProjection()},
 	}
-	candidate := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	candidate := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn())),
 			rs05DeriveLaneStep(2),
 		},
@@ -712,24 +715,24 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing
 	}
 }
 
-func rs05ProposeDeriveStep(literal int64) authoringv2.ConstructionStep {
+func rs05ProposeDeriveStep(literal int64) ws.ConstructionStep {
 	value := literal
-	return authoringv2.ConstructionStep{
+	return ws.ConstructionStep{
 		ID:     rs05DeriveID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: rs05FilterID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05FilterID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
 			ConstructionID:     rs05DeriveID,
 			OutputColumnID:     "derived_total",
-			Operation:          authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &value}},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: func() *int64 { three := int64(3); return &three }()}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+			Operation:          ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &value}},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: func() *int64 { three := int64(3); return &three }()}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			{ID: rs05CategoryCol, Name: "public_category", Label: "Public category", Type: "string"},
 			{ID: rs05ValueCol, Name: "public_value", Label: "Public value", Type: "string"},
-			{ID: rs05OldColumn, Name: authoringv2.ConstructionSourceProjectionName(rs05OldColumn), Label: "BodyStructure.active", Type: "boolean"},
+			{ID: rs05OldColumn, Name: ws.ConstructionSourceProjectionName(rs05OldColumn), Label: "BodyStructure.active", Type: "boolean"},
 			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 		},
 	}
@@ -737,27 +740,27 @@ func rs05ProposeDeriveStep(literal int64) authoringv2.ConstructionStep {
 
 func TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceIdentity, rs05PublicOutputs(true)),
 			rs05ProposeDeriveStep(2),
 			rs05ProposePivotStep(filterSourceIdentity, rs05OldColumn),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05RootProjection(rs05OldColumn, rs05PivotID)},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05OldColumn, rs05PivotID)},
 	}
-	durable.Steps[2].Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: rs05DeriveID}}
+	durable.Steps[2].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05DeriveID}}
 	rs05ProposeSaveDraft(t, store, durable)
 	acceptedBefore := string(store.created.DraftConfig)
-	cleared := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	cleared := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			rs05ProposeFilterStep(filterSourceIdentity, rs05PublicOutputs(true)),
 			rs05ProposeDeriveStep(9),
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
 	}
-	cleared.Steps[2].Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: rs05DeriveID}}
+	cleared.Steps[2].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05DeriveID}}
 	proposal, err := service.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05DeriveID, cleared))
 	if err != nil {
@@ -784,43 +787,43 @@ const (
 	rs05SetFilterCol = "patient_filter_active"
 )
 
-func rs05PatientSetFilterStep(prevStepID string) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func rs05PatientSetFilterStep(prevStepID string) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     rs05SetFilterID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: prevStepID}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: rs05SetFilterCol, Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: prevStepID}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: rs05SetFilterCol, Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
-			{ID: rs05SetFilterCol, Name: authoringv2.ConstructionSourceProjectionName(rs05SetFilterCol), Label: "Patient.active", Type: "boolean", Nullable: true},
+			{ID: rs05SetFilterCol, Name: ws.ConstructionSourceProjectionName(rs05SetFilterCol), Label: "Patient.active", Type: "boolean", Nullable: true},
 		},
 	}
 }
 
-func rs05PatientSetFilterProjection() authoringv2.ConstructionSourceProjection {
-	return authoringv2.ConstructionSourceProjection{
-		ColumnID: rs05SetFilterCol, OwnerStepID: rs05SetFilterID, OccurrenceID: authoringv2.RootOccurrenceID,
+func rs05PatientSetFilterProjection() ws.ConstructionSourceProjection {
+	return ws.ConstructionSourceProjection{
+		ColumnID: rs05SetFilterCol, OwnerStepID: rs05SetFilterID, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Patient.active",
 	}
 }
 
-func rs05PatientSetDerivedOutputs() []authoringv2.StageColumn {
+func rs05PatientSetDerivedOutputs() []ws.StageColumn {
 	return append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(),
-		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+		ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 }
 
 func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			deriveSourceAddStep(deriveSourceStep, "patient-id", deriveSourcePatientDerivedColumns()),
 			rs05PatientSetFilterStep(deriveSourceStep),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05PatientSetFilterProjection()},
 	}
 	base := deriveSourcePatientBase(snapshot, durable)
 
@@ -850,22 +853,22 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 	harness := newUnpivotSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service
 	carrierOutputs := append(deriveSourcePatientIdentityColumns(),
-		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+		ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", carrierOutputs)
 	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"},
-		unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+		unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			carrier, melt, rs05PatientSetFilterStep(unpivotSourceStep),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()},
+		SourceProjections: []ws.ConstructionSourceProjection{rs05PatientSetFilterProjection()},
 	}
 	base := deriveSourcePatientBase(snapshot, durable)
-	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{
 		ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 		},
@@ -877,7 +880,7 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 	}
 	candidate.SourceProjections = nil
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
 	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
@@ -898,20 +901,20 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 func TestXopPortDeriveSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			deriveSourceAddStep(deriveSourceStep, "patient-id", deriveSourcePatientDerivedColumns()),
 			rs05HelperStep(), rs05SeedPivotStep(), rs05PatientSetFilterStep(rs05PivotID),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{
+		SourceProjections: []ws.ConstructionSourceProjection{
 			rs05RootProjection(rs05HelperColumn, rs05PivotID), rs05PatientSetFilterProjection(),
 		},
 	}
 	base := deriveSourcePatientBase(snapshot, durable)
 
 	candidate := rs05CloneConstruction(durable)
-	candidate.SourceProjections = []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()}
+	candidate.SourceProjections = []ws.ConstructionSourceProjection{rs05PatientSetFilterProjection()}
 	left := candidate.Steps[0].Operation.Derive.Left
 	left.ColumnID = deriveSourceBirth
 	candidate.Steps[0].Operation.Derive.Left = left
@@ -939,24 +942,24 @@ func TestXopPortUnpivotSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service
 	carrierOutputs := append(deriveSourcePatientIdentityColumns(),
-		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+		ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 	carrier := deriveSourceLiteralOnlyStep("derive-base", carrierOutputs)
 	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"},
-		unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
-	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
+		unpivotMeltOutputs(ws.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	melt.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}}
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
 			carrier, melt, rs05HelperStep(), rs05SeedPivotStep(), rs05PatientSetFilterStep(rs05PivotID),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{
+		SourceProjections: []ws.ConstructionSourceProjection{
 			rs05RootProjection(rs05HelperColumn, rs05PivotID), rs05PatientSetFilterProjection(),
 		},
 	}
 	base := deriveSourcePatientBase(snapshot, durable)
-	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{
 		ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
 		},
@@ -966,9 +969,9 @@ func TestXopPortUnpivotSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate.SourceProjections = []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()}
+	candidate.SourceProjections = []ws.ConstructionSourceProjection{rs05PatientSetFilterProjection()}
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
 	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,

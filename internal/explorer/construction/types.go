@@ -3,16 +3,18 @@ package construction
 import (
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 )
 
-type ConstructionDependencyIssue = authoringv2.ConstructionDependencyIssue
-type ConstructionDependencyImpact = authoringv2.ConstructionImpact
+type ConstructionDependencyIssue = ws.ConstructionDependencyIssue
+type ConstructionDependencyImpact = ws.ConstructionImpact
 
 type ConstructionFilterSourceCapability = rowsource.ConstructionFilterSourceCapability
 type ConstructionFilterSourceSelection = rowsource.ConstructionFilterSourceSelection
@@ -53,9 +55,9 @@ type ConstructionCapabilitiesResponse struct {
 	DraftDigest                    string                                    `json:"draftDigest"`
 	OutputID                       string                                    `json:"outputId"`
 	StageID                        string                                    `json:"stageId"`
-	BaseConstruction               authoringv2.Construction                  `json:"baseConstruction"`
-	Stages                         []explorer.ReceiptConstructionStage       `json:"stages"`
-	SelectedStage                  explorer.ReceiptConstructionStage         `json:"selectedStage"`
+	BaseConstruction               ws.Construction                           `json:"baseConstruction"`
+	Stages                         []receiptmodel.ReceiptConstructionStage   `json:"stages"`
+	SelectedStage                  receiptmodel.ReceiptConstructionStage     `json:"selectedStage"`
 	SourceInput                    ConstructionGroupSourceCapability         `json:"sourceInput"`
 	PivotSourceInput               ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
 	FilterSourceInput              ConstructionFilterSourceCapability        `json:"filterSourceInput"`
@@ -73,26 +75,26 @@ type ConstructionCapabilitiesResponse struct {
 }
 
 type ConstructionGroupFieldChoice struct {
-	Kind               string                                         `json:"kind"`
-	InputColumnID      string                                         `json:"inputColumnId,omitempty"`
-	FieldSource        *authoringv2.ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
-	SemanticCategory   *authoringv2.ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
-	ValueKind          string                                         `json:"valueKind,omitempty"`
-	SourceStageID      string                                         `json:"sourceStageId,omitempty"`
-	SourceShapeID      string                                         `json:"sourceShapeId,omitempty"`
-	CandidateID        string                                         `json:"candidateId,omitempty"`
-	Label              string                                         `json:"label"`
-	ScopeLabel         string                                         `json:"scopeLabel,omitempty"`
-	ValueType          string                                         `json:"valueType,omitempty"`
-	SourceRole         string                                         `json:"sourceRole,omitempty"`
-	OccurrenceID       string                                         `json:"occurrenceId,omitempty"`
-	ResourceType       string                                         `json:"resourceType,omitempty"`
-	OwnerOccurrenceID  string                                         `json:"ownerOccurrenceId,omitempty"`
-	OwnerResourceType  string                                         `json:"ownerResourceType,omitempty"`
-	CanonicalPath      string                                         `json:"canonicalPath,omitempty"`
-	BoundarySelector   string                                         `json:"boundarySelector,omitempty"`
-	RelatedOccurrence  *ConstructionGroupRelatedOccurrenceChoice      `json:"relatedOccurrence,omitempty"`
-	MatchedOutputKeyID string                                         `json:"matchedOutputKeyId,omitempty"`
+	Kind               string                                    `json:"kind"`
+	InputColumnID      string                                    `json:"inputColumnId,omitempty"`
+	FieldSource        *ws.ConstructionGroupFieldSource          `json:"fieldSource,omitempty"`
+	SemanticCategory   *ws.ConstructionGroupSemanticCategory     `json:"semanticCategory,omitempty"`
+	ValueKind          string                                    `json:"valueKind,omitempty"`
+	SourceStageID      string                                    `json:"sourceStageId,omitempty"`
+	SourceShapeID      string                                    `json:"sourceShapeId,omitempty"`
+	CandidateID        string                                    `json:"candidateId,omitempty"`
+	Label              string                                    `json:"label"`
+	ScopeLabel         string                                    `json:"scopeLabel,omitempty"`
+	ValueType          string                                    `json:"valueType,omitempty"`
+	SourceRole         string                                    `json:"sourceRole,omitempty"`
+	OccurrenceID       string                                    `json:"occurrenceId,omitempty"`
+	ResourceType       string                                    `json:"resourceType,omitempty"`
+	OwnerOccurrenceID  string                                    `json:"ownerOccurrenceId,omitempty"`
+	OwnerResourceType  string                                    `json:"ownerResourceType,omitempty"`
+	CanonicalPath      string                                    `json:"canonicalPath,omitempty"`
+	BoundarySelector   string                                    `json:"boundarySelector,omitempty"`
+	RelatedOccurrence  *ConstructionGroupRelatedOccurrenceChoice `json:"relatedOccurrence,omitempty"`
+	MatchedOutputKeyID string                                    `json:"matchedOutputKeyId,omitempty"`
 }
 
 type ConstructionGroupRelatedOccurrenceChoice struct {
@@ -176,7 +178,7 @@ type ConstructionProposalRequest struct {
 	OutputID              string
 	ChangedStepID         string
 	RemoveStepIDs         []string
-	CandidateConstruction authoringv2.Construction
+	CandidateConstruction ws.Construction
 	GroupSources          []ConstructionGroupSourceSelection   `json:"groupSources,omitempty"`
 	GroupSource           *ConstructionGroupSourceSelection    `json:"groupSource,omitempty"`
 	PivotSources          []ConstructionPivotSourceSelection   `json:"pivotSources,omitempty"`
@@ -205,22 +207,22 @@ type ConstructionProposalDiagnostic struct {
 }
 
 type ConstructionProposalResponse struct {
-	ProposalID               string                              `json:"proposalId,omitempty"`
-	BaseReceiptID            string                              `json:"baseReceiptId,omitempty"`
-	OutputID                 string                              `json:"outputId"`
-	SnapshotToken            string                              `json:"snapshotToken"`
-	DraftVersion             int64                               `json:"draftVersion"`
-	DraftDigest              string                              `json:"draftDigest"`
-	BaseDocumentDigest       string                              `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                              `json:"candidateWorkspaceDigest"`
-	ChangedStepID            string                              `json:"changedStepId"`
-	CandidateConstruction    authoringv2.Construction            `json:"candidateConstruction"`
-	DependencyImpact         authoringv2.ConstructionImpact      `json:"dependencyImpact"`
-	Stages                   []explorer.ReceiptConstructionStage `json:"stages"`
-	PreviewStatus            string                              `json:"previewStatus"`
-	PreviewDurationMS        int64                               `json:"previewDurationMs"`
-	Preview                  any                                 `json:"preview,omitempty"`
-	Diagnostics              []ConstructionProposalDiagnostic    `json:"diagnostics,omitempty"`
+	ProposalID               string                                  `json:"proposalId,omitempty"`
+	BaseReceiptID            string                                  `json:"baseReceiptId,omitempty"`
+	OutputID                 string                                  `json:"outputId"`
+	SnapshotToken            string                                  `json:"snapshotToken"`
+	DraftVersion             int64                                   `json:"draftVersion"`
+	DraftDigest              string                                  `json:"draftDigest"`
+	BaseDocumentDigest       string                                  `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                                  `json:"candidateWorkspaceDigest"`
+	ChangedStepID            string                                  `json:"changedStepId"`
+	CandidateConstruction    ws.Construction                         `json:"candidateConstruction"`
+	DependencyImpact         ws.ConstructionImpact                   `json:"dependencyImpact"`
+	Stages                   []receiptmodel.ReceiptConstructionStage `json:"stages"`
+	PreviewStatus            string                                  `json:"previewStatus"`
+	PreviewDurationMS        int64                                   `json:"previewDurationMs"`
+	Preview                  any                                     `json:"preview,omitempty"`
+	Diagnostics              []ConstructionProposalDiagnostic        `json:"diagnostics,omitempty"`
 }
 
 func (r ConstructionCapabilitiesRequest) Validate() error {
@@ -316,10 +318,10 @@ func (r ConstructionProposalRequest) Validate() error {
 			if err := input.Validate(); err != nil {
 				return fmt.Errorf("candidateConstruction.steps[%d].inputs[%d]: %w", stepIndex, inputIndex, err)
 			}
-			if input.Kind == authoringv2.ConstructionInputWorkspaceOutput && step.Operation.Kind != authoringv2.ConstructionOperationCombine {
+			if input.Kind == ws.ConstructionInputWorkspaceOutput && step.Operation.Kind != ws.ConstructionOperationCombine {
 				return fmt.Errorf("candidateConstruction.steps[%d].inputs[%d]: WORKSPACE_OUTPUT is only supported by COMBINE", stepIndex, inputIndex)
 			}
-			if input.Kind == authoringv2.ConstructionInputTableRevision && step.Operation.Kind != authoringv2.ConstructionOperationCombine {
+			if input.Kind == ws.ConstructionInputTableRevision && step.Operation.Kind != ws.ConstructionOperationCombine {
 				return fmt.Errorf("candidateConstruction.steps[%d].inputs[%d]: TABLE_REVISION is only supported by COMBINE", stepIndex, inputIndex)
 			}
 		}
@@ -331,11 +333,11 @@ func (r ConstructionProposalRequest) Validate() error {
 }
 
 type ConstructionChoiceProposalSelection struct {
-	RowValuePolicy authoringv2.ConstructionRowValuePolicy `json:"rowValuePolicy,omitempty"`
-	ChoiceID       string                                 `json:"choiceId"`
-	Form           capability.ConstructionChoiceForm      `json:"form"`
-	FrameID        string                                 `json:"frameId,omitempty"`
-	Title          *string                                `json:"title,omitempty"`
+	RowValuePolicy ws.ConstructionRowValuePolicy     `json:"rowValuePolicy,omitempty"`
+	ChoiceID       string                            `json:"choiceId"`
+	Form           capability.ConstructionChoiceForm `json:"form"`
+	FrameID        string                            `json:"frameId,omitempty"`
+	Title          *string                           `json:"title,omitempty"`
 }
 
 type ConstructionChoiceProposalRequest struct {

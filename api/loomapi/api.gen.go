@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/api/dataframe"
 	recipe "github.com/calypr/loom/internal/dataframe/recipe"
 	authoringv2 "github.com/calypr/loom/internal/explorer/authoringv2"
@@ -7539,28 +7541,28 @@ type IdentifierBinding struct {
 }
 
 // ImportedCatalogParameters defines model for ImportedCatalogParameters.
-type ImportedCatalogParameters = authoringv2.ImportedCatalogParameters
+type ImportedCatalogParameters = ws.ImportedCatalogParameters
 
 // ImportedDynamicParameters defines model for ImportedDynamicParameters.
-type ImportedDynamicParameters = authoringv2.ImportedDynamicParameters
+type ImportedDynamicParameters = ws.ImportedDynamicParameters
 
 // ImportedExpansionParameters defines model for ImportedExpansionParameters.
-type ImportedExpansionParameters = authoringv2.ImportedExpansionParameters
+type ImportedExpansionParameters = ws.ImportedExpansionParameters
 
 // ImportedExtensionParameters defines model for ImportedExtensionParameters.
-type ImportedExtensionParameters = authoringv2.ImportedExtensionParameters
+type ImportedExtensionParameters = ws.ImportedExtensionParameters
 
 // ImportedFieldGroupParameters defines model for ImportedFieldGroupParameters.
-type ImportedFieldGroupParameters = authoringv2.ImportedFieldGroupParameters
+type ImportedFieldGroupParameters = ws.ImportedFieldGroupParameters
 
 // ImportedIdentityParameters defines model for ImportedIdentityParameters.
-type ImportedIdentityParameters = authoringv2.ImportedIdentityParameters
+type ImportedIdentityParameters = ws.ImportedIdentityParameters
 
 // ImportedOutputParameters defines model for ImportedOutputParameters.
-type ImportedOutputParameters = authoringv2.ImportedOutputParameters
+type ImportedOutputParameters = ws.ImportedOutputParameters
 
 // ImportedPivotParameters defines model for ImportedPivotParameters.
-type ImportedPivotParameters = authoringv2.ImportedPivotParameters
+type ImportedPivotParameters = ws.ImportedPivotParameters
 
 // ImportedRecipeRef defines model for ImportedRecipeRef.
 type ImportedRecipeRef struct {
@@ -7623,10 +7625,10 @@ type ImportedSource struct {
 }
 
 // ImportedSourceFieldParameters defines model for ImportedSourceFieldParameters.
-type ImportedSourceFieldParameters = authoringv2.ImportedFieldParameters
+type ImportedSourceFieldParameters = ws.ImportedFieldParameters
 
 // ImportedSourceParameters defines model for ImportedSourceParameters.
-type ImportedSourceParameters = authoringv2.ImportedSourceParameters
+type ImportedSourceParameters = ws.ImportedSourceParameters
 
 // ImportedSourcePlan defines model for ImportedSourcePlan.
 type ImportedSourcePlan struct {
@@ -7676,7 +7678,7 @@ type ImportedSourceStepMatchMode string
 type ImportedSourceStepChange = authoringv2.ImportedSourceStepChange
 
 // ImportedTraversalParameters defines model for ImportedTraversalParameters.
-type ImportedTraversalParameters = authoringv2.ImportedTraversalParameters
+type ImportedTraversalParameters = ws.ImportedTraversalParameters
 
 // InterpretationApplicability defines model for InterpretationApplicability.
 type InterpretationApplicability struct {
@@ -8521,7 +8523,7 @@ type RowCountEvidence struct {
 type RowCountEvidenceKind string
 
 // RowDefinition defines model for RowDefinition.
-type RowDefinition = authoringv2.RowDefinition
+type RowDefinition = ws.RowDefinition
 
 // RowDefinitionChoice defines model for RowDefinitionChoice.
 type RowDefinitionChoice struct {
@@ -9290,7 +9292,7 @@ type SourceRelationshipProposalPreviewStatus string
 type SourceRelationshipProposalRequest = proposal.SourceRelationshipProposalRequest
 
 // SourceRuleCreate defines model for SourceRuleCreate.
-type SourceRuleCreate = authoringv2.SourceRuleCreate
+type SourceRuleCreate = ws.SourceRuleCreate
 
 // Tab defines model for Tab.
 type Tab struct {
@@ -9400,7 +9402,7 @@ type ValueTransformationCapability struct {
 }
 
 // Workspace defines model for Workspace.
-type Workspace = authoringv2.Workspace
+type Workspace = ws.Workspace
 
 // WorkspaceOutputConsumer defines model for WorkspaceOutputConsumer.
 type WorkspaceOutputConsumer struct {

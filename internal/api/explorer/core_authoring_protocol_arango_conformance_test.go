@@ -12,6 +12,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -21,7 +26,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -70,11 +74,11 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	}
 
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer:  authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{ColumnID: "id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
-		Tabs:      []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:  ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{ColumnID: "id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
+		Tabs:      []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -85,7 +89,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.Create(ctx, explorer.Explorer{
-		Project: "project-a", ExplorerID: "core-protocol", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "core-protocol", Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: raw, DraftVersion: 1, DraftDigest: digest,
 		DraftSnapshotToken: snapshot.Token, DraftSourceGeneration: snapshot.Identity.Generation,
 		DraftAuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
@@ -112,15 +116,15 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
@@ -163,13 +167,13 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	}
 
 	expectedPost := workspace
-	expectedPost.SemanticsVersion = authoringv2.CurrentSemanticsVersion
+	expectedPost.SemanticsVersion = ws.CurrentSemanticsVersion
 	expectedPost.Documents[0].Columns[0].Label = "Patient Identifier"
 	expectedRaw, err := expectedPost.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	persistedWorkspace, err := authoringv2.DecodeWorkspace(persisted.DraftConfig)
+	persistedWorkspace, err := ws.DecodeWorkspace(persisted.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode persisted Arango draft bytes: %v raw=%s", err, persisted.DraftConfig)
 	}
@@ -191,7 +195,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if prior.DraftVersion != 1 || prior.DraftDigest != digest {
 		t.Fatalf("previous revision does not capture the pre-command head: got version=%d digest=%q, want version=1 digest=%q", prior.DraftVersion, prior.DraftDigest, digest)
 	}
-	priorWorkspace, err := authoringv2.DecodeWorkspace(prior.DraftConfig)
+	priorWorkspace, err := ws.DecodeWorkspace(prior.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode previous revision bytes: %v raw=%s", err, prior.DraftConfig)
 	}
@@ -218,7 +222,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if persistedReceipt.IntentDigest != digestForWorkspace(t, expectedPost) {
 		t.Fatalf("persisted receipt intentDigest=%q does not reference the expected post-command head digest=%q", persistedReceipt.IntentDigest, digestForWorkspace(t, expectedPost))
 	}
-	recomputedID, err := explorer.ReceiptID(*persistedReceipt)
+	recomputedID, err := receiptmodel.ReceiptID(*persistedReceipt)
 	if err != nil {
 		t.Fatalf("recompute receipt content id: %v", err)
 	}
@@ -280,7 +284,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if restarted.DraftVersion != ack.DraftVersion || restarted.DraftDigest != ack.DraftDigest {
 		t.Fatalf("fresh service head disagrees with the acknowledged identity: got version=%d digest=%q, want version=%d digest=%q", restarted.DraftVersion, restarted.DraftDigest, ack.DraftVersion, ack.DraftDigest)
 	}
-	restartedWorkspace, err := authoringv2.DecodeWorkspace(restarted.DraftConfig)
+	restartedWorkspace, err := ws.DecodeWorkspace(restarted.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode fresh-service persisted bytes: %v raw=%s", err, restarted.DraftConfig)
 	}
@@ -317,7 +321,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if unchanged.DraftVersion != ack.DraftVersion || unchanged.DraftDigest != ack.DraftDigest {
 		t.Fatalf("refused stale save moved the committed head: got version=%d digest=%q want version=%d digest=%q", unchanged.DraftVersion, unchanged.DraftDigest, ack.DraftVersion, ack.DraftDigest)
 	}
-	unchangedWorkspace, err := authoringv2.DecodeWorkspace(unchanged.DraftConfig)
+	unchangedWorkspace, err := ws.DecodeWorkspace(unchanged.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode head after refused stale save: %v", err)
 	}
@@ -340,7 +344,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	}
 }
 
-func digestForWorkspace(t *testing.T, workspace authoringv2.Workspace) string {
+func digestForWorkspace(t *testing.T, workspace ws.Workspace) string {
 	t.Helper()
 	value, err := workspace.Digest()
 	if err != nil {

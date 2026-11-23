@@ -12,11 +12,17 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -24,24 +30,24 @@ import (
 func TestStoredWorkspaceMigrationAgainstArango(t *testing.T) {
 	ctx, client, adapter, _ := draftCASDB(t)
 	legacyRaw := workspaceMigrationLegacyCodedWire("Legacy coded")
-	legacyPlan, err := authoringv2.MigrateStoredWorkspace(legacyRaw, authoringv2.CatalogSnapshot{})
+	legacyPlan, err := ws.MigrateStoredWorkspace(legacyRaw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	mixedRaw := workspaceMigrationMixedWire("Mixed workspace")
-	mixedPlan, err := authoringv2.MigrateStoredWorkspace(mixedRaw, authoringv2.CatalogSnapshot{})
+	mixedPlan, err := ws.MigrateStoredWorkspace(mixedRaw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	nilStepsRaw, nilStepsDigest := workspaceMigrationNilStepsWire(t)
-	nilStepsPlan, err := authoringv2.MigrateStoredWorkspace(nilStepsRaw, authoringv2.CatalogSnapshot{})
+	nilStepsPlan, err := ws.MigrateStoredWorkspace(nilStepsRaw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	currentRaw, currentDigest := draftCASPayload(t, "Already current")
 
 	legacySemanticsRaw, legacySemanticsDigest := workspaceMigrationLegacySemanticsWire(t)
-	legacySemanticsPlan, err := authoringv2.MigrateStoredWorkspace(legacySemanticsRaw, authoringv2.CatalogSnapshot{})
+	legacySemanticsPlan, err := ws.MigrateStoredWorkspace(legacySemanticsRaw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,17 +106,17 @@ func TestStoredWorkspaceMigrationAgainstArango(t *testing.T) {
 		t.Fatalf("current owner changed: before=%#v after=%#v", currentOwner, unchangedCurrent)
 	}
 	for label, raw := range map[string][]byte{"retired coded source": legacyRaw, "legacy nil steps": nilStepsRaw} {
-		if _, err := authoringv2.DecodeCurrentWorkspace(raw); err == nil {
+		if _, err := ws.DecodeCurrentWorkspace(raw); err == nil {
 			t.Fatalf("strict runtime decoder accepted %s after migration", label)
 		}
 	}
 
-	for _, expected := range []explorer.CompilationReceipt{legacyReceipt, currentReceipt} {
+	for _, expected := range []receiptmodel.CompilationReceipt{legacyReceipt, currentReceipt} {
 		stored, err := adapter.GetCompilationReceiptForExplorer(ctx, expected.Project, expected.ExplorerID, expected.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, err := explorer.ReceiptID(*stored)
+		id, err := receiptmodel.ReceiptID(*stored)
 		if err != nil || id != expected.ID || stored.ID != expected.ID {
 			t.Fatalf("receipt identity changed: stored=%q recomputed=%q err=%v", stored.ID, id, err)
 		}
@@ -150,22 +156,22 @@ func TestStoredWorkspaceMigrationFixturePackets(t *testing.T) {
 		"mixed":        workspaceMigrationMixedWire("Mixed workspace"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			result, err := authoringv2.MigrateStoredWorkspace(raw, authoringv2.CatalogSnapshot{})
+			result, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.MigratedCanonicalDigest == "" || !json.Valid(result.CanonicalJSON) || result.Workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
+			if result.MigratedCanonicalDigest == "" || !json.Valid(result.CanonicalJSON) || result.Workspace.SemanticsVersion != ws.CurrentSemanticsVersion {
 				t.Fatalf("invalid migrated packet: %#v", result)
 			}
 		})
 	}
 	legacyRaw, legacyDigest := workspaceMigrationLegacySemanticsWire(t)
-	legacy, err := authoringv2.MigrateStoredWorkspace(legacyRaw, authoringv2.CatalogSnapshot{})
+	legacy, err := ws.MigrateStoredWorkspace(legacyRaw, ws.CatalogSnapshot{})
 	if err != nil || legacy.OriginalCanonicalDigest != legacyDigest {
 		t.Fatalf("legacy semantics fixture result=%#v err=%v", legacy, err)
 	}
 	nilRaw, nilDigest := workspaceMigrationNilStepsWire(t)
-	nilResult, err := authoringv2.MigrateStoredWorkspace(nilRaw, authoringv2.CatalogSnapshot{})
+	nilResult, err := ws.MigrateStoredWorkspace(nilRaw, ws.CatalogSnapshot{})
 	if err != nil || nilResult.OriginalLegacyNilStepsDigest != nilDigest || !nilResult.DigestChanged {
 		t.Fatalf("nil-step fixture result=%#v err=%v", nilResult, err)
 	}
@@ -182,7 +188,7 @@ func TestStoredWorkspaceMigrationCASFailureRollsBackHistoryAndProjectionAgainstA
 		t.Fatal(err)
 	}
 	before := draftCASSeed(t, ctx, adapter)
-	migrated, err := authoringv2.MigrateStoredWorkspace(before.DraftConfig, authoringv2.CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredWorkspace(before.DraftConfig, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +240,7 @@ func workspaceMigrationSeed(t *testing.T, ctx context.Context, adapter *Store, i
 	if digest == "" {
 		t.Fatal("migration fixture requires the original stored digest")
 	}
-	owner := explorer.Explorer{Project: "project-wp18", ExplorerID: id, Title: title, ManagementMode: explorer.ManagementInteractive,
+	owner := explorer.Explorer{Project: "project-wp18", ExplorerID: id, Title: title, ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: append(json.RawMessage(nil), raw...), DraftVersion: 7, DraftDigest: digest,
 		DraftSnapshotToken: snapshotToken, DraftSourceGeneration: "generation-wp18", DraftAuthorizationScopeDigest: "scope-wp18",
 		UpdatedBy: "wp18-fixture", UpdatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
@@ -246,7 +252,7 @@ func workspaceMigrationSeed(t *testing.T, ctx context.Context, adapter *Store, i
 }
 
 func workspaceMigrationLegacyCodedWire(title string) []byte {
-	return []byte(`{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(authoringv2.CurrentSemanticsVersion) + `,"explorer":{"title":"` + title + `"},"documents":[{"kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Observation","route":{"occurrenceId":"base","resourceType":"Observation"},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"height","label":"Height","occurrenceId":"base","source":{"kind":"codingBySystem","lookup":{"binding":{"ownerPath":"","keyPath":"code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","choiceArms":["valueQuantity"],"logicalType":"decimal"},"key":{"system":"urn:study","code":"height"},"projectionMode":"VALUE"}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`)
+	return []byte(`{"apiVersion":"` + ws.APIVersion + `","kind":"` + ws.WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(ws.CurrentSemanticsVersion) + `,"explorer":{"title":"` + title + `"},"documents":[{"kind":"` + ws.Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Observation","route":{"occurrenceId":"base","resourceType":"Observation"},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"height","label":"Height","occurrenceId":"base","source":{"kind":"codingBySystem","lookup":{"binding":{"ownerPath":"","keyPath":"code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","choiceArms":["valueQuantity"],"logicalType":"decimal"},"key":{"system":"urn:study","code":"height"},"projectionMode":"VALUE"}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`)
 }
 
 func workspaceMigrationMixedWire(title string) []byte {
@@ -256,18 +262,18 @@ func workspaceMigrationMixedWire(title string) []byte {
 
 func workspaceMigrationLegacySemanticsWire(t *testing.T) ([]byte, string) {
 	t.Helper()
-	document := authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-		RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		SemanticsVersion: authoringv2.CurrentSemanticsVersion - 1, Explorer: authoringv2.ExplorerMetadata{Title: "Legacy semantics"},
-		Documents: []authoringv2.Document{document}, Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}
+	document := ws.Document{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		SemanticsVersion: ws.CurrentSemanticsVersion - 1, Explorer: ws.ExplorerMetadata{Title: "Legacy semantics"},
+		Documents: []ws.Document{document}, Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := authoringv2.MigrateStoredWorkspace(raw, authoringv2.CatalogSnapshot{})
+	plan, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,17 +302,17 @@ func workspaceMigrationCapabilitySnapshot(t *testing.T, ctx context.Context, cli
 
 func workspaceMigrationNilStepsWire(t *testing.T) ([]byte, string) {
 	t.Helper()
-	document := authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-		RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}
-	document, err := authoringv2.StartDocumentConstruction(document)
+	document := ws.Document{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}
+	document, err := ws.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Legacy nil steps"},
-		Documents: []authoringv2.Document{document}, Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Legacy nil steps"},
+		Documents: []ws.Document{document}, Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}
 	workspace.Documents[0].Construction.Steps = nil
 	raw, err := json.Marshal(workspace)
 	if err != nil {
@@ -320,21 +326,21 @@ func workspaceMigrationNilStepsWire(t *testing.T) ([]byte, string) {
 	return raw, legacyDigest
 }
 
-func workspaceMigrationReceipt(t *testing.T, owner explorer.Explorer, raw []byte, digest, requestID string) explorer.CompilationReceipt {
+func workspaceMigrationReceipt(t *testing.T, owner explorer.Explorer, raw []byte, digest, requestID string) receiptmodel.CompilationReceipt {
 	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "wp18-test", TranslationVersion: "wp18-test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Patient", RowGrain: "patient"}}}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CompilationReceiptFormatVersion,
-		CompilerContractVersion: explorer.CompilationReceiptCompilerContractVersion, Project: owner.Project, ExplorerID: owner.ExplorerID,
+	receipt := receiptmodel.CompilationReceipt{ReceiptFormatVersion: receiptmodel.CompilationReceiptFormatVersion,
+		CompilerContractVersion: receiptmodel.CompilationReceiptCompilerContractVersion, Project: owner.Project, ExplorerID: owner.ExplorerID,
 		IntentDigest: digest, SnapshotToken: "snapshot-wp18", AuthorizationScopeDigest: "scope-wp18", CapabilitySchemaDigest: "schema-wp18",
 		ShapeDigest: "shape-wp18", SourceGeneration: "generation-wp18", RecipeDigest: "sha256:recipe", ResolvedSchemaDigest: "sha256:resolved",
 		NormalizedBundle: append(json.RawMessage(nil), raw...), Bundle: bundle, CompiledConfig: json.RawMessage(`{"views":[]}`),
 		PublicOutputContract:   json.RawMessage(`{"outputs":[{"outputId":"out","columns":[],"lossless":true,"mlReady":true}]}`),
-		OutputColumnProvenance: map[string]map[string]string{"out": {"__loom_row_id": "EXPLICIT"}}, Warnings: []explorer.CompilationWarning{{Code: "EMPTY_OUTPUT", Message: "empty output"}}, RequestID: requestID}
+		OutputColumnProvenance: map[string]map[string]string{"out": {"__loom_row_id": "EXPLICIT"}}, Warnings: []receiptmodel.CompilationWarning{{Code: "EMPTY_OUTPUT", Message: "empty output"}}, RequestID: requestID}
 	receipt.ResolvedRecipeDigest, _ = bundle.Digest()
-	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(receipt.PublicOutputContract)
-	receipt.CompilationKey, _ = explorer.CompilationKey(receipt)
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(receipt.PublicOutputContract)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(receipt)
 	var err error
-	receipt.ID, err = explorer.ReceiptID(receipt)
+	receipt.ID, err = receiptmodel.ReceiptID(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +377,7 @@ func workspaceMigrationVerifyHistoryProjection(t *testing.T, ctx context.Context
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion || projection.Digest != wantDigest || digest != wantDigest || !json.Valid(canonical) {
+	if workspace.SemanticsVersion != ws.CurrentSemanticsVersion || projection.Digest != wantDigest || digest != wantDigest || !json.Valid(canonical) {
 		t.Fatalf("history projection result version=%d projection=%q service=%q want=%q bytes=%s", workspace.SemanticsVersion, projection.Digest, digest, wantDigest, canonical)
 	}
 }
@@ -437,6 +443,6 @@ func workspaceMigrationCollectionCount(t *testing.T, ctx context.Context, client
 	return count
 }
 
-func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection) error {
+func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection workspacepkg.Projection) error {
 	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
 }

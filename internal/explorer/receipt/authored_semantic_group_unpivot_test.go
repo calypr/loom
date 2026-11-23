@@ -3,42 +3,43 @@ package receipt
 import (
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestAuthoredSemanticGroupOutputCanBeRemovedByDownstreamUnpivot(t *testing.T) {
 	semanticPath := "construction_semantic_group:binding_specimen_type:family_specimen_type"
 	measureName := "specimen_type"
-	category := &authoringv2.ConstructionGroupSemanticCategory{
+	category := &ws.ConstructionGroupSemanticCategory{
 		Kind: "BINDING", BindingID: "binding_specimen_type", FamilyID: "family_specimen_type",
 		ResourceType: "Specimen", CodingPath: "type.coding[]",
 	}
-	document := authoringv2.Document{
-		Output:  authoringv2.Output{ID: "specimens"},
-		Columns: []authoringv2.Column{{Column: "subject_reference", ColumnID: "source_subject_reference"}},
-		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	document := ws.Document{
+		Output:  ws.Output{ID: "specimens"},
+		Columns: []ws.Column{{Column: "subject_reference", ColumnID: "source_subject_reference"}},
+		Construction: &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 			{
 				ID: "semantic_group",
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-					ConstructionID: "semantic_group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-					Keys:       []authoringv2.ConstructionGroupKey{{OutputColumnID: "specimen_type_group", SemanticCategory: category}},
-					Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+					ConstructionID: "semantic_group", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+					Keys:       []ws.ConstructionGroupKey{{OutputColumnID: "specimen_type_group", SemanticCategory: category}},
+					Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "specimen_type_group", Name: "specimen_type_group", Label: "Specimen type", Type: "string"},
 					{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
 				},
 			},
 			{
-				ID: "unpivot_semantic_key", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+				ID: "unpivot_semantic_key", Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID:    "unpivot_semantic_key",
-					Inputs:            []authoringv2.ConstructionUnpivotInput{{ColumnID: "specimen_type_group", Key: authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &measureName}}},
-					KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: authoringv2.ConstructionUnpivotPreserve,
+					Inputs:            []ws.ConstructionUnpivotInput{{ColumnID: "specimen_type_group", Key: ws.TableScalar{Kind: ws.TableScalarString, String: &measureName}}},
+					KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: ws.ConstructionUnpivotPreserve,
 				}},
-				Outputs: []authoringv2.StageColumn{
+				Outputs: []ws.StageColumn{
 					{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
 					{ID: "measure_key", Name: "measure", Label: "Measure", Type: "string"},
 					{ID: "measure_value", Name: "measure_value", Label: "Measure value", Type: "string"},

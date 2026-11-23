@@ -10,6 +10,11 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -47,7 +52,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			},
 		},
 		ReceiptLookup: service.CompilationReceiptForExplorer,
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
 			deadline, ok := ctx.Deadline()
 			if !ok {
@@ -68,7 +73,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe", PlanFingerprint: "test", TraversalCount: 0}, nil
 		},
 	}
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,16 +133,16 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
 	}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 
-	commandBody := fmt.Sprintf(`{"commandId":"browser-command-1","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":0,"commands":[{"type":"CREATE_TABLE","title":"Patients","rootNodeId":"n_patient"}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token)
+	commandBody := fmt.Sprintf(`{"commandId":"browser-command-1","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":0,"commands":[{"type":"CREATE_TABLE","title":"Patients","rootNodeId":"n_patient"}]}`, ws.CurrentSemanticsVersion, snapshot.Token)
 	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", commandBody)
 	if created.StatusCode != http.StatusOK {
 		t.Fatalf("command status=%d body=%s", created.StatusCode, created.Body)
@@ -161,7 +166,7 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	if conflict.StatusCode != http.StatusConflict || !strings.Contains(conflict.Body, `"code":"COMMAND_ID_CONFLICT"`) {
 		t.Fatalf("command ID conflict status=%d body=%s", conflict.StatusCode, conflict.Body)
 	}
-	secondBody := fmt.Sprintf(`{"commandId":"browser-command-2","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"commands":[{"type":"CREATE_TABLE","title":"Visits","rootNodeId":"n_patient"}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token)
+	secondBody := fmt.Sprintf(`{"commandId":"browser-command-2","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"commands":[{"type":"CREATE_TABLE","title":"Visits","rootNodeId":"n_patient"}]}`, ws.CurrentSemanticsVersion, snapshot.Token)
 	second := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", secondBody)
 	if second.StatusCode != http.StatusOK || !strings.Contains(second.Body, `"draftVersion":2`) {
 		t.Fatalf("second command status=%d body=%s", second.StatusCode, second.Body)
@@ -193,7 +198,7 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 }
 
 func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +211,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := newTestExplorerStore()
-	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "source", Title: "Source", ManagementMode: explorer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest}); err != nil {
+	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "source", Title: "Source", ManagementMode: viewer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
 	service, err := explorer.NewService(store)
@@ -223,7 +228,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clonedWorkspace, err := authoringv2.DecodeWorkspace(clone.DraftConfig)
+	clonedWorkspace, err := ws.DecodeWorkspace(clone.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -14,7 +16,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -30,7 +31,7 @@ func TestPopulationMappingReportLiteralResult(t *testing.T) {
 		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
-	config.PopulationMapping = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, output string, ids []string, _ string, _ int) (dataframeexecution.PopulationMappingResult, error) {
+	config.PopulationMapping = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, output string, ids []string, _ string, _ int) (dataframeexecution.PopulationMappingResult, error) {
 		if output != "patients" || len(ids) != 3 {
 			t.Fatalf("mapping callback arguments = %q/%v", output, ids)
 		}
@@ -67,7 +68,7 @@ func TestPopulationMappingRejectsCrossOutputCursorBeforeReadingMembers(t *testin
 		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
-	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
+	config.PopulationMapping = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
 		t.Fatal("mapping callback should not run for a stale cursor")
 		return dataframeexecution.PopulationMappingResult{}, nil
 	}
@@ -93,7 +94,7 @@ func TestPopulationMappingRejectsTamperedCursorBeforeReadingMembers(t *testing.T
 		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
-	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
+	config.PopulationMapping = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
 		return dataframeexecution.PopulationMappingResult{Status: dataframeexecution.PopulationMappingComplete, SelectedCount: 3, MappedCount: 2, UnmappedCount: 1, EmittedRows: 1, UnmappedMemberIDs: []string{"file-004"}, HasMoreUnmapped: true}, nil
 	}
 	service := newTestService(t, store, config)
@@ -136,7 +137,7 @@ func TestPopulationMappingIncompleteHasNoCounts(t *testing.T) {
 		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
-	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
+	config.PopulationMapping = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
 		return dataframeexecution.PopulationMappingResult{Status: dataframeexecution.PopulationMappingIncomplete}, nil
 	}
 	service := newTestService(t, store, config)
@@ -153,12 +154,12 @@ func unrestrictedScope() authscope.ReadScope {
 	return authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 }
 
-func populationTestReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
+func populationTestReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
 	receipt := nativeReceipt(snapshot)
 	receipt.Bundle.Outputs[0].Population = &recipe.PopulationConstraint{SelectionRevisionID: "selection-1", MembershipDigest: "membership-digest", MemberCount: 3, ResourceType: "Specimen"}
 	digest, _ := receipt.Bundle.Digest()
 	receipt.RecipeDigest, receipt.ResolvedRecipeDigest = digest, digest
-	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
-	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 	return receipt
 }

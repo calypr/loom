@@ -4,14 +4,15 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestRecipeConstructionMapsRepeatedRelatedContributorContract(t *testing.T) {
 	code := "d"
-	source := authoringv2.ConstructionRelatedFieldSource{
+	source := ws.ConstructionRelatedFieldSource{
 		Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-code",
 		NodeID: "observation", ResourceType: "Observation", Path: "category[].coding[].code",
 		Cardinality: "many", LogicalType: "code",
@@ -19,19 +20,19 @@ func TestRecipeConstructionMapsRepeatedRelatedContributorContract(t *testing.T) 
 			{Path: "category[]", MaxItems: 2}, {Path: "category[].coding[]", MaxItems: 4},
 		},
 	}
-	authored := authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &authoringv2.ConstructionRelatedExpand{
+	authored := ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{
 		AnchorColumnID: "_key", ChoiceID: "route-choice", TargetNodeID: "observation", TargetResourceType: "Observation",
 		Route: []capability.ConstructionRouteStep{{
 			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
 			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
 			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
 		}},
-		ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches, Predicate: &authoringv2.ContributorPredicate{
-			CandidateID: source.CandidateID, Operator: authoringv2.ContributorEquals, Quantifier: authoringv2.ContributorAny,
-			Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorValueCode, Code: &authoringv2.ContributorCode{Code: code}},
+		ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches, Predicate: &ws.ContributorPredicate{
+			CandidateID: source.CandidateID, Operator: ws.ContributorEquals, Quantifier: ws.ContributorAny,
+			Value: &ws.ContributorValue{Kind: ws.ContributorValueCode, Code: &ws.ContributorCode{Code: code}},
 		}},
 		ContributorSource: &source, ContributorChoiceID: "field-choice",
-		EmptyPolicy: authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation-id",
+		EmptyPolicy: ws.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation-id",
 	}}
 	mapped, err := recipeConstructionOperation(authored)
 	if err != nil {
@@ -56,11 +57,11 @@ func TestRecipeConstructionMapsRepeatedRelatedContributorContract(t *testing.T) 
 }
 
 func TestRecipeConstructionMapsRelatedSourceRowValuePolicy(t *testing.T) {
-	authored := authoringv2.ConstructionOperation{
-		Kind: authoringv2.ConstructionOperationRelatedSource,
-		RelatedSource: &authoringv2.ConstructionRelatedSource{
+	authored := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationRelatedSource,
+		RelatedSource: &ws.ConstructionRelatedSource{
 			AnchorColumnID: "__loom_row_id", ChoiceID: "observation-status-choice", SourceOccurrenceID: "observation-node",
-			Source: authoringv2.ConstructionRelatedFieldSource{
+			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-status", NodeID: "observation-node",
 				ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
 			},
@@ -69,8 +70,8 @@ func TestRecipeConstructionMapsRelatedSourceRowValuePolicy(t *testing.T) {
 				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
 				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
 			}},
-			ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
-			Form:            capability.ConstructionChoiceAll, RowValuePolicy: authoringv2.ConstructionRowValueOne,
+			ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+			Form:            capability.ConstructionChoiceAll, RowValuePolicy: ws.ConstructionRowValueOne,
 			OutputColumnID: "related-status",
 		},
 	}

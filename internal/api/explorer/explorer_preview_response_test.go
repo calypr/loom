@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -18,10 +21,10 @@ import (
 )
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
-	receipt := &explorer.CompilationReceipt{ID: "same-id"}
+	receipt := &receiptmodel.CompilationReceipt{ID: "same-id"}
 	aggregateUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
 	derivedUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg/m2"}
-	columns := []explorer.EmittedColumn{
+	columns := []viewer.EmittedColumn{
 		{EmissionID: "mean-weight", OutputID: "same-id", AuthoredColumns: []string{"weight"}, PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", Shape: "scalar", Nullable: true, ResultUnit: aggregateUnit},
 		{EmissionID: "bmi", OutputID: "same-id", AuthoredColumns: []string{"weight", "height"}, PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: derivedUnit},
 		{EmissionID: "patient-id", OutputID: "same-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", SourceResourceType: "Patient", SourcePath: "id"},
@@ -41,12 +44,12 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded struct {
-		ReceiptID  string                   `json:"receiptId"`
-		OutputID   string                   `json:"outputId"`
-		Rows       []map[string]any         `json:"rows"`
-		RowSources []json.RawMessage        `json:"rowSources"`
-		RowCount   int                      `json:"rowCount"`
-		Columns    []explorer.EmittedColumn `json:"columns"`
+		ReceiptID  string                 `json:"receiptId"`
+		OutputID   string                 `json:"outputId"`
+		Rows       []map[string]any       `json:"rows"`
+		RowSources []json.RawMessage      `json:"rowSources"`
+		RowCount   int                    `json:"rowCount"`
+		Columns    []viewer.EmittedColumn `json:"columns"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode response %s: %v", raw, err)
@@ -106,7 +109,7 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 }
 
 func TestPreviewResponseEncoderEmitsAlignedEmptyRowSources(t *testing.T) {
-	encoder, err := newPreviewResponseEncoder(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, 4096)
+	encoder, err := newPreviewResponseEncoder(&receiptmodel.CompilationReceipt{ID: "receipt"}, "output", nil, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +130,7 @@ func TestPreviewResponseEncoderEmitsAlignedEmptyRowSources(t *testing.T) {
 }
 
 func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
-	encoder, err := newPreviewResponseEncoder(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, 1024)
+	encoder, err := newPreviewResponseEncoder(&receiptmodel.CompilationReceipt{ID: "receipt"}, "output", nil, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +140,7 @@ func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
 }
 
 func TestPreviewResponseEncoderBoundsSourceSidecarDuringVisit(t *testing.T) {
-	encoder, err := newPreviewResponseEncoder(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, 1024)
+	encoder, err := newPreviewResponseEncoder(&receiptmodel.CompilationReceipt{ID: "receipt"}, "output", nil, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

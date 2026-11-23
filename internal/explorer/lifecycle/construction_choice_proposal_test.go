@@ -6,10 +6,13 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -26,13 +29,13 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 		t.Fatal(err)
 	}
 	choiceID := "command-choice-proposal"
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -41,7 +44,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 	}
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
-	beforeWorkspace, err := authoringv2.DecodeWorkspace(beforeConfig)
+	beforeWorkspace, err := ws.DecodeWorkspace(beforeConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +75,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 	}
 
 	apply, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: choiceID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: choiceID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest,
 		Commands: []authoringv2.Command{
 			{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}}},
@@ -110,7 +113,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		store.receipt = receipt
 		return receipt, nil
@@ -140,14 +143,14 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 
 func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDraft(t *testing.T) {
 	store, service, snapshot, _, choice := constructionSemanticChoiceFixture(t, nil, nil, "Observation")
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		var compileErr error
-		receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, compileErr = receiptmodel.CompilationKey(*receipt)
 		if compileErr != nil {
 			return nil, compileErr
 		}
-		receipt.ID, compileErr = explorer.ReceiptID(*receipt)
+		receipt.ID, compileErr = receiptmodel.ReceiptID(*receipt)
 		if compileErr != nil {
 			return nil, compileErr
 		}

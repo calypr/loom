@@ -4,26 +4,29 @@ import (
 	"encoding/json"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestV2ReceiptResponsePreservesResultUnitsAndOmitsAbsentUnit(t *testing.T) {
 	const system = "http://unitsofmeasure.org"
 	aggregateUnit := &unit.UnitIdentity{System: system, Code: "kg"}
 	derivedUnit := &unit.UnitIdentity{System: system, Code: "kg/m2"}
-	receipt := &explorer.CompilationReceipt{
+	receipt := &receiptmodel.CompilationReceipt{
 		ID:     "receipt-a",
 		Bundle: recipe.Bundle{Outputs: []recipe.Output{{Name: "patients", RowGrain: "RESOURCE"}}},
-		EmittedColumns: []explorer.EmittedColumn{
+		EmittedColumns: []viewer.EmittedColumn{
 			{OutputID: "patients", PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", ResultUnit: aggregateUnit},
 			{OutputID: "patients", PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: derivedUnit},
 			{OutputID: "patients", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"},
 		},
 	}
-	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{{Output: authoringv2.Output{ID: "patients", Title: "Patients"}}}}
+	workspace := ws.Workspace{Documents: []ws.Document{{Output: ws.Output{ID: "patients", Title: "Patients"}}}}
 
 	response := v2ReceiptResponse(receipt, workspace)
 	if len(response.Outputs) != 1 || len(response.Outputs[0].Columns) != 3 {

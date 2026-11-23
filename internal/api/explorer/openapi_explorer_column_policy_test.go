@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/proposal"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -22,7 +26,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -32,7 +35,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 	ctx := context.Background()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope), SchemaDigest: "schema", ShapeDigest: "shape"}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, []capability.Candidate{{ID: "candidate-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Populated: true}}, nil)
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{{ColumnID: "patient-id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}}}
+	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Patients"}, Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{{ColumnID: "patient-id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}, Tabs: []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}}}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -51,23 +54,23 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	}, Catalog: ws.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		if err != nil {
 			return nil, err
 		}
 		clone := *receipt
 		clone.ColumnPolicyProposal = receiptapi.CloneColumnPolicyBinding(request.ColumnPolicyProposal)
-		clone.CompilationKey, err = explorer.CompilationKey(clone)
+		clone.CompilationKey, err = receiptmodel.CompilationKey(clone)
 		if err != nil {
 			return nil, err
 		}
-		clone.ID, err = explorer.ReceiptID(clone)
+		clone.ID, err = receiptmodel.ReceiptID(clone)
 		if err != nil {
 			return nil, err
 		}
 		return service.StoreCompilationReceipt(ctx, clone)
-	}, PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	}, PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previews++
 		if receipt.ColumnPolicyProposal == nil || !bindings.IncludeRowIdentity || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 			t.Fatal("preview did not use exact policy receipt/output")
@@ -106,7 +109,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		t.Fatal("Preview/Cancel saved policy")
 	}
 	applyBody := func(commandID string) string {
-		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_COLUMN_POLICY_PROPOSAL","outputId":"patients","proposalId":%q}]}`, commandID, authoringv2.CurrentSemanticsVersion, snapshot.Token, digest, proposal.ProposalID)
+		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_COLUMN_POLICY_PROPOSAL","outputId":"patients","proposalId":%q}]}`, commandID, ws.CurrentSemanticsVersion, snapshot.Token, digest, proposal.ProposalID)
 	}
 	applied := requestJSON(t, app, http.MethodPost, path+"/commands", applyBody("policy-apply"))
 	if applied.StatusCode != http.StatusOK {
@@ -119,7 +122,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 	if saved.DraftVersion != 2 || previews != 2 {
 		t.Fatal("policy Apply did not validate runtime/save once")
 	}
-	reloaded, err := authoringv2.DecodeWorkspace(saved.DraftConfig)
+	reloaded, err := ws.DecodeWorkspace(saved.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

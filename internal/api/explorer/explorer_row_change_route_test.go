@@ -8,6 +8,11 @@ import (
 	"net/http"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -34,14 +39,14 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 			{ID: "patient-encounter", FromNodeID: "n_patient", ToNodeID: "n_encounter", Label: "encounters", SourceResourceType: "Patient", TargetResourceType: "Encounter", ObservedEdgeCount: 1},
 			{ID: "encounter-patient", FromNodeID: "n_encounter", ToNodeID: "n_patient", Label: "patient", SourceResourceType: "Encounter", TargetResourceType: "Patient", ObservedEdgeCount: 1},
 		}, []capability.Candidate{{ID: "c_report_id", NodeID: "n_report", ResourceType: "DiagnosticReport", FieldPath: "id", Label: "Report ID", LogicalType: "string", Cardinality: "OPTIONAL_ONE", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}, nil)
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Rows: ws.RecordsRowDefinition(), Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+			Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -52,7 +57,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := newTestExplorerStore()
-	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}); err != nil {
+	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
 	domain, err := explorer.NewService(store)
@@ -67,12 +72,12 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
-		Catalog: authoringv2.CatalogFromCapability,
+		Catalog: ws.CatalogFromCapability,
 	},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			return explorerfixtures.PersistTestNativeReceipt(ctx, t, domain, request, snapshot)
 		},
-		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"__loom_row_id": "row-1", "c_patient": "encounter-1"}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
@@ -153,7 +158,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commandBody := fmt.Sprintf(`{"commandId":"apply-row-change","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","rowChange":%s}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, digest, proposal)
+	commandBody := fmt.Sprintf(`{"commandId":"apply-row-change","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","rowChange":%s}]}`, ws.CurrentSemanticsVersion, snapshot.Token, digest, proposal)
 	applied := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/commands", commandBody)
 	if applied.StatusCode != http.StatusOK {
 		t.Fatalf("apply status=%d body=%s", applied.StatusCode, applied.Body)
@@ -199,7 +204,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacementCommandBody := fmt.Sprintf(`{"commandId":"apply-row-replacement","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":2,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","outputId":"patients","rowChange":%s}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, replacementDigest, replacementProposal)
+	replacementCommandBody := fmt.Sprintf(`{"commandId":"apply-row-replacement","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":2,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","outputId":"patients","rowChange":%s}]}`, ws.CurrentSemanticsVersion, snapshot.Token, replacementDigest, replacementProposal)
 	replacementApplied := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/commands", replacementCommandBody)
 	if replacementApplied.StatusCode != http.StatusOK {
 		t.Fatalf("replacement apply status=%d body=%s", replacementApplied.StatusCode, replacementApplied.Body)
@@ -254,13 +259,13 @@ func assertWireArray(t *testing.T, object map[string]json.RawMessage, key string
 	}
 }
 
-func assertRootCandidateDocumentEqualsApplied(t *testing.T, candidate *loomapi.Document, applied authoringv2.Document) {
+func assertRootCandidateDocumentEqualsApplied(t *testing.T, candidate *loomapi.Document, applied ws.Document) {
 	t.Helper()
 	raw, err := json.Marshal(candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var expected authoringv2.Document
+	var expected ws.Document
 	if err := json.Unmarshal(raw, &expected); err != nil {
 		t.Fatal(err)
 	}

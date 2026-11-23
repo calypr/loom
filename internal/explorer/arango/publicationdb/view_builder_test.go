@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	publicationdata "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -36,7 +38,7 @@ func TestAdoptedCatalogSnapshotIsDetachedAndKeepsExactPublishedMetadata(t *testi
 func TestViewBuilderSourcePublicationExpectedHeadsAndExactRetry(t *testing.T) {
 	definition := projectConfigTestDefinition("default", "recipe-a", "Default")
 	owner := projectConfigOwner{value: explorer.Explorer{
-		Project: "project-a", ExplorerID: "default", ManagementMode: explorer.ManagementRepository,
+		Project: "project-a", ExplorerID: "default", ManagementMode: viewer.ManagementRepository,
 		ProjectConfig: &definition, ActiveRevisionID: "revision-old",
 	}}
 	publication := explorer.ProjectConfigPublication{Definition: definition, Revision: explorer.Revision{ID: "revision-new"}}
@@ -54,7 +56,7 @@ func TestViewBuilderSourcePublicationExpectedHeadsAndExactRetry(t *testing.T) {
 	}
 	request.ExpectedConfigRevisionIDs["default"] = "revision-old"
 	owners["default"] = projectConfigOwner{value: explorer.Explorer{
-		Project: "project-a", ExplorerID: "default", ManagementMode: explorer.ManagementRepository,
+		Project: "project-a", ExplorerID: "default", ManagementMode: viewer.ManagementRepository,
 		ProjectConfig: &definition, ActiveRevisionID: "revision-new",
 	}}
 	if err := validateExpectedProjectConfigHeads(request, "project-a", owners); err != nil {
@@ -72,7 +74,7 @@ func TestSettingsCatalogPublishIsStableOnRetryAndPreservesDefaults(t *testing.T)
 		t.Fatalf("initial settings = %+v", first)
 	}
 	first.DefaultConfigID = "default"
-	first.DefaultFrameID = explorer.ViewBuilderFrameID("recipe-a", "output")
+	first.DefaultFrameID = viewer.ViewBuilderFrameID("recipe-a", "output")
 	current := &viewBuilderSettingsRow{value: first}
 	retry := settingsAfterCatalogPublish(current, "project-a", "recipe-a", "catalog-1")
 	if retry.Version != first.Version || retry.DefaultConfigID != first.DefaultConfigID || retry.DefaultFrameID != first.DefaultFrameID {
@@ -85,7 +87,7 @@ func TestSettingsCatalogPublishIsStableOnRetryAndPreservesDefaults(t *testing.T)
 }
 
 func TestViewBuilderFrameIDsAreRecipeQualified(t *testing.T) {
-	recipeName, output, ok := parseViewBuilderFrameID(explorer.ViewBuilderFrameID("recipe-a", "output"))
+	recipeName, output, ok := parseViewBuilderFrameID(viewer.ViewBuilderFrameID("recipe-a", "output"))
 	if !ok || recipeName != "recipe-a" || output != "output" {
 		t.Fatalf("frame parser = %q/%q/%v", recipeName, output, ok)
 	}
@@ -97,7 +99,7 @@ func TestViewBuilderFrameIDsAreRecipeQualified(t *testing.T) {
 }
 
 func TestViewBuilderDefaultRejectsRetargetingOrRemovingItsFrame(t *testing.T) {
-	settings := explorer.ViewBuilderSettings{DefaultConfigID: "default", DefaultFrameID: "recipe-a/output"}
+	settings := viewer.ViewBuilderSettings{DefaultConfigID: "default", DefaultFrameID: "recipe-a/output"}
 	valid := projectConfigTestDefinition("default", "recipe-a", "Default")
 	if err := validateViewBuilderDefaultBinding(settings, valid); err != nil {
 		t.Fatalf("valid saved default rejected: %v", err)
@@ -115,8 +117,8 @@ func TestViewBuilderDefaultRejectsRetargetingOrRemovingItsFrame(t *testing.T) {
 
 func TestProjectRecipeSnapshotMatchesViewFromSameExecution(t *testing.T) {
 	snapshot := explorer.Revision{
-		ID: "catalog-a", Project: "project-a", SourceGeneration: "generation-a", RecipeDigest: "digest", Dataset: explorer.DatasetMetadata{SchemaDigest: "schema"},
-		Recipe: recipe.Bundle{Name: "recipe-a"}, Publication: explorer.PublicationMetadata{ExecutionID: "execution-a"},
+		ID: "catalog-a", Project: "project-a", SourceGeneration: "generation-a", RecipeDigest: "digest", Dataset: viewer.DatasetMetadata{SchemaDigest: "schema"},
+		Recipe: recipe.Bundle{Name: "recipe-a"}, Publication: viewer.PublicationMetadata{ExecutionID: "execution-a"},
 	}
 	view := snapshot
 	view.ExplorerID = "default"
@@ -133,12 +135,12 @@ func TestCatalogSnapshotDoesNotChangeDynamicOrQualityEvidence(t *testing.T) {
 	readyAt := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	revision := explorer.Revision{
 		Project: "project-a", ExplorerID: "old-view", SourceGeneration: "generation-a", RecipeDigest: "digest",
-		Recipe: recipe.Bundle{Name: "recipe-a"}, Dataset: explorer.DatasetMetadata{SchemaDigest: "schema"},
+		Recipe: recipe.Bundle{Name: "recipe-a"}, Dataset: viewer.DatasetMetadata{SchemaDigest: "schema"},
 		PublicOutputContract: []byte(`{"outputs":[{"outputId":"output"}]}`),
-		EmittedColumns:       []explorer.EmittedColumn{{EmissionID: "dynamic:id", OutputID: "output", PublicColumn: "id", Label: "ID", LogicalType: "string", Cardinality: "optional_one"}},
-		Materializations:     []explorer.Materialization{{OutputID: "output", MaterializationID: "execution-a"}},
+		EmittedColumns:       []viewer.EmittedColumn{{EmissionID: "dynamic:id", OutputID: "output", PublicColumn: "id", Label: "ID", LogicalType: "string", Cardinality: "optional_one"}},
+		Materializations:     []viewer.Materialization{{OutputID: "output", MaterializationID: "execution-a"}},
 		QualityReports:       []publicationdata.QualityReport{{ID: "quality-a", Verdict: publicationdata.QualityPassed}},
-		Publication:          explorer.PublicationMetadata{ExecutionID: "execution-a", Generation: "generation-a"}, ReadyAt: &readyAt,
+		Publication:          viewer.PublicationMetadata{ExecutionID: "execution-a", Generation: "generation-a"}, ReadyAt: &readyAt,
 	}
 	snapshot := AdoptedCatalogSnapshot(revision, "recipe-a")
 	if len(snapshot.EmittedColumns) != 1 || snapshot.EmittedColumns[0].EmissionID != "dynamic:id" || len(snapshot.QualityReports) != 1 || snapshot.QualityReports[0].ID != "quality-a" {

@@ -7,6 +7,11 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -21,18 +26,18 @@ import (
 func constructionProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
 	t.Helper()
 	service, store, snapshot, _ := rowProposalService(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
 		var err error
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -42,41 +47,41 @@ func constructionProposalService(t *testing.T) (*Service, *fakeStore, capability
 	return service, store, snapshot
 }
 
-func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID string) []explorer.ReceiptConstructionStage {
+func testConstructionStageDescriptors(workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
 	index := constructionDocumentIndex(workspace, outputID)
 	if index < 0 {
 		return nil
 	}
 	document := workspace.Documents[index]
-	columns := make([]explorer.ReceiptConstructionStageColumn, 0, len(document.Columns))
+	columns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, explorer.ReceiptConstructionStageColumn{
+		columns = append(columns, receiptmodel.ReceiptConstructionStageColumn{
 			ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType, Cardinality: expression.OptionalOne,
 		})
 	}
-	allChoices := func() []explorer.ReceiptConstructionOperationChoice {
-		return []explorer.ReceiptConstructionOperationChoice{
+	allChoices := func() []receiptmodel.ReceiptConstructionOperationChoice {
+		return []receiptmodel.ReceiptConstructionOperationChoice{
 			{Kind: "PIVOT", Supported: true}, {Kind: "DERIVE", Supported: true},
 			{Kind: "FILTER", Supported: true}, {Kind: "UNPIVOT", Supported: true},
 			{Kind: "RELATED_EXPAND", Supported: true},
 		}
 	}
-	rootAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{
+	rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
 		AnchorColumnID: "_key", Kind: "root", ResourceType: document.RootResourceType,
 		Label: "Original " + document.RootResourceType,
 	}
-	stages := []explorer.ReceiptConstructionStage{{
+	stages := []receiptmodel.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: allChoices(),
-		RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
+		RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
 	}}
-	var activeAnchor *explorer.ReceiptConstructionActiveRelatedRecord
+	var activeAnchor *receiptmodel.ReceiptConstructionActiveRelatedRecord
 	if document.Construction == nil {
 		return stages
 	}
 	for _, step := range document.Construction.Steps {
-		stageColumns := make([]explorer.ReceiptConstructionStageColumn, 0, len(step.Outputs))
+		stageColumns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(step.Outputs))
 		for _, column := range step.Outputs {
-			stageColumns = append(stageColumns, explorer.ReceiptConstructionStageColumn{
+			stageColumns = append(stageColumns, receiptmodel.ReceiptConstructionStageColumn{
 				ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type, Cardinality: expression.OptionalOne,
 			})
 		}
@@ -84,7 +89,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 		if len(stages) > 1 {
 			inputStageID = stages[len(stages)-1].ID
 		}
-		stage := explorer.ReceiptConstructionStage{
+		stage := receiptmodel.ReceiptConstructionStage{
 			ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
 			Columns: stageColumns, Capabilities: allChoices(),
 		}
@@ -97,7 +102,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 					Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
 				})
 			}
-			stage.RelatedExpand = &explorer.ReceiptConstructionRelatedExpand{
+			stage.RelatedExpand = &receiptmodel.ReceiptConstructionRelatedExpand{
 				AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumnID,
 				AnchorKind: "root", AnchorNodeID: related.Route[0].FromNodeID,
 				AnchorResourceType:     related.Route[0].FromResourceType,
@@ -106,20 +111,20 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 				TerminalIdentityColumn: "__test_terminal_identity", TargetNodeID: related.TargetNodeID,
 				TargetResourceType: related.TargetResourceType, Route: route,
 			}
-			activeAnchor = &explorer.ReceiptConstructionActiveRelatedRecord{
+			activeAnchor = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
 				TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
 				TerminalIdentityColumn: "__test_terminal_identity",
 			}
-		} else if step.Operation.Kind != authoringv2.ConstructionOperationFilter &&
-			step.Operation.Kind != authoringv2.ConstructionOperationDerive &&
-			step.Operation.Kind != authoringv2.ConstructionOperationRelatedSource &&
-			step.Operation.Kind != authoringv2.ConstructionOperationRelatedField {
+		} else if step.Operation.Kind != ws.ConstructionOperationFilter &&
+			step.Operation.Kind != ws.ConstructionOperationDerive &&
+			step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
+			step.Operation.Kind != ws.ConstructionOperationRelatedField {
 			activeAnchor = nil
 		}
-		stage.RelatedExpandAnchors = []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
+		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
 		if activeAnchor != nil {
 			stage.ActiveRelatedRecord = activeAnchor
-			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, explorer.ReceiptConstructionRelatedExpandAnchor{
+			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, receiptmodel.ReceiptConstructionRelatedExpandAnchor{
 				AnchorColumnID: activeAnchor.TerminalIdentityColumn, Kind: "activeRelatedRecord",
 				NodeID: activeAnchor.TargetNodeID, ResourceType: activeAnchor.TargetResourceType,
 				Label: "Current related " + activeAnchor.TargetResourceType,
@@ -130,24 +135,24 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 	return stages
 }
 
-func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, document authoringv2.Document, changedStepID string) construction.ConstructionProposalRequest {
-	upgraded, _ := authoringv2.StartDocumentConstruction(document)
-	columns := make([]authoringv2.StageColumn, 0, len(upgraded.Columns))
+func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, document ws.Document, changedStepID string) construction.ConstructionProposalRequest {
+	upgraded, _ := ws.StartDocumentConstruction(document)
+	columns := make([]ws.StageColumn, 0, len(upgraded.Columns))
 	for _, column := range upgraded.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	return construction.ConstructionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: "patients", ChangedStepID: changedStepID,
-		CandidateConstruction: authoringv2.Construction{
-			Version: authoringv2.ConstructionVersion,
-			Steps: []authoringv2.ConstructionStep{{
+		CandidateConstruction: ws.Construction{
+			Version: ws.ConstructionVersion,
+			Steps: []ws.ConstructionStep{{
 				ID:     changedStepID,
-				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{
-					Kind:   authoringv2.ConstructionOperationFilter,
-					Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+				Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{
+					Kind:   ws.ConstructionOperationFilter,
+					Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterExists},
 				},
 				Outputs: columns,
 			}},
@@ -155,19 +160,19 @@ func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.S
 	}
 }
 
-func seedConstructionProposalWithRelatedSource(t *testing.T, store *fakeStore, snapshot capability.Snapshot) (authoringv2.Workspace, authoringv2.ConstructionRelatedSource) {
+func seedConstructionProposalWithRelatedSource(t *testing.T, store *fakeStore, snapshot capability.Snapshot) (ws.Workspace, ws.ConstructionRelatedSource) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	if len(columns) == 0 {
 		t.Fatal("proposal fixture has no source columns")
@@ -185,27 +190,27 @@ func seedConstructionProposalWithRelatedSource(t *testing.T, store *fakeStore, s
 	if err != nil {
 		t.Fatal(err)
 	}
-	related := authoringv2.ConstructionRelatedSource{
+	related := ws.ConstructionRelatedSource{
 		AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, SourceOccurrenceID: candidate.NodeID,
-		Source: authoringv2.ConstructionRelatedFieldSource{
+		Source: ws.ConstructionRelatedFieldSource{
 			Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
 			ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality, LogicalType: candidate.LogicalType,
 		},
-		Route: route, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+		Route: route, ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
 		Form: capability.ConstructionChoiceAll, OutputColumnID: "observation-status",
 	}
-	filterOutputs := append([]authoringv2.StageColumn(nil), columns...)
-	relatedOutputs := append([]authoringv2.StageColumn(nil), columns...)
-	relatedOutputs = append(relatedOutputs, authoringv2.StageColumn{ID: related.OutputColumnID, Name: "observation_status", Label: "Observation statuses", Type: related.Source.LogicalType})
-	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	filterOutputs := append([]ws.StageColumn(nil), columns...)
+	relatedOutputs := append([]ws.StageColumn(nil), columns...)
+	relatedOutputs = append(relatedOutputs, ws.StageColumn{ID: related.OutputColumnID, Name: "observation_status", Label: "Observation statuses", Type: related.Source.LogicalType})
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
-			ID: "filter_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists}},
+			ID: "filter_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterExists}},
 			Outputs:   filterOutputs,
 		},
 		{
-			ID: "related_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "filter_step"}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related},
+			ID: "related_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "filter_step"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedSource, RelatedSource: &related},
 			Outputs:   relatedOutputs,
 		},
 	}}
@@ -226,14 +231,14 @@ func seedConstructionProposalWithRelatedSource(t *testing.T, store *fakeStore, s
 	return workspace, related
 }
 
-func seedConstructionProposalWithTwoFilters(t *testing.T, store *fakeStore, snapshot capability.Snapshot) (authoringv2.Workspace, authoringv2.ConstructionRelatedSource) {
+func seedConstructionProposalWithTwoFilters(t *testing.T, store *fakeStore, snapshot capability.Snapshot) (ws.Workspace, ws.ConstructionRelatedSource) {
 	t.Helper()
 	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
 	document := workspace.Documents[0]
-	columns := append([]authoringv2.StageColumn(nil), document.Construction.Steps[0].Outputs...)
-	document.Construction.Steps[1].Operation = authoringv2.ConstructionOperation{
-		Kind:   authoringv2.ConstructionOperationFilter,
-		Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+	columns := append([]ws.StageColumn(nil), document.Construction.Steps[0].Outputs...)
+	document.Construction.Steps[1].Operation = ws.ConstructionOperation{
+		Kind:   ws.ConstructionOperationFilter,
+		Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterExists},
 	}
 	document.Construction.Steps[1].Outputs = columns
 	workspace.Documents[0] = document
@@ -253,17 +258,17 @@ func seedConstructionProposalWithTwoFilters(t *testing.T, store *fakeStore, snap
 	return workspace, related
 }
 
-func turnProposalStepIntoRelatedSource(workspace authoringv2.Workspace, index int, related authoringv2.ConstructionRelatedSource) authoringv2.ConstructionStep {
+func turnProposalStepIntoRelatedSource(workspace ws.Workspace, index int, related ws.ConstructionRelatedSource) ws.ConstructionStep {
 	step := workspace.Documents[0].Construction.Steps[index]
-	step.Operation = authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related}
-	step.Outputs = append([]authoringv2.StageColumn(nil), workspace.Documents[0].Construction.Steps[0].Outputs...)
-	step.Outputs = append(step.Outputs, authoringv2.StageColumn{ID: related.OutputColumnID, Name: "observation_status", Label: "Observation statuses", Type: related.Source.LogicalType})
+	step.Operation = ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedSource, RelatedSource: &related}
+	step.Outputs = append([]ws.StageColumn(nil), workspace.Documents[0].Construction.Steps[0].Outputs...)
+	step.Outputs = append(step.Outputs, ws.StageColumn{ID: related.OutputColumnID, Name: "observation_status", Label: "Observation statuses", Type: related.Source.LogicalType})
 	return step
 }
 
-func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, workspace authoringv2.Workspace, related authoringv2.ConstructionRelatedSource, changedStepID string, removeStepIDs ...string) construction.ConstructionProposalRequest {
+func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, workspace ws.Workspace, related ws.ConstructionRelatedSource, changedStepID string, removeStepIDs ...string) construction.ConstructionProposalRequest {
 	document := workspace.Documents[0]
-	candidate, _ := authoringv2.StartDocumentConstruction(document)
+	candidate, _ := ws.StartDocumentConstruction(document)
 	for index := range candidate.Construction.Steps {
 		if candidate.Construction.Steps[index].ID == "related_step" {
 			candidate.Construction.Steps[index].Operation.RelatedSource = &related
@@ -273,7 +278,7 @@ func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: "patients", ChangedStepID: changedStepID, RemoveStepIDs: removeStepIDs,
-		CandidateConstruction: authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: append([]authoringv2.ConstructionStep(nil), candidate.Construction.Steps...)},
+		CandidateConstruction: ws.Construction{Version: ws.ConstructionVersion, Steps: append([]ws.ConstructionStep(nil), candidate.Construction.Steps...)},
 	}
 }
 
@@ -296,7 +301,7 @@ func TestProposeConstructionReauthorizesRelatedSourceWhenChangedStepHintOmitted(
 	service, store, snapshot := constructionProposalService(t)
 	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "", "filter_step")
-	request.CandidateConstruction.Steps = []authoringv2.ConstructionStep{workspace.Documents[0].Construction.Steps[1]}
+	request.CandidateConstruction.Steps = []ws.ConstructionStep{workspace.Documents[0].Construction.Steps[1]}
 	request.CandidateConstruction.Steps[0].Operation.RelatedSource.Source.Path = "valueQuantity.value"
 	_, err := service.ProposeConstruction(context.Background(), request)
 	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
@@ -319,7 +324,7 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 	service, store, snapshot := constructionProposalService(t)
 	workspace, related := seedConstructionProposalWithTwoFilters(t, store, snapshot)
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "", "filter_step")
-	request.CandidateConstruction.Steps = []authoringv2.ConstructionStep{turnProposalStepIntoRelatedSource(workspace, 1, related)}
+	request.CandidateConstruction.Steps = []ws.ConstructionStep{turnProposalStepIntoRelatedSource(workspace, 1, related)}
 	_, err := service.ProposeConstruction(context.Background(), request)
 	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
 		t.Fatalf("new related source with omitted changedStepId error = %v, want stale choice", err)
@@ -328,21 +333,21 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 
 func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
 		var err error
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -358,33 +363,33 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 		t.Fatalf("related expansion route search = %#v, %v", choices, err)
 	}
 	choice := choices.Choices[0]
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	outputs := make([]ws.StageColumn, 0, len(document.Columns)+1)
 	for _, column := range document.Columns {
-		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		outputs = append(outputs, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	outputs = append(outputs, authoringv2.StageColumn{ID: "observation_id", Name: "observation_id", Label: "FHIR resource ID", Type: "string"})
+	outputs = append(outputs, ws.StageColumn{ID: "observation_id", Name: "observation_id", Label: "FHIR resource ID", Type: "string"})
 	makeRequest := func(route []capability.ConstructionRouteStep) construction.ConstructionProposalRequest {
-		related := &authoringv2.ConstructionRelatedExpand{
+		related := &ws.ConstructionRelatedExpand{
 			AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, TargetNodeID: choice.TargetNodeID,
 			TargetResourceType: choice.TargetResourceType, Route: route,
-			ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
-			EmptyPolicy:     authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id",
+			ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+			EmptyPolicy:     ws.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id",
 		}
 		return construction.ConstructionProposalRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			OutputID: "patients", ChangedStepID: "expand_observations",
-			CandidateConstruction: authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-				ID: "expand_observations", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: related}, Outputs: outputs,
+			CandidateConstruction: ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+				ID: "expand_observations", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: related}, Outputs: outputs,
 			}}},
 		}
 	}
@@ -404,7 +409,7 @@ func TestProposeConstructionDoesNotReauthorizeUnchangedRelatedSource(t *testing.
 	service, store, snapshot := constructionProposalService(t)
 	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "filter_step")
-	request.CandidateConstruction.Steps[0].Operation.Filter.Operator = authoringv2.ConstructionFilterMissing
+	request.CandidateConstruction.Steps[0].Operation.Filter.Operator = ws.ConstructionFilterMissing
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("unrelated edit with unchanged saved related source: %v", err)
@@ -416,7 +421,7 @@ func TestProposeConstructionDoesNotReauthorizeUnchangedRelatedSource(t *testing.
 
 func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +458,7 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 	for _, forged := range []bool{false, true} {
 		t.Run(map[bool]string{false: "matching", true: "mismatched"}[forged], func(t *testing.T) {
 			service, store, snapshot := constructionProposalService(t)
-			workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+			workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,8 +477,8 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 			originalConfig, originalVersion, originalDigest := string(draft), store.created.DraftVersion, digest
 			compileReceipt := service.config.CompileReceipt
 			catalog := service.config.Capability.Catalog(snapshot, store.created.ExplorerID)
-			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-				prepared, migrateErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
+			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+				prepared, migrateErr := ws.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 				if migrateErr != nil {
 					return nil, migrateErr
 				}
@@ -517,7 +522,7 @@ func TestConstructionGroupSourceCandidateRequiresPopulatedField(t *testing.T) {
 
 func TestProposeConstructionKeepsAcceptedDraftWhenDependencyRepairIsNeeded(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,23 +544,23 @@ func TestProposeConstructionKeepsAcceptedDraftWhenDependencyRepairIsNeeded(t *te
 
 func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	columns := make([]ws.StageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
-		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		columns = append(columns, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	document.Construction.Steps = []authoringv2.ConstructionStep{{
-		ID: "only_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{
-			Kind:   authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+	document.Construction.Steps = []ws.ConstructionStep{{
+		ID: "only_step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{
+			Kind:   ws.ConstructionOperationFilter,
+			Filter: &ws.ConstructionFilter{ColumnID: columns[0].ID, Operator: ws.ConstructionFilterExists},
 		},
 		Outputs: columns,
 	}}
@@ -578,7 +583,7 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", RemoveStepIDs: []string{"only_step"},
-		CandidateConstruction: authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}},
+		CandidateConstruction: ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -590,7 +595,7 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 
 func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +615,7 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	previewCalls := 0
 	var capturedRows []map[string]any
 	sinkFactoryCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -618,11 +623,11 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
 	apply := authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}
-	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(receipt *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(receipt *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		sinkFactoryCalls++
 		if receipt == nil || receipt.ID != proposal.ProposalID {
 			t.Fatalf("preview sink receipt = %#v, want exact proposal %q", receipt, proposal.ProposalID)
@@ -657,7 +662,7 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	if bytes.Contains(store.created.LastAuthoringCommandResults, []byte("p1")) || bytes.Contains(store.created.DraftConfig, []byte("p1")) {
 		t.Fatal("preview rows were persisted in the command replay record or draft")
 	}
-	replayed, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	replayed, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		t.Fatal("command replay reran the preview sink factory")
 		return nil, nil
 	})
@@ -671,7 +676,7 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 
 func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +686,7 @@ func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T)
 	}
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	previewCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -689,10 +694,10 @@ func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T)
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-construction-capture-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-construction-capture-failure", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
-	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	}, "alice", func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return nil, errors.New("bounded response encoder is unavailable")
 	})
 	if err != nil {
@@ -705,7 +710,7 @@ func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T)
 
 func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +720,7 @@ func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing
 	}
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	previewCalls, rowVisits := 0, 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -723,10 +728,10 @@ func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-construction-row-capture-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-construction-row-capture-failure", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
-	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	}, "alice", func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error {
 			rowVisits++
 			return errors.New("preview response exceeded its bound")
@@ -742,7 +747,7 @@ func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing
 
 func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,14 +756,14 @@ func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
 		t.Fatal(err)
 	}
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	service.config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 0, Complete: true}, nil
 	}
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-construction-empty-preview", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-construction-empty-preview", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
-	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	}, "alice", func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	})
 	if err != nil {
@@ -771,7 +776,7 @@ func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
 
 func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -782,7 +787,7 @@ func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	store.applyErr = errors.New("draft compare-and-swap failed")
 	previewCalls := 0
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
@@ -790,10 +795,10 @@ func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
 	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-construction-cas-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-construction-cas-failure", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
-	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	}, "alice", func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	})
 	if err == nil || result != nil {
@@ -806,7 +811,7 @@ func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing
 
 func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -816,11 +821,11 @@ func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *tes
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	service.config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{}, errors.New("preview backend failed")
 	}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "failed-apply-construction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "failed-apply-construction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice")
@@ -834,7 +839,7 @@ func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *tes
 
 func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -851,27 +856,27 @@ func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection
 
 func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	service.config.ConstructionSourceStage = func(_ context.Context, _ ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-		return explorer.ReceiptConstructionStage{
+	service.config.ConstructionSourceStage = func(_ context.Context, _ ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
+		return receiptmodel.ReceiptConstructionStage{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			Columns: []explorer.ReceiptConstructionStageColumn{},
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{},
 		}, nil
 	}
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.Documents[0].Columns = []authoringv2.Column{}
+	workspace.Documents[0].Columns = []ws.Column{}
 	workspace.Documents[0].Construction = nil
 	workspace.Documents[0].ArchiveRetiredShape = nil
 	sibling := workspace.Documents[0]
-	sibling.Output = authoringv2.Output{ID: "sibling", Title: "Sibling"}
-	sibling.Columns = []authoringv2.Column{{
+	sibling.Output = ws.Output{ID: "sibling", Title: "Sibling"}
+	sibling.Columns = []ws.Column{{
 		ColumnID: "sibling_id", Column: "sibling_id", Label: "Sibling ID", LogicalType: "string",
-		OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
+		OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID},
 	}}
 	workspace.Documents = append(workspace.Documents, sibling)
-	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "sibling-tab", Title: "Sibling", OutputID: "sibling", Order: 1, Visible: true})
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: "sibling-tab", Title: "Sibling", OutputID: "sibling", Order: 1, Visible: true})
 	baseRaw, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -883,16 +888,16 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 	store.created.DraftConfig = baseRaw
 	store.created.DraftDigest = baseDigest
 
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
 		ID: "append_three_sources",
-		Inputs: []authoringv2.ConstructionInputRef{
-			{Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-observations", RevisionID: "rev-source", OutputID: "observations"},
-			{Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-reports", RevisionID: "rev-source", OutputID: "reports"},
-			{Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-patients", RevisionID: "rev-source", OutputID: "source-patients"},
+		Inputs: []ws.ConstructionInputRef{
+			{Kind: ws.ConstructionInputTableRevision, TableID: "table-observations", RevisionID: "rev-source", OutputID: "observations"},
+			{Kind: ws.ConstructionInputTableRevision, TableID: "table-reports", RevisionID: "rev-source", OutputID: "reports"},
+			{Kind: ws.ConstructionInputTableRevision, TableID: "table-patients", RevisionID: "rev-source", OutputID: "source-patients"},
 		},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
-			Kind: authoringv2.ConstructionCombineAppend,
-			Projections: []authoringv2.ConstructionCombineProjection{
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+			Kind: ws.ConstructionCombineAppend,
+			Projections: []ws.ConstructionCombineProjection{
 				{OutputColumnID: "record_id", InputIndex: 0, InputColumnID: "observation-id"},
 				{OutputColumnID: "record_id", InputIndex: 1, InputColumnID: "report-id"},
 				{OutputColumnID: "record_id", InputIndex: 2, InputColumnID: "patient-id"},
@@ -901,7 +906,7 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 				{OutputColumnID: "patient_gender", InputIndex: 2, InputColumnID: "patient-gender"},
 			},
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "record_id", Name: "record_id", Label: "Record ID", Type: "string", Nullable: true},
 			{ID: "status", Name: "status", Label: "Status", Type: "string", Nullable: true},
 			{ID: "patient_gender", Name: "patient_gender", Label: "Patient gender", Type: "string", Nullable: true},
@@ -918,14 +923,14 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 	if proposal.ProposalID == "" || proposal.PreviewStatus != "PREVIEW_PENDING" {
 		t.Fatalf("append proposal = %#v", proposal)
 	}
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if err := visit(map[string]any{"record_id": "r1", "status": "final", "patient_gender": nil}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"record_id", "status", "patient_gender"}, RowCount: 1, Complete: true}, nil
 	}
 	_, err = service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-empty-target-append", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-empty-target-append", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice")
@@ -935,7 +940,7 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 	if store.saveDraftCalls != 1 {
 		t.Fatalf("successful APPEND proposal saves = %d, want one atomic save", store.saveDraftCalls)
 	}
-	saved, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	saved, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

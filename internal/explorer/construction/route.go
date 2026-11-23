@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -27,7 +29,7 @@ import (
 type constructionRouteFlow struct {
 	capability       ports.CapabilityResolver
 	loadBase         func(context.Context, string, string, string, int64, string, string) (Base, error)
-	currentWorkspace func(context.Context, string, string) (authoringv2.Workspace, error)
+	currentWorkspace func(context.Context, string, string) (ws.Workspace, error)
 	resolveInventory func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 }
 
@@ -52,7 +54,7 @@ func (s constructionRouteFlow) searchRelatedFieldChoices(ctx context.Context, re
 		return result, err
 	}
 	result.DraftVersion, result.DraftDigest = base.Owner.DraftVersion, base.Owner.DraftDigest
-	var stage *explorer.ReceiptConstructionStage
+	var stage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == request.StageID {
 			stage = &base.Stages[index]
@@ -127,7 +129,7 @@ func (s constructionRouteFlow) searchRelatedFieldChoices(ctx context.Context, re
 		}
 		result.Choices = append(result.Choices, RelatedFieldChoice{
 			ChoiceID: choice.ChoiceID, Label: choice.Label,
-			Source: authoringv2.ConstructionRelatedFieldSource{
+			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: choice.Source.CandidateID,
 				NodeID: choice.Source.NodeID, ResourceType: choice.Source.ResourceType, Path: choice.Source.Path,
 				Cardinality: proved.Cardinality, LogicalType: proved.LogicalType,
@@ -171,7 +173,7 @@ func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context
 		return result, err
 	}
 	result.DraftVersion, result.DraftDigest = base.Owner.DraftVersion, base.Owner.DraftDigest
-	var stage *explorer.ReceiptConstructionStage
+	var stage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == request.StageID {
 			stage = &base.Stages[index]
@@ -268,7 +270,7 @@ func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context
 		}
 		result.Choices = append(result.Choices, RelatedExpandContributorChoice{
 			ChoiceID: choice.ChoiceID, Label: firstNonEmpty(proved.Label, proved.ResourceType+"."+proved.FieldPath),
-			Source: authoringv2.ConstructionRelatedFieldSource{
+			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: proved.ID, NodeID: proved.NodeID,
 				ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
 				LogicalType: proved.LogicalType, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), proved.RepeatedBoundaries...),
@@ -314,7 +316,7 @@ func (s constructionRouteFlow) searchRelatedExpandChoices(ctx context.Context, r
 		return result, err
 	}
 	result.DraftVersion, result.DraftDigest = base.Owner.DraftVersion, base.Owner.DraftDigest
-	var stage *explorer.ReceiptConstructionStage
+	var stage *receiptmodel.ReceiptConstructionStage
 	for index := range base.Stages {
 		if base.Stages[index].ID == request.StageID {
 			stage = &base.Stages[index]
@@ -569,10 +571,10 @@ func pageSavedRelatedExpandRoutes(routes [][]capability.ConstructionRouteStep, s
 	return routes[offset:end], base64.RawURLEncoding.EncodeToString(next), nil
 }
 
-func savedRelatedExpandRoutes(snapshot capability.Snapshot, root authoringv2.RouteNode, anchor resolvedRelatedExpandAnchor, target string) [][]capability.ConstructionRouteStep {
+func savedRelatedExpandRoutes(snapshot capability.Snapshot, root ws.RouteNode, anchor resolvedRelatedExpandAnchor, target string) [][]capability.ConstructionRouteStep {
 	var routes [][]capability.ConstructionRouteStep
-	var visit func(authoringv2.RouteNode, string, []capability.ConstructionRouteStep)
-	visit = func(parent authoringv2.RouteNode, nodeID string, path []capability.ConstructionRouteStep) {
+	var visit func(ws.RouteNode, string, []capability.ConstructionRouteStep)
+	visit = func(parent ws.RouteNode, nodeID string, path []capability.ConstructionRouteStep) {
 		if snapshot.Policy.Route.MaxHops > 0 && len(path) >= snapshot.Policy.Route.MaxHops {
 			return
 		}
@@ -597,7 +599,7 @@ func savedRelatedExpandRoutes(snapshot capability.Snapshot, root authoringv2.Rou
 	return routes
 }
 
-func constructionStageSupportsRelatedExpand(stage explorer.ReceiptConstructionStage) bool {
+func constructionStageSupportsRelatedExpand(stage receiptmodel.ReceiptConstructionStage) bool {
 	for _, operation := range stage.Capabilities {
 		if operation.Kind == "RELATED_EXPAND" {
 			return operation.Supported
@@ -614,7 +616,7 @@ type resolvedRelatedExpandAnchor struct {
 	Label        string
 }
 
-func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage explorer.ReceiptConstructionStage, rootResourceType, columnID string) (resolvedRelatedExpandAnchor, error) {
+func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage receiptmodel.ReceiptConstructionStage, rootResourceType, columnID string) (resolvedRelatedExpandAnchor, error) {
 	for _, anchor := range stage.RelatedExpandAnchors {
 		if anchor.AnchorColumnID != columnID {
 			continue
@@ -660,7 +662,7 @@ func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage explorer.Rec
 	return resolvedRelatedExpandAnchor{}, fmt.Errorf("anchor column %q is not compiler-proven for stage %q", columnID, stage.ID)
 }
 
-func resolveCapabilityRouteEdge(snapshot capability.Snapshot, parentNodeID string, parent, child authoringv2.RouteNode) (capability.Edge, error) {
+func resolveCapabilityRouteEdge(snapshot capability.Snapshot, parentNodeID string, parent, child ws.RouteNode) (capability.Edge, error) {
 	return support.ResolveCapabilityRouteEdge(snapshot, parentNodeID, parent, child)
 }
 
@@ -672,15 +674,15 @@ func reauthorizeConstructionRouteFromAnchor(snapshot capability.Snapshot, anchor
 	return support.ReauthorizeConstructionRouteFromAnchor(snapshot, anchorNodeID, targetNodeID, route)
 }
 
-func routePathToOccurrence(root authoringv2.RouteNode, occurrenceID string) ([]authoringv2.RouteNode, bool) {
+func routePathToOccurrence(root ws.RouteNode, occurrenceID string) ([]ws.RouteNode, bool) {
 	return support.RoutePathToOccurrence(root, occurrenceID)
 }
 
-func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot authoringv2.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
+func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
 	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, expectedNodeID)
 }
 
-func validateResolvedRowChoice(route authoringv2.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
+func validateResolvedRowChoice(route ws.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
 	return rowdef.ValidateResolvedRowChoice(route, resolved, expected)
 }
 

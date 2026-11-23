@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -32,7 +35,7 @@ func rowValuePolicyValidationFailure(err error) error {
 	return support.Unprocessable("commands", "ROW_VALUE_POLICY_VALIDATION_FAILED", "The selected row-value policy could not be validated across all grouped records.", err)
 }
 
-func validateRowValuePolicyReceiptSnapshot(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {
+func validateRowValuePolicyReceiptSnapshot(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -58,7 +61,7 @@ func validateRowValuePolicyReceiptSnapshot(receipt *explorer.CompilationReceipt,
 	return nil
 }
 
-func validateSameAuthorizedReceiptSnapshot(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
+func validateSameAuthorizedReceiptSnapshot(receipt *receiptmodel.CompilationReceipt, authorized ports.AuthorizedCapability) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -75,7 +78,7 @@ func (s *Service) ValidateRowValuePolicyCandidate(
 	ctx context.Context,
 	project, explorerID string,
 	request authoringv2.ApplyCommandsRequest,
-	workspace authoringv2.Workspace,
+	workspace ws.Workspace,
 	snapshot capability.Snapshot,
 	compilationAuth ports.AuthorizedCapability,
 	command authoringv2.Command,

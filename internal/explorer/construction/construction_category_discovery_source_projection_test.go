@@ -3,66 +3,66 @@ package construction
 import (
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestPruneConstructionCategorySourceProjectionsKeepsRetainedOwnerSteps(t *testing.T) {
-	projection := func(columnID, ownerStepID string) authoringv2.ConstructionSourceProjection {
-		return authoringv2.ConstructionSourceProjection{
-			ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := func(columnID, ownerStepID string) ws.ConstructionSourceProjection {
+		return ws.ConstructionSourceProjection{
+			ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: columnID, FHIRType: "string", LogicalType: "string", Label: columnID,
 		}
 	}
-	steps := []authoringv2.ConstructionStep{
+	steps := []ws.ConstructionStep{
 		{
 			ID: "filter-step",
-			Operation: authoringv2.ConstructionOperation{
-				Kind:   authoringv2.ConstructionOperationFilter,
-				Filter: &authoringv2.ConstructionFilter{ColumnID: "filter_projection", Operator: authoringv2.ConstructionFilterExists},
+			Operation: ws.ConstructionOperation{
+				Kind:   ws.ConstructionOperationFilter,
+				Filter: &ws.ConstructionFilter{ColumnID: "filter_projection", Operator: ws.ConstructionFilterExists},
 			},
-			Outputs: []authoringv2.StageColumn{{ID: "filter_projection", Name: "filter_projection", Label: "filter_projection", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "filter_projection", Name: "filter_projection", Label: "filter_projection", Type: "string"}},
 		},
 		{
 			ID: "derive-step",
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationDerive,
-				Derive: &authoringv2.ConstructionDerive{
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationDerive,
+				Derive: &ws.ConstructionDerive{
 					ConstructionID:     "derive-step",
 					OutputColumnID:     "derived",
-					Operation:          authoringv2.ConstructionDerivedAdd,
-					Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "derive_projection"},
-					Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: constructionCategoryDiscoveryInt(1)}},
-					MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+					Operation:          ws.ConstructionDerivedAdd,
+					Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "derive_projection"},
+					Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: constructionCategoryDiscoveryInt(1)}},
+					MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 				},
 			},
-			Outputs: []authoringv2.StageColumn{
+			Outputs: []ws.StageColumn{
 				{ID: "derive_projection", Name: "derive_projection", Label: "derive_projection", Type: "string"},
 				{ID: "derived", Name: "derived", Label: "derived", Type: "integer"},
 			},
 		},
 		{
 			ID: "unpivot-step",
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationUnpivot,
-				Unpivot: &authoringv2.ConstructionUnpivot{
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationUnpivot,
+				Unpivot: &ws.ConstructionUnpivot{
 					ConstructionID: "unpivot-step",
-					Inputs:         []authoringv2.ConstructionUnpivotInput{{ColumnID: "unpivot_projection"}},
+					Inputs:         []ws.ConstructionUnpivotInput{{ColumnID: "unpivot_projection"}},
 				},
 			},
-			Outputs: []authoringv2.StageColumn{{ID: "unpivot_projection", Name: "unpivot_projection", Label: "unpivot_projection", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "unpivot_projection", Name: "unpivot_projection", Label: "unpivot_projection", Type: "string"}},
 		},
 		{
 			ID: "pivot-step",
-			Operation: authoringv2.ConstructionOperation{
-				Kind: authoringv2.ConstructionOperationPivot,
-				Pivot: &authoringv2.ConstructionPivot{
+			Operation: ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationPivot,
+				Pivot: &ws.ConstructionPivot{
 					ConstructionID: "pivot-step", GroupKeyIDs: []string{"pivot_projection"},
 				},
 			},
-			Outputs: []authoringv2.StageColumn{{ID: "pivot_projection", Name: "pivot_projection", Label: "pivot_projection", Type: "string"}},
+			Outputs: []ws.StageColumn{{ID: "pivot_projection", Name: "pivot_projection", Label: "pivot_projection", Type: "string"}},
 		},
 	}
-	projections := []authoringv2.ConstructionSourceProjection{
+	projections := []ws.ConstructionSourceProjection{
 		projection("filter_projection", "filter-step"),
 		projection("derive_projection", "derive-step"),
 		projection("unpivot_projection", "unpivot-step"),

@@ -18,6 +18,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/proposal"
 
@@ -355,7 +360,7 @@ func TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService(t *t
 		name      string
 		entryID   string
 		seedKind  string
-		candidate authoringv2.Construction
+		candidate ws.Construction
 		outputID  string
 		wantType  string
 	}{
@@ -428,29 +433,29 @@ func TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService(t *t
 	}
 }
 
-func builderFullUIScalarFilterCandidate() authoringv2.Construction {
+func builderFullUIScalarFilterCandidate() ws.Construction {
 	value := "x"
-	return authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "filter-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: "gender-id", Operator: authoringv2.ConstructionFilterEquals,
-			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterString, String: &value}},
+	return ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "filter-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: "gender-id", Operator: ws.ConstructionFilterEquals,
+			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterString, String: &value}},
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "gender-id", Name: "gender", Label: "Gender", Type: "string"}, {ID: "age-id", Name: "age", Label: "Age", Type: "integer"}},
+		Outputs: []ws.StageColumn{{ID: "gender-id", Name: "gender", Label: "Gender", Type: "string"}, {ID: "age-id", Name: "age", Label: "Age", Type: "integer"}},
 	}}}
 }
 
-func builderFullUIScalarDeriveCandidate() authoringv2.Construction {
+func builderFullUIScalarDeriveCandidate() ws.Construction {
 	one := int64(1)
-	return authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "derive-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-			ConstructionID: "derive-step", OutputColumnID: "derived-age", Operation: authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "age-id"},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &one}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+	return ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "derive-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+			ConstructionID: "derive-step", OutputColumnID: "derived-age", Operation: ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "age-id"},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &one}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "gender-id", Name: "gender", Label: "Gender", Type: "string"}, {ID: "age-id", Name: "age", Label: "Age", Type: "integer"}, {ID: "derived-age", Name: "derived_age", Label: "Derived age", Type: "integer"}},
+		Outputs: []ws.StageColumn{{ID: "gender-id", Name: "gender", Label: "Gender", Type: "string"}, {ID: "age-id", Name: "age", Label: "Age", Type: "integer"}, {ID: "derived-age", Name: "derived_age", Label: "Derived age", Type: "integer"}},
 	}}}
 }
 
@@ -489,7 +494,7 @@ func TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService(t *testing.T)
 	body, err := json.Marshal(map[string]any{
 		"snapshotToken": prepared.SnapshotToken, "expectedDraftVersion": prepared.AcceptedVersion,
 		"expectedDraftDigest": prepared.AcceptedDigest, "outputId": prepared.OutputID,
-		"selection": rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: expandedID, EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent}},
+		"selection": rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: expandedID, EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -523,11 +528,11 @@ func TestBuilderFullUIEmptyRootCreationDispatchUsesRealService(t *testing.T) {
 	if prepared.Status != "PREPARED" || !isJSONNullOrEmpty(prepared.AcceptedWorkspace) || prepared.AcceptedVersion != 0 || prepared.OutputID != "" {
 		t.Fatalf("root-uninitialized seed fabricated saved workspace identity: %#v", prepared)
 	}
-	var builderState authoringv2.BuilderState
+	var builderState ws.BuilderState
 	if err := json.Unmarshal(prepared.BuilderState, &builderState); err != nil {
 		t.Fatal(err)
 	}
-	if builderState.LifecycleState != authoringv2.LifecycleNew || builderState.Workspace != nil {
+	if builderState.LifecycleState != ws.LifecycleNew || builderState.Workspace != nil {
 		t.Fatalf("actual Builder root state=%#v, want new lifecycle without workspace", builderState)
 	}
 	harness, err := newBuilderFullUIHarnessFromPrepared(prepared)
@@ -535,7 +540,7 @@ func TestBuilderFullUIEmptyRootCreationDispatchUsesRealService(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, err := json.Marshal(authoringv2.ApplyCommandsRequest{
-		CommandID: "create-first-table", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "create-first-table", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: prepared.SnapshotToken, ExpectedDraftVersion: 0,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "node-patient"}}},
 	})
@@ -624,8 +629,8 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	acceptedBytes := append([]byte(nil), harness.Store.created.DraftConfig...)
 	acceptedDigest := harness.Store.created.DraftDigest
 	candidate := cloneLifecycleTestConstruction(t, *workspace.Documents[0].Construction)
-	candidate.Steps[0].Operation.Group.Aggregates[0] = authoringv2.ConstructionGroupAggregate{
-		Operation: authoringv2.ConstructionGroupMean, InputColumnID: "age-id", OutputColumnID: "row-count",
+	candidate.Steps[0].Operation.Group.Aggregates[0] = ws.ConstructionGroupAggregate{
+		Operation: ws.ConstructionGroupMean, InputColumnID: "age-id", OutputColumnID: "row-count",
 	}
 	proposal, err := harness.Service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
@@ -646,7 +651,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 			t.Errorf("actual compiler/lowering stage %s column %s type=%q, want %q", check.stepID, check.columnID, got, check.wantType)
 		}
 	}
-	compiledColumns := make(map[string]explorer.ReceiptCompiledOutputColumn)
+	compiledColumns := make(map[string]receiptmodel.ReceiptCompiledOutputColumn)
 	for _, column := range harness.Store.receipt.CompiledOutputSchemas[fixture.OutputID] {
 		compiledColumns[column.ID] = column
 	}
@@ -668,7 +673,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	}
 	preview, err := harness.Service.Preview(context.Background(), PreviewRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: fixture.OutputID,
-		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		},
 	})
@@ -676,7 +681,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 		t.Fatalf("actual proposal preview receipt=%#v err=%v", preview.Receipt, err)
 	}
 	apply, err := harness.Service.ApplyCommands(context.Background(), fixture.Project, fixture.ExplorerID, authoringv2.ApplyCommandsRequest{
-		CommandID: "builder-full-ui-apply-mean", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "builder-full-ui-apply-mean", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: fixture.Snapshot.Token, ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: acceptedDigest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: fixture.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "builder-full-ui-replay")
@@ -686,7 +691,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	if harness.Store.saveDraftCalls != 1 || harness.Store.created.DraftVersion != fixture.AcceptedVersion+1 || harness.Store.created.DraftDigest != proposal.CandidateWorkspaceDigest {
 		t.Fatalf("actual apply acknowledgement did not save once and advance the reviewed draft: apply=%#v saves=%d storeVersion=%d storeDigest=%q proposalDigest=%q", apply, harness.Store.saveDraftCalls, harness.Store.created.DraftVersion, harness.Store.created.DraftDigest, proposal.CandidateWorkspaceDigest)
 	}
-	persisted, err := authoringv2.DecodeWorkspace(harness.Store.created.DraftConfig)
+	persisted, err := ws.DecodeWorkspace(harness.Store.created.DraftConfig)
 	if err != nil {
 		t.Fatalf("decode persisted fake-store draft: %v", err)
 	}
@@ -859,7 +864,7 @@ type builderFullUICapabilityFixture struct {
 	AcceptedVersion   int64                           `json:"acceptedVersion"`
 	OutputID          string                          `json:"outputId"`
 	Snapshot          capability.Snapshot             `json:"snapshot"`
-	Catalog           authoringv2.CatalogSnapshot     `json:"catalog"`
+	Catalog           ws.CatalogSnapshot              `json:"catalog"`
 	CapabilityRequest *builderFullUICapabilityRequest `json:"capabilityRequest,omitempty"`
 	NoSavedWorkspace  bool                            `json:"noSavedWorkspace,omitempty"`
 }
@@ -872,9 +877,9 @@ type builderFullUICapabilityRequest struct {
 type builderFullUIHarness struct {
 	Service      *Service
 	Store        *fakeStore
-	Workspace    authoringv2.Workspace
+	Workspace    ws.Workspace
 	Fixture      builderFullUICapabilityFixture
-	Base         *explorer.CompilationReceipt
+	Base         *receiptmodel.CompilationReceipt
 	Capabilities construction.ConstructionCapabilitiesResponse
 	LastPreview  *proposal.PreviewResult
 }
@@ -1225,68 +1230,68 @@ func decodeBuilderFullUIAbstractState(source builderFullUIInventoryRow) (builder
 	return state, nil
 }
 
-func builderFullUIRegisteredSeedFixture(entryID, seedKind string, state builderFullUIAbstractState) (builderFullUICapabilityFixture, authoringv2.Workspace, json.RawMessage, error) {
+func builderFullUIRegisteredSeedFixture(entryID, seedKind string, state builderFullUIAbstractState) (builderFullUICapabilityFixture, ws.Workspace, json.RawMessage, error) {
 	if seedKind == "first_table_creation_initial_state" {
 		if entryID != "builder.first_table_from_root" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: empty-root fixture is only registered for exact entryId %q", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: empty-root fixture is only registered for exact entryId %q", entryID)
 		}
 		if state.SeedProfile != "empty-root" || state.WorkspacePhase != "root-uninitialized" || state.AcceptedWorkspace != nil || state.RootContext == nil {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: first-table seed requires exact empty-root ModelState with rootContext")
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: first-table seed requires exact empty-root ModelState with rootContext")
 		}
 		return builderFullUIEmptyRootFixture()
 	}
 	if state.WorkspacePhase != "workspace-loaded" || state.AcceptedWorkspace == nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: seed kind %q needs a workspace-loaded before state; got phase=%q", seedKind, state.WorkspacePhase)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: seed kind %q needs a workspace-loaded before state; got phase=%q", seedKind, state.WorkspacePhase)
 	}
 	switch seedKind {
 	case "builder.group_filter_derive.edit_saved_group":
 		steps := state.AcceptedWorkspace.Construction.Steps
 		if state.SeedProfile != "group-filter-derive" || state.AcceptedWorkspace.RootType != "Patient" || len(steps) != 3 || steps[0].ID != "group-step" || steps[0].Operation.Kind != "GROUP" || steps[1].ID != "filter-step" || steps[1].Operation.Kind != "FILTER" || steps[2].ID != "derive-step" || steps[2].Operation.Kind != "DERIVE" || state.SelectedStage == nil || state.SelectedStage.ID != "derive-step" || state.SelectedStage.Operation != "DERIVE" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: seed kind %q is not paired with the exact group-filter-derive ModelState profile", seedKind)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: seed kind %q is not paired with the exact group-filter-derive ModelState profile", seedKind)
 		}
 		return builderFullUIGroupFilterDeriveFixture()
 	case "rooted_table_filter":
 		if entryID != "builder.filter_rows.scalar_condition" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: scalar FILTER fixture does not cover exact entryId %q", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: scalar FILTER fixture does not cover exact entryId %q", entryID)
 		}
 		if state.SeedProfile != "rooted-source" || state.AcceptedWorkspace.RootType != "Patient" || len(state.AcceptedWorkspace.Construction.Steps) != 0 || state.SelectedStage == nil || state.SelectedStage.ID != recipe.ConstructionSourceProjectionID || state.SelectedStage.Operation != "SOURCE_PROJECTION" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: entryId %q requires the rooted-source empty-construction state; profile=%q stage=%#v", entryID, state.SeedProfile, state.SelectedStage)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: entryId %q requires the rooted-source empty-construction state; profile=%q stage=%#v", entryID, state.SeedProfile, state.SelectedStage)
 		}
 		return builderFullUIScalarFixture()
 	case "rooted_table_calculate":
 		if entryID != "builder.calculate.derive" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: scalar DERIVE fixture does not cover exact entryId %q", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: scalar DERIVE fixture does not cover exact entryId %q", entryID)
 		}
 		if state.SeedProfile != "rooted-source" || state.AcceptedWorkspace.RootType != "Patient" || len(state.AcceptedWorkspace.Construction.Steps) != 0 || state.SelectedStage == nil || state.SelectedStage.ID != recipe.ConstructionSourceProjectionID || state.SelectedStage.Operation != "SOURCE_PROJECTION" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: entryId %q requires the rooted-source empty-construction state", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: entryId %q requires the rooted-source empty-construction state", entryID)
 		}
 		return builderFullUIScalarFixture()
 	case "rooted_table_add_columns":
 		if entryID != "builder.add_columns.catalog_field" && entryID != "builder.add_columns.source_selection" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: source projection fixture does not cover exact add-column entryId %q", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: source projection fixture does not cover exact add-column entryId %q", entryID)
 		}
 		if state.SeedProfile != "rooted-source" || len(state.AcceptedWorkspace.Construction.Steps) != 0 || state.SelectedStage == nil || state.SelectedStage.ID != recipe.ConstructionSourceProjectionID {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: entryId %q requires the rooted-source empty-construction state", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: entryId %q requires the rooted-source empty-construction state", entryID)
 		}
 		return builderFullUIScalarFixture()
 	case "construction_proposal_lifecycle_initial_state", "construction_step_editor_routing_initial_state", "automatic_preview_lifecycle_initial_state", "automatic_preview_refresh_and_recovery", "one_step_draft_restore_initial_state", "row_root_change_review_initial_state", "server_draft_and_reconciliation_initial_state":
 		if seedKind != "construction_proposal_lifecycle_initial_state" || entryID != "builder.construction_proposal_apply_cancel_retry" || state.SeedProfile != "saved-construction" || state.AcceptedWorkspace.RootType != "Patient" || len(state.AcceptedWorkspace.Construction.Steps) != 1 || state.AcceptedWorkspace.Construction.Steps[0].ID != "saved-filter-step" || state.AcceptedWorkspace.Construction.Steps[0].Operation.Kind != "FILTER" || state.SelectedStage == nil || state.SelectedStage.ID != "saved-filter-step" || state.SelectedStage.Operation != "FILTER" {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: saved FILTER lifecycle fixture does not cover exact entryId %q and before-state", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: saved FILTER lifecycle fixture does not cover exact entryId %q and before-state", entryID)
 		}
 		return builderFullUISavedFilterFixture()
 	case "rooted_table_row_definition":
 		if entryID != "builder.row_definition.expanded_source_rows" || state.SeedProfile != "rooted-source" || state.AcceptedWorkspace.RootType != "Patient" || len(state.AcceptedWorkspace.Construction.Steps) != 0 || state.SelectedStage == nil || state.SelectedStage.ID != recipe.ConstructionSourceProjectionID {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: expanded row-definition fixture does not cover exact entryId %q and before-state", entryID)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: expanded row-definition fixture does not cover exact entryId %q and before-state", entryID)
 		}
 		return builderFullUIRowDefinitionFixture()
 	case "two_table_combine":
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: no catalog-consistent two-source workspace and combine receipt fixture is registered")
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: no catalog-consistent two-source workspace and combine receipt fixture is registered")
 	default:
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("GAP: backend fixture registry has no entry for seed kind %q", seedKind)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("GAP: backend fixture registry has no entry for seed kind %q", seedKind)
 	}
 }
 
-func builderFullUIFixtureColumnBindings(modelState json.RawMessage, workspace authoringv2.Workspace, capabilities construction.ConstructionCapabilitiesResponse, fixture builderFullUICapabilityFixture) (builderFullUIFixtureBindings, error) {
+func builderFullUIFixtureColumnBindings(modelState json.RawMessage, workspace ws.Workspace, capabilities construction.ConstructionCapabilitiesResponse, fixture builderFullUICapabilityFixture) (builderFullUIFixtureBindings, error) {
 	var state struct {
 		Columns []struct {
 			ID          string `json:"id"`
@@ -1350,27 +1355,27 @@ func builderFullUIFixtureColumnBindings(modelState json.RawMessage, workspace au
 	return bindings, nil
 }
 
-func builderFullUIGroupFilterDeriveFixture() (builderFullUICapabilityFixture, authoringv2.Workspace, json.RawMessage, error) {
+func builderFullUIGroupFilterDeriveFixture() (builderFullUICapabilityFixture, ws.Workspace, json.RawMessage, error) {
 	const project, explorerID, outputID, nodeID = "HTAN_INT/BForePC", "patients", "patients", "node-patient"
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("generated schema index: %w", err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("generated schema index: %w", err)
 	}
 	gender, err := index.ResolveRowPath(fhirschema.DefinitionName("Patient"), "gender")
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	age, err := index.ResolveRowPath(fhirschema.DefinitionName("Patient"), "multipleBirthInteger")
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	if gender.Shape != fhirschema.RowPathScalar || gender.Cardinality != fhirschema.RowCardinalityOne || gender.FHIRType != "string" ||
 		age.Shape != fhirschema.RowPathScalar || age.Cardinality != fhirschema.RowCardinalityOne || age.FHIRType != "integer" {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("unexpected generated Patient field facts: gender=%#v multipleBirthInteger=%#v", gender, age)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("unexpected generated Patient field facts: gender=%#v multipleBirthInteger=%#v", gender, age)
 	}
 	workspace := builderFullUIGroupFilterDeriveWorkspace()
 	if err := workspace.Validate(); err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("workspace validation: %w", err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("workspace validation: %w", err)
 	}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	scopeHash := sha256.Sum256([]byte(string(scope.Mode) + "\x00"))
@@ -1408,19 +1413,19 @@ func builderFullUIGroupFilterDeriveFixture() (builderFullUICapabilityFixture, au
 		},
 	})
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	return fixture, workspace, provenance, nil
 }
 
-func builderFullUIScalarFixture() (builderFullUICapabilityFixture, authoringv2.Workspace, json.RawMessage, error) {
+func builderFullUIScalarFixture() (builderFullUICapabilityFixture, ws.Workspace, json.RawMessage, error) {
 	fixture, _, provenance, err := builderFullUIGroupFilterDeriveFixture()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("generated schema index: %w", err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("generated schema index: %w", err)
 	}
 	fields := []struct {
 		id, path, wantType string
@@ -1437,7 +1442,7 @@ func builderFullUIScalarFixture() (builderFullUICapabilityFixture, authoringv2.W
 	for _, field := range fields {
 		facts, resolveErr := index.ResolveRowPath(fhirschema.DefinitionName("Patient"), field.path)
 		if resolveErr != nil || facts.Shape != fhirschema.RowPathScalar || facts.Cardinality != field.wantCardinality || facts.FHIRType != field.wantType {
-			return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("generated Patient source %s row facts=%#v err=%v, want scalar %s %s", field.path, facts, resolveErr, field.wantType, field.wantCardinality)
+			return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("generated Patient source %s row facts=%#v err=%v, want scalar %s %s", field.path, facts, resolveErr, field.wantType, field.wantCardinality)
 		}
 		provenanceFields = append(provenanceFields, map[string]any{
 			"columnId": field.id, "canonicalPath": facts.CanonicalPath, "fhirType": facts.FHIRType,
@@ -1455,74 +1460,74 @@ func builderFullUIScalarFixture() (builderFullUICapabilityFixture, authoringv2.W
 	fixture.Snapshot = capability.NewSnapshot(fixture.Snapshot.Identity, fixture.Snapshot.Policy, fixture.Snapshot.Status, fixture.Snapshot.Complete, fixture.Snapshot.Truncated, fixture.Snapshot.Nodes, fixture.Snapshot.Edges, fixture.Snapshot.Candidates, fixture.Snapshot.Diagnostics)
 	workspace := builderFullUIScalarWorkspace()
 	if err := workspace.Validate(); err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("scalar source workspace validation: %w", err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("scalar source workspace validation: %w", err)
 	}
 	fixture.Catalog = traceWorkspaceCatalog(fixture.Snapshot, fixture.ExplorerID, workspace, "node-patient")
 	fixture.CapabilityRequest = &builderFullUICapabilityRequest{StageID: recipe.ConstructionSourceProjectionID}
 	var provenanceValue map[string]any
 	if err := json.Unmarshal(provenance, &provenanceValue); err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("decode generated schema provenance: %w", err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("decode generated schema provenance: %w", err)
 	}
 	provenanceValue["fields"] = provenanceFields
 	provenance, err = json.Marshal(provenanceValue)
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	return fixture, workspace, provenance, nil
 }
 
-func builderFullUIEmptyRootFixture() (builderFullUICapabilityFixture, authoringv2.Workspace, json.RawMessage, error) {
+func builderFullUIEmptyRootFixture() (builderFullUICapabilityFixture, ws.Workspace, json.RawMessage, error) {
 	fixture, _, provenance, err := builderFullUIScalarFixture()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	fixture.NoSavedWorkspace = true
 	fixture.AcceptedVersion = 0
 	fixture.OutputID = ""
 	fixture.CapabilityRequest = nil
-	empty := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder full UI replay"}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{},
+	empty := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder full UI replay"}, Documents: []ws.Document{}, Tabs: []ws.Tab{},
 	}
 	fixture.Catalog = traceWorkspaceCatalog(fixture.Snapshot, fixture.ExplorerID, empty, "node-patient")
-	return fixture, authoringv2.Workspace{}, provenance, nil
+	return fixture, ws.Workspace{}, provenance, nil
 }
 
-func builderFullUISavedFilterFixture() (builderFullUICapabilityFixture, authoringv2.Workspace, json.RawMessage, error) {
+func builderFullUISavedFilterFixture() (builderFullUICapabilityFixture, ws.Workspace, json.RawMessage, error) {
 	fixture, workspace, provenance, err := builderFullUIScalarFixture()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	doc := &workspace.Documents[0]
-	outputs := make([]authoringv2.StageColumn, 0, len(doc.Columns))
+	outputs := make([]ws.StageColumn, 0, len(doc.Columns))
 	for _, column := range doc.Columns {
-		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+		outputs = append(outputs, ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	doc.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "saved-filter-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: "age-id", Operator: authoringv2.ConstructionFilterExists}},
+	doc.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "saved-filter-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "age-id", Operator: ws.ConstructionFilterExists}},
 		Outputs:   outputs,
 	}}}
 	if err := workspace.Validate(); err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("saved scalar FILTER workspace validation: %w", err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("saved scalar FILTER workspace validation: %w", err)
 	}
 	fixture.Catalog = traceWorkspaceCatalog(fixture.Snapshot, fixture.ExplorerID, workspace, "node-patient")
 	fixture.CapabilityRequest = &builderFullUICapabilityRequest{StageID: "saved-filter-step"}
 	return fixture, workspace, provenance, nil
 }
 
-func builderFullUIRowDefinitionFixture() (builderFullUICapabilityFixture, authoringv2.Workspace, json.RawMessage, error) {
+func builderFullUIRowDefinitionFixture() (builderFullUICapabilityFixture, ws.Workspace, json.RawMessage, error) {
 	fixture, workspace, _, err := builderFullUIScalarFixture()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	facts, err := index.ResolveRowPath(fhirschema.DefinitionName("Patient"), "name[].family")
 	if err != nil || facts.Shape != fhirschema.RowPathScalar || facts.Cardinality != fhirschema.RowCardinalityMany || facts.FHIRType != "string" {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, fmt.Errorf("generated Patient name[].family row facts=%#v err=%v", facts, err)
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, fmt.Errorf("generated Patient name[].family row facts=%#v err=%v", facts, err)
 	}
 	candidates := append([]capability.Candidate(nil), fixture.Snapshot.Candidates...)
 	family := traceFieldCandidate(fixture.Snapshot.Token, "family-many", "name[].family", "string")
@@ -1537,57 +1542,57 @@ func builderFullUIRowDefinitionFixture() (builderFullUICapabilityFixture, author
 		"rowChoiceShape": facts.Shape, "rowChoiceCardinality": facts.Cardinality, "dataPopulationClaimed": false,
 	})
 	if err != nil {
-		return builderFullUICapabilityFixture{}, authoringv2.Workspace{}, nil, err
+		return builderFullUICapabilityFixture{}, ws.Workspace{}, nil, err
 	}
 	return fixture, workspace, provenanceValue, nil
 }
 
-func builderFullUIScalarWorkspace() authoringv2.Workspace {
+func builderFullUIScalarWorkspace() ws.Workspace {
 	workspace := builderFullUIGroupFilterDeriveWorkspace()
 	document := &workspace.Documents[0]
-	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}}
-	document.Columns = append([]authoringv2.Column{
-		{ColumnID: "patient-id", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
-		{ColumnID: "active-id", Column: "active", Label: "Active", LogicalType: "boolean", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "active", ProjectionMode: "VALUE"}}},
-		{ColumnID: "birth-date-id", Column: "birth_date", Label: "Birth date", LogicalType: "date", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}},
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}}
+	document.Columns = append([]ws.Column{
+		{ColumnID: "patient-id", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+		{ColumnID: "active-id", Column: "active", Label: "Active", LogicalType: "boolean", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "active", ProjectionMode: "VALUE"}}},
+		{ColumnID: "birth-date-id", Column: "birth_date", Label: "Birth date", LogicalType: "date", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}},
 	}, document.Columns...)
 	return workspace
 }
 
-func builderFullUIGroupFilterDeriveWorkspace() authoringv2.Workspace {
+func builderFullUIGroupFilterDeriveWorkspace() ws.Workspace {
 	one := int64(1)
-	group := []authoringv2.StageColumn{
+	group := []ws.StageColumn{
 		{ID: "gender-group", Name: "gender_group", Label: "Gender", Type: "string"},
 		{ID: "row-count", Name: "row_count", Label: "Row count", Type: "integer"},
 	}
-	filter := append([]authoringv2.StageColumn(nil), group...)
-	derive := append(append([]authoringv2.StageColumn(nil), filter...), authoringv2.StageColumn{ID: "adjusted", Name: "adjusted", Label: "Adjusted", Type: "integer"})
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
-		{ID: "group-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-			ConstructionID: "group-step", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-			Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: "gender-id", OutputColumnID: "gender-group"}},
-			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
+	filter := append([]ws.StageColumn(nil), group...)
+	derive := append(append([]ws.StageColumn(nil), filter...), ws.StageColumn{ID: "adjusted", Name: "adjusted", Label: "Adjusted", Type: "integer"})
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
+		{ID: "group-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+			ConstructionID: "group-step", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+			Keys:       []ws.ConstructionGroupKey{{InputColumnID: "gender-id", OutputColumnID: "gender-group"}},
+			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
 		}}, Outputs: group},
-		{ID: "filter-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group-step"}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: "row-count", Operator: authoringv2.ConstructionFilterExists}}, Outputs: filter},
-		{ID: "derive-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "filter-step"}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
-			ConstructionID: "derive-step", OutputColumnID: "adjusted", Operation: authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "row-count"},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &one}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+		{ID: "filter-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group-step"}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "row-count", Operator: ws.ConstructionFilterExists}}, Outputs: filter},
+		{ID: "derive-step", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "filter-step"}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
+			ConstructionID: "derive-step", OutputColumnID: "adjusted", Operation: ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "row-count"},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &one}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}}, Outputs: derive},
 	}}
-	doc := authoringv2.Document{
-		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
-		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{
-			{ColumnID: "gender-id", Column: "gender", Label: "Gender", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "gender", ProjectionMode: "VALUE"}}},
-			{ColumnID: "age-id", Column: "age", Label: "Age", LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "multipleBirthInteger", ProjectionMode: "VALUE"}}},
+	doc := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{
+			{ColumnID: "gender-id", Column: "gender", Label: "Gender", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "gender", ProjectionMode: "VALUE"}}},
+			{ColumnID: "age-id", Column: "age", Label: "Age", LogicalType: "integer", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "multipleBirthInteger", ProjectionMode: "VALUE"}}},
 		}, Construction: &construction,
 	}
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder full UI replay"}, Documents: []authoringv2.Document{doc},
-		Tabs: []authoringv2.Tab{{ID: "patients_tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder full UI replay"}, Documents: []ws.Document{doc},
+		Tabs: []ws.Tab{{ID: "patients_tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 }
 
@@ -1624,7 +1629,7 @@ func newBuilderFullUIHarnessFromPrepared(prepared builderFullUISeed) (*builderFu
 		}
 		return harness, nil
 	}
-	preparedWorkspace, err := authoringv2.DecodeWorkspace(prepared.AcceptedWorkspace)
+	preparedWorkspace, err := ws.DecodeWorkspace(prepared.AcceptedWorkspace)
 	if err != nil {
 		return nil, fmt.Errorf("decode prepared acceptedWorkspace: %w", err)
 	}
@@ -1692,7 +1697,7 @@ func verifyBuilderFullUIPreparedPayload(prepared json.RawMessage, actual any, la
 	return nil
 }
 
-func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace authoringv2.Workspace) (*builderFullUIHarness, error) {
+func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace ws.Workspace) (*builderFullUIHarness, error) {
 	var canonical []byte
 	digest := ""
 	if fixture.NoSavedWorkspace {
@@ -1733,17 +1738,17 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace a
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) {
 		return fixture.Snapshot, nil
 	}
-	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return fixture.Catalog }
+	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return fixture.Catalog }
 	config.RowChoicePlanner, config.RowChoiceResolver = resolver, resolver
-	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt, compileErr := compileTraceReceipt(ctx, request, fixture.Snapshot, fixture.Catalog)
 		if compileErr == nil {
 
 			receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
 			if request.RowDefinitionProposal != nil {
-				receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
+				receipt.CompilationKey, compileErr = receiptmodel.CompilationKey(*receipt)
 				if compileErr == nil {
-					receipt.ID, compileErr = explorer.ReceiptID(*receipt)
+					receipt.ID, compileErr = receiptmodel.ReceiptID(*receipt)
 				}
 				if compileErr == nil {
 					compileErr = receipt.Validate()
@@ -1756,7 +1761,7 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace a
 		}
 		return receipt, compileErr
 	}
-	config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if receipt == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview received no compiled receipt")
 		}
@@ -2270,8 +2275,8 @@ func TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal(t *testing.T) {
 		"actual": map[string]any{"acceptedWorkspace": json.RawMessage(acceptedWorkspace), "request": nil},
 	}
 	candidate := cloneLifecycleTestConstruction(t, *workspace.Documents[0].Construction)
-	candidate.Steps[0].Operation.Group.Aggregates[0] = authoringv2.ConstructionGroupAggregate{
-		Operation: authoringv2.ConstructionGroupMean, InputColumnID: "age-id", OutputColumnID: "row-count",
+	candidate.Steps[0].Operation.Group.Aggregates[0] = ws.ConstructionGroupAggregate{
+		Operation: ws.ConstructionGroupMean, InputColumnID: "age-id", OutputColumnID: "row-count",
 	}
 	candidateJSON, err := json.Marshal(candidate)
 	if err != nil {
@@ -2460,7 +2465,7 @@ func observeBuilderFullUIRequest(row builderFullUIInventoryRow, ui builderFullUI
 			observation.Errors = []string{"emitted UI checkpoint lacks acceptedWorkspace"}
 			return observation
 		}
-		workspace, err := authoringv2.DecodeWorkspace(captured.AcceptedWorkspace)
+		workspace, err := ws.DecodeWorkspace(captured.AcceptedWorkspace)
 		if err != nil {
 			observation.Classification = "SETUP_FAILURE"
 			observation.Errors = []string{"decode captured acceptedWorkspace: " + err.Error()}
@@ -2508,11 +2513,11 @@ type builderFullUIActualServiceError struct {
 }
 
 type builderFullUIActualReceipt struct {
-	ID                    string                                            `json:"id"`
-	IntentDigest          string                                            `json:"intentDigest"`
-	OutputSchemas         map[string][]builderFullUIActualCol               `json:"outputSchemas"`
-	CompiledOutputSchemas map[string][]explorer.ReceiptCompiledOutputColumn `json:"compiledOutputSchemas"`
-	ConstructionStages    map[string][]explorer.ReceiptConstructionStage    `json:"constructionStages"`
+	ID                    string                                                `json:"id"`
+	IntentDigest          string                                                `json:"intentDigest"`
+	OutputSchemas         map[string][]builderFullUIActualCol                   `json:"outputSchemas"`
+	CompiledOutputSchemas map[string][]receiptmodel.ReceiptCompiledOutputColumn `json:"compiledOutputSchemas"`
+	ConstructionStages    map[string][]receiptmodel.ReceiptConstructionStage    `json:"constructionStages"`
 }
 
 type builderFullUIActualCol struct {
@@ -2540,9 +2545,9 @@ type builderFullUIActual struct {
 }
 
 type builderFullUIActualSuggestions struct {
-	SnapshotToken string                         `json:"snapshotToken"`
-	NodeID        string                         `json:"nodeId"`
-	Candidates    []authoringv2.CatalogCandidate `json:"candidates"`
+	SnapshotToken string                `json:"snapshotToken"`
+	NodeID        string                `json:"nodeId"`
+	Candidates    []ws.CatalogCandidate `json:"candidates"`
 }
 
 type builderFullUIPreviewObservation struct {
@@ -2567,7 +2572,7 @@ func lifecycleErrorObservation(err error) *builderFullUIActualServiceError {
 	return &builderFullUIActualServiceError{Class: ports.ClassInternal, Message: err.Error()}
 }
 
-func actualReceipt(receipt *explorer.CompilationReceipt) *builderFullUIActualReceipt {
+func actualReceipt(receipt *receiptmodel.CompilationReceipt) *builderFullUIActualReceipt {
 	if receipt == nil {
 		return nil
 	}
@@ -2655,7 +2660,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if len(body.CandidateConstruction) == 0 || isJSONNullOrEmpty(body.CandidateConstruction) {
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: construction proposal body omits candidateConstruction")
 		}
-		var candidate authoringv2.Construction
+		var candidate ws.Construction
 		if err := json.Unmarshal(body.CandidateConstruction, &candidate); err != nil {
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode candidateConstruction: %w", err)
 		}
@@ -2690,7 +2695,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if proposal.PreviewStatus == "PREVIEW_PENDING" && proposal.ProposalID != "" {
 			preview, previewErr := harness.Service.Preview(ctx, PreviewRequest{
 				Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: proposal.OutputID,
-				SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+				SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
 				},
 			})
@@ -2775,7 +2780,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if body.Limit != nil {
 			limit = *body.Limit
 		}
-		preview, err := harness.Service.Preview(ctx, PreviewRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: body.ReceiptID, OutputID: body.OutputID, Limit: limit, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		preview, err := harness.Service.Preview(ctx, PreviewRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: body.ReceiptID, OutputID: body.OutputID, Limit: limit, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		}})
 		layers = append(layers, "preview_orchestration")

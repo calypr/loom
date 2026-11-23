@@ -5,18 +5,19 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func receiptCellTraceFeature(receipt *explorer.CompilationReceipt, outputID, column string) (CellTraceFeature, bool) {
+func receiptCellTraceFeature(receipt *receiptmodel.CompilationReceipt, outputID, column string) (CellTraceFeature, bool) {
 	if receipt == nil {
 		return CellTraceFeature{}, false
 	}

@@ -4,6 +4,10 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/interpretation"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -21,7 +25,7 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	snapshot.Candidates = []capability.Candidate{{ID: "candidate-id", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleCandidatePreviewWorkspace()
-	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	workspace.Documents[0].Rows = ws.RecordsRowDefinition()
 	workspace.SemanticsVersion = 9
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -36,18 +40,18 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", DraftConfig: draft, DraftVersion: 7, DraftDigest: digest}}
 	repository := &countingInterpretationRepository{revision: revision}
 	config := testConfig(snapshot)
-	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
 	config.InterpretationRepository = repository
 	var compiled, previewed int
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		compiled++
-		var resolved *explorer.InterpretationRevision
+		var resolved *interpretation.InterpretationRevision
 		if len(request.ResolvedInputs.Interpretations) != 0 {
 			resolved = &revision
 		}
-		prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, lifecycleInterpretationCatalog(snapshot, "patients"))
+		prepared, err := ws.PrepareWorkspaceForCompilation(request.Workspace, lifecycleInterpretationCatalog(snapshot, "patients"))
 		if err != nil {
 			return nil, err
 		}
@@ -55,7 +59,7 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 		store.receipt = receipt
 		return receipt, nil
 	}
-	config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, sink func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, sink func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewed++
 		if !bindings.IncludeRowIdentity {
 			t.Fatal("candidate preview execution did not request stable row identity")
@@ -112,7 +116,7 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 		t.Fatal(err)
 	}
 	config := testConfig(snapshot)
-	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
 	catalog := config.Capability.Catalog(snapshot, "patients")
@@ -156,13 +160,13 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 			owner := &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", DraftConfig: append([]byte(nil), draft...), DraftVersion: 7, DraftDigest: digest}
 			store := &fakeStore{created: owner, receipt: receipt}
 			config := testConfig(snapshot)
-			config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+			config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 				return lifecycleInterpretationCatalog(snapshot, explorerID)
 			}
 			config.InterpretationRepository = &countingInterpretationRepository{revision: revision}
 			service := newTestService(t, store, config)
 			request := authoringv2.ApplyCommandsRequest{
-				CommandID: "apply-candidate", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+				CommandID: "apply-candidate", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest, Commands: []authoringv2.Command{command},
 			}
 			before := append([]byte(nil), owner.DraftConfig...)
@@ -184,27 +188,27 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 	}
 }
 
-func lifecycleCandidatePreviewWorkspace() authoringv2.Workspace {
+func lifecycleCandidatePreviewWorkspace() ws.Workspace {
 	workspace := lifecycleInterpretationWorkspace("", true)
 	workspace.Documents = workspace.Documents[:1]
 	workspace.Documents[0].Output.ID = "patients"
 	workspace.Documents[0].Output.Title = "Patients"
-	workspace.Tabs = []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
 	return workspace
 }
 
-func lifecycleInterpretationCatalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-	return authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project,
+func lifecycleInterpretationCatalog(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+	return ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: snapshot.Identity.Project,
 		ExplorerID: explorerID, SourceGeneration: snapshot.Identity.Generation,
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token,
-		Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-		Nodes:      []authoringv2.CatalogNode{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
-		Candidates: []authoringv2.CatalogCandidate{{ID: "candidate-id", NodeID: "node-patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "candidate-id", "node-patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
+		Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+		Nodes:      []ws.CatalogNode{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
+		Candidates: []ws.CatalogCandidate{{ID: "candidate-id", NodeID: "node-patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "candidate-id", "node-patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
 	}
 }
 
-func lifecycleCandidatePreviewReceipt(t *testing.T, snapshot capability.Snapshot, workspace authoringv2.Workspace, revision *explorer.InterpretationRevision) *explorer.CompilationReceipt {
+func lifecycleCandidatePreviewReceipt(t *testing.T, snapshot capability.Snapshot, workspace ws.Workspace, revision *interpretation.InterpretationRevision) *receiptmodel.CompilationReceipt {
 	t.Helper()
 	receipt := nativeReceipt(snapshot)
 	receipt.ReceiptFormatVersion = 0
@@ -214,10 +218,10 @@ func lifecycleCandidatePreviewReceipt(t *testing.T, snapshot capability.Snapshot
 	receipt.EmittedColumns[0].AuthoredColumns = []string{"patient_id"}
 	if revision != nil {
 		rule := revision.Rules[0]
-		receipt.ResolvedInterpretations = []explorer.ResolvedInterpretation{{OutputID: "patients", Column: "patient_id", OccurrenceID: authoringv2.RootOccurrenceID, Revision: *revision, SelectedRuleID: rule.ID, Definition: rule.Definition}}
+		receipt.ResolvedInterpretations = []interpretation.ResolvedInterpretation{{OutputID: "patients", Column: "patient_id", OccurrenceID: ws.RootOccurrenceID, Revision: *revision, SelectedRuleID: rule.ID, Definition: rule.Definition}}
 	}
 	receipt.ID = ""
-	id, err := explorer.ReceiptID(*receipt)
+	id, err := receiptmodel.ReceiptID(*receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

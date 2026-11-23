@@ -8,12 +8,17 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -39,19 +44,19 @@ type workspaceMigrationDocument struct {
 type workspaceMigrationPlan struct {
 	report       WorkspaceMigrationReport
 	owners       []workspaceOwnerMigration
-	projections  []explorer.WorkspaceProjection
+	projections  []workspacepkg.Projection
 	repositories []workspaceRepositoryMigration
 }
 
 type workspaceOwnerMigration struct {
 	original explorer.Explorer
-	migrated authoringv2.StoredWorkspaceMigration
+	migrated ws.StoredWorkspaceMigration
 	revision string
 }
 
 type workspaceRepositoryMigration struct {
 	source   workspaceMigrationDocument
-	migrated authoringv2.StoredWorkspaceMigration
+	migrated ws.StoredWorkspaceMigration
 }
 
 func MigrateStoredWorkspaces(ctx context.Context, client *store.Client, dryRun bool) (WorkspaceMigrationReport, error) {
@@ -151,13 +156,13 @@ UPDATE d WITH {workspace:@workspace, intentDigest:@digest} IN @@c RETURN NEW`, 1
 	return plan.report, nil
 }
 
-func newWorkspaceProjection(source explorer.WorkspaceArtifact, migrated authoringv2.StoredWorkspaceMigration) explorer.WorkspaceProjection {
-	projection := explorer.WorkspaceProjection{Source: source, Workspace: append([]byte(nil), migrated.CanonicalJSON...), Digest: migrated.MigratedCanonicalDigest}
+func newWorkspaceProjection(source workspacepkg.Artifact, migrated ws.StoredWorkspaceMigration) workspacepkg.Projection {
+	projection := workspacepkg.Projection{Source: source, Workspace: append([]byte(nil), migrated.CanonicalJSON...), Digest: migrated.MigratedCanonicalDigest}
 	projection.ID = projection.ContentID()
 	return projection
 }
 
-func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection, target workspaceMigrationTarget) error {
+func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, projection workspacepkg.Projection, target workspaceMigrationTarget) error {
 	if err := target.validateProjection(projection, projection.Source); err != nil {
 		return err
 	}
@@ -165,12 +170,12 @@ func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, p
 	if err != nil {
 		return err
 	}
-	var stored *explorer.WorkspaceProjection
+	var stored *workspacepkg.Projection
 	if err := query.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": workspaceProjectionCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		return err
 	}
 	if err := query.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(projection.Source)}, func(row map[string]any) error {
-		value, err := db.DecodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
+		value, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["migrationJSON"])
 		stored = &value
 		return err
 	}); err != nil {
@@ -262,11 +267,11 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		}
 		features := slices.DeleteFunc(slices.Clone(entry.Features), func(feature string) bool { return feature == "legacy-table-shape" })
 
-		if target == workspaceEncodingTarget && entry.SemanticsVersion == authoringv2.CurrentSemanticsVersion && len(features) == 0 && entry.NilConstructionStepLists == 0 && entry.DigestRelation == "matches-decoded-canonical" {
+		if target == workspaceEncodingTarget && entry.SemanticsVersion == ws.CurrentSemanticsVersion && len(features) == 0 && entry.NilConstructionStepLists == 0 && entry.DigestRelation == "matches-decoded-canonical" {
 			continue
 		}
 		if slices.Contains(names, workspaceProjectionCollection) && (entry.Collection == DraftRevisionsCollection || entry.Collection == RevisionsCollection) {
-			var source explorer.WorkspaceArtifact
+			var source workspacepkg.Artifact
 			if entry.Collection == DraftRevisionsCollection {
 				history, err := db.Decode[explorer.DraftRevision](document.raw)
 				if err != nil {
@@ -283,7 +288,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			found := false
 			err := client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
 				map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(source)}, func(row map[string]any) error {
-					projection, err := db.DecodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
+					projection, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["migrationJSON"])
 					if err != nil {
 						return err
 					}
@@ -299,7 +304,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			}
 		}
 		if entry.Collection == CompilationReceiptsCollection {
-			receipt, err := db.Decode[explorer.CompilationReceipt](document.raw)
+			receipt, err := db.Decode[receiptmodel.CompilationReceipt](document.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -354,7 +359,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			if !found {
 				return plan, explorer.ErrNotFound
 			}
-			receipt, err := db.Decode[explorer.CompilationReceipt](receiptDocument.raw)
+			receipt, err := db.Decode[receiptmodel.CompilationReceipt](receiptDocument.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -372,7 +377,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		default:
 			return plan, fmt.Errorf("unsupported authoritative workspace slot %s", entry.Collection)
 		}
-		var catalog authoringv2.CatalogSnapshot
+		var catalog ws.CatalogSnapshot
 		if entry.NeedsPinnedCatalog {
 			if token == "" {
 				return plan, fmt.Errorf("%s/%s requires a retained capability token", entry.Collection, entry.Key)
@@ -388,7 +393,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || (generation != "" && snapshot.Identity.Generation != generation) || (scope != "" && snapshot.Identity.AuthorizationScopeDigest != scope) {
 				return plan, fmt.Errorf("retained workspace catalog context mismatch")
 			}
-			catalog = authoringv2.CatalogFromCapability(*snapshot, explorerID)
+			catalog = ws.CatalogFromCapability(*snapshot, explorerID)
 		}
 		migrated, err := target.migrate(raw, catalog)
 		if err != nil {

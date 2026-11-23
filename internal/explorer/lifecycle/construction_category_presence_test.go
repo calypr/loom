@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	"github.com/calypr/loom/internal/explorer/rowdef"
@@ -17,8 +21,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -27,22 +29,22 @@ import (
 
 func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := workspace.Documents[0]
-	document.Columns = []authoringv2.Column{{
+	document.Columns = []ws.Column{{
 		ColumnID: "group_id", Column: "patient_id", Label: "Patient ID", LogicalType: "string",
-		OccurrenceID: authoringv2.RootOccurrenceID,
-		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 	}}
-	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "keep_positive", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: "group_id", Operator: authoringv2.ConstructionFilterExists,
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
 		}},
-		Outputs: []authoringv2.StageColumn{{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"}},
+		Outputs: []ws.StageColumn{{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"}},
 	}}}
 	workspace.Documents[0] = document
 	encoded, err := workspace.CanonicalJSON()
@@ -65,7 +67,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	valueChoice := categoryPresenceRowChoice(t, snapshot, "multipleBirthInteger")
 
 	compileReceipt := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt, err := compileReceipt(ctx, request)
 		if err != nil {
 			return nil, err
@@ -81,11 +83,11 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			return nil, err
 		}
 		receipt.ResolvedRecipeDigest = receipt.RecipeDigest
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +96,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	}
 
 	queries := 0
-	service.config.ScanCategories = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		if receipt == nil || receipt.Bundle.Outputs[0].Construction == nil || scan.StageID != "keep_positive" ||
 			scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" || !scan.RequireValue {
 			t.Fatalf("lifecycle did not pass the exact filtered discovery pair: receipt=%#v scan=%#v", receipt, scan)
@@ -157,8 +159,8 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	if queries != 1 || !response.Complete || response.Outcome != "COMPLETE" || len(response.Categories) != 1 {
 		t.Fatalf("filtered ordinary STRING probe discovery = %#v; actual compiler scans=%d", response, queries)
 	}
-	if response.Categories[0].Key.Kind != authoringv2.TableScalarString {
-		t.Fatalf("category kind = %q, want %q: %#v", response.Categories[0].Key.Kind, authoringv2.TableScalarString, response.Categories)
+	if response.Categories[0].Key.Kind != ws.TableScalarString {
+		t.Fatalf("category kind = %q, want %q: %#v", response.Categories[0].Key.Kind, ws.TableScalarString, response.Categories)
 	}
 }
 
@@ -195,8 +197,8 @@ func categoryPresenceRowChoice(t *testing.T, snapshot capability.Snapshot, path 
 		t.Fatal(err)
 	}
 	choice, err := capability.NewRowChoice(snapshot, []capability.RowChoiceOccurrence{{
-		OccurrenceID: authoringv2.RootOccurrenceID, NodeID: "patient", ResourceType: "Patient",
-	}}, authoringv2.RootOccurrenceID, capability.RowChoiceFieldGroupKey, capability.RowChoiceFacts{
+		OccurrenceID: ws.RootOccurrenceID, NodeID: "patient", ResourceType: "Patient",
+	}}, ws.RootOccurrenceID, capability.RowChoiceFieldGroupKey, capability.RowChoiceFacts{
 		ResourceType: "Patient", CanonicalPath: facts.CanonicalPath, FHIRType: facts.FHIRType,
 		Cardinality: capability.RowChoiceCardinality(facts.Cardinality), Shape: capability.RowChoiceShape(facts.Shape), Reference: facts.Reference,
 	})

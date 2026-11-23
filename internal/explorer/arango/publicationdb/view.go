@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"sort"
 	"strings"
 	"time"
+
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
@@ -31,7 +35,7 @@ REMOVE d IN @@c RETURN OLD`
 )
 
 type viewBuilderSettingsRow struct {
-	value explorer.ViewBuilderSettings
+	value viewer.ViewBuilderSettings
 	doc   map[string]any
 }
 
@@ -39,19 +43,19 @@ func viewBuilderSettingsKey(project string) string {
 	return "view_builder_" + db.Key(project)
 }
 
-func emptyViewBuilderSettings(project string) explorer.ViewBuilderSettings {
-	return explorer.ViewBuilderSettings{Project: project, Catalogs: map[string]string{}}
+func emptyViewBuilderSettings(project string) viewer.ViewBuilderSettings {
+	return viewer.ViewBuilderSettings{Project: project, Catalogs: map[string]string{}}
 }
 
-func (s *ViewBuilderStore) GetViewBuilderSettings(ctx context.Context, project string) (explorer.ViewBuilderSettings, error) {
+func (s *ViewBuilderStore) GetViewBuilderSettings(ctx context.Context, project string) (viewer.ViewBuilderSettings, error) {
 	project = strings.TrimSpace(project)
 	if project == "" {
-		return explorer.ViewBuilderSettings{}, fmt.Errorf("view builder project is required")
+		return viewer.ViewBuilderSettings{}, fmt.Errorf("view builder project is required")
 	}
 	project = canonicalProjectConfigProject(project)
 	row, err := readViewBuilderSettings(ctx, s.client, project)
 	if err != nil {
-		return explorer.ViewBuilderSettings{}, err
+		return viewer.ViewBuilderSettings{}, err
 	}
 	if row == nil {
 		return emptyViewBuilderSettings(project), nil
@@ -74,7 +78,7 @@ func readViewBuilderSettings(ctx context.Context, tx store.RowQueryer, project s
 		if found != nil {
 			return fmt.Errorf("duplicate view builder settings for project %q", project)
 		}
-		value, err := db.Decode[explorer.ViewBuilderSettings](doc)
+		value, err := db.Decode[viewer.ViewBuilderSettings](doc)
 		if err != nil {
 			return err
 		}
@@ -93,7 +97,7 @@ func readViewBuilderSettings(ctx context.Context, tx store.RowQueryer, project s
 	return found, nil
 }
 
-func cloneViewBuilderSettings(value explorer.ViewBuilderSettings) explorer.ViewBuilderSettings {
+func cloneViewBuilderSettings(value viewer.ViewBuilderSettings) viewer.ViewBuilderSettings {
 	clone := value
 	clone.Catalogs = make(map[string]string, len(value.Catalogs))
 	for recipeName, revisionID := range value.Catalogs {
@@ -102,7 +106,7 @@ func cloneViewBuilderSettings(value explorer.ViewBuilderSettings) explorer.ViewB
 	return clone
 }
 
-func writeViewBuilderSettings(ctx context.Context, tx store.RowQueryer, current *viewBuilderSettingsRow, value explorer.ViewBuilderSettings) error {
+func writeViewBuilderSettings(ctx context.Context, tx store.RowQueryer, current *viewBuilderSettingsRow, value viewer.ViewBuilderSettings) error {
 	if value.Project == "" || value.Version < 1 {
 		return fmt.Errorf("view builder settings identity is incomplete")
 	}
@@ -206,7 +210,7 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 			owner.value.ProjectConfig.RecipeRef.Name != publication.Definition.RecipeRef.Name {
 			recipeName, output, valid := parseViewBuilderFrameID(nextSettings.DefaultFrameID)
 			if valid && recipeName == owner.value.ProjectConfig.RecipeRef.Name {
-				nextSettings.DefaultFrameID = explorer.ViewBuilderFrameID(publication.Definition.RecipeRef.Name, output)
+				nextSettings.DefaultFrameID = viewer.ViewBuilderFrameID(publication.Definition.RecipeRef.Name, output)
 				nextSettings.Version++
 			}
 		}
@@ -265,7 +269,7 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{
 			"@explorers": db.ExplorersCollection, "@revisions": db.RevisionsCollection,
 			"explorerKey": explorerDocumentKey(project, publication.Definition.ID), "revisionKey": publication.Revision.ID,
-			"project": project, "explorerId": publication.Definition.ID, "management": explorer.ManagementRepository,
+			"project": project, "explorerId": publication.Definition.ID, "management": viewer.ManagementRepository,
 		})
 		if err != nil {
 			return err
@@ -286,7 +290,7 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 	return normalizeViewBuilderConflict(err)
 }
 
-func validateViewBuilderDefaultBinding(settings explorer.ViewBuilderSettings, definition explorer.ProjectConfig) error {
+func validateViewBuilderDefaultBinding(settings viewer.ViewBuilderSettings, definition explorerconfig.ProjectConfig) error {
 	if settings.DefaultConfigID != definition.ID {
 		return nil
 	}
@@ -315,7 +319,7 @@ func readProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project, i
 	return owner, nil
 }
 
-func validateViewBuilderOwnerHead(owner *projectConfigOwner, project string, definition explorer.ProjectConfig, expectedRevisionID string) error {
+func validateViewBuilderOwnerHead(owner *projectConfigOwner, project string, definition explorerconfig.ProjectConfig, expectedRevisionID string) error {
 	if owner == nil {
 		if expectedRevisionID != "" {
 			return explorer.ErrDraftConflict
@@ -353,7 +357,7 @@ func writeViewBuilderConfigOwner(ctx context.Context, tx store.RowQueryer, proje
 	}
 	owner := explorer.Explorer{
 		Project: project, ExplorerID: definition.ID, Title: definition.Title,
-		ManagementMode: explorer.ManagementRepository, ProjectConfig: &definition,
+		ManagementMode: viewer.ManagementRepository, ProjectConfig: &definition,
 		DraftVersion: 1, DraftDigest: digest, UpdatedBy: revision.CreatedBy, UpdatedAt: updatedAt.UTC(),
 	}
 	if previous == nil {
@@ -420,7 +424,7 @@ func (s *ViewBuilderStore) DeleteViewBuilderConfig(ctx context.Context, project,
 		if err != nil {
 			return err
 		}
-		if owner == nil || owner.value.ManagementMode != explorer.ManagementRepository || owner.value.ProjectConfig == nil || owner.value.ActiveRevisionID != expectedRevisionID {
+		if owner == nil || owner.value.ManagementMode != viewer.ManagementRepository || owner.value.ProjectConfig == nil || owner.value.ActiveRevisionID != expectedRevisionID {
 			return explorer.ErrDraftConflict
 		}
 		if err := supersedeProjectConfigRevision(txCtx, tx, expectedRevisionID); err != nil {
@@ -429,7 +433,7 @@ func (s *ViewBuilderStore) DeleteViewBuilderConfig(ctx context.Context, project,
 		var removed bool
 		err = tx.QueryRows(txCtx, deleteViewBuilderOwnerAQL, 1, map[string]any{
 			"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, id), "expectedRev": stringValue(owner.doc["_rev"]),
-			"project": project, "explorerId": id, "management": explorer.ManagementRepository,
+			"project": project, "explorerId": id, "management": viewer.ManagementRepository,
 			"revisionId": expectedRevisionID,
 		}, func(map[string]any) error { removed = true; return nil })
 		if err != nil {
@@ -449,7 +453,7 @@ func (s *ViewBuilderStore) DeleteViewBuilderConfig(ctx context.Context, project,
 	return normalizeViewBuilderConflict(err)
 }
 
-func (s *ViewBuilderStore) SaveViewBuilderDefaults(ctx context.Context, project string, request explorer.ViewBuilderDefaultsRequest) error {
+func (s *ViewBuilderStore) SaveViewBuilderDefaults(ctx context.Context, project string, request viewer.ViewBuilderDefaultsRequest) error {
 	project = canonicalProjectConfigProject(strings.TrimSpace(project))
 	if project == "" || request.DefaultConfigID == "" || request.DefaultFrameID == "" {
 		return fmt.Errorf("view builder default config and frame are required")
@@ -469,7 +473,7 @@ func (s *ViewBuilderStore) SaveViewBuilderDefaults(ctx context.Context, project 
 		if err != nil {
 			return err
 		}
-		if owner == nil || owner.value.ManagementMode != explorer.ManagementRepository || owner.value.ProjectConfig == nil || owner.value.ActiveRevisionID == "" {
+		if owner == nil || owner.value.ManagementMode != viewer.ManagementRepository || owner.value.ProjectConfig == nil || owner.value.ActiveRevisionID == "" {
 			return explorer.ErrDraftConflict
 		}
 		recipeName := owner.value.ProjectConfig.RecipeRef.Name
@@ -492,7 +496,7 @@ func (s *ViewBuilderStore) SaveViewBuilderDefaults(ctx context.Context, project 
 	return normalizeViewBuilderConflict(err)
 }
 
-func projectConfigHasOutput(config explorer.ProjectConfig, output string) bool {
+func projectConfigHasOutput(config explorerconfig.ProjectConfig, output string) bool {
 	for _, view := range config.Views {
 		if view.Output == output {
 			return true
@@ -539,7 +543,7 @@ func (s *ViewBuilderStore) AdoptViewBuilderCatalogs(ctx context.Context, project
 			if owner.ProjectConfig == nil || owner.ActiveRevisionID == "" {
 				continue
 			}
-			if owner.ManagementMode != explorer.ManagementRepository || owner.Project != project || owner.ProjectConfig.ID != id {
+			if owner.ManagementMode != viewer.ManagementRepository || owner.Project != project || owner.ProjectConfig.ID != id {
 				return fmt.Errorf("cannot adopt unmanaged project config owner %q: %w", id, explorer.ErrDraftConflict)
 			}
 			revision, ok := revisions[owner.ActiveRevisionID]
@@ -579,7 +583,7 @@ func (s *ViewBuilderStore) AdoptViewBuilderCatalogs(ctx context.Context, project
 					continue
 				}
 				updated.DefaultConfigID = id
-				updated.DefaultFrameID = explorer.ViewBuilderFrameID(owner.ProjectConfig.RecipeRef.Name, owner.ProjectConfig.Views[0].Output)
+				updated.DefaultFrameID = viewer.ViewBuilderFrameID(owner.ProjectConfig.RecipeRef.Name, owner.ProjectConfig.Views[0].Output)
 				changed = true
 				break
 			}
@@ -621,7 +625,7 @@ func AdoptedCatalogSnapshot(source explorer.Revision, recipeName string) explore
 	snapshot.IntentDigest = ""
 	snapshot.CompilationReceiptID = ""
 	snapshot.CreatedBy = ""
-	snapshot.Diagnostics = []explorer.Diagnostic{}
+	snapshot.Diagnostics = []viewer.Diagnostic{}
 	snapshot.Status = explorer.RevisionReady
 	snapshot.ActivatedAt = nil
 	snapshot.FailedAt = nil

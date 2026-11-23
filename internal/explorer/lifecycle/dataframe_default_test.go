@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -65,19 +67,19 @@ func (s *dataframeDefaultStore) SaveDraft(_ context.Context, value explorer.Expl
 	return &copy, nil
 }
 
-func defaultDataframeFixture() authoringv2.Workspace {
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer:  authoringv2.ExplorerMetadata{Title: defaultDataframeTitle},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition()}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+func defaultDataframeFixture() ws.Workspace {
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer:  ws.ExplorerMetadata{Title: defaultDataframeTitle},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition()}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
 }
 
 func defaultDataframeConfig(snapshot capability.Snapshot) Config {
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	config.DefaultDataframeWorkspace = func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
+	config.DefaultDataframeWorkspace = func(context.Context, string, capability.Snapshot, ws.CatalogSnapshot) (ws.Workspace, error) {
 		return defaultDataframeFixture(), nil
 	}
 	return config
@@ -103,7 +105,7 @@ func TestBuilderUsesVirtualDefaultDataframeWithoutWritingOwner(t *testing.T) {
 	}
 	workspace := defaultDataframeFixture()
 	digest, _ := workspace.Digest()
-	if state.DraftVersion != 1 || state.DraftDigest != digest || state.Workspace == nil || state.LifecycleState != authoringv2.LifecycleReady {
+	if state.DraftVersion != 1 || state.DraftDigest != digest || state.Workspace == nil || state.LifecycleState != ws.LifecycleReady {
 		t.Fatalf("virtual Builder state = %#v", state)
 	}
 	if store.creates != 0 || store.saves != 0 {
@@ -150,7 +152,7 @@ func TestConcurrentFirstDefaultDataframeApplySeedsAndCASesOnce(t *testing.T) {
 	digest, _ := workspace.Digest()
 	makeRequest := func(commandID, title string) authoringv2.ApplyCommandsRequest {
 		return authoringv2.ApplyCommandsRequest{
-			CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+			CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion,
 			SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 			Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: title, Payload: &authoringv2.TablePayload{}}},
 		}
@@ -213,7 +215,7 @@ func TestCreateCopiesVirtualDefaultWithoutPersistingDefaultOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,11 +245,11 @@ func TestUndoFirstDefaultApply(t *testing.T) {
 	service, _ := New(domain, defaultDataframeConfig(snapshot))
 	workspace := defaultDataframeFixture()
 	digest, _ := workspace.Digest()
-	response, err := service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "rename-first", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "People", Payload: &authoringv2.TablePayload{}}}}, "actor")
+	response, err := service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "rename-first", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "People", Payload: &authoringv2.TablePayload{}}}}, "actor")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "undo-first", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRestoreDraftRevision, Payload: &authoringv2.ProposalPayload{DraftRevisionID: response.PreviousDraftRevisionID}}}}, "actor")
+	_, err = service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "undo-first", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRestoreDraftRevision, Payload: &authoringv2.ProposalPayload{DraftRevisionID: response.PreviousDraftRevisionID}}}}, "actor")
 	if err != nil {
 		t.Fatalf("Undo first Apply failed: %v; prior provenance token=%q generation=%q scope=%q", err, store.revision.SnapshotToken, store.revision.SourceGeneration, store.revision.AuthorizationScopeDigest)
 	}

@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	workspacedb "github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	storearango "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -30,8 +30,8 @@ func runPreviewIndexAudit(endpoint, database string, timeout time.Duration) erro
 	if err != nil {
 		return err
 	}
-	workspaceReport := explorerarango.WorkspaceAuditReport{
-		Collections: []string{}, Entries: []explorerarango.WorkspaceAuditEntry{},
+	workspaceReport := workspacedb.WorkspaceAuditReport{
+		Collections: []string{}, Entries: []workspacedb.WorkspaceAuditEntry{},
 		ByClass: map[string]int{}, DigestRelations: map[string]int{}, ByFeature: map[string]int{},
 	}
 	for _, collection := range collections {
@@ -47,9 +47,9 @@ func runPreviewIndexAudit(endpoint, database string, timeout time.Duration) erro
 		return fmt.Errorf("preview-index audit incomplete: %w", err)
 	}
 	output := struct {
-		Database  string                              `json:"database"`
-		Complete  bool                                `json:"complete"`
-		Workspace explorerarango.WorkspaceAuditReport `json:"workspace"`
+		Database  string                           `json:"database"`
+		Complete  bool                             `json:"complete"`
+		Workspace workspacedb.WorkspaceAuditReport `json:"workspace"`
 		storearango.PreviewSupersedesAudit
 	}{Database: database, Complete: true, Workspace: workspaceReport, PreviewSupersedesAudit: previewIndexReport}
 	encoder := json.NewEncoder(os.Stdout)

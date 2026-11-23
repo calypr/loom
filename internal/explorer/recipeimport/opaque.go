@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"reflect"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 var editableSourceExpressionFunctions = map[string]struct{}{
@@ -15,7 +16,7 @@ var editableSourceExpressionFunctions = map[string]struct{}{
 	"coalesce": {}, "coalesce_string": {}, "join": {}, "concat": {}, "uuid5": {},
 }
 
-func validateSourceParameterExpressionEdits(original, edited *authoringv2.ImportedSourceParameters) error {
+func validateSourceParameterExpressionEdits(original, edited *ws.ImportedSourceParameters) error {
 	if original == nil || edited == nil {
 		return nil
 	}
@@ -37,7 +38,7 @@ func validateSourceParameterExpressionEdits(original, edited *authoringv2.Import
 		}
 		return nil
 	}
-	checkPair := func(before, after *authoringv2.ImportedSourceParameters) error {
+	checkPair := func(before, after *ws.ImportedSourceParameters) error {
 		switch {
 		case before.FieldGroup != nil && after.FieldGroup != nil:
 			for index := 0; index < min(len(before.FieldGroup.Fields), len(after.FieldGroup.Fields)); index++ {

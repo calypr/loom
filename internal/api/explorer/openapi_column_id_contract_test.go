@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
@@ -40,9 +41,9 @@ func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
 	}
 
 	stableWorkspace := columnIDContractWorkspace(stableID)
-	stableState, err := directAuthoringJSON[loomapi.BuilderState](authoringv2.BuilderState{
-		APIVersion: authoringv2.APIVersion,
-		Kind:       authoringv2.StateKind,
+	stableState, err := directAuthoringJSON[loomapi.BuilderState](ws.BuilderState{
+		APIVersion: ws.APIVersion,
+		Kind:       ws.StateKind,
 		Workspace:  &stableWorkspace,
 	})
 	if err != nil {
@@ -64,9 +65,9 @@ func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
 	}
 
 	legacyWorkspace := columnIDContractWorkspace("")
-	legacyState, err := directAuthoringJSON[loomapi.BuilderState](authoringv2.BuilderState{
-		APIVersion: authoringv2.APIVersion,
-		Kind:       authoringv2.StateKind,
+	legacyState, err := directAuthoringJSON[loomapi.BuilderState](ws.BuilderState{
+		APIVersion: ws.APIVersion,
+		Kind:       ws.StateKind,
 		Workspace:  &legacyWorkspace,
 	})
 	if err != nil {
@@ -86,9 +87,9 @@ func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
 }
 
 func TestSystemVersionCategoryColumnPassesOpenAPIAndExactEmptyCodeIsRejected(t *testing.T) {
-	column := authoringv2.Column{
-		Column: "condition_category", Label: "Condition category", OccurrenceID: authoringv2.RootOccurrenceID,
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+	column := ws.Column{
+		Column: "condition_category", Label: "Condition category", OccurrenceID: ws.RootOccurrenceID,
+		Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
 			Binding: &fhirbinding.CorrelatedBinding{
 				KeyPath: "code.coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 				SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion, VersionPath: "version",
@@ -98,11 +99,11 @@ func TestSystemVersionCategoryColumnPassesOpenAPIAndExactEmptyCodeIsRejected(t *
 			Key: &fhirbinding.CorrelatedKey{System: "https://example.org/condition", Code: "", Version: ""},
 		}},
 	}
-	document := authoringv2.Document{
-		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
-		Output: authoringv2.Output{ID: "conditions", Title: "Conditions"}, RootResourceType: "Condition",
-		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
-		Columns: []authoringv2.Column{column},
+	document := ws.Document{
+		Rows: ws.RecordsRowDefinition(), Kind: ws.Kind,
+		Output: ws.Output{ID: "conditions", Title: "Conditions"}, RootResourceType: "Condition",
+		Route:   ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Condition"},
+		Columns: []ws.Column{column},
 	}
 	if err := document.Validate(); err != nil {
 		t.Fatalf("SYSTEM_VERSION category document rejected by authoring validation: %v", err)
@@ -134,10 +135,10 @@ func TestSystemVersionCategoryColumnPassesOpenAPIAndExactEmptyCodeIsRejected(t *
 	if err := spec.ValidateSchemaJSON(columnSchema.Value, columnJSON); err != nil {
 		t.Fatalf("encoded SYSTEM_VERSION category is rejected by the OpenAPI Column schema: %v", err)
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, Documents: []authoringv2.Document{document},
-		Tabs: []authoringv2.Tab{{ID: "conditions_tab", Title: "Conditions", OutputID: "conditions", Order: 0, Visible: true}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"}, Documents: []ws.Document{document},
+		Tabs: []ws.Tab{{ID: "conditions_tab", Title: "Conditions", OutputID: "conditions", Order: 0, Visible: true}},
 	}
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("SYSTEM_VERSION category workspace rejected by authoring validation: %v", err)
@@ -164,28 +165,28 @@ func TestSystemVersionCategoryColumnPassesOpenAPIAndExactEmptyCodeIsRejected(t *
 	binding.SelectionScope = ""
 	lookup.Binding = &binding
 	exact.Source.Lookup = &lookup
-	document.Columns = []authoringv2.Column{exact}
+	document.Columns = []ws.Column{exact}
 	if err := document.Validate(); err == nil {
 		t.Fatal("exact coded-value key with an empty code passed authoring validation")
 	}
 }
 
-func columnIDContractWorkspace(columnID string) authoringv2.Workspace {
-	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion,
-		Kind:       authoringv2.WorkspaceKind,
-		Documents: []authoringv2.Document{{
-			Kind:             authoringv2.Kind,
-			Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+func columnIDContractWorkspace(columnID string) ws.Workspace {
+	return ws.Workspace{
+		APIVersion: ws.APIVersion,
+		Kind:       ws.WorkspaceKind,
+		Documents: []ws.Document{{
+			Kind:             ws.Kind,
+			Output:           ws.Output{ID: "patients", Title: "Patients"},
 			RootResourceType: "Patient",
-			Columns: []authoringv2.Column{{
+			Columns: []ws.Column{{
 				ColumnID:     columnID,
 				Column:       "member_id",
 				Label:        "Member",
-				OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{
-					Kind:  authoringv2.SourceField,
-					Field: &authoringv2.FieldSource{Path: "id"},
+				OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{
+					Kind:  ws.SourceField,
+					Field: &ws.FieldSource{Path: "id"},
 				},
 			}},
 		}},

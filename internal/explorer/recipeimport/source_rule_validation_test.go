@@ -3,6 +3,8 @@ package recipeimport
 import (
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
@@ -10,18 +12,18 @@ import (
 func TestSourceRuleDatatypeValidation(t *testing.T) {
 	system := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}
 	display, sibling := recipe.Expression{Select: "item.display"}, recipe.Expression{Select: "root.code.coding[].display"}
-	category := func(value *recipe.Expression) *authoringv2.ImportedSourceParameters {
-		return &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+	category := func(value *recipe.Expression) *ws.ImportedSourceParameters {
+		return &ws.ImportedSourceParameters{Dynamic: &ws.ImportedDynamicParameters{
 			Name: "category", Source: recipe.Expression{Select: "category[].coding[]"}, Key: &system, Value: value,
 		}}
 	}
-	extension := func(path string) *authoringv2.ImportedSourceParameters {
-		return &authoringv2.ImportedSourceParameters{Extension: &authoringv2.ImportedExtensionParameters{
+	extension := func(path string) *ws.ImportedSourceParameters {
+		return &ws.ImportedSourceParameters{Extension: &ws.ImportedExtensionParameters{
 			Name: "extensions", Source: recipe.Expression{Select: path},
 		}}
 	}
-	catalog := func(excluded string) *authoringv2.ImportedSourceParameters {
-		return &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{
+	catalog := func(excluded string) *ws.ImportedSourceParameters {
+		return &ws.ImportedSourceParameters{Catalog: &ws.ImportedCatalogParameters{
 			Name: "fields", IncludePaths: []string{"identifier[].value"}, ExcludePaths: []string{excluded},
 		}}
 	}
@@ -30,7 +32,7 @@ func TestSourceRuleDatatypeValidation(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, kind, resourceType string
-		params                   *authoringv2.ImportedSourceParameters
+		params                   *ws.ImportedSourceParameters
 		valid                    bool
 	}{
 		{"category coding", SourcePlanDynamicColumn, "Observation", category(&display), true},
@@ -54,13 +56,13 @@ func TestSourceRuleDatatypeValidation(t *testing.T) {
 func TestSourceRuleColumnLimitIsBounded(t *testing.T) {
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RowGrain: "resource"}
 	limit := 4
-	create := authoringv2.SourceRuleCreate{
+	create := ws.SourceRuleCreate{
 		Kind: SourcePlanCatalogProjection, MaxColumns: &limit,
-		Parameters: &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{
+		Parameters: &ws.ImportedSourceParameters{Catalog: &ws.ImportedCatalogParameters{
 			Name: "fields", IncludePaths: []string{"gender"},
 		}},
 	}
-	plan, err := EditPlan(output, SourcePlan(output), authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &create}, PlanEditInput{})
+	plan, err := EditPlan(output, SourcePlan(output), ws.CatalogSnapshot{}, PlanEdit{RuleCreate: &create}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,23 +74,23 @@ func TestSourceRuleColumnLimitIsBounded(t *testing.T) {
 		t.Fatalf("compiled limit = %d, want %d", effective.CatalogProjections[0].MaxColumns, limit)
 	}
 	create.MaxColumns = nil
-	withDefault, err := EditPlan(output, SourcePlan(output), authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &create}, PlanEditInput{})
+	withDefault, err := EditPlan(output, SourcePlan(output), ws.CatalogSnapshot{}, PlanEdit{RuleCreate: &create}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	step := withDefault.Steps[len(withDefault.Steps)-1]
-	if step.MaxColumns == nil || *step.MaxColumns != authoringv2.MaxImportedRuleColumns {
+	if step.MaxColumns == nil || *step.MaxColumns != ws.MaxImportedRuleColumns {
 		t.Fatalf("default limit is not available when editing: %+v", step)
 	}
-	excess := authoringv2.MaxImportedRuleColumns + 1
+	excess := ws.MaxImportedRuleColumns + 1
 	change := authoringv2.ImportedSourceStepChange{StepID: plan.RuleAdditions[0].StepID, MaxColumns: &excess}
-	if _, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{}); err == nil {
+	if _, err := EditPlan(output, plan, ws.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{}); err == nil {
 		t.Fatal("accepted a column limit above the rule maximum")
 	}
 }
 
 func TestSourcePlanRejects129thRule(t *testing.T) {
-	plan := authoringv2.ImportedSourcePlan{RuleAdditions: make([]authoringv2.ImportedSourceRuleAddition, 129)}
+	plan := ws.ImportedSourcePlan{RuleAdditions: make([]ws.ImportedSourceRuleAddition, 129)}
 	if err := plan.Validate(); err == nil || err.Error() != "source plan has more than 128 rule additions" {
 		t.Fatalf("expected the rule addition cap, got %v", err)
 	}

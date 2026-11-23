@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"testing"
+
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 )
 
 type ProjectConfigCatalog struct {
-	APIVersion string          `json:"apiVersion"`
-	Kind       string          `json:"kind"`
-	Configs    []ProjectConfig `json:"configs"`
+	APIVersion string                         `json:"apiVersion"`
+	Kind       string                         `json:"kind"`
+	Configs    []explorerconfig.ProjectConfig `json:"configs"`
 }
 
 func DecodeProjectConfigs(raw []byte) (ProjectConfigCatalog, error) {
@@ -52,7 +54,7 @@ func DecodeProjectConfigs(raw []byte) (ProjectConfigCatalog, error) {
 		}
 		return ProjectConfigCatalog{}, fmt.Errorf("decode project config catalog: trailing JSON: %w", err)
 	}
-	if catalog.APIVersion != ProjectConfigsAPIVersion {
+	if catalog.APIVersion != explorerconfig.ProjectConfigsAPIVersion {
 		return ProjectConfigCatalog{}, fmt.Errorf("unsupported project config apiVersion %q", catalog.APIVersion)
 	}
 	if catalog.Kind != "ProjectConfigs" {
@@ -61,7 +63,7 @@ func DecodeProjectConfigs(raw []byte) (ProjectConfigCatalog, error) {
 	if catalog.Configs == nil {
 		return ProjectConfigCatalog{}, errors.New("project config catalog configs must be an array")
 	}
-	if err := validateProjectConfigs(catalog.Configs); err != nil {
+	if err := explorerconfig.ValidateProjectConfigs(catalog.Configs); err != nil {
 		return ProjectConfigCatalog{}, err
 	}
 	return catalog, nil

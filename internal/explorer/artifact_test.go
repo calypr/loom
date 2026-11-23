@@ -1,6 +1,8 @@
 package explorer
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestArtifactIDIsStableAndRequiresExactIdentity(t *testing.T) {
 	record := ArtifactRecord{Project: "study/project", ExplorerID: "explorer", RevisionID: "revision", OutputID: "patients", ReceiptID: "receipt", ExecutionID: "execution", DatasetGeneration: "generation-a", SchemaDigest: "schema-a", AuthorizationScopeDigest: "scope-a", IdempotencyKey: "request-1"}

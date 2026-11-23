@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -100,7 +102,7 @@ type RowChangeAssessment struct {
 	Unresolved                []RowChangeUnresolvedReference `json:"unresolved"`
 }
 
-func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
+func AssessRowChange(workspace ws.Workspace, catalog ws.CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
 	if request.Mode == RowChangeModeReplace {
 		return AssessRowReplacement(workspace, catalog, request)
 	}
@@ -150,13 +152,13 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		return RowChangeAssessment{}, err
 	}
 
-	authoredCandidates := make([]RouteNode, 0)
+	authoredCandidates := make([]ws.RouteNode, 0)
 	for _, occurrence := range routeOccurrences(document.Route, node.ResourceType) {
 		if routeNodeIDs[occurrence.OccurrenceID] == request.RootNodeID {
 			authoredCandidates = append(authoredCandidates, occurrence)
 		}
 	}
-	var selected RouteNode
+	var selected ws.RouteNode
 	var derived *rowChangeCandidateRoute
 	if strings.HasPrefix(request.RootOccurrenceID, rowChangeRouteTokenPrefix) {
 		derivedCandidates := deriveRowChangeCandidateRoutes(document, catalog, rootNodeID, request.RootNodeID, routeNodeIDs)
@@ -204,7 +206,7 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		derived = &derivedCandidates[0]
 	}
 
-	path := []RouteNode(nil)
+	path := []ws.RouteNode(nil)
 	pathNodeIDs := []string(nil)
 	if derived != nil {
 		var err error
@@ -215,7 +217,7 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 			})
 			return assessment, nil
 		}
-		selected = RouteNode{OccurrenceID: derived.OccurrenceID, ResourceType: node.ResourceType, MatchMode: RouteMatchOptional}
+		selected = ws.RouteNode{OccurrenceID: derived.OccurrenceID, ResourceType: node.ResourceType, MatchMode: ws.RouteMatchOptional}
 		var ok bool
 		path, ok = routePath(document.Route, selected.OccurrenceID)
 		if !ok {
@@ -273,7 +275,7 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 	return assessment, nil
 }
 
-func AssessRowReplacement(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
+func AssessRowReplacement(workspace ws.Workspace, catalog ws.CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
 	index := documentIndex(&workspace, request.OutputID)
 	node, found := catalogNode(catalog, request.RootNodeID)
 	if index < 0 || !found || !node.RowRootEligible {
@@ -310,40 +312,40 @@ func AssessRowReplacement(workspace Workspace, catalog CatalogSnapshot, request 
 	if err := candidate.Validate(); err != nil {
 		return blockedReplacement(document, node, RowReferenceColumn, "id", "ROW_ROOT_ID_FIELD_UNAVAILABLE", err.Error()), nil
 	}
-	if err := validateEditableSource(candidate, catalog, RootOccurrenceID, candidate.Columns[0].Source); err != nil {
+	if err := validateEditableSource(candidate, catalog, ws.RootOccurrenceID, candidate.Columns[0].Source); err != nil {
 		return blockedReplacement(document, node, RowReferenceColumn, "id", "ROW_ROOT_ID_FIELD_UNAVAILABLE", err.Error()), nil
 	}
-	proposal := RowChangeProposal{Mode: RowChangeModeReplace, OutputID: request.OutputID, RootNodeID: request.RootNodeID, RootOccurrenceID: RootOccurrenceID,
+	proposal := RowChangeProposal{Mode: RowChangeModeReplace, OutputID: request.OutputID, RootNodeID: request.RootNodeID, RootOccurrenceID: ws.RootOccurrenceID,
 		SourceDocumentDigest: documentDigest(document), CatalogSnapshotToken: catalog.SnapshotToken, CatalogGeneration: catalog.SourceGeneration, CatalogDigest: digest,
 		RouteRebase: []RouteRebaseChoice{}, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: append([]string{}, removed...), WorkspaceOutputConsumers: append([]WorkspaceOutputConsumer{}, consumers...), SharedFilterBindings: append([]SharedFilterBindingRef{}, bindings...)}
 	return RowChangeAssessment{Status: RowChangeReady, CurrentRootResourceType: document.RootResourceType, CandidateRootResourceType: node.ResourceType, Proposal: &proposal,
 		Mode: RowChangeModeReplace, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: removed, WorkspaceOutputConsumers: consumers, SharedFilterBindings: bindings, Unresolved: []RowChangeUnresolvedReference{}}, nil
 }
 
-func ApplyRowReplacement(workspace Workspace, catalog CatalogSnapshot, proposal RowChangeProposal) (Workspace, error) {
+func ApplyRowReplacement(workspace ws.Workspace, catalog ws.CatalogSnapshot, proposal RowChangeProposal) (ws.Workspace, error) {
 	if proposal.Mode != RowChangeModeReplace {
-		return Workspace{}, fmt.Errorf("row replacement proposal has unsupported mode %q", proposal.Mode)
+		return ws.Workspace{}, fmt.Errorf("row replacement proposal has unsupported mode %q", proposal.Mode)
 	}
 	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{Mode: RowChangeModeReplace, OutputID: proposal.OutputID, RootNodeID: proposal.RootNodeID})
 	if err != nil {
-		return Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	if assessment.Status != RowChangeReady || assessment.Proposal == nil || !rowChangeProposalEqual(*assessment.Proposal, proposal) {
-		return Workspace{}, fmt.Errorf("ROW_REPLACEMENT_PROPOSAL_STALE: the table, catalog, or current-draft references changed after replacement assessment")
+		return ws.Workspace{}, fmt.Errorf("ROW_REPLACEMENT_PROPOSAL_STALE: the table, catalog, or current-draft references changed after replacement assessment")
 	}
 	node, _ := catalogNode(catalog, proposal.RootNodeID)
 	idCandidate, err := replacementIDCandidate(catalog, node)
 	if err != nil {
-		return Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	workspace, err = cloneWorkspace(workspace)
 	if err != nil {
-		return Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	index := documentIndex(&workspace, proposal.OutputID)
 	workspace.Documents[index] = replacementDocument(workspace.Documents[index], node, *idCandidate)
 	for name, bindings := range workspace.SharedFilters {
-		kept := make([]SharedFilterBinding, 0, len(bindings))
+		kept := make([]ws.SharedFilterBinding, 0, len(bindings))
 		for _, binding := range bindings {
 			if binding.OutputID != proposal.OutputID {
 				kept = append(kept, binding)
@@ -358,28 +360,28 @@ func ApplyRowReplacement(workspace Workspace, catalog CatalogSnapshot, proposal 
 	return workspace, nil
 }
 
-func replacementDocument(document Document, node CatalogNode, idCandidate CatalogCandidate) Document {
+func replacementDocument(document ws.Document, node ws.CatalogNode, idCandidate ws.CatalogCandidate) ws.Document {
 	label := strings.TrimSpace(idCandidate.Label)
 	if label == "" {
 		label = "ID"
 	}
 	visible := true
 	order := 0
-	return Document{Kind: document.Kind, Output: Output{ID: document.Output.ID, Title: document.Output.Title}, RootResourceType: node.ResourceType,
-		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}, Rows: RecordsRowDefinition(),
-		Columns: []Column{{ColumnID: "id", Column: "id", Label: label, LogicalType: idCandidate.LogicalType, OccurrenceID: RootOccurrenceID,
-			Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(strings.TrimSpace(idCandidate.FieldPath), "root."), ProjectionMode: "VALUE"}},
-			Table:  &TablePresentation{Visible: &visible, Order: &order}}},
+	return ws.Document{Kind: document.Kind, Output: ws.Output{ID: document.Output.ID, Title: document.Output.Title}, RootResourceType: node.ResourceType,
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: node.ResourceType}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{ColumnID: "id", Column: "id", Label: label, LogicalType: idCandidate.LogicalType, OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: strings.TrimPrefix(strings.TrimSpace(idCandidate.FieldPath), "root."), ProjectionMode: "VALUE"}},
+			Table:  &ws.TablePresentation{Visible: &visible, Order: &order}}},
 	}
 }
 
-func blockedReplacement(document Document, node CatalogNode, kind, id, code, message string) RowChangeAssessment {
+func blockedReplacement(document ws.Document, node ws.CatalogNode, kind, id, code, message string) RowChangeAssessment {
 	return RowChangeAssessment{Status: RowChangeBlocked, CurrentRootResourceType: document.RootResourceType, CandidateRootResourceType: node.ResourceType,
 		Mode: RowChangeModeReplace, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: []string{}, WorkspaceOutputConsumers: []WorkspaceOutputConsumer{}, SharedFilterBindings: []SharedFilterBindingRef{}, Unresolved: []RowChangeUnresolvedReference{{Kind: kind, ID: id, Code: code, Message: message}}}
 }
 
-func replacementIDCandidate(catalog CatalogSnapshot, node CatalogNode) (*CatalogCandidate, error) {
-	var selected *CatalogCandidate
+func replacementIDCandidate(catalog ws.CatalogSnapshot, node ws.CatalogNode) (*ws.CatalogCandidate, error) {
+	var selected *ws.CatalogCandidate
 	for index := range catalog.Candidates {
 		candidate := &catalog.Candidates[index]
 		if candidate.NodeID != node.ID || strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != "id" {
@@ -401,14 +403,14 @@ func replacementIDCandidate(catalog CatalogSnapshot, node CatalogNode) (*Catalog
 	return selected, nil
 }
 
-func replacementRemovedFeatureKeys(document Document) []string {
+func replacementRemovedFeatureKeys(document ws.Document) []string {
 	keys := []string{"root:" + document.RootResourceType}
 	if strings.TrimSpace(document.Output.RowLabel) != "" {
 		keys = append(keys, "rowLabel:"+document.Output.RowLabel)
 	}
-	var visit func(RouteNode)
-	visit = func(route RouteNode) {
-		if route.OccurrenceID != RootOccurrenceID {
+	var visit func(ws.RouteNode)
+	visit = func(route ws.RouteNode) {
+		if route.OccurrenceID != ws.RootOccurrenceID {
 			keys = append(keys, "route:"+route.OccurrenceID)
 		}
 		for _, child := range route.Children {
@@ -416,7 +418,7 @@ func replacementRemovedFeatureKeys(document Document) []string {
 		}
 	}
 	visit(document.Route)
-	if document.Rows.Kind != RowDefinitionRecords {
+	if document.Rows.Kind != ws.RowDefinitionRecords {
 		keys = append(keys, "rows:"+string(document.Rows.Kind))
 	}
 	for _, column := range document.Columns {
@@ -460,7 +462,7 @@ func replacementRemovedFeatureKeys(document Document) []string {
 	return keys
 }
 
-func workspaceOutputConsumers(workspace Workspace, outputID string) []WorkspaceOutputConsumer {
+func workspaceOutputConsumers(workspace ws.Workspace, outputID string) []WorkspaceOutputConsumer {
 	consumers := []WorkspaceOutputConsumer{}
 	for _, document := range workspace.Documents {
 		if document.Output.ID == outputID || document.Construction == nil {
@@ -468,7 +470,7 @@ func workspaceOutputConsumers(workspace Workspace, outputID string) []WorkspaceO
 		}
 		for _, step := range document.Construction.Steps {
 			for inputIndex, input := range step.Inputs {
-				if input.Kind == ConstructionInputWorkspaceOutput && input.OutputID == outputID {
+				if input.Kind == ws.ConstructionInputWorkspaceOutput && input.OutputID == outputID {
 					consumers = append(consumers, WorkspaceOutputConsumer{OutputID: document.Output.ID, StepID: step.ID, InputIndex: inputIndex})
 				}
 			}
@@ -486,7 +488,7 @@ func workspaceOutputConsumers(workspace Workspace, outputID string) []WorkspaceO
 	return consumers
 }
 
-func sharedFilterBindingsForOutput(workspace Workspace, outputID string) []SharedFilterBindingRef {
+func sharedFilterBindingsForOutput(workspace ws.Workspace, outputID string) []SharedFilterBindingRef {
 	refs := []SharedFilterBindingRef{}
 	names := make([]string, 0, len(workspace.SharedFilters))
 	for name := range workspace.SharedFilters {
@@ -503,35 +505,35 @@ func sharedFilterBindingsForOutput(workspace Workspace, outputID string) []Share
 	return refs
 }
 
-func ApplyRowChange(document Document, catalog CatalogSnapshot, proposal RowChangeProposal) (Document, error) {
+func ApplyRowChange(document ws.Document, catalog ws.CatalogSnapshot, proposal RowChangeProposal) (ws.Document, error) {
 	if document.Output.ID != proposal.OutputID || documentDigest(document) != proposal.SourceDocumentDigest {
-		return Document{}, fmt.Errorf("ROW_REBASE_PROPOSAL_STALE: the table changed after row rebase assessment")
+		return ws.Document{}, fmt.Errorf("ROW_REBASE_PROPOSAL_STALE: the table changed after row rebase assessment")
 	}
-	workspace := Workspace{Documents: []Document{document}}
+	workspace := ws.Workspace{Documents: []ws.Document{document}}
 	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
 		OutputID: proposal.OutputID, RootNodeID: proposal.RootNodeID, RootOccurrenceID: proposal.RootOccurrenceID, RouteRebase: proposal.RouteRebase,
 	})
 	if err != nil {
-		return Document{}, err
+		return ws.Document{}, err
 	}
 	if assessment.Status != RowChangeReady || assessment.Proposal == nil {
-		return Document{}, fmt.Errorf("ROW_REBASE_UNRESOLVED: row rebase requires explicit resolution")
+		return ws.Document{}, fmt.Errorf("ROW_REBASE_UNRESOLVED: row rebase requires explicit resolution")
 	}
 	if !rowChangeProposalEqual(*assessment.Proposal, proposal) {
-		return Document{}, fmt.Errorf("ROW_REBASE_PROPOSAL_STALE: the assessed row rebase no longer matches the table")
+		return ws.Document{}, fmt.Errorf("ROW_REBASE_PROPOSAL_STALE: the assessed row rebase no longer matches the table")
 	}
 	return applyRowChange(document, catalog, proposal)
 }
 
-func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChangeProposal) (Document, error) {
+func applyRowChange(document ws.Document, catalog ws.CatalogSnapshot, proposal RowChangeProposal) (ws.Document, error) {
 	cloned, err := cloneDocument(document)
 	if err != nil {
-		return Document{}, err
+		return ws.Document{}, err
 	}
 	document = cloned
 	rootNodeID, routeNodeIDs, resolved := resolveDocumentRouteNodeIDs(document.Route, catalog)
 	if !resolved {
-		return Document{}, fmt.Errorf("current route does not identify one exact catalog root")
+		return ws.Document{}, fmt.Errorf("current route does not identify one exact catalog root")
 	}
 	selectedOccurrenceID := proposal.RootOccurrenceID
 	if strings.HasPrefix(proposal.RootOccurrenceID, rowChangeRouteTokenPrefix) {
@@ -544,46 +546,46 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 			}
 		}
 		if candidate == nil {
-			return Document{}, fmt.Errorf("derived row root path %q is unavailable", proposal.RootOccurrenceID)
+			return ws.Document{}, fmt.Errorf("derived row root path %q is unavailable", proposal.RootOccurrenceID)
 		}
 		selectedOccurrenceID = candidate.OccurrenceID
 		document, err = materializeRowChangeCandidateRoute(document, catalog, rootNodeID, *candidate)
 		if err != nil {
-			return Document{}, err
+			return ws.Document{}, err
 		}
 	}
 	path, ok := routePath(document.Route, selectedOccurrenceID)
 	if !ok || len(path) < 2 {
-		return Document{}, fmt.Errorf("row root occurrence %q is not a route descendant", selectedOccurrenceID)
+		return ws.Document{}, fmt.Errorf("row root occurrence %q is not a route descendant", selectedOccurrenceID)
 	}
 	pathNodeIDs, ok := routePathCatalogNodeIDs(document.Route, selectedOccurrenceID, rootNodeID, catalog)
 	if !ok || len(pathNodeIDs) != len(path) || pathNodeIDs[len(pathNodeIDs)-1] != proposal.RootNodeID {
-		return Document{}, fmt.Errorf("row root occurrence %q does not resolve to the selected catalog node", selectedOccurrenceID)
+		return ws.Document{}, fmt.Errorf("row root occurrence %q does not resolve to the selected catalog node", selectedOccurrenceID)
 	}
-	choices := make(map[string]CatalogEdge, len(proposal.RouteRebase))
+	choices := make(map[string]ws.CatalogEdge, len(proposal.RouteRebase))
 	for _, choice := range proposal.RouteRebase {
 		if _, duplicate := choices[choice.OccurrenceID]; duplicate {
-			return Document{}, fmt.Errorf("row rebase repeats inverse edge choice for occurrence %q", choice.OccurrenceID)
+			return ws.Document{}, fmt.Errorf("row rebase repeats inverse edge choice for occurrence %q", choice.OccurrenceID)
 		}
 		edge, found := catalogEdge(catalog, choice.EdgeID)
 		if !found {
-			return Document{}, fmt.Errorf("row rebase edge %q was not found", choice.EdgeID)
+			return ws.Document{}, fmt.Errorf("row rebase edge %q was not found", choice.EdgeID)
 		}
 		choices[choice.OccurrenceID] = edge
 	}
 	if len(choices) != len(path)-1 {
-		return Document{}, fmt.Errorf("row rebase requires one explicit inverse edge for every path relationship")
+		return ws.Document{}, fmt.Errorf("row rebase requires one explicit inverse edge for every path relationship")
 	}
 	for index := 0; index < len(path)-1; index++ {
 		parent, child := path[index], path[index+1]
 		edge, found := choices[parent.OccurrenceID]
 		if !found {
-			return Document{}, fmt.Errorf("row rebase has no inverse edge for occurrence %q", parent.OccurrenceID)
+			return ws.Document{}, fmt.Errorf("row rebase has no inverse edge for occurrence %q", parent.OccurrenceID)
 		}
 		from, fromOK := catalogNode(catalog, edge.FromNodeID)
 		to, toOK := catalogNode(catalog, edge.ToNodeID)
 		if !fromOK || !toOK || edge.FromNodeID != pathNodeIDs[index+1] || edge.ToNodeID != pathNodeIDs[index] || from.ResourceType != child.ResourceType || to.ResourceType != parent.ResourceType {
-			return Document{}, fmt.Errorf("row rebase edge %q does not invert occurrence %q", edge.ID, parent.OccurrenceID)
+			return ws.Document{}, fmt.Errorf("row rebase edge %q does not invert occurrence %q", edge.ID, parent.OccurrenceID)
 		}
 	}
 
@@ -604,30 +606,30 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 	}
 
 	newRoot := selected
-	newRoot.OccurrenceID = RootOccurrenceID
+	newRoot.OccurrenceID = ws.RootOccurrenceID
 	newRoot.CatalogEdgeID = ""
 	newRoot.Relationship = ""
 	newRoot.MatchMode = ""
-	newRoot.Children = append(append([]RouteNode(nil), selected.Children...), reversed)
+	newRoot.Children = append(append([]ws.RouteNode(nil), selected.Children...), reversed)
 
 	for index := range document.Columns {
 		switch document.Columns[index].OccurrenceID {
-		case RootOccurrenceID:
+		case ws.RootOccurrenceID:
 			document.Columns[index].OccurrenceID = selected.OccurrenceID
 		case selected.OccurrenceID:
-			document.Columns[index].OccurrenceID = RootOccurrenceID
+			document.Columns[index].OccurrenceID = ws.RootOccurrenceID
 		}
 	}
 	document.RootResourceType = selected.ResourceType
 	document.Route = newRoot
 	if err := rebaseRelatedSourceRoutes(&document, catalog, path, pathNodeIDs, choices); err != nil {
-		return Document{}, err
+		return ws.Document{}, err
 	}
 	if document.Population != nil {
-		prefix := make([]PopulationRouteStep, 0, len(path)-1)
+		prefix := make([]ws.PopulationRouteStep, 0, len(path)-1)
 		for index := len(path) - 2; index >= 0; index-- {
 			edge := choices[path[index].OccurrenceID]
-			prefix = append(prefix, PopulationRouteStep{
+			prefix = append(prefix, ws.PopulationRouteStep{
 				ResourceType: path[index].ResourceType, Relationship: edge.Label,
 				CatalogEdgeID: edge.ID, StorageDirection: edge.StorageDirection,
 			})
@@ -635,17 +637,17 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 		document.Population.Route = rebasePopulationRoute(prefix, document.Population.Route, proposal.RootNodeID, rootNodeID, catalog)
 	}
 	if err := validateRebasedRoute(document, catalog, proposal.RootNodeID); err != nil {
-		return Document{}, err
+		return ws.Document{}, err
 	}
 	return document, nil
 }
 
 func rebaseRelatedSourceRoutes(
-	document *Document,
-	catalog CatalogSnapshot,
-	path []RouteNode,
+	document *ws.Document,
+	catalog ws.CatalogSnapshot,
+	path []ws.RouteNode,
 	pathNodeIDs []string,
-	inverseChoices map[string]CatalogEdge,
+	inverseChoices map[string]ws.CatalogEdge,
 ) error {
 	if document.Construction == nil {
 		return nil
@@ -653,7 +655,7 @@ func rebaseRelatedSourceRoutes(
 	for stepIndex := range document.Construction.Steps {
 		step := &document.Construction.Steps[stepIndex]
 		related := step.Operation.RelatedSource
-		if step.Operation.Kind != ConstructionOperationRelatedSource || related == nil {
+		if step.Operation.Kind != ws.ConstructionOperationRelatedSource || related == nil {
 			continue
 		}
 		route, err := rebaseRelatedSourceRoute(*related, catalog, path, pathNodeIDs, inverseChoices)
@@ -677,7 +679,7 @@ func rebaseRelatedSourceRoutes(
 	return nil
 }
 
-func relatedSourceCatalogCandidate(catalog CatalogSnapshot, related ConstructionRelatedSource) (capability.Candidate, error) {
+func relatedSourceCatalogCandidate(catalog ws.CatalogSnapshot, related ws.ConstructionRelatedSource) (capability.Candidate, error) {
 	candidate, found := catalogCandidate(catalog, related.Source.CandidateID)
 	if !found || candidate.ConstructionChoice == nil {
 		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q is unavailable", related.Source.CandidateID)
@@ -749,12 +751,12 @@ func constructionChoiceSupportsRelatedForm(choice capability.ConstructionChoice,
 	return false
 }
 
-func sameCatalogCapabilityRepeatedBoundaries(left []RepeatedBoundary, right []capability.RepeatedBoundary) bool {
+func sameCatalogCapabilityRepeatedBoundaries(left []ws.RepeatedBoundary, right []capability.RepeatedBoundary) bool {
 	if len(left) != len(right) {
 		return false
 	}
 	for index := range left {
-		if left[index] != (RepeatedBoundary{Path: right[index].Path, MaxItems: right[index].MaxItems}) {
+		if left[index] != (ws.RepeatedBoundary{Path: right[index].Path, MaxItems: right[index].MaxItems}) {
 			return false
 		}
 	}
@@ -774,11 +776,11 @@ func sameCapabilityRepeatedBoundaries(left, right []capability.RepeatedBoundary)
 }
 
 func rebaseRelatedSourceRoute(
-	related ConstructionRelatedSource,
-	catalog CatalogSnapshot,
-	path []RouteNode,
+	related ws.ConstructionRelatedSource,
+	catalog ws.CatalogSnapshot,
+	path []ws.RouteNode,
 	pathNodeIDs []string,
-	inverseChoices map[string]CatalogEdge,
+	inverseChoices map[string]ws.CatalogEdge,
 ) ([]capability.ConstructionRouteStep, error) {
 	if len(path) < 2 || len(pathNodeIDs) != len(path) {
 		return nil, fmt.Errorf("selected row root path is incomplete")
@@ -799,10 +801,10 @@ func rebaseRelatedSourceRoute(
 }
 
 func reverseConstructionRoutePath(
-	path []RouteNode,
+	path []ws.RouteNode,
 	pathNodeIDs []string,
-	inverseChoices map[string]CatalogEdge,
-	catalog CatalogSnapshot,
+	inverseChoices map[string]ws.CatalogEdge,
+	catalog ws.CatalogSnapshot,
 	startIndex int,
 ) ([]capability.ConstructionRouteStep, error) {
 	if startIndex < 0 || startIndex >= len(path)-1 || len(pathNodeIDs) != len(path) {
@@ -832,8 +834,8 @@ func reverseConstructionRoutePath(
 	return route, nil
 }
 
-func rebasePopulationRoute(prefix, existing []PopulationRouteStep, newRootNodeID, previousRootNodeID string, catalog CatalogSnapshot) []PopulationRouteStep {
-	combined := make([]PopulationRouteStep, 0, len(prefix)+len(existing))
+func rebasePopulationRoute(prefix, existing []ws.PopulationRouteStep, newRootNodeID, previousRootNodeID string, catalog ws.CatalogSnapshot) []ws.PopulationRouteStep {
+	combined := make([]ws.PopulationRouteStep, 0, len(prefix)+len(existing))
 	combined = append(combined, prefix...)
 	combined = append(combined, existing...)
 	if len(prefix) == 0 || len(existing) == 0 {
@@ -854,13 +856,13 @@ func rebasePopulationRoute(prefix, existing []PopulationRouteStep, newRootNodeID
 		existingStart++
 	}
 
-	result := make([]PopulationRouteStep, 0, prefixEnd+len(existing)-existingStart)
+	result := make([]ws.PopulationRouteStep, 0, prefixEnd+len(existing)-existingStart)
 	result = append(result, prefix[:prefixEnd]...)
 	result = append(result, existing[existingStart:]...)
 	return result
 }
 
-func populationRouteCatalogNodeIDs(route []PopulationRouteStep, rootNodeID string, catalog CatalogSnapshot) ([]string, bool) {
+func populationRouteCatalogNodeIDs(route []ws.PopulationRouteStep, rootNodeID string, catalog ws.CatalogSnapshot) ([]string, bool) {
 	if _, found := catalogNode(catalog, rootNodeID); !found {
 		return nil, false
 	}
@@ -885,7 +887,7 @@ func populationRouteCatalogNodeIDs(route []PopulationRouteStep, rootNodeID strin
 	return result, true
 }
 
-func populationRouteStepsAreExactInverses(prefix, existing PopulationRouteStep, catalog CatalogSnapshot) bool {
+func populationRouteStepsAreExactInverses(prefix, existing ws.PopulationRouteStep, catalog ws.CatalogSnapshot) bool {
 	if prefix.CatalogEdgeID == "" || existing.CatalogEdgeID == "" || prefix.CatalogEdgeID == existing.CatalogEdgeID ||
 		prefix.Relationship == "" || prefix.Relationship != existing.Relationship {
 		return false
@@ -900,8 +902,8 @@ func populationRouteStepsAreExactInverses(prefix, existing PopulationRouteStep, 
 		(prefixEdge.StorageDirection == "OUTBOUND" && existingEdge.StorageDirection == "INBOUND")
 }
 
-func routeOccurrences(route RouteNode, resourceType string) []RouteNode {
-	result := []RouteNode{}
+func routeOccurrences(route ws.RouteNode, resourceType string) []ws.RouteNode {
+	result := []ws.RouteNode{}
 	for _, child := range route.Children {
 		if child.ResourceType == resourceType {
 			result = append(result, child)
@@ -911,8 +913,8 @@ func routeOccurrences(route RouteNode, resourceType string) []RouteNode {
 	return result
 }
 
-func routeChildrenWithout(route RouteNode, occurrenceID string) []RouteNode {
-	children := make([]RouteNode, 0, len(route.Children))
+func routeChildrenWithout(route ws.RouteNode, occurrenceID string) []ws.RouteNode {
+	children := make([]ws.RouteNode, 0, len(route.Children))
 	for _, child := range route.Children {
 		if child.OccurrenceID != occurrenceID {
 			children = append(children, child)
@@ -921,14 +923,14 @@ func routeChildrenWithout(route RouteNode, occurrenceID string) []RouteNode {
 	return children
 }
 
-func selectRootOccurrence(candidates []RouteNode, requested, resourceType string) (RouteNode, *RowChangeUnresolvedReference) {
+func selectRootOccurrence(candidates []ws.RouteNode, requested, resourceType string) (ws.RouteNode, *RowChangeUnresolvedReference) {
 	if requested != "" {
 		for _, candidate := range candidates {
 			if candidate.OccurrenceID == requested {
 				return candidate, nil
 			}
 		}
-		return RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: requested, Code: "ROW_ROOT_OCCURRENCE_NOT_FOUND", Message: "the selected row occurrence is not an authored descendant with the requested resource type"}
+		return ws.RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: requested, Code: "ROW_ROOT_OCCURRENCE_NOT_FOUND", Message: "the selected row occurrence is not an authored descendant with the requested resource type"}
 	}
 	if len(candidates) == 1 {
 		return candidates[0], nil
@@ -942,11 +944,11 @@ func selectRootOccurrence(candidates []RouteNode, requested, resourceType string
 	if len(candidates) > 1 {
 		code, message = "AMBIGUOUS_ROW_ROOT_OCCURRENCE", "several route occurrences can become the row root; choose one explicitly"
 	}
-	return RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: resourceType, Code: code, Message: message, Alternatives: alternatives}
+	return ws.RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: resourceType, Code: code, Message: message, Alternatives: alternatives}
 }
 
-func resolveDocumentRouteNodeIDs(route RouteNode, catalog CatalogSnapshot) (string, map[string]string, bool) {
-	rootCandidates := make([]CatalogNode, 0)
+func resolveDocumentRouteNodeIDs(route ws.RouteNode, catalog ws.CatalogSnapshot) (string, map[string]string, bool) {
+	rootCandidates := make([]ws.CatalogNode, 0)
 	for _, node := range catalog.Nodes {
 		if node.RowRootEligible && node.ResourceType == route.ResourceType {
 			rootCandidates = append(rootCandidates, node)
@@ -969,10 +971,10 @@ func resolveDocumentRouteNodeIDs(route RouteNode, catalog CatalogSnapshot) (stri
 	return rootNodeID, nodeIDs, rootNodeID != ""
 }
 
-func routeNodeIDsFromRoot(route RouteNode, rootNodeID string, catalog CatalogSnapshot) (map[string]string, bool) {
+func routeNodeIDsFromRoot(route ws.RouteNode, rootNodeID string, catalog ws.CatalogSnapshot) (map[string]string, bool) {
 	result := map[string]string{route.OccurrenceID: rootNodeID}
-	var walk func(RouteNode, string) bool
-	walk = func(parent RouteNode, parentNodeID string) bool {
+	var walk func(ws.RouteNode, string) bool
+	walk = func(parent ws.RouteNode, parentNodeID string) bool {
 		for _, child := range parent.Children {
 			edge, err := resolveCatalogRouteEdge(catalog, parentNodeID, parent, child)
 			if err != nil {
@@ -991,7 +993,7 @@ func routeNodeIDsFromRoot(route RouteNode, rootNodeID string, catalog CatalogSna
 	return result, true
 }
 
-func routePathCatalogNodeIDs(route RouteNode, occurrenceID, rootNodeID string, catalog CatalogSnapshot) ([]string, bool) {
+func routePathCatalogNodeIDs(route ws.RouteNode, occurrenceID, rootNodeID string, catalog ws.CatalogSnapshot) ([]string, bool) {
 	path, found := routePath(route, occurrenceID)
 	if !found || len(path) == 0 {
 		return nil, false
@@ -1011,8 +1013,8 @@ func routePathCatalogNodeIDs(route RouteNode, occurrenceID, rootNodeID string, c
 	return result, true
 }
 
-func catalogEdgesBetweenNodeIDs(catalog CatalogSnapshot, fromNodeID, toNodeID string) []CatalogEdge {
-	result := []CatalogEdge{}
+func catalogEdgesBetweenNodeIDs(catalog ws.CatalogSnapshot, fromNodeID, toNodeID string) []ws.CatalogEdge {
+	result := []ws.CatalogEdge{}
 	for _, edge := range catalog.Edges {
 		if edge.FromNodeID == fromNodeID && edge.ToNodeID == toNodeID {
 			result = append(result, edge)
@@ -1027,7 +1029,7 @@ type authoredRouteBranch struct {
 	EdgeIDs      []string
 }
 
-func deriveRowChangeCandidateRoutes(document Document, catalog CatalogSnapshot, rootNodeID, targetNodeID string, routeNodeIDs map[string]string) []rowChangeCandidateRoute {
+func deriveRowChangeCandidateRoutes(document ws.Document, catalog ws.CatalogSnapshot, rootNodeID, targetNodeID string, routeNodeIDs map[string]string) []rowChangeCandidateRoute {
 	paths := catalogEdgePaths(catalog, rootNodeID, targetNodeID)
 	if len(paths) == 0 {
 		return nil
@@ -1037,7 +1039,7 @@ func deriveRowChangeCandidateRoutes(document Document, catalog CatalogSnapshot, 
 	seen := map[string]bool{}
 	for _, edgePath := range paths {
 		maxPrefix := 0
-		anchors := []string{RootOccurrenceID}
+		anchors := []string{ws.RootOccurrenceID}
 		for _, branch := range branches {
 			prefix := 0
 			for prefix < len(edgePath) && prefix < len(branch.EdgeIDs) && edgePath[prefix] == branch.EdgeIDs[prefix] {
@@ -1068,7 +1070,7 @@ func deriveRowChangeCandidateRoutes(document Document, catalog CatalogSnapshot, 
 			}
 			continue
 		}
-		candidate := newRowChangeCandidateRoute(document, edgePath, RootOccurrenceID, 0)
+		candidate := newRowChangeCandidateRoute(document, edgePath, ws.RootOccurrenceID, 0)
 		if candidate.Token != "" && !seen[candidate.Token] {
 			seen[candidate.Token] = true
 			result = append(result, candidate)
@@ -1078,7 +1080,7 @@ func deriveRowChangeCandidateRoutes(document Document, catalog CatalogSnapshot, 
 	return result
 }
 
-func newRowChangeCandidateRoute(document Document, edgeIDs []string, anchorOccurrenceID string, anchorDepth int) rowChangeCandidateRoute {
+func newRowChangeCandidateRoute(document ws.Document, edgeIDs []string, anchorOccurrenceID string, anchorDepth int) rowChangeCandidateRoute {
 	token, err := encodeRowChangeRouteToken(rowChangeRouteToken{EdgeIDs: append([]string(nil), edgeIDs...), AnchorOccurrenceID: anchorOccurrenceID})
 	if err != nil {
 		return rowChangeCandidateRoute{}
@@ -1100,8 +1102,8 @@ func encodeRowChangeRouteToken(token rowChangeRouteToken) (string, error) {
 	return rowChangeRouteTokenPrefix + base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func catalogEdgePaths(catalog CatalogSnapshot, rootNodeID, targetNodeID string) [][]string {
-	edges := append([]CatalogEdge(nil), catalog.Edges...)
+func catalogEdgePaths(catalog ws.CatalogSnapshot, rootNodeID, targetNodeID string) [][]string {
+	edges := append([]ws.CatalogEdge(nil), catalog.Edges...)
 	sort.Slice(edges, func(i, j int) bool { return edges[i].ID < edges[j].ID })
 	type endpoints struct {
 		from string
@@ -1118,8 +1120,8 @@ func catalogEdgePaths(catalog CatalogSnapshot, rootNodeID, targetNodeID string) 
 	if maxDepth < 1 || !knownNodes[rootNodeID] || !knownNodes[targetNodeID] {
 		return nil
 	}
-	forward := make(map[string][]CatalogEdge)
-	reverse := make(map[string][]CatalogEdge)
+	forward := make(map[string][]ws.CatalogEdge)
+	reverse := make(map[string][]ws.CatalogEdge)
 	reversibleEndpoints := make(map[endpoints]bool, len(edges))
 	for _, edge := range edges {
 		if edge.ID == "" || !knownNodes[edge.FromNodeID] || !knownNodes[edge.ToNodeID] || (edge.FromNodeID == edge.ToNodeID && !catalog.RoutePolicy.AllowSelfLoops) {
@@ -1137,7 +1139,7 @@ func catalogEdgePaths(catalog CatalogSnapshot, rootNodeID, targetNodeID string) 
 		forward[edge.FromNodeID] = append(forward[edge.FromNodeID], edge)
 		reverse[edge.ToNodeID] = append(reverse[edge.ToNodeID], edge)
 	}
-	distances := func(start string, adjacency map[string][]CatalogEdge, reverseDirection bool, limit int) map[string]int {
+	distances := func(start string, adjacency map[string][]ws.CatalogEdge, reverseDirection bool, limit int) map[string]int {
 		result := map[string]int{start: 0}
 		queue := []string{start}
 		for head := 0; head < len(queue); head++ {
@@ -1190,10 +1192,10 @@ func catalogEdgePaths(catalog CatalogSnapshot, rootNodeID, targetNodeID string) 
 	return result
 }
 
-func authoredRouteBranches(route RouteNode, rootNodeID string, catalog CatalogSnapshot) []authoredRouteBranch {
+func authoredRouteBranches(route ws.RouteNode, rootNodeID string, catalog ws.CatalogSnapshot) []authoredRouteBranch {
 	result := []authoredRouteBranch{{OccurrenceID: route.OccurrenceID}}
-	var walk func(RouteNode, string, []string)
-	walk = func(parent RouteNode, parentNodeID string, path []string) {
+	var walk func(ws.RouteNode, string, []string)
+	walk = func(parent ws.RouteNode, parentNodeID string, path []string) {
 		for _, child := range parent.Children {
 			edge, err := resolveCatalogRouteEdge(catalog, parentNodeID, parent, child)
 			if err != nil {
@@ -1208,43 +1210,43 @@ func authoredRouteBranches(route RouteNode, rootNodeID string, catalog CatalogSn
 	return result
 }
 
-func materializeRowChangeCandidateRoute(document Document, catalog CatalogSnapshot, rootNodeID string, candidate rowChangeCandidateRoute) (Document, error) {
+func materializeRowChangeCandidateRoute(document ws.Document, catalog ws.CatalogSnapshot, rootNodeID string, candidate rowChangeCandidateRoute) (ws.Document, error) {
 	cloned, err := cloneDocument(document)
 	if err != nil {
-		return Document{}, err
+		return ws.Document{}, err
 	}
 	document = cloned
 	anchor := findRoute(&document.Route, candidate.AnchorOccurrence)
 	if anchor == nil || candidate.AnchorDepth >= len(candidate.EdgeIDs) {
-		return Document{}, fmt.Errorf("catalog route anchor %q is unavailable", candidate.AnchorOccurrence)
+		return ws.Document{}, fmt.Errorf("catalog route anchor %q is unavailable", candidate.AnchorOccurrence)
 	}
 	nodeIDs, ok := routeNodeIDsFromRoot(document.Route, rootNodeID, catalog)
 	if !ok || nodeIDs[candidate.AnchorOccurrence] == "" {
-		return Document{}, fmt.Errorf("catalog route anchor %q has no exact catalog identity", candidate.AnchorOccurrence)
+		return ws.Document{}, fmt.Errorf("catalog route anchor %q has no exact catalog identity", candidate.AnchorOccurrence)
 	}
 	currentNodeID := nodeIDs[candidate.AnchorOccurrence]
 	if candidate.AnchorDepth > len(candidate.EdgeIDs) {
-		return Document{}, fmt.Errorf("catalog route anchor is deeper than its selected path")
+		return ws.Document{}, fmt.Errorf("catalog route anchor is deeper than its selected path")
 	}
 	for index := candidate.AnchorDepth; index < len(candidate.EdgeIDs); index++ {
 		edge, found := catalogEdge(catalog, candidate.EdgeIDs[index])
 		if !found || edge.FromNodeID != currentNodeID {
-			return Document{}, fmt.Errorf("catalog route edge %q does not extend anchor %q", candidate.EdgeIDs[index], candidate.AnchorOccurrence)
+			return ws.Document{}, fmt.Errorf("catalog route edge %q does not extend anchor %q", candidate.EdgeIDs[index], candidate.AnchorOccurrence)
 		}
 		to, found := catalogNode(catalog, edge.ToNodeID)
 		if !found {
-			return Document{}, fmt.Errorf("catalog route edge %q has no destination node", edge.ID)
+			return ws.Document{}, fmt.Errorf("catalog route edge %q has no destination node", edge.ID)
 		}
 		occurrenceID := candidate.OccurrenceID
 		if index < len(candidate.EdgeIDs)-1 {
 			occurrenceID = commandGeneratedID("row_change_", candidate.OccurrenceID, candidate.Token, index, "step")
 		}
 		if findRoute(&document.Route, occurrenceID) != nil {
-			return Document{}, fmt.Errorf("derived route occurrence %q collides with an authored occurrence", occurrenceID)
+			return ws.Document{}, fmt.Errorf("derived route occurrence %q collides with an authored occurrence", occurrenceID)
 		}
-		anchor.Children = append(anchor.Children, RouteNode{
+		anchor.Children = append(anchor.Children, ws.RouteNode{
 			OccurrenceID: occurrenceID, ResourceType: to.ResourceType,
-			CatalogEdgeID: edge.ID, Relationship: edge.Label, MatchMode: RouteMatchOptional,
+			CatalogEdgeID: edge.ID, Relationship: edge.Label, MatchMode: ws.RouteMatchOptional,
 		})
 		anchor = &anchor.Children[len(anchor.Children)-1]
 		currentNodeID = edge.ToNodeID
@@ -1252,7 +1254,7 @@ func materializeRowChangeCandidateRoute(document Document, catalog CatalogSnapsh
 	return document, nil
 }
 
-func selectReverseEdge(candidates []CatalogEdge, choices []RouteRebaseChoice, occurrenceID, authoredRelationship string) (CatalogEdge, *RowChangeUnresolvedReference) {
+func selectReverseEdge(candidates []ws.CatalogEdge, choices []RouteRebaseChoice, occurrenceID, authoredRelationship string) (ws.CatalogEdge, *RowChangeUnresolvedReference) {
 	requested := ""
 	for _, choice := range choices {
 		if choice.OccurrenceID == occurrenceID {
@@ -1266,16 +1268,16 @@ func selectReverseEdge(candidates []CatalogEdge, choices []RouteRebaseChoice, oc
 				return candidate, nil
 			}
 		}
-		return CatalogEdge{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: occurrenceID, Code: "INVALID_ROUTE_REBASE_EDGE", Message: "the selected inverse relationship cannot connect the new row root to the previous root"}
+		return ws.CatalogEdge{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: occurrenceID, Code: "INVALID_ROUTE_REBASE_EDGE", Message: "the selected inverse relationship cannot connect the new row root to the previous root"}
 	}
 	if authoredRelationship != "" {
-		var matching CatalogEdge
+		var matching ws.CatalogEdge
 		for _, candidate := range candidates {
 			if candidate.Label != authoredRelationship {
 				continue
 			}
 			if matching.ID != "" {
-				matching = CatalogEdge{}
+				matching = ws.CatalogEdge{}
 				break
 			}
 			matching = candidate
@@ -1295,13 +1297,13 @@ func selectReverseEdge(candidates []CatalogEdge, choices []RouteRebaseChoice, oc
 	if len(candidates) > 1 {
 		code, message = "AMBIGUOUS_ROUTE_REBASE_EDGE", "several inverse relationships can preserve the previous row root; choose one explicitly"
 	}
-	return CatalogEdge{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: occurrenceID, Code: code, Message: message, Alternatives: alternatives}
+	return ws.CatalogEdge{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: occurrenceID, Code: code, Message: message, Alternatives: alternatives}
 }
 
-func validateRebasedRoute(document Document, catalog CatalogSnapshot, rootNodeID string) error {
+func validateRebasedRoute(document ws.Document, catalog ws.CatalogSnapshot, rootNodeID string) error {
 	maxDepth := 0
-	var walk func(RouteNode, string, int, map[string]bool) error
-	walk = func(node RouteNode, nodeID string, depth int, used map[string]bool) error {
+	var walk func(ws.RouteNode, string, int, map[string]bool) error
+	walk = func(node ws.RouteNode, nodeID string, depth int, used map[string]bool) error {
 		if depth > maxDepth {
 			maxDepth = depth
 		}
@@ -1340,7 +1342,7 @@ func validateRebasedRoute(document Document, catalog CatalogSnapshot, rootNodeID
 	return document.Validate()
 }
 
-func documentFeatureKeys(document Document) []string {
+func documentFeatureKeys(document ws.Document) []string {
 	keys := make([]string, 0, len(document.Columns))
 	for _, column := range document.Columns {
 		keys = append(keys, column.Column)
@@ -1349,20 +1351,20 @@ func documentFeatureKeys(document Document) []string {
 	return keys
 }
 
-func documentDigest(document Document) string {
+func documentDigest(document ws.Document) string {
 	raw, _ := json.Marshal(document)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func cloneDocument(document Document) (Document, error) {
+func cloneDocument(document ws.Document) (ws.Document, error) {
 	raw, err := json.Marshal(document)
 	if err != nil {
-		return Document{}, fmt.Errorf("clone row-change document: %w", err)
+		return ws.Document{}, fmt.Errorf("clone row-change document: %w", err)
 	}
-	var cloned Document
+	var cloned ws.Document
 	if err := json.Unmarshal(raw, &cloned); err != nil {
-		return Document{}, fmt.Errorf("clone row-change document: %w", err)
+		return ws.Document{}, fmt.Errorf("clone row-change document: %w", err)
 	}
 	return cloned, nil
 }
@@ -1383,7 +1385,7 @@ func (p RowChangeProposal) validate() error {
 			return fmt.Errorf("rowChange.routeRebase is required")
 		}
 	case RowChangeModeReplace:
-		if p.RootOccurrenceID != RootOccurrenceID || p.CatalogSnapshotToken == "" || p.CatalogGeneration == "" || p.CatalogDigest == "" {
+		if p.RootOccurrenceID != ws.RootOccurrenceID || p.CatalogSnapshotToken == "" || p.CatalogGeneration == "" || p.CatalogDigest == "" {
 			return fmt.Errorf("replacement rowChange requires base occurrence and exact catalog snapshot identity")
 		}
 		if len(p.RouteRebase) != 0 || len(p.PreservedFeatureKeys) != 0 {

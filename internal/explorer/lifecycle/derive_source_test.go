@@ -8,12 +8,15 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -55,17 +58,17 @@ func deriveSourceSnapshot(token string) capability.Snapshot {
 	)
 }
 
-func deriveSourceDocument() authoringv2.Document {
-	return authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: deriveSourceOutput, Title: "Body structures"},
+func deriveSourceDocument() ws.Document {
+	return ws.Document{
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: deriveSourceOutput, Title: "Body structures"},
 		RootResourceType: deriveSourceRootType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: deriveSourceRootType},
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: deriveSourceRootType},
+		Rows:             ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{
 			ColumnID: deriveSourceIdentity, Column: "body_structure_id", Label: "Body structure ID",
-			LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 		}},
 	}
 }
@@ -85,52 +88,52 @@ func deriveSourceService(t *testing.T) *Service {
 	return &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
 }
 
-func deriveSourceBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
+func deriveSourceBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
 	return constructionBase{
 		Document:     deriveSourceDocument(),
 		Construction: construction,
 		Snapshot:     snapshot,
 		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		Stages: []explorer.ReceiptConstructionStage{{
+		Stages: []receiptmodel.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			Columns: []explorer.ReceiptConstructionStageColumn{
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{
 				{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
 			},
 		}},
 	}
 }
 
-func deriveSourceAddStep(stepID, leftID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func deriveSourceAddStep(stepID, leftID string, outputs []ws.StageColumn) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
 			ConstructionID: stepID, OutputColumnID: "derived_total",
-			Operation: authoringv2.ConstructionDerivedAdd,
-			Left: authoringv2.ConstructionOperand{
-				Kind: authoringv2.ConstructionColumnOperand, ColumnID: leftID,
+			Operation: ws.ConstructionDerivedAdd,
+			Left: ws.ConstructionOperand{
+				Kind: ws.ConstructionColumnOperand, ColumnID: leftID,
 			},
-			Right: authoringv2.ConstructionOperand{
-				Kind:    authoringv2.ConstructionLiteralOperand,
-				Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: deriveSourceInt(3)},
+			Right: ws.ConstructionOperand{
+				Kind:    ws.ConstructionLiteralOperand,
+				Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: deriveSourceInt(3)},
 			},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
 		Outputs: outputs,
 	}
 }
 
-func deriveSourceLiteralOnlyStep(stepID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
+func deriveSourceLiteralOnlyStep(stepID string, outputs []ws.StageColumn) ws.ConstructionStep {
+	return ws.ConstructionStep{
 		ID:     stepID,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
 			ConstructionID:     stepID,
 			OutputColumnID:     "derived_total",
-			Operation:          authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: deriveSourceInt(2)}},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: deriveSourceInt(3)}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+			Operation:          ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: deriveSourceInt(2)}},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: deriveSourceInt(3)}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
 		Outputs: outputs,
 	}
@@ -146,16 +149,16 @@ func deriveSourceRowChoice(t *testing.T, snapshot capability.Snapshot, resourceT
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := authoringv2.Document{
+	document := ws.Document{
 		RootResourceType: resourceType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType}, Rows: authoringv2.RecordsRowDefinition(),
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: resourceType}, Rows: ws.RecordsRowDefinition(),
 	}
 	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
 			return choice
 		}
 	}
@@ -185,15 +188,15 @@ func newDeriveSourceHarness(t *testing.T) *deriveSourcePatientHarness {
 	return &deriveSourcePatientHarness{filterSourceHarness: newFilterSourceHarness(t)}
 }
 
-func deriveSourcePatientBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
+func deriveSourcePatientBase(snapshot capability.Snapshot, construction ws.Construction) constructionBase {
 	return constructionBase{
 		Document:     deriveSourcePatientDocument(construction),
 		Construction: construction,
 		Snapshot:     snapshot,
 		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		Stages: []explorer.ReceiptConstructionStage{{
+		Stages: []receiptmodel.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
-			Columns: []explorer.ReceiptConstructionStageColumn{
+			Columns: []receiptmodel.ReceiptConstructionStageColumn{
 				{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
 			},
 		}},
@@ -208,32 +211,32 @@ func deriveSourcePatientProposalRequest(changedStepID string, sources []rowsourc
 	}
 }
 
-func deriveSourcePatientDerivedColumns() []authoringv2.StageColumn {
-	return append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+func deriveSourcePatientDerivedColumns() []ws.StageColumn {
+	return append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 }
 
-func deriveSourcePatientIdentityColumns() []authoringv2.StageColumn {
-	return []authoringv2.StageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+func deriveSourcePatientIdentityColumns() []ws.StageColumn {
+	return []ws.StageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
 }
 
-func deriveSourcePatientProjectionColumn() authoringv2.StageColumn {
-	return authoringv2.StageColumn{
-		ID: deriveSourceBirth, Name: authoringv2.ConstructionSourceProjectionName(deriveSourceBirth),
+func deriveSourcePatientProjectionColumn() ws.StageColumn {
+	return ws.StageColumn{
+		ID: deriveSourceBirth, Name: ws.ConstructionSourceProjectionName(deriveSourceBirth),
 		Label: "Patient.multipleBirthInteger", Type: "integer",
 	}
 }
 
-func deriveSourcePatientDocument(construction authoringv2.Construction) authoringv2.Document {
-	return authoringv2.Document{
-		Kind:             authoringv2.Kind,
-		Output:           authoringv2.Output{ID: filterSourceOutput, Title: "Patients"},
+func deriveSourcePatientDocument(construction ws.Construction) ws.Document {
+	return ws.Document{
+		Kind:             ws.Kind,
+		Output:           ws.Output{ID: filterSourceOutput, Title: "Patients"},
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Rows:             authoringv2.RecordsRowDefinition(),
-		Columns: []authoringv2.Column{{
+		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+		Rows:             ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{
 			ColumnID: "patient-id", Column: "patient_id", Label: "Patient ID",
-			LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
 		}},
 		Construction: &construction,
 	}
@@ -242,7 +245,7 @@ func deriveSourcePatientDocument(construction authoringv2.Construction) authorin
 func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRootScalar(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	result, err := harness.service.constructionDeriveSourceCapability(context.Background(),
-		deriveSourcePatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), "patients", recipe.ConstructionSourceProjectionID)
+		deriveSourcePatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion}), "patients", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +295,7 @@ func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t
 	snapshot := deriveSourceSnapshot("derive-source-nonnumeric")
 	service := deriveSourceService(t)
 	result, err := service.constructionDeriveSourceCapability(context.Background(),
-		deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
+		deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +311,7 @@ func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t
 		t.Fatalf("crafted boolean candidate produced no signed token: %v", err)
 	}
 	projection, err := service.resolveConstructionDeriveSource(context.Background(),
-		deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+		deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
 		deriveSourceProposalRequest(deriveSourceStep, nil), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionDeriveSourceSelection{ChoiceID: nonnumeric.ChoiceID, ColumnID: deriveSourceColumn})
 	if err == nil {
@@ -323,7 +326,7 @@ func TestConstructionDeriveSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 	snapshot := deriveSourceSnapshot("derive-source-current")
 	other := deriveSourceSnapshot("derive-source-other")
 	service := deriveSourceService(t)
-	base := deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
+	base := deriveSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion})
 	request := deriveSourceProposalRequest(deriveSourceStep, nil)
 
 	foreign := deriveSourceRowChoice(t, other, deriveSourceRootType, deriveSourceField)
@@ -356,7 +359,7 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		deriveSourceAddStep(deriveSourceStep, "patient-id", deriveSourcePatientDerivedColumns()),
 	}}
 	base := deriveSourcePatientBase(snapshot, construction)
@@ -365,7 +368,7 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	left := candidate.Steps[0].Operation.Derive.Left
 	left.ColumnID = deriveSourceBirth
 	candidate.Steps[0].Operation.Derive.Left = left
-	candidate.Steps[0].Outputs = append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	candidate.Steps[0].Outputs = append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 
 	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
 		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
@@ -379,13 +382,13 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	}
 	projection := prepared.SourceProjections[0]
 	if projection.ColumnID != deriveSourceBirth || projection.OwnerStepID != deriveSourceStep ||
-		projection.OccurrenceID != authoringv2.RootOccurrenceID || projection.FieldPath != "multipleBirthInteger" ||
+		projection.OccurrenceID != ws.RootOccurrenceID || projection.FieldPath != "multipleBirthInteger" ||
 		projection.FHIRType != "integer" || projection.LogicalType != "integer" || projection.Label != "Birth count" {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", projection)
 	}
 	carried := false
 	for _, output := range prepared.Steps[0].Outputs {
-		if output.ID == deriveSourceBirth && output.Name == authoringv2.ConstructionSourceProjectionName(deriveSourceBirth) && output.Type == "integer" {
+		if output.ID == deriveSourceBirth && output.Name == ws.ConstructionSourceProjectionName(deriveSourceBirth) && output.Type == "integer" {
 			carried = true
 		}
 	}
@@ -417,19 +420,19 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 func TestConstructionDeriveSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	group := filterSourceGroupStep()
-	deriveInputs := []authoringv2.StageColumn{
+	deriveInputs := []ws.StageColumn{
 		{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 		{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 	}
-	stepOutputs := append(append([]authoringv2.StageColumn(nil), deriveInputs...), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	stepOutputs := append(append([]ws.StageColumn(nil), deriveInputs...), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		group,
 		deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, stepOutputs),
 	}}
-	base := deriveSourcePatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group}})
-	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
+	base := deriveSourcePatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{group}})
+	base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{
 		ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP",
-		Columns: []explorer.ReceiptConstructionStageColumn{
+		Columns: []receiptmodel.ReceiptConstructionStageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
 			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
 		},
@@ -448,16 +451,16 @@ func TestConstructionDeriveSourceCannotCrossRowChangingPrefix(t *testing.T) {
 }
 
 func TestConstructionDeriveSourceProjectionMustMatchItsOperand(t *testing.T) {
-	document := deriveSourcePatientDocument(authoringv2.Construction{Version: authoringv2.ConstructionVersion})
+	document := deriveSourcePatientDocument(ws.Construction{Version: ws.ConstructionVersion})
 
-	projectionFacts := authoringv2.ConstructionSourceProjection{
-		ColumnID: deriveSourceBirth, OwnerStepID: "another-step", OccurrenceID: authoringv2.RootOccurrenceID,
+	projectionFacts := ws.ConstructionSourceProjection{
+		ColumnID: deriveSourceBirth, OwnerStepID: "another-step", OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 	}
-	foreign := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{deriveSourceAddStep(deriveSourceStep, "patient-id", append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projectionFacts},
+	foreign := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{deriveSourceAddStep(deriveSourceStep, "patient-id", append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))},
+		SourceProjections: []ws.ConstructionSourceProjection{projectionFacts},
 	}
 	foreignDocument := document
 	foreignDocument.Construction = &foreign
@@ -465,11 +468,11 @@ func TestConstructionDeriveSourceProjectionMustMatchItsOperand(t *testing.T) {
 		t.Fatal("a projection owned by a step that does not consume it was accepted")
 	}
 
-	mismatched := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps:   []authoringv2.ConstructionStep{deriveSourceAddStep(deriveSourceStep, "patient-id", append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: authoringv2.RootOccurrenceID,
+	mismatched := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps:   []ws.ConstructionStep{deriveSourceAddStep(deriveSourceStep, "patient-id", append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))},
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 		}},
 	}
@@ -484,15 +487,15 @@ func TestConstructionDeriveSourceRemovalStripsProjectionAndRefusesDanglingDerive
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 	}
-	outputs := append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
-	saved := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	outputs := append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	saved := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	savedDocument := deriveSourcePatientDocument(saved)
 	if err := savedDocument.Validate(); err != nil {
@@ -512,9 +515,9 @@ func TestConstructionDeriveSourceRemovalStripsProjectionAndRefusesDanglingDerive
 			t.Fatalf("cleared selection left the projection column in the derive output: %#v", cleared.Steps[0].Outputs)
 		}
 	}
-	dangling := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps:   []authoringv2.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
+	dangling := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps:   []ws.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
 	}
 	danglingDocument := deriveSourcePatientDocument(dangling)
 	if err := danglingDocument.Validate(); err == nil || !strings.Contains(err.Error(), deriveSourceBirth) {
@@ -529,7 +532,7 @@ func TestConstructionDeriveSourceLeavesSelectedColumnBehaviorUnchanged(t *testin
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		deriveSourceAddStep(deriveSourceStep, "patient-id", deriveSourcePatientDerivedColumns()),
 	}}
 	document := deriveSourcePatientDocument(construction)
@@ -544,7 +547,7 @@ func TestConstructionDeriveSourceLeavesSelectedColumnBehaviorUnchanged(t *testin
 	if !reflect.DeepEqual(unchanged, construction) {
 		t.Fatalf("omitted deriveSources mutated the candidate: %#v", unchanged)
 	}
-	literalOnly := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	literalOnly := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		deriveSourceLiteralOnlyStep(deriveSourceStep, deriveSourcePatientDerivedColumns()),
 	}}
 	literalDocument := deriveSourcePatientDocument(literalOnly)
@@ -622,17 +625,17 @@ func TestConstructionDeriveSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
 	service := harness.service
-	projection := authoringv2.ConstructionSourceProjection{
-		ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: authoringv2.RootOccurrenceID,
+	projection := ws.ConstructionSourceProjection{
+		ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 	}
-	outputs := append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	outputs := append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 
-	choiceColumnID := func(t *testing.T, construction authoringv2.Construction, stageID string) string {
+	choiceColumnID := func(t *testing.T, construction ws.Construction, stageID string) string {
 		t.Helper()
 		base := deriveSourcePatientBase(snapshot, construction)
 		if stageID != recipe.ConstructionSourceProjectionID {
-			base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+			base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
 		result, err := service.constructionDeriveSourceCapability(context.Background(), base, "patients", stageID)
 		if err != nil {
@@ -646,30 +649,30 @@ func TestConstructionDeriveSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 		return "<missing choice>"
 	}
 
-	live := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	live := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, live, recipe.ConstructionSourceProjectionID); got != deriveSourceBirth {
 		t.Fatalf("live durable materialization advertised columnId %q, want %q", got, deriveSourceBirth)
 	}
 
 	literalOperands := deriveSourceLiteralOnlyStep(deriveSourceStep, outputs)
-	repointed := authoringv2.Construction{
-		Version:           authoringv2.ConstructionVersion,
-		Steps:             []authoringv2.ConstructionStep{literalOperands},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+	repointed := ws.Construction{
+		Version:           ws.ConstructionVersion,
+		Steps:             []ws.ConstructionStep{literalOperands},
+		SourceProjections: []ws.ConstructionSourceProjection{projection},
 	}
 	if got := choiceColumnID(t, repointed, recipe.ConstructionSourceProjectionID); got != "" {
 		t.Fatalf("saved operand no longer referencing the source column was still advertised as columnId %q", got)
 	}
 
-	foreignOwner := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps:   []authoringv2.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: deriveSourceBirth, OwnerStepID: "another-step", OccurrenceID: authoringv2.RootOccurrenceID,
+	foreignOwner := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps:   []ws.ConstructionStep{deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, outputs)},
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: deriveSourceBirth, OwnerStepID: "another-step", OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 		}},
 	}
@@ -730,7 +733,7 @@ func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceI
 
 func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompiler(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
-	harness.saveDraftDerive(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	harness.saveDraftDerive(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		deriveSourceLiteralOnlyStep(deriveSourceStep, deriveSourcePatientDerivedColumns()),
 	}})
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
@@ -754,7 +757,7 @@ func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompil
 	}
 	durable := proposal.CandidateConstruction.SourceProjections[0]
 	if durable.OwnerStepID != deriveSourceStep || durable.ColumnID != deriveSourceBirth || durable.FieldPath != "multipleBirthInteger" ||
-		durable.FHIRType != "integer" || durable.LogicalType != "integer" || durable.OccurrenceID != authoringv2.RootOccurrenceID {
+		durable.FHIRType != "integer" || durable.LogicalType != "integer" || durable.OccurrenceID != ws.RootOccurrenceID {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", durable)
 	}
 	if harness.store.saveDraftCalls != 0 || string(acceptedBefore) != string(harness.store.created.DraftConfig) {
@@ -766,7 +769,7 @@ func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompil
 		t.Fatalf("compiled receipt omits the candidate bundle: %#v", receipt)
 	}
 	output := receipt.Bundle.Outputs[0]
-	name := authoringv2.ConstructionSourceProjectionName(deriveSourceBirth)
+	name := ws.ConstructionSourceProjectionName(deriveSourceBirth)
 	var slotColumnID, slotFieldRef, slotSelect string
 	for index := range output.Fields {
 		if output.Fields[index].Name == name {
@@ -803,27 +806,27 @@ func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompil
 
 func TestProposeConstructionDeriveSourceCompilesChainedColumnOperands(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
-	firstDerived := authoringv2.StageColumn{ID: "chained_base", Name: "chained_base", Label: "Chained base", Type: "integer"}
+	firstDerived := ws.StageColumn{ID: "chained_base", Name: "chained_base", Label: "Chained base", Type: "integer"}
 	first := deriveSourceLiteralOnlyStep("derive-base", append(deriveSourcePatientIdentityColumns(), firstDerived))
 	first.Operation.Derive.OutputColumnID = "chained_base"
-	second := authoringv2.ConstructionStep{
+	second := ws.ConstructionStep{
 		ID:     deriveSourceStep,
-		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "derive-base"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
 			ConstructionID:     deriveSourceStep,
 			OutputColumnID:     "derived_total",
-			Operation:          authoringv2.ConstructionDerivedAdd,
-			Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: "chained_base"},
-			Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: deriveSourceInt(1)}},
-			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,
+			Operation:          ws.ConstructionDerivedAdd,
+			Left:               ws.ConstructionOperand{Kind: ws.ConstructionColumnOperand, ColumnID: "chained_base"},
+			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: deriveSourceInt(1)}},
+			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
 		}},
-		Outputs: append(append([]authoringv2.StageColumn(nil), deriveSourcePatientIdentityColumns()...), firstDerived, authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}),
+		Outputs: append(append([]ws.StageColumn(nil), deriveSourcePatientIdentityColumns()...), firstDerived, ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}),
 	}
-	based := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{first, second}}
+	based := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{first, second}}
 	harness.saveDraftDerive(t, based)
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 
-	var candidate authoringv2.Construction
+	var candidate ws.Construction
 	encoded, encodeErr := json.Marshal(based)
 	if encodeErr != nil {
 		t.Fatal(encodeErr)
@@ -835,11 +838,11 @@ func TestProposeConstructionDeriveSourceCompilesChainedColumnOperands(t *testing
 	left.ColumnID = deriveSourceBirth
 	candidate.Steps[1].Operation.Derive.Left = left
 	right := candidate.Steps[1].Operation.Derive.Right
-	right.Kind = authoringv2.ConstructionColumnOperand
+	right.Kind = ws.ConstructionColumnOperand
 	right.ColumnID = "chained_base"
 	right.Literal = nil
 	candidate.Steps[1].Operation.Derive.Right = right
-	candidate.Steps[1].Outputs = append(append([]authoringv2.StageColumn(nil), candidate.Steps[0].Outputs...), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	candidate.Steps[1].Outputs = append(append([]ws.StageColumn(nil), candidate.Steps[0].Outputs...), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 
 	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
@@ -881,7 +884,7 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 		}
 		t.Run(name, func(t *testing.T) {
 			harness := newDeriveSourceHarness(t)
-			harness.saveDraftDerive(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+			harness.saveDraftDerive(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 				deriveSourceLiteralOnlyStep(deriveSourceStep, deriveSourcePatientDerivedColumns()),
 			}})
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
@@ -899,7 +902,7 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 				harness.unobserveBirthCount()
 			}
 			_, err = harness.service.ApplyCommands(context.Background(), harness.store.created.Project, harness.store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
-				CommandID: "derive-source-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
+				CommandID: "derive-source-apply", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 				Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 			}, "derive-source-actor")
@@ -919,7 +922,7 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 			if applied == nil {
 				t.Fatal("apply did not save the draft")
 			}
-			workspace, decodeErr := authoringv2.DecodeWorkspace(applied.DraftConfig)
+			workspace, decodeErr := ws.DecodeWorkspace(applied.DraftConfig)
 			if decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
@@ -951,13 +954,13 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 
 func TestProposeConstructionDeriveSourceRefusesVanishedFieldRestore(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
-	durable := authoringv2.Construction{
-		Version: authoringv2.ConstructionVersion,
-		Steps: []authoringv2.ConstructionStep{
-			deriveSourceAddStepWithLiteral(deriveSourceStep, deriveSourceBirth, 1, append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})),
+	durable := ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{
+			deriveSourceAddStepWithLiteral(deriveSourceStep, deriveSourceBirth, 1, append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})),
 		},
-		SourceProjections: []authoringv2.ConstructionSourceProjection{{
-			ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: authoringv2.RootOccurrenceID,
+		SourceProjections: []ws.ConstructionSourceProjection{{
+			ColumnID: deriveSourceBirth, OwnerStepID: deriveSourceStep, OccurrenceID: ws.RootOccurrenceID,
 			FieldPath: "multipleBirthInteger", FHIRType: "integer", LogicalType: "integer", Label: "Patient.multipleBirthInteger",
 		}},
 	}
@@ -1001,25 +1004,25 @@ func TestProposeConstructionDeriveSourceRefusesVanishedFieldRestore(t *testing.T
 	}
 }
 
-func deriveSourceAddStepWithLiteral(stepID, leftID string, literal int64, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
+func deriveSourceAddStepWithLiteral(stepID, leftID string, literal int64, outputs []ws.StageColumn) ws.ConstructionStep {
 	step := deriveSourceAddStep(stepID, leftID, outputs)
 	step.Operation.Derive.Right.Literal.Integer = deriveSourceInt(literal)
 	return step
 }
 
-func (h *deriveSourcePatientHarness) saveDraftDerive(t *testing.T, construction authoringv2.Construction) {
+func (h *deriveSourcePatientHarness) saveDraftDerive(t *testing.T, construction ws.Construction) {
 	t.Helper()
 	h.saveDraft(t, construction)
 }
 
-func (h *deriveSourcePatientHarness) saveDraftDurableDerive(t *testing.T, construction authoringv2.Construction) {
+func (h *deriveSourcePatientHarness) saveDraftDurableDerive(t *testing.T, construction ws.Construction) {
 	t.Helper()
 	h.saveDraft(t, construction)
 }
 
-func (h *deriveSourcePatientHarness) candidateDeriveConstruction() authoringv2.Construction {
-	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
-		deriveSourceAddStepWithLiteral(deriveSourceStep, deriveSourceBirth, 1, append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})),
+func (h *deriveSourcePatientHarness) candidateDeriveConstruction() ws.Construction {
+	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
+		deriveSourceAddStepWithLiteral(deriveSourceStep, deriveSourceBirth, 1, append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})),
 	}}
 	return candidate
 }
@@ -1033,9 +1036,9 @@ func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
-	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
-	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
+	rowChanging := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []receiptmodel.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
 	bs := func(id, path, logicalType, cardinality string, populated bool) capability.Candidate {
 		return rowSourceLaneCandidate(deriveSourceRootNode, deriveSourceRootType, id, path, logicalType, cardinality, populated)
 	}
@@ -1048,9 +1051,9 @@ func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		name         string
 		snapshot     capability.Snapshot
 		service      *Service
-		construction authoringv2.Construction
+		construction ws.Construction
 		stageID      string
-		stages       []explorer.ReceiptConstructionStage
+		stages       []receiptmodel.ReceiptConstructionStage
 		wantCode     string
 	}{
 		{
@@ -1157,7 +1160,7 @@ func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 func TestConstructionDeriveSourceCapabilityNamesInventoryFailureDistinctly(t *testing.T) {
 	const internalDetail = "capability-store-dsn=secret-token"
 	inventoryErr := errors.New("row-choice inventory store unreachable: " + internalDetail)
-	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	empty := ws.Construction{Version: ws.ConstructionVersion}
 	observedSnapshot := deriveSourceSnapshot("derive-source-inventory-observed")
 	observedSnapshot.Candidates = []capability.Candidate{
 		rowSourceLaneCandidate(deriveSourceRootNode, deriveSourceRootType, "bs-active", deriveSourceField, "boolean", "optional_one", false),

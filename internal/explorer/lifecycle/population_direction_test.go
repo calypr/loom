@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/population"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -26,7 +28,7 @@ func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.
 		t.Fatalf("signed route direction = %#v, %v", identity.Route, err)
 	}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "set-population-direction", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "set-population-direction", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion,
 		ExpectedDraftDigest: store.created.DraftDigest,
 		Commands:            []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
@@ -34,7 +36,7 @@ func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.
 	if err != nil {
 		t.Fatalf("apply signed population route: %v", err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestLegacyPopulationRouteHydratesDirectionOnlyForResolvedInputs(t *testing.
 		t.Fatalf("population route choices = %#v, %v", routes, err)
 	}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "set-legacy-route-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "set-legacy-route-source", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion,
 		ExpectedDraftDigest: store.created.DraftDigest,
 		Commands:            []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", Payload: &authoringv2.TablePayload{SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}}},
@@ -72,7 +74,7 @@ func TestLegacyPopulationRouteHydratesDirectionOnlyForResolvedInputs(t *testing.
 	if err != nil {
 		t.Fatalf("apply population route: %v", err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

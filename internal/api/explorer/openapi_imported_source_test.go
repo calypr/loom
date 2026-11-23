@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/gofiber/fiber/v3"
@@ -35,7 +37,7 @@ func TestImportedSourceRemovalOpenAPIContractHasNoEnabledState(t *testing.T) {
 
 func TestImportedSourceCommandSurvivesPublicTransport(t *testing.T) {
 	var body loomapi.ApplyExplorerBuilderCommandsJSONRequestBody
-	err := json.Unmarshal([]byte(fmt.Sprintf(`{"commandId":"source-edit","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"dynamicColumns[0]","maxColumns":32,"valueMode":"ALL"}}]}`, authoringv2.CurrentSemanticsVersion)), &body)
+	err := json.Unmarshal([]byte(fmt.Sprintf(`{"commandId":"source-edit","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"dynamicColumns[0]","maxColumns":32,"valueMode":"ALL"}}]}`, ws.CurrentSemanticsVersion)), &body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestImportedSourceCommandSurvivesPublicTransport(t *testing.T) {
 	if step == nil || step.Remove || step.StepID != "dynamicColumns[0]" || step.MaxColumns == nil || *step.MaxColumns != 32 || step.ValueMode != "ALL" {
 		t.Fatalf("source settings lost in public transport: %#v", step)
 	}
-	removeBody := fmt.Sprintf(`{"commandId":"source-remove","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"dynamicColumns[0]","remove":true}}]}`, authoringv2.CurrentSemanticsVersion)
+	removeBody := fmt.Sprintf(`{"commandId":"source-remove","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"dynamicColumns[0]","remove":true}}]}`, ws.CurrentSemanticsVersion)
 	if err := json.Unmarshal([]byte(removeBody), &body); err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +66,13 @@ func TestImportedSourceCommandSurvivesPublicTransport(t *testing.T) {
 	if step := request.Commands[0].SourceStep(); step == nil || !step.Remove {
 		t.Fatalf("source removal lost in public transport: %#v", step)
 	}
-	plan := &authoringv2.ImportedSourcePlan{RemovedStepIDs: []string{"fields"}}
+	plan := &ws.ImportedSourcePlan{RemovedStepIDs: []string{"fields"}}
 	var public loomapi.Document
-	public, err = directAuthoringJSON[loomapi.Document](authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{}, ImportedRecipe: &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}, ImportedSource: plan})
+	public, err = directAuthoringJSON[loomapi.Document](ws.Document{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{}, ImportedRecipe: &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}, ImportedSource: plan})
 	if err != nil {
 		t.Fatal(err)
 	}
-	roundtrip, err := directAuthoringJSON[authoringv2.Document](public)
+	roundtrip, err := directAuthoringJSON[ws.Document](public)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +113,7 @@ func TestImportedSourceHTTPUsesRemoveInsteadOfEnabled(t *testing.T) {
 			capture := &sourceStepTransportCapture{}
 			app := fiber.New()
 			loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(capture, nil), loomapi.FiberServerOptions{})
-			raw := fmt.Sprintf(`{"commandId":"edit-source","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":%s}]}`, authoringv2.CurrentSemanticsVersion, test.payload)
+			raw := fmt.Sprintf(`{"commandId":"edit-source","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":%s}]}`, ws.CurrentSemanticsVersion, test.payload)
 			request := httptest.NewRequest("POST", "/api/v1/projects/project-a/explorers/patients/authoring/v2/commands", strings.NewReader(raw))
 			request.Header.Set("Content-Type", "application/json")
 			response, err := app.Test(request)
@@ -141,7 +143,7 @@ func TestImportedSourceTransportRejectsIncompleteOrInjectedSettings(t *testing.T
 	} {
 		t.Run(sourceStep, func(t *testing.T) {
 			var body loomapi.ApplyExplorerBuilderCommandsJSONRequestBody
-			raw := fmt.Sprintf(`{"commandId":"source-edit","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":%s}]}`, authoringv2.CurrentSemanticsVersion, sourceStep)
+			raw := fmt.Sprintf(`{"commandId":"source-edit","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":%s}]}`, ws.CurrentSemanticsVersion, sourceStep)
 			if err := json.Unmarshal([]byte(raw), &body); err != nil {
 				return
 			}

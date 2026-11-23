@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestApplyPopulationMemberProposalIsServerResolvedAndChangesOnlySelectionRevision(t *testing.T) {
@@ -13,7 +15,7 @@ func TestApplyPopulationMemberProposalIsServerResolvedAndChangesOnlySelectionRev
 		t.Fatal(err)
 	}
 	outputID := workspace.Documents[0].Output.ID
-	workspace.Documents[0].Population = &Population{SelectionRevisionID: "selection-before", Route: []PopulationRouteStep{}}
+	workspace.Documents[0].Population = &ws.Population{SelectionRevisionID: "selection-before", Route: []ws.PopulationRouteStep{}}
 	before := workspace.Documents[0]
 	command := Command{Type: CommandApplyPopulationMemberProposal, OutputID: outputID, Payload: &ProposalPayload{ProposalID: "receipt-population-change"}}
 	if _, _, err := ApplyCommands(workspace, catalog, "unresolved-proposal", []Command{command}); err == nil {
@@ -30,7 +32,7 @@ func TestApplyPopulationMemberProposalIsServerResolvedAndChangesOnlySelectionRev
 		t.Fatalf("apply results = %#v", results)
 	}
 	want := before
-	want.Population = &Population{SelectionRevisionID: "selection-after", Route: []PopulationRouteStep{}}
+	want.Population = &ws.Population{SelectionRevisionID: "selection-after", Route: []ws.PopulationRouteStep{}}
 	if !reflect.DeepEqual(updated.Documents[0], want) {
 		t.Fatalf("population proposal changed fields outside the revision:\n got %#v\nwant %#v", updated.Documents[0], want)
 	}
@@ -45,7 +47,7 @@ func TestApplyPopulationMemberProposalWireIsClosedAndCASBound(t *testing.T) {
 		t.Fatal("proposal accepted browser-supplied selection data")
 	}
 	request := ApplyCommandsRequest{
-		CommandID: "apply-population", SemanticsVersion: CurrentSemanticsVersion,
+		CommandID: "apply-population", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: "snapshot-1", ExpectedDraftVersion: 4, ExpectedDraftDigest: "sha256:draft",
 		Commands: []Command{{Type: CommandApplyPopulationMemberProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}},
 	}

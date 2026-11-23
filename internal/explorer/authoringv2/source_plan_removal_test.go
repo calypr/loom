@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestImportedSourcePlanMigratesLegacyDisabledSteps(t *testing.T) {
-	var plan ImportedSourcePlan
+	var plan ws.ImportedSourcePlan
 	err := json.Unmarshal([]byte(`{
 		"steps":[
 			{"id":"output","enabled":true},
@@ -36,7 +38,7 @@ func TestImportedSourcePlanMigratesLegacyDisabledSteps(t *testing.T) {
 	if bytes.Contains(encoded, []byte(`"enabled"`)) || bytes.Contains(encoded, []byte(`"ruleAdditions[0]"`)) {
 		t.Fatalf("legacy state leaked into current contract: %s", encoded)
 	}
-	var roundTrip ImportedSourcePlan
+	var roundTrip ws.ImportedSourcePlan
 	if err := json.Unmarshal(encoded, &roundTrip); err != nil || !reflect.DeepEqual(plan, roundTrip) {
 		t.Fatalf("current plan failed round trip: %v", err)
 	}

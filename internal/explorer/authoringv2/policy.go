@@ -2,11 +2,13 @@ package authoringv2
 
 import (
 	"fmt"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 type resolvedColumnPolicy struct{ columnID, projectionMode string }
 
-func applyColumnPolicyProposal(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if command.resolvedColumnPolicy == nil {
 		return result, fmt.Errorf("column policy requires a lifecycle-resolved proposal")
@@ -19,7 +21,7 @@ func applyColumnPolicyProposal(workspace *Workspace, catalog CatalogSnapshot, co
 	if document.ImportedRecipe != nil {
 		return result, fmt.Errorf("COLUMN_POLICY_IMPORTED_SOURCE_REQUIRED: use the exact imported source step")
 	}
-	var target *Column
+	var target *ws.Column
 	for i := range document.Columns {
 		if document.Columns[i].ColumnID != command.resolvedColumnPolicy.columnID {
 			continue
@@ -32,7 +34,7 @@ func applyColumnPolicyProposal(workspace *Workspace, catalog CatalogSnapshot, co
 	if target == nil {
 		return result, fmt.Errorf("column policy column identity was not found")
 	}
-	if target.Source.Kind != SourceField || target.Source.Field == nil {
+	if target.Source.Kind != ws.SourceField || target.Source.Field == nil {
 		return result, fmt.Errorf("column policy requires a saved source field")
 	}
 	source := target.Source

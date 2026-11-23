@@ -5,12 +5,15 @@ import (
 	"errors"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -18,7 +21,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 	observed := lifecycleTestStringScalar("final")
 	cases := []struct {
 		name                  string
-		categories            []authoringv2.ConstructionPivotCategory
+		categories            []ws.ConstructionPivotCategory
 		scanValues            []dataframeexecution.CategoryValue
 		scanEnabled           bool
 		scanOverflow          bool
@@ -28,28 +31,28 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 	}{
 		{
 			name:        "observed category is accepted",
-			categories:  []authoringv2.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
+			categories:  []ws.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
 			scanValues:  []dataframeexecution.CategoryValue{{Present: true, Value: "final"}},
 			scanEnabled: true,
 			wantSaved:   true,
 		},
 		{
 			name:        "fabricated category is rejected before persistence",
-			categories:  []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}},
+			categories:  []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}},
 			scanValues:  []dataframeexecution.CategoryValue{{Present: true, Value: "final"}},
 			scanEnabled: true,
 			wantCode:    "PIVOT_CATEGORY_HAS_NO_VALUES",
 		},
 		{
 			name:        "zero discovered categories are rejected",
-			categories:  []authoringv2.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
+			categories:  []ws.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
 			scanValues:  nil,
 			scanEnabled: true,
 			wantCode:    "PIVOT_NO_OBSERVED_CATEGORIES",
 		},
 		{
 			name:         "valid category refuses when the limit blocks its proof",
-			categories:   []authoringv2.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
+			categories:   []ws.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
 			scanValues:   nil,
 			scanEnabled:  true,
 			scanOverflow: true,
@@ -57,7 +60,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 		},
 		{
 			name:                  "valid category refuses when missing presence blocks its proof",
-			categories:            []authoringv2.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
+			categories:            []ws.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
 			scanValues:            nil,
 			scanEnabled:           true,
 			scanConclusiveMissing: true,
@@ -65,7 +68,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 		},
 		{
 			name:       "scan unavailable path is unchanged",
-			categories: []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}},
+			categories: []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}},
 			wantSaved:  true,
 		},
 	}
@@ -75,13 +78,13 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 			scans := 0
 			service.config.ScanCategories = nil
 			if test.scanEnabled {
-				service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+				service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 					scans++
 					if receipt == nil || scan.Output != "patients" || scan.StageID != recipe.ConstructionSourceProjectionID ||
 						scan.ColumnID != categoryColumnID || scan.ValueColumnID != valueColumnID || !scan.RequireValue {
 						t.Fatalf("verification scan request = %#v", scan)
 					}
-					var category explorer.ReceiptConstructionStageColumn
+					var category receiptmodel.ReceiptConstructionStageColumn
 					for _, stage := range receipt.ConstructionStages["patients"] {
 						if stage.ID != scan.StageID {
 							continue
@@ -177,11 +180,11 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			service, store, snapshot, _, _ := constructionProposalPivotFixtureWithUnrelatedStep(t)
-			service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			service.config.ScanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 				if test.probeError != nil {
 					return dataframeexecution.CategoryScanResult{}, test.probeError
 				}
-				var category explorer.ReceiptConstructionStageColumn
+				var category receiptmodel.ReceiptConstructionStageColumn
 				for _, stage := range receipt.ConstructionStages["patients"] {
 					if stage.ID != scan.StageID {
 						continue
@@ -207,7 +210,7 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 					Proof:             proof,
 				}, nil
 			}
-			request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
+			request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
 			request.CandidateConstruction.Steps = append(request.CandidateConstruction.Steps, constructionPivotFilterStep())
 			request.ChangedStepID = "keep_positive"
 			proposal, err := service.ProposeConstruction(context.Background(), request)
@@ -231,10 +234,10 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 
 func TestProposeConstructionChangedPivotProbeErrorStillRejects(t *testing.T) {
 	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
-	service.config.ScanCategories = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{}, errors.New("probe unavailable")
 	}
-	request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
+	request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err == nil {
 		t.Fatalf("changed Pivot probe error must reject the proposal, got %#v", proposal)
@@ -250,7 +253,7 @@ func TestProposeConstructionChangedPivotProbeErrorStillRejects(t *testing.T) {
 func constructionProposalPivotFixtureWithUnrelatedStep(t *testing.T) (*Service, *fakeStore, capability.Snapshot, string, string) {
 	t.Helper()
 	service, store, snapshot, categoryColumnID, valueColumnID := constructionProposalPivotFixture(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,13 +273,13 @@ func constructionProposalPivotFixtureWithUnrelatedStep(t *testing.T) (*Service, 
 	return service, store, snapshot, categoryColumnID, valueColumnID
 }
 
-func constructionPivotFilterStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
-		ID: "keep_positive", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "pivot_status"}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: "group_id", Operator: authoringv2.ConstructionFilterExists,
+func constructionPivotFilterStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
+		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
 		},
@@ -286,27 +289,27 @@ func constructionPivotFilterStep() authoringv2.ConstructionStep {
 func constructionProposalPivotFixture(t *testing.T) (*Service, *fakeStore, capability.Snapshot, string, string) {
 	t.Helper()
 	service, store, snapshot := constructionProposalService(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := workspace.Documents[0]
-	document.Columns = []authoringv2.Column{
-		{ColumnID: "category_id", Column: "category", Label: "Category", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "gender", ProjectionMode: "VALUE"}}},
-		{ColumnID: "value_id", Column: "value", Label: "Value", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
-		{ColumnID: "group_id", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name", ProjectionMode: "VALUE"}}},
+	document.Columns = []ws.Column{
+		{ColumnID: "category_id", Column: "category", Label: "Category", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "gender", ProjectionMode: "VALUE"}}},
+		{ColumnID: "value_id", Column: "value", Label: "Value", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+		{ColumnID: "group_id", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name", ProjectionMode: "VALUE"}}},
 	}
-	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "pivot_status", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "pivot_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			ConstructionID: "pivot_status", GroupKeyIDs: []string{"group_id"},
 			CategoryColumnID: "category_id", ValueColumnID: "value_id",
-			Categories:             []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
 		},
@@ -330,26 +333,26 @@ func constructionProposalPivotFixture(t *testing.T) (*Service, *fakeStore, capab
 func constructionProposalPivotRequest(
 	owner *explorer.Explorer,
 	snapshot capability.Snapshot,
-	categories []authoringv2.ConstructionPivotCategory,
+	categories []ws.ConstructionPivotCategory,
 ) construction.ConstructionProposalRequest {
-	pivot := &authoringv2.ConstructionPivot{
+	pivot := &ws.ConstructionPivot{
 		ConstructionID: "pivot_status", GroupKeyIDs: []string{"group_id"},
 		CategoryColumnID: "category_id", ValueColumnID: "value_id",
-		Categories:             append([]authoringv2.ConstructionPivotCategory(nil), categories...),
-		DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-		MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-		UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+		Categories:             append([]ws.ConstructionPivotCategory(nil), categories...),
+		DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+		MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+		UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 	}
 	return construction.ConstructionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: "patients", ChangedStepID: "pivot_status",
-		CandidateConstruction: authoringv2.Construction{
-			Version: authoringv2.ConstructionVersion,
-			Steps: []authoringv2.ConstructionStep{{
-				ID: "pivot_status", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: pivot},
-				Outputs: []authoringv2.StageColumn{
+		CandidateConstruction: ws.Construction{
+			Version: ws.ConstructionVersion,
+			Steps: []ws.ConstructionStep{{
+				ID: "pivot_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+				Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: pivot},
+				Outputs: []ws.StageColumn{
 					{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 					{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
 				},

@@ -4,36 +4,36 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestPivotLabelOnlyEditRejectsChangedInputAncestry(t *testing.T) {
-	base := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
-		ID: "pivot_status", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+	base := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "pivot_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
 			ConstructionID: "pivot_status", GroupKeyIDs: []string{"group_id"},
 			CategoryColumnID: "category_id", ValueColumnID: "value_id",
-			Categories:             []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}},
-			DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
 		},
 	}}}
 	prefix := constructionPivotLabelFilterStep()
 	prefix.ID = "upstream"
-	prefix.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}
-	base.Steps = append([]authoringv2.ConstructionStep{prefix}, base.Steps...)
-	base.Steps[1].Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "upstream"}}
-	clone := func(c authoringv2.Construction) authoringv2.Construction {
+	prefix.Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}
+	base.Steps = append([]ws.ConstructionStep{prefix}, base.Steps...)
+	base.Steps[1].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "upstream"}}
+	clone := func(c ws.Construction) ws.Construction {
 		raw, err := json.Marshal(c)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var result authoringv2.Construction
+		var result ws.Construction
 		if err = json.Unmarshal(raw, &result); err != nil {
 			t.Fatal(err)
 		}
@@ -47,20 +47,20 @@ func TestPivotLabelOnlyEditRejectsChangedInputAncestry(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		mutate func(*authoringv2.Construction)
+		mutate func(*ws.Construction)
 	}{
-		{"upstream membership", func(c *authoringv2.Construction) {
-			c.Steps[0].Operation.Filter.Operator = authoringv2.ConstructionFilterMissing
+		{"upstream membership", func(c *ws.Construction) {
+			c.Steps[0].Operation.Filter.Operator = ws.ConstructionFilterMissing
 		}},
-		{"output name", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].Name = "different_name" }},
-		{"output ID", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].ID = "different_id" }},
-		{"output type", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].Type = "integer" }},
-		{"output nullability", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].Nullable = !c.Steps[1].Outputs[1].Nullable }},
-		{"input stage", func(c *authoringv2.Construction) {
-			c.Steps[1].Inputs[0] = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputSourceProjection}
+		{"output name", func(c *ws.Construction) { c.Steps[1].Outputs[1].Name = "different_name" }},
+		{"output ID", func(c *ws.Construction) { c.Steps[1].Outputs[1].ID = "different_id" }},
+		{"output type", func(c *ws.Construction) { c.Steps[1].Outputs[1].Type = "integer" }},
+		{"output nullability", func(c *ws.Construction) { c.Steps[1].Outputs[1].Nullable = !c.Steps[1].Outputs[1].Nullable }},
+		{"input stage", func(c *ws.Construction) {
+			c.Steps[1].Inputs[0] = ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}
 		}},
-		{"source projection", func(c *authoringv2.Construction) {
-			c.SourceProjections = append(c.SourceProjections, authoringv2.ConstructionSourceProjection{ColumnID: "different_source"})
+		{"source projection", func(c *ws.Construction) {
+			c.SourceProjections = append(c.SourceProjections, ws.ConstructionSourceProjection{ColumnID: "different_source"})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,13 +73,13 @@ func TestPivotLabelOnlyEditRejectsChangedInputAncestry(t *testing.T) {
 	}
 }
 
-func constructionPivotLabelFilterStep() authoringv2.ConstructionStep {
-	return authoringv2.ConstructionStep{
-		ID: "keep_positive", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "pivot_status"}},
-		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-			ColumnID: "group_id", Operator: authoringv2.ConstructionFilterExists,
+func constructionPivotLabelFilterStep() ws.ConstructionStep {
+	return ws.ConstructionStep{
+		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
 		}},
-		Outputs: []authoringv2.StageColumn{
+		Outputs: []ws.StageColumn{
 			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
 			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
 		},

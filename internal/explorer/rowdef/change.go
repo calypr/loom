@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -24,7 +26,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if owner.DraftVersion != request.DraftVersion || owner.DraftDigest != request.DraftDigest {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "DRAFT_CONFLICT", "the Explorer draft changed; reassess the row definition", nil, explorer.ErrDraftConflict)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be assessed", nil, err)
 	}
@@ -85,7 +87,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if candidateDocument == nil {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
 	}
-	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	candidateNetwork, err := ws.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
 		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
@@ -97,14 +99,14 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	return result, nil
 }
 
-func RowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
+func RowChangeReceiptWorkspace(workspace ws.Workspace, outputID string) (ws.Workspace, error) {
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
-		return authoringv2.Workspace{}, err
+		return ws.Workspace{}, err
 	}
-	projected, err := authoringv2.DecodeWorkspace(raw)
+	projected, err := ws.DecodeWorkspace(raw)
 	if err != nil {
-		return authoringv2.Workspace{}, err
+		return ws.Workspace{}, err
 	}
 	documentIndex := -1
 	for index := range projected.Documents {
@@ -112,25 +114,25 @@ func RowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string)
 			continue
 		}
 		if documentIndex >= 0 {
-			return authoringv2.Workspace{}, fmt.Errorf("replacement output %q is duplicated in the candidate workspace", outputID)
+			return ws.Workspace{}, fmt.Errorf("replacement output %q is duplicated in the candidate workspace", outputID)
 		}
 		documentIndex = index
 	}
 	if documentIndex < 0 {
-		return authoringv2.Workspace{}, fmt.Errorf("replacement output %q was not found in the candidate workspace", outputID)
+		return ws.Workspace{}, fmt.Errorf("replacement output %q was not found in the candidate workspace", outputID)
 	}
-	tabs := make([]authoringv2.Tab, 0, 1)
+	tabs := make([]ws.Tab, 0, 1)
 	for _, tab := range projected.Tabs {
 		if tab.OutputID == outputID {
 			tabs = append(tabs, tab)
 		}
 	}
 	if len(tabs) != 1 {
-		return authoringv2.Workspace{}, fmt.Errorf("replacement output %q must have exactly one matching tab", outputID)
+		return ws.Workspace{}, fmt.Errorf("replacement output %q must have exactly one matching tab", outputID)
 	}
 	tabs[0].Order = 0
 	document := projected.Documents[documentIndex]
-	projected.Documents = []authoringv2.Document{document}
+	projected.Documents = []ws.Document{document}
 	projected.Tabs = tabs
 	projected.SharedFilters = nil
 	projected.FileActions = nil

@@ -4,9 +4,12 @@ import (
 	"context"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	constructionpkg "github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -43,23 +46,23 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 			workspace, construction := seedRelatedExpandRemovalConstruction(t, store)
 			candidate := constructionWithoutStep(construction, test.removeStepID)
 			candidateCompileCalls := 0
-			var candidateBinding *explorer.ConstructionProposalBinding
-			service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			var candidateBinding *receiptmodel.ConstructionProposalBinding
+			service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 				if request.ConstructionProposal != nil {
 					candidateCompileCalls++
 					candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
 				}
 				receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 				receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-				receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+				receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 					"patients": relatedExpandRemovalTestStages(t, request.Workspace, "patients"),
 				}
 				var err error
-				receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+				receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 				if err != nil {
 					return nil, err
 				}
-				receipt.ID, err = explorer.ReceiptID(*receipt)
+				receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 				if err != nil {
 					return nil, err
 				}
@@ -98,7 +101,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 			}
 
 			if test.removeStepID == "expand_observations" {
-				service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+				service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 					if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
 						return dataframeexecution.PreviewSummary{}, err
 					}
@@ -106,7 +109,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 				}
 				version, digest := store.created.DraftVersion, store.created.DraftDigest
 				_, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-					CommandID: "apply-cascading-removal", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+					CommandID: "apply-cascading-removal", SemanticsVersion: ws.CurrentSemanticsVersion,
 					SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 					Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 				}, "alice")
@@ -122,27 +125,27 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	service, store, snapshot := constructionProposalService(t)
 	workspace, construction := seedGroupKeyEditConstruction(t, store)
 	candidate := construction
-	candidate.Steps = append([]authoringv2.ConstructionStep(nil), construction.Steps...)
+	candidate.Steps = append([]ws.ConstructionStep(nil), construction.Steps...)
 	candidate.Steps[0].Operation.Group.Keys = nil
-	candidate.Steps[0].Outputs = []authoringv2.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
+	candidate.Steps[0].Outputs = []ws.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
 	candidateCompileCalls := 0
-	var candidateBinding *explorer.ConstructionProposalBinding
-	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var candidateBinding *receiptmodel.ConstructionProposalBinding
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		if request.ConstructionProposal != nil {
 			candidateCompileCalls++
 			candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
 		}
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
 		var err error
-		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
 		}
-		receipt.ID, err = explorer.ReceiptID(*receipt)
+		receipt.ID, err = receiptmodel.ReceiptID(*receipt)
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +168,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	if candidateCompileCalls != 1 || candidateBinding == nil || !equalStringSlices(candidateBinding.RemoveStepIDs, []string{"dependent-id-filter"}) {
 		t.Fatalf("candidate binding = %#v, compile calls=%d; want cascade removal bound for Apply", candidateBinding, candidateCompileCalls)
 	}
-	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	service.config.PreviewReceipt = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		if err := visit(map[string]any{"row_count": int64(1)}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
@@ -173,7 +176,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	}
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
-		CommandID: "apply-group-cascade", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		CommandID: "apply-group-cascade", SemanticsVersion: ws.CurrentSemanticsVersion,
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: proposal.ProposalID}}},
 	}, "alice")
@@ -188,13 +191,13 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	}
 }
 
-func seedGroupKeyEditConstruction(t *testing.T, store *fakeStore) (authoringv2.Workspace, authoringv2.Construction) {
+func seedGroupKeyEditConstruction(t *testing.T, store *fakeStore) (ws.Workspace, ws.Construction) {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
+	document, err := ws.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,33 +205,33 @@ func seedGroupKeyEditConstruction(t *testing.T, store *fakeStore) (authoringv2.W
 		t.Fatal("group-key test document has no source columns")
 	}
 	inputID := document.Columns[0].ColumnID
-	groupOutputs := []authoringv2.StageColumn{
+	groupOutputs := []ws.StageColumn{
 		{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
 		{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"},
 	}
-	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+	construction := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		{
-			ID: "group-records", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
-				ConstructionID: "group-records", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
-				Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: "group_id"}},
-				Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+			ID: "group-records", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
+				ConstructionID: "group-records", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
+				Keys:       []ws.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: "group_id"}},
+				Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
 			}},
 			Outputs: groupOutputs,
 		},
 		{
-			ID: "dependent-id-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group-records"}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: "group_id", Operator: authoringv2.ConstructionFilterExists,
+			ID: "dependent-id-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group-records"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: append([]authoringv2.StageColumn(nil), groupOutputs...),
+			Outputs: append([]ws.StageColumn(nil), groupOutputs...),
 		},
 		{
-			ID: "independent-count-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "dependent-id-filter"}},
-			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
-				ColumnID: "row_count", Operator: authoringv2.ConstructionFilterExists,
+			ID: "independent-count-filter", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "dependent-id-filter"}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: "row_count", Operator: ws.ConstructionFilterExists,
 			}},
-			Outputs: append([]authoringv2.StageColumn(nil), groupOutputs...),
+			Outputs: append([]ws.StageColumn(nil), groupOutputs...),
 		},
 	}}
 	document.Construction = &construction

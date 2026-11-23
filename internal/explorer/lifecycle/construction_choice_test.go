@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -39,7 +41,7 @@ func TestApplyConstructionChoiceMapsRepeatedFieldForms(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			before, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+			before, err := ws.DecodeWorkspace(store.created.DraftConfig)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -49,10 +51,10 @@ func TestApplyConstructionChoiceMapsRepeatedFieldForms(t *testing.T) {
 			}
 			document := response.Workspace.Documents[0]
 			column := document.Columns[len(document.Columns)-1]
-			if column.Source.Kind != authoringv2.SourceField || column.Source.Field == nil || column.Source.Field.Path != "name[].family" || column.Source.Field.ProjectionMode != string(test.form) || column.LogicalType != "string" || column.Label != "Patient family" {
+			if column.Source.Kind != ws.SourceField || column.Source.Field == nil || column.Source.Field.Path != "name[].family" || column.Source.Field.ProjectionMode != string(test.form) || column.LogicalType != "string" || column.Label != "Patient family" {
 				t.Fatalf("applied column = %#v", column)
 			}
-			if response.Results[0].Type != authoringv2.CommandResultColumnAdded || response.Results[0].Column != column.Column || column.OccurrenceID != authoringv2.RootOccurrenceID {
+			if response.Results[0].Type != authoringv2.CommandResultColumnAdded || response.Results[0].Column != column.Column || column.OccurrenceID != ws.RootOccurrenceID {
 				t.Fatalf("apply result or occurrence = %#v, column=%#v", response.Results[0], column)
 			}
 			if !reflect.DeepEqual(document.Route, before.Documents[0].Route) || len(document.Columns) != len(before.Documents[0].Columns)+1 {
@@ -73,7 +75,7 @@ func TestApplyConstructionChoiceMapsScalarValueField(t *testing.T) {
 		t.Fatal(err)
 	}
 	column := response.Workspace.Documents[0].Columns[len(response.Workspace.Documents[0].Columns)-1]
-	if column.Source.Kind != authoringv2.SourceField || column.Source.Field == nil || column.Source.Field.Path != "id" || column.Source.Field.ProjectionMode != "VALUE" || column.LogicalType != "string" {
+	if column.Source.Kind != ws.SourceField || column.Source.Field == nil || column.Source.Field.Path != "id" || column.Source.Field.ProjectionMode != "VALUE" || column.LogicalType != "string" {
 		t.Fatalf("applied scalar column = %#v", column)
 	}
 	if store.saveDraftCalls != 1 {
@@ -93,10 +95,10 @@ func TestApplyConstructionChoiceMapsSemanticObservationAtTheDocumentRoot(t *test
 		t.Fatalf("semantic choice result=%#v saves=%d document=%#v", response.Results, store.saveDraftCalls, document)
 	}
 	column := document.Columns[0]
-	if column.Source.Kind != authoringv2.SourceCodedValue || column.Source.Lookup == nil || column.Source.Lookup.Binding == nil || column.Source.Lookup.Key == nil ||
+	if column.Source.Kind != ws.SourceCodedValue || column.Source.Lookup == nil || column.Source.Lookup.Binding == nil || column.Source.Lookup.Key == nil ||
 		column.Source.Lookup.Key.System != entry.Observation.Key.System || column.Source.Lookup.Key.Code != entry.Observation.Key.Code ||
 		column.Source.Lookup.Binding.ValuePath != entry.Observation.Value.Selector || column.Source.Lookup.ProjectionMode != "VALUE" ||
-		column.LogicalType != "decimal" || column.OccurrenceID != authoringv2.RootOccurrenceID || document.RootResourceType != "Observation" ||
+		column.LogicalType != "decimal" || column.OccurrenceID != ws.RootOccurrenceID || document.RootResourceType != "Observation" ||
 		document.Route.ResourceType != "Observation" || len(document.Route.Children) != 0 {
 		t.Fatalf("semantic source did not map to the compiler's root binding: %#v document=%#v", column, document)
 	}
@@ -257,24 +259,24 @@ func constructionChoiceFixtureWithScopes(t *testing.T, snapshotScope, resolverSc
 		{ID: "encounter-id", NodeID: "encounter", ResourceType: "Encounter", FieldPath: "id", Label: "Encounter ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
 	}
 	snapshot.Candidates = candidates
-	catalogCandidates := []authoringv2.CatalogCandidate{
+	catalogCandidates := []ws.CatalogCandidate{
 		{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
-		{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", Repeated: true, RepeatedBoundaries: []authoringv2.RepeatedBoundary{{Path: "name[]", MaxItems: 4}}, Label: "Patient family", LogicalType: "string", ProjectionModes: []string{"FIRST", "ALL", "DISTINCT"}, DefaultProjectionMode: "ALL", Filterable: true, Chartable: true, ConstructionChoice: fieldChoicePointer(t, snapshot, candidates[1])},
+		{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", Repeated: true, RepeatedBoundaries: []ws.RepeatedBoundary{{Path: "name[]", MaxItems: 4}}, Label: "Patient family", LogicalType: "string", ProjectionModes: []string{"FIRST", "ALL", "DISTINCT"}, DefaultProjectionMode: "ALL", Filterable: true, Chartable: true, ConstructionChoice: fieldChoicePointer(t, snapshot, candidates[1])},
 		{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "Encounter ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, candidates[2])},
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients",
+	catalogSnapshot := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients",
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true,
-		Nodes:      []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "encounter", ResourceType: "Encounter"}, {ID: "observation", ResourceType: "Observation"}},
-		Edges:      []authoringv2.CatalogEdge{{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"}, {ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"}},
-		Candidates: catalogCandidates, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		Nodes:      []ws.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "encounter", ResourceType: "Encounter"}, {ID: "observation", ResourceType: "Observation"}},
+		Edges:      []ws.CatalogEdge{{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"}, {ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"}},
+		Candidates: catalogCandidates, RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 	store := semanticAuthoringStore(t)
 	service := newTestService(t, store, Config{Capability: ports.CapabilityResolver{
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
 		},
-		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+		Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 	}})
 	return store, service, snapshot, candidates
 }
@@ -290,7 +292,7 @@ func fieldChoicePointer(t *testing.T, snapshot capability.Snapshot, candidate ca
 
 func constructionChoiceRequest(snapshot capability.Snapshot, commandID, choiceID string, form capability.ConstructionChoiceForm) authoringv2.ApplyCommandsRequest {
 	return authoringv2.ApplyCommandsRequest{
-		CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
+		CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "patients", Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: choiceID, Form: form}}}},
 	}
 }
@@ -334,16 +336,16 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*semantic.
 		mutateEntry(&entry)
 	}
 	store := semanticAuthoringStore(t)
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := &workspace.Documents[0]
 	document.RootResourceType = root
-	document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: root, Children: []authoringv2.RouteNode{}}
-	document.Columns = []authoringv2.Column{}
-	document.FixedFilters = []authoringv2.FixedFilter{}
-	document.Actions = []authoringv2.Action{}
+	document.Route = ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: root, Children: []ws.RouteNode{}}
+	document.Columns = []ws.Column{}
+	document.FixedFilters = []ws.FixedFilter{}
+	document.Actions = []ws.Action{}
 	store.created.DraftConfig, err = workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -353,19 +355,19 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*semantic.
 		t.Fatal(err)
 	}
 	catalogSnapshot := semanticAuthoringCatalog(snapshot)
-	catalogSnapshot.Nodes = []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}}
-	catalogSnapshot.Edges = []authoringv2.CatalogEdge{}
-	catalogSnapshot.Candidates = []authoringv2.CatalogCandidate{{ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Cardinality: candidate.Cardinality, Label: candidate.Label, LogicalType: candidate.LogicalType, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, candidate)}}
+	catalogSnapshot.Nodes = []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}}
+	catalogSnapshot.Edges = []ws.CatalogEdge{}
+	catalogSnapshot.Candidates = []ws.CatalogCandidate{{ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Cardinality: candidate.Cardinality, Label: candidate.Label, LogicalType: candidate.LogicalType, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, candidate)}}
 	if len(snapshot.Candidates) > 1 {
 		duplicate := snapshot.Candidates[1]
-		catalogSnapshot.Candidates = append(catalogSnapshot.Candidates, authoringv2.CatalogCandidate{ID: duplicate.ID, NodeID: duplicate.NodeID, FieldPath: duplicate.FieldPath, Cardinality: duplicate.Cardinality, Label: duplicate.Label, LogicalType: duplicate.LogicalType, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, duplicate)})
+		catalogSnapshot.Candidates = append(catalogSnapshot.Candidates, ws.CatalogCandidate{ID: duplicate.ID, NodeID: duplicate.NodeID, FieldPath: duplicate.FieldPath, Cardinality: duplicate.Cardinality, Label: duplicate.Label, LogicalType: duplicate.LogicalType, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, duplicate)})
 	}
 	service := newTestService(t, store, Config{
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
 		},
 		ResolveSemanticInventorySelections: func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error) {
 			return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil

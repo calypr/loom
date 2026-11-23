@@ -9,6 +9,11 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -154,7 +159,7 @@ func (h *Handlers) previewSavedReceiptWithTimeout(ctx context.Context, project, 
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var encoder *previewResponseEncoder
-	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		var encoderErr error
 		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
@@ -204,7 +209,7 @@ func (r *Handlers) ApplyExplorerBuilderCommands(ctx context.Context, request loo
 			return result, explorer.MalformedRouteError("commands", err)
 		}
 		var encoder *previewResponseEncoder
-		sinkFactory := func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		sinkFactory := func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			var err error
 			encoder, err = newPreviewResponseEncoder(receipt, request.Commands[0].OutputID, columns, maxExplorerPreviewResponseBytes)
 			if err != nil {
@@ -276,14 +281,14 @@ func (r *Handlers) AssessExplorerRowChange(ctx context.Context, request loomapi.
 		}
 		return directAuthoringJSON[loomapi.RowChangeAssessmentResponse](struct {
 			authoringv2.RowChangeAssessment
-			SnapshotToken        string                        `json:"snapshotToken"`
-			DraftVersion         int64                         `json:"draftVersion"`
-			DraftDigest          string                        `json:"draftDigest"`
-			CandidateReceiptID   string                        `json:"candidateReceiptId,omitempty"`
-			CandidateDocument    *authoringv2.Document         `json:"candidateDocument,omitempty"`
-			CandidateNetwork     *authoringv2.AuthoringNetwork `json:"candidateNetwork,omitempty"`
-			CandidateRowIdentity *authoringv2.RowIdentityPlan  `json:"candidateRowIdentity,omitempty"`
-			Diagnostics          []map[string]any              `json:"diagnostics"`
+			SnapshotToken        string               `json:"snapshotToken"`
+			DraftVersion         int64                `json:"draftVersion"`
+			DraftDigest          string               `json:"draftDigest"`
+			CandidateReceiptID   string               `json:"candidateReceiptId,omitempty"`
+			CandidateDocument    *ws.Document         `json:"candidateDocument,omitempty"`
+			CandidateNetwork     *ws.AuthoringNetwork `json:"candidateNetwork,omitempty"`
+			CandidateRowIdentity *ws.RowIdentityPlan  `json:"candidateRowIdentity,omitempty"`
+			Diagnostics          []map[string]any     `json:"diagnostics"`
 		}{
 			RowChangeAssessment: value.Assessment,
 			SnapshotToken:       value.SnapshotToken,
@@ -363,11 +368,11 @@ func (r *Handlers) CreateInterpretationRevision(ctx context.Context, request loo
 		if body == nil {
 			return result, explorer.MalformedRouteError("interpretations", errors.New("request body is required"))
 		}
-		applicability, err := directAuthoringJSON[explorer.InterpretationApplicability](body.Applicability)
+		applicability, err := directAuthoringJSON[interpretation.InterpretationApplicability](body.Applicability)
 		if err != nil {
 			return result, explorer.MalformedRouteError("interpretations", err)
 		}
-		rules, err := directAuthoringJSON[[]explorer.InterpretationRule](body.Rules)
+		rules, err := directAuthoringJSON[[]interpretation.InterpretationRule](body.Rules)
 		if err != nil {
 			return result, explorer.MalformedRouteError("interpretations", err)
 		}
@@ -1081,7 +1086,7 @@ func (r *Handlers) ProposeExplorerConstructionChoice(ctx context.Context, reques
 				ChoiceID: choice.ChoiceId, Form: capability.ConstructionChoiceForm(choice.Form),
 			}
 			if choice.RowValuePolicy != nil {
-				choices[index].RowValuePolicy = authoringv2.ConstructionRowValuePolicy(*choice.RowValuePolicy)
+				choices[index].RowValuePolicy = ws.ConstructionRowValuePolicy(*choice.RowValuePolicy)
 			}
 			if choice.FrameId != nil {
 				choices[index].FrameID = *choice.FrameId
@@ -1259,7 +1264,7 @@ func (r *Handlers) ProposeExplorerConstruction(ctx context.Context, request loom
 		if body == nil {
 			return result, explorer.MalformedRouteError("construction-proposal", nil)
 		}
-		candidate, err := directAuthoringJSON[authoringv2.Construction](body.CandidateConstruction)
+		candidate, err := directAuthoringJSON[ws.Construction](body.CandidateConstruction)
 		if err != nil {
 			return result, explorer.MalformedRouteError("construction-proposal", err)
 		}
@@ -1475,7 +1480,7 @@ func (r *Handlers) publishRepositoryExplorerConfig(ctx context.Context, request 
 	if request.Body == nil {
 		return result, legacyOperationFailure(http.StatusUnprocessableEntity, "INVALID_WORKSPACE", "workspace is required", nil)
 	}
-	workspace := authoringv2.Workspace(*request.Body)
+	workspace := ws.Workspace(*request.Body)
 	if err := workspace.ValidateForPublication(); err != nil {
 		return result, legacyOperationFailure(http.StatusUnprocessableEntity, "INVALID_WORKSPACE", err.Error(), err)
 	}
@@ -1859,7 +1864,7 @@ func (r *Handlers) ProposeExplorerSourceRelationship(ctx context.Context, reques
 		input.Project, input.ExplorerID = project, explorerID
 		var encoder *previewResponseEncoder
 		if input.IncludePreview {
-			input.PreviewSinkFactory = func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			input.PreviewSinkFactory = func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 				var err error
 				encoder, err = newPreviewResponseEncoder(receipt, input.OutputID, columns, maxExplorerPreviewResponseBytes)
 				if err != nil {
@@ -2022,7 +2027,7 @@ func (h *Handlers) authorizeViewBuilder(ctx context.Context, project, resource s
 	return nil
 }
 
-func (h *Handlers) authorizedViewBuilderState(ctx context.Context, project, resource string) (explorer.ViewBuilderState, error) {
+func (h *Handlers) authorizedViewBuilderState(ctx context.Context, project, resource string) (viewer.ViewBuilderState, error) {
 	value, err := h.views.ViewBuilderState(ctx, project)
 	if err != nil {
 		return value, viewBuilderFailure(err)
@@ -2032,7 +2037,7 @@ func (h *Handlers) authorizedViewBuilderState(ctx context.Context, project, reso
 
 func (h *Handlers) viewMutationAccess(project, resource string) projectconfig.MutationAccess {
 	return projectconfig.MutationAccess{
-		CheckState: func(ctx context.Context, value explorer.ViewBuilderState) (explorer.ViewBuilderState, error) {
+		CheckState: func(ctx context.Context, value viewer.ViewBuilderState) (viewer.ViewBuilderState, error) {
 			return h.checkViewBuilderState(ctx, project, resource, value)
 		},
 		CheckExecution: h.authorizeViewBuilderExecution,
@@ -2040,7 +2045,7 @@ func (h *Handlers) viewMutationAccess(project, resource string) projectconfig.Mu
 	}
 }
 
-func (h *Handlers) checkViewBuilderState(ctx context.Context, project, resource string, value explorer.ViewBuilderState) (explorer.ViewBuilderState, error) {
+func (h *Handlers) checkViewBuilderState(ctx context.Context, project, resource string, value viewer.ViewBuilderState) (viewer.ViewBuilderState, error) {
 	if strings.TrimSpace(resource) == "" {
 		resource = projectid.Legacy(project)
 	}
@@ -2056,13 +2061,13 @@ func (h *Handlers) checkViewBuilderState(ctx context.Context, project, resource 
 	}
 	for id := range executionIDs {
 		if err := h.authorizeViewBuilderExecution(ctx, id); err != nil {
-			return explorer.ViewBuilderState{}, err
+			return viewer.ViewBuilderState{}, err
 		}
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	err := h.authorizer.AuthorizeWrite(ctx, principal, project, resource)
 	if err != nil && authorizerResponseStatus(err) == http.StatusServiceUnavailable {
-		return explorer.ViewBuilderState{}, legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
+		return viewer.ViewBuilderState{}, legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 	}
 	value.CanEdit = err == nil
 	return value, nil
@@ -2139,8 +2144,8 @@ func (h *Handlers) SaveProjectViewDefaults(ctx context.Context, request loomapi.
 	if err := h.authorizeViewBuilder(ctx, project, resource, true); err != nil {
 		return fail(err)
 	}
-	value, err := h.views.SaveDefaults(ctx, project, func() (explorer.ViewBuilderDefaultsRequest, error) {
-		var body explorer.ViewBuilderDefaultsRequest
+	value, err := h.views.SaveDefaults(ctx, project, func() (viewer.ViewBuilderDefaultsRequest, error) {
+		var body viewer.ViewBuilderDefaultsRequest
 		err := decodeViewBuilderBody(request.Body, &body)
 		return body, err
 	}, h.viewMutationAccess(project, resource))
@@ -2164,8 +2169,8 @@ func (h *Handlers) SaveProjectViewConfig(ctx context.Context, request loomapi.Sa
 	if err := h.authorizeViewBuilder(ctx, project, resource, true); err != nil {
 		return fail(err)
 	}
-	value, err := h.views.SaveConfig(ctx, project, string(request.ExplorerId), authscope.SubjectFromContext(ctx), func() (explorer.ViewBuilderSaveRequest, error) {
-		var body explorer.ViewBuilderSaveRequest
+	value, err := h.views.SaveConfig(ctx, project, string(request.ExplorerId), authscope.SubjectFromContext(ctx), func() (viewer.ViewBuilderSaveRequest, error) {
+		var body viewer.ViewBuilderSaveRequest
 		err := decodeViewBuilderBody(request.Body, &body)
 		return body, err
 	}, h.viewMutationAccess(project, resource))

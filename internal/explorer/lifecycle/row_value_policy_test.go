@@ -8,6 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -23,7 +28,7 @@ func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *test
 	beforeDigest := store.created.DraftDigest
 	lateViolation := dataframeerrors.NewError(dataframeerrors.CodeConstructionRowValueMultipleValues, "AQL private detail must never reach the authoring response")
 	rowsVisited := 0
-	service.config.ValidateReceiptStream = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
+	service.config.ValidateReceiptStream = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) error {
 		if receipt.IntentDigest == "" || bindings.PreviewLimit != 0 || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 			t.Fatalf("full-stream candidate bindings/receipt = %#v / %#v", bindings, receipt)
 		}
@@ -50,18 +55,18 @@ func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *test
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != 4 || store.created.DraftDigest != beforeDigest || !bytes.Equal(store.created.DraftConfig, beforeConfig) {
 		t.Fatalf("failed full-stream validation changed draft: save calls=%d owner=%#v", store.saveDraftCalls, store.created)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := workspace.Documents[0].Rows.Groups.RowValues[0].Policy; got != authoringv2.ConstructionRowValueAll {
+	if got := workspace.Documents[0].Rows.Groups.RowValues[0].Policy; got != ws.ConstructionRowValueAll {
 		t.Fatalf("saved policy = %q, want original ALL", got)
 	}
 }
 
 func TestUpdateColumnRowValuePolicyConflictAfterValidationKeepsConcurrentDraft(t *testing.T) {
 	service, store, _, request := rowValuePolicyApplyFixture(t)
-	service.config.ValidateReceiptStream = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error { return nil }
+	service.config.ValidateReceiptStream = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error { return nil }
 	store.copyGet = true
 	store.saveDraftHook = func(explorer.Explorer) error {
 		concurrent := *store.created
@@ -78,11 +83,11 @@ func TestUpdateColumnRowValuePolicyConflictAfterValidationKeepsConcurrentDraft(t
 	if store.saveDraftCalls != 1 || store.created.DraftVersion != 5 || store.created.Title != "Concurrent edit" {
 		t.Fatalf("concurrent owner was overwritten after preflight: calls=%d owner=%#v", store.saveDraftCalls, store.created)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := workspace.Documents[0].Rows.Groups.RowValues[0].Policy; got != authoringv2.ConstructionRowValueAll {
+	if got := workspace.Documents[0].Rows.Groups.RowValues[0].Policy; got != ws.ConstructionRowValueAll {
 		t.Fatalf("concurrent saved policy = %q, want original ALL", got)
 	}
 }
@@ -104,20 +109,20 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "snapshot-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}
-	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
-		Documents: []authoringv2.Document{{
-			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"},
-			RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-			Columns: []authoringv2.Column{{ColumnID: "patient-active", Column: "patient_active", Label: "Patient active", LogicalType: "boolean", OccurrenceID: authoringv2.RootOccurrenceID,
-				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "active", ProjectionMode: "VALUE"}}}},
-			Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{
-				Source:    authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "cohort-rev-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude}},
-				RowValues: []authoringv2.ExplicitGroupRowValue{{ColumnID: "patient-active", Policy: authoringv2.ConstructionRowValueAll}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"},
+			RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []ws.Column{{ColumnID: "patient-active", Column: "patient_active", Label: "Patient active", LogicalType: "boolean", OccurrenceID: ws.RootOccurrenceID,
+				Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "active", ProjectionMode: "VALUE"}}}},
+			Rows: ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
+				Source:    ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{RevisionID: "cohort-rev-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}},
+				RowValues: []ws.ExplicitGroupRowValue{{ColumnID: "patient-active", Policy: ws.ConstructionRowValueAll}},
 			}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -128,23 +133,23 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 		t.Fatal(err)
 	}
 	store := &fakeStore{created: &explorer.Explorer{
-		Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+		Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: draft, DraftVersion: 4, DraftDigest: digest,
 	}}
 	config := testConfig(snapshot)
-	var receipt *explorer.CompilationReceipt
-	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var receipt *receiptmodel.CompilationReceipt
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 		receipt = lifecycleConstructionReceipt(snapshot, request.Workspace)
 		return receipt, nil
 	}
-	config.ReceiptLookup = func(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
+	config.ReceiptLookup = func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
 		return receipt, nil
 	}
 	service := newTestService(t, store, config)
 	request := authoringv2.ApplyCommandsRequest{
-		CommandID: "row-policy-one", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		CommandID: "row-policy-one", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandUpdateColumnRowValuePolicy, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_active", RowValuePolicy: authoringv2.ConstructionRowValueOne}}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandUpdateColumnRowValuePolicy, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_active", RowValuePolicy: ws.ConstructionRowValueOne}}},
 	}
 	return service, store, snapshot, request
 }
@@ -152,7 +157,7 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 func TestUpdateColumnRowValuePolicyCheckerRunsBeforeSave(t *testing.T) {
 	service, store, _, request := rowValuePolicyApplyFixture(t)
 	var order []string
-	service.config.ValidateReceiptStream = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error {
+	service.config.ValidateReceiptStream = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error {
 		order = append(order, "validate")
 		return nil
 	}

@@ -6,6 +6,10 @@ import (
 	"strconv"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -48,7 +52,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	}
 	snapshot.Candidates = []capability.Candidate{displayCandidate, codeCandidate}
 
-	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
 		t.Fatalf("standalone Coding plan = %#v", plan)
 	}
@@ -87,7 +91,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+	catalogSnapshot := ws.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []ws.CatalogCandidate{{
 		ID: displayCandidate.ID, NodeID: displayCandidate.NodeID, FieldPath: displayCandidate.FieldPath,
 		Cardinality: displayCandidate.Cardinality, ConstructionChoice: &fieldChoice,
 	}}}
@@ -125,7 +129,7 @@ func TestStandaloneCodedConceptSelectionKeepsUnversionedIdentityExplicit(t *test
 		LogicalType: "string", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED",
 		RuleHint: semantic.RuleHintCodedConceptV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
 	}
-	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
 		t.Fatalf("unversioned standalone Coding plan = %#v", plan)
 	}
@@ -200,7 +204,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	if entry.ConceptID == "" || entry.BindingID == "" {
 		t.Fatal("Coding emitter produced no standalone semantic entry")
 	}
-	plan := authoringv2.ResolveSemanticSelectionPlan(entry.Observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil ||
 		plan.Source.Lookup.Binding.OwnerPath != tc.ownerPath || plan.Source.Lookup.Binding.KeyPath != tc.keyPath ||
 		plan.Source.Lookup.Binding.VersionPath != "version" || plan.Source.Lookup.Binding.ValuePath != "display" ||
@@ -237,7 +241,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+	catalogSnapshot := ws.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []ws.CatalogCandidate{{
 		ID: displayCandidate.ID, NodeID: displayCandidate.NodeID, FieldPath: displayCandidate.FieldPath,
 		Cardinality: displayCandidate.Cardinality, ConstructionChoice: &fieldChoice,
 	}}}

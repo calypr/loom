@@ -9,6 +9,10 @@ import (
 	"reflect"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -21,7 +25,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
@@ -44,7 +47,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	var workspace authoringv2.Workspace
+	var workspace ws.Workspace
 	if err := json.Unmarshal(rawWorkspace, &workspace); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +60,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 		t.Fatal(err)
 	}
 	if digest != case008DraftDigest || len(workspace.Documents) != 1 || workspace.Documents[0].Output.ID != case008OutputID ||
-		workspace.Documents[0].RootResourceType != "Patient" || workspace.Documents[0].Rows.Kind != authoringv2.RowDefinitionRecords ||
+		workspace.Documents[0].RootResourceType != "Patient" || workspace.Documents[0].Rows.Kind != ws.RowDefinitionRecords ||
 		len(workspace.Documents[0].Columns) != 1 || workspace.Documents[0].Columns[0].Source.Field.Path != "id" ||
 		workspace.Documents[0].Columns[0].Source.Field.ProjectionMode != "VALUE" {
 		t.Fatalf("retained pre-proposal workspace does not match its digest/output/source: digest=%s document=%#v", digest, workspace.Documents)
@@ -84,7 +87,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 		nil,
 	)
 
-	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringv2.CatalogFromCapability(snapshot, case008ExplorerID))
+	migration, err := ws.MigrateStoredWorkspace(draft, ws.CatalogFromCapability(snapshot, case008ExplorerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +141,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 
 	groupResolver := case008ExplicitGroupResolver{}
 	var basePreviewSummary, candidatePreviewSummary dataframeexecution.PreviewSummary
-	var candidateReceipt *explorer.CompilationReceipt
+	var candidateReceipt *receiptmodel.CompilationReceipt
 	config := lifecycle.Config{
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
@@ -147,9 +150,9 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringv2.CatalogFromCapability,
+			Catalog: ws.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			receipt, err := receiptapi.Compile(ctx, request, nil, engine, service, nil, nil)
 			if err == nil && request.RequestID == "row-definition-proposal-candidate" {
 				candidateReceipt = receipt
@@ -157,7 +160,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 			return receipt, err
 		},
 		ExplicitGroupResolver: groupResolver,
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, err := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PreviewSummary{}, err
@@ -244,16 +247,16 @@ func (case008ExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Conte
 	}, nil
 }
 
-func (case008ExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof explicitgroup.ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
-	workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+func (case008ExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof explicitgroup.ExplicitGroupRevisionProof, receipt *receiptmodel.CompilationReceipt) error {
+	workspace, err := ws.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		return err
 	}
 	for _, document := range workspace.Documents {
-		if document.Output.ID == case008OutputID && document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil &&
-			document.Rows.Groups.Source.Kind == authoringv2.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil &&
+		if document.Output.ID == case008OutputID && document.Rows.Kind == ws.RowDefinitionGroups && document.Rows.Groups != nil &&
+			document.Rows.Groups.Source.Kind == ws.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil &&
 			document.Rows.Groups.Source.Explicit.RevisionID == proof.RevisionID &&
-			document.Rows.Groups.Source.Explicit.UnassignedMemberPolicy == authoringv2.UnassignedMemberError {
+			document.Rows.Groups.Source.Explicit.UnassignedMemberPolicy == ws.UnassignedMemberError {
 			return nil
 		}
 	}

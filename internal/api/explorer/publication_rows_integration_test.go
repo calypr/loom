@@ -11,6 +11,10 @@ import (
 	"testing"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
@@ -23,7 +27,6 @@ import (
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -96,7 +99,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		}
 	})
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +115,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.Create(ctx, explorer.Explorer{Project: "project-a", ExplorerID: "published-rows", Title: "Published rows", ManagementMode: explorer.ManagementInteractive, DraftConfig: raw, DraftDigest: digest, DraftVersion: 1})
+	_, err = store.Create(ctx, explorer.Explorer{Project: "project-a", ExplorerID: "published-rows", Title: "Published rows", ManagementMode: viewer.ManagementInteractive, DraftConfig: raw, DraftDigest: digest, DraftVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +258,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		if viewerResponse.StatusCode != http.StatusOK {
 			t.Fatalf("fresh Viewer HTTP%d: %s", viewerResponse.StatusCode, viewerResponse.Body)
 		}
-		var viewer explorer.ExplorerStateV1
+		var viewer viewer.ExplorerStateV1
 		if err := json.Unmarshal([]byte(viewerResponse.Body), &viewer); err != nil {
 			t.Fatal(err)
 		}

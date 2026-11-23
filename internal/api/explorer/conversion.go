@@ -3,11 +3,13 @@ package explorerapi
 import (
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
 
@@ -22,9 +24,9 @@ func firstNonEmpty(values ...string) string {
 
 func pointerTo[T any](value T) *T { return &value }
 
-func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) loomapi.CompileResponse {
+func v2ReceiptResponse(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) loomapi.CompileResponse {
 	if len(workspace.Documents) == 0 && receipt != nil && len(receipt.NormalizedBundle) != 0 {
-		if normalized, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle); err == nil {
+		if normalized, err := ws.DecodeWorkspace(receipt.NormalizedBundle); err == nil {
 			workspace = normalized
 		}
 	}
@@ -128,7 +130,7 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 	return loomapi.CompileResponse{
 		ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderReceipt,
 		ReceiptId: receipt.ID, SnapshotToken: receipt.SnapshotToken, Generation: receipt.SourceGeneration,
-		IntentDigest: receipt.IntentDigest, CompilerVersion: explorer.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion,
+		IntentDigest: receipt.IntentDigest, CompilerVersion: receiptmodel.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion,
 		ShapeDigest: &receipt.ShapeDigest, RecipeDigest: &receipt.RecipeDigest,
 		ResolvedRecipeDigest: &receipt.ResolvedRecipeDigest, ResolvedSchemaDigest: &receipt.ResolvedSchemaDigest,
 		OutputContractDigest: &receipt.OutputContractDigest, AuthorizationScopeDigest: &receipt.AuthorizationScopeDigest,
