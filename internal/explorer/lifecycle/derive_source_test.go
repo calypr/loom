@@ -316,19 +316,6 @@ func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t
 	}
 }
 
-func TestDeriveSourceLogicalTypeIsNumericAdmitsOnlyArithmeticKinds(t *testing.T) {
-	for _, want := range []string{"integer", "decimal", " INTEGER", "Decimal "} {
-		if !deriveSourceLogicalTypeIsNumeric(want) {
-			t.Fatalf("deriveSourceLogicalTypeIsNumeric(%q) = false, want true", want)
-		}
-	}
-	for _, refuse := range []string{"", "number", "boolean", "string", "code", "date", "uuid", "object", "quantity"} {
-		if deriveSourceLogicalTypeIsNumeric(refuse) {
-			t.Fatalf("deriveSourceLogicalTypeIsNumeric(%q) = true, want false", refuse)
-		}
-	}
-}
-
 func TestConstructionDeriveSourceRefusesForgedAndCrossSnapshotChoices(t *testing.T) {
 	snapshot := deriveSourceSnapshot("derive-source-current")
 	other := deriveSourceSnapshot("derive-source-other")

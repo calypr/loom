@@ -1,4 +1,4 @@
-package lifecycle
+package rowsource
 
 import (
 	"context"
@@ -24,9 +24,9 @@ var filterSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Filter scalar source fields is unavailable for the current dataset snapshot",
 }
 
-func (s *Service) constructionFilterSourceCapability(
+func (s *Service) ConstructionFilterSourceCapability(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID, stageID string,
 ) (ConstructionFilterSourceCapability, error) {
 	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []ConstructionFilterSourceChoice{}}
@@ -87,10 +87,10 @@ func (s *Service) constructionFilterSourceCapability(
 	return result, nil
 }
 
-func (s *Service) resolveConstructionFilterSource(
+func (s *Service) ResolveConstructionFilterSource(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	acceptedStageID string,
 	selection ConstructionFilterSourceSelection,
 ) (authoringv2.ConstructionSourceProjection, error) {
@@ -142,10 +142,10 @@ func (s *Service) resolveConstructionFilterSource(
 	}, nil
 }
 
-func (s *Service) constructionCandidateWithFilterSources(
+func (s *Service) ConstructionCandidateWithFilterSources(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, error) {
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
@@ -181,7 +181,7 @@ func (s *Service) constructionCandidateWithFilterSources(
 
 	resolved := make([]authoringv2.ConstructionSourceProjection, 0, len(request.FilterSources))
 	for _, selection := range request.FilterSources {
-		projection, err := s.resolveConstructionFilterSource(ctx, base, request, acceptedStageID, selection)
+		projection, err := s.ResolveConstructionFilterSource(ctx, base, request, acceptedStageID, selection)
 		if err != nil {
 			return authoringv2.Construction{}, err
 		}
@@ -361,7 +361,7 @@ func ConstructionFilterSourceFacts(snapshot capability.Snapshot, rootResourceTyp
 	return authoringv2.ConstructionSourceProjection{}, false
 }
 
-func constructionHasFilterSourceInput(construction authoringv2.Construction) bool {
+func ConstructionHasFilterSourceInput(construction authoringv2.Construction) bool {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" {
 			continue
@@ -384,7 +384,7 @@ func isFilterOwnedSourceProjection(construction authoringv2.Construction, projec
 		step.Operation.Filter.ColumnID == projection.ColumnID
 }
 
-func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
+func (s *Service) ReauthorizeConstructionFilterSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized filter source choice planning is not configured", nil)
 	}

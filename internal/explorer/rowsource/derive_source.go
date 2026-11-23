@@ -1,4 +1,4 @@
-package lifecycle
+package rowsource
 
 import (
 	"context"
@@ -47,9 +47,9 @@ var deriveSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Derive scalar source fields is unavailable for the current dataset snapshot",
 }
 
-func (s *Service) constructionDeriveSourceCapability(
+func (s *Service) ConstructionDeriveSourceCapability(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID, stageID string,
 ) (ConstructionDeriveSourceCapability, error) {
 	result := ConstructionDeriveSourceCapability{StageID: stageID, Choices: []ConstructionDeriveSourceChoice{}}
@@ -114,10 +114,10 @@ func (s *Service) constructionDeriveSourceCapability(
 	return result, nil
 }
 
-func (s *Service) resolveConstructionDeriveSource(
+func (s *Service) ResolveConstructionDeriveSource(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	acceptedStageID string,
 	selection ConstructionDeriveSourceSelection,
 ) (authoringv2.ConstructionSourceProjection, error) {
@@ -172,10 +172,10 @@ func (s *Service) resolveConstructionDeriveSource(
 	}, nil
 }
 
-func (s *Service) constructionCandidateWithDeriveSources(
+func (s *Service) ConstructionCandidateWithDeriveSources(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, error) {
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
@@ -217,7 +217,7 @@ func (s *Service) constructionCandidateWithDeriveSources(
 
 	resolved := make([]authoringv2.ConstructionSourceProjection, 0, len(request.DeriveSources))
 	for _, selection := range request.DeriveSources {
-		projection, err := s.resolveConstructionDeriveSource(ctx, base, request, acceptedStageID, selection)
+		projection, err := s.ResolveConstructionDeriveSource(ctx, base, request, acceptedStageID, selection)
 		if err != nil {
 			return authoringv2.Construction{}, err
 		}
@@ -409,7 +409,7 @@ func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceTyp
 	return authoringv2.ConstructionSourceProjection{}, false
 }
 
-func constructionHasDeriveSourceInput(construction authoringv2.Construction) bool {
+func ConstructionHasDeriveSourceInput(construction authoringv2.Construction) bool {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" {
 			continue
@@ -432,7 +432,7 @@ func isDeriveOwnedSourceProjection(construction authoringv2.Construction, projec
 		containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID)
 }
 
-func (s *Service) reauthorizeConstructionDeriveSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
+func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized derive source choice planning is not configured", nil)
 	}

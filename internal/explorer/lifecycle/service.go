@@ -17,6 +17,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/rowdef"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/explorer/selection"
 )
 
@@ -202,7 +203,7 @@ func (s *Service) constructionConfig() construction.Config {
 		ConstructionBaseCacheTTL:     s.config.ConstructionBaseCacheTTL,
 		ConstructionBaseCacheEntries: s.config.ConstructionBaseCacheEntries,
 		Now:                          s.now,
-		SourceLanes:                  constructionSourceLanes{service: s},
+		SourceLanes:                  rowsource.NewService(rowsource.Config{Capability: s.config.Capability, SemanticInventory: s.config.SemanticInventory, RowChoiceResolver: s.config.RowChoiceResolver, RowChoicePlanner: s.config.RowChoicePlanner}),
 		ReauthorizeFrameSourceChoice: func(ctx context.Context, base construction.Base, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (construction.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
 			family, route, err := s.reauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
 			return construction.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err

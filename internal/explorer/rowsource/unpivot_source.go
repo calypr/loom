@@ -1,4 +1,4 @@
-package lifecycle
+package rowsource
 
 import (
 	"context"
@@ -80,9 +80,9 @@ var unpivotSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Unpivot melt source fields is unavailable for the current dataset snapshot",
 }
 
-func (s *Service) constructionUnpivotSourceCapability(
+func (s *Service) ConstructionUnpivotSourceCapability(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID, stageID string,
 ) (ConstructionUnpivotSourceCapability, error) {
 	result := ConstructionUnpivotSourceCapability{StageID: stageID, Choices: []ConstructionUnpivotSourceChoice{}}
@@ -147,10 +147,10 @@ func (s *Service) constructionUnpivotSourceCapability(
 	return result, nil
 }
 
-func (s *Service) resolveConstructionUnpivotSource(
+func (s *Service) ResolveConstructionUnpivotSource(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	acceptedStageID string,
 	selection ConstructionUnpivotSourceSelection,
 ) (authoringv2.ConstructionSourceProjection, error) {
@@ -208,10 +208,10 @@ func (s *Service) resolveConstructionUnpivotSource(
 	}, nil
 }
 
-func (s *Service) constructionCandidateWithUnpivotSources(
+func (s *Service) ConstructionCandidateWithUnpivotSources(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, error) {
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
@@ -253,7 +253,7 @@ func (s *Service) constructionCandidateWithUnpivotSources(
 
 	resolved := make([]authoringv2.ConstructionSourceProjection, 0, len(request.UnpivotSources))
 	for _, selection := range request.UnpivotSources {
-		projection, err := s.resolveConstructionUnpivotSource(ctx, base, request, acceptedStageID, selection)
+		projection, err := s.ResolveConstructionUnpivotSource(ctx, base, request, acceptedStageID, selection)
 		if err != nil {
 			return authoringv2.Construction{}, err
 		}
@@ -468,7 +468,7 @@ func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceTy
 	return authoringv2.ConstructionSourceProjection{}, false
 }
 
-func constructionHasUnpivotSourceInput(construction authoringv2.Construction) bool {
+func ConstructionHasUnpivotSourceInput(construction authoringv2.Construction) bool {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" {
 			continue
@@ -491,7 +491,7 @@ func isUnpivotOwnedSourceProjection(construction authoringv2.Construction, proje
 		containsConstructionColumnIDLocal(unpivotInputColumnIDs(step.Operation.Unpivot), projection.ColumnID)
 }
 
-func (s *Service) reauthorizeConstructionUnpivotSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
+func (s *Service) ReauthorizeConstructionUnpivotSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized unpivot source choice planning is not configured", nil)
 	}

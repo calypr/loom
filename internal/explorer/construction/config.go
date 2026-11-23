@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/rowdef"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -101,26 +102,26 @@ type Config struct {
 
 type SourceLanes interface {
 	ConstructionFilterSourceCapability(context.Context, Base, string, string) (ConstructionFilterSourceCapability, error)
-	ResolveConstructionFilterSource(context.Context, Base, ConstructionProposalRequest, string, ConstructionFilterSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithFilterSources(context.Context, Base, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
+	ResolveConstructionFilterSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionFilterSourceSelection) (authoringv2.ConstructionSourceProjection, error)
+	ConstructionCandidateWithFilterSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
 	ReauthorizeConstructionFilterSources(context.Context, Base, string, authoringv2.Construction) error
 	ConstructionHasFilterSourceInput(authoringv2.Construction) bool
 
 	ConstructionDeriveSourceCapability(context.Context, Base, string, string) (ConstructionDeriveSourceCapability, error)
-	ResolveConstructionDeriveSource(context.Context, Base, ConstructionProposalRequest, string, ConstructionDeriveSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithDeriveSources(context.Context, Base, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
+	ResolveConstructionDeriveSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionDeriveSourceSelection) (authoringv2.ConstructionSourceProjection, error)
+	ConstructionCandidateWithDeriveSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
 	ReauthorizeConstructionDeriveSources(context.Context, Base, string, authoringv2.Construction) error
 	ConstructionHasDeriveSourceInput(authoringv2.Construction) bool
 
 	ConstructionExpandSourceCapability(context.Context, Base, string, string) (ConstructionExpandSourceCapability, error)
-	ResolveConstructionExpandSource(context.Context, Base, ConstructionProposalRequest, string, ConstructionExpandSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithExpandSources(context.Context, Base, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
+	ResolveConstructionExpandSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionExpandSourceSelection) (authoringv2.ConstructionSourceProjection, error)
+	ConstructionCandidateWithExpandSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
 	ReauthorizeConstructionExpandSources(context.Context, Base, string, authoringv2.Construction) error
 	ConstructionHasExpandSourceInput(authoringv2.Construction) bool
 
 	ConstructionUnpivotSourceCapability(context.Context, Base, string, string) (ConstructionUnpivotSourceCapability, error)
-	ResolveConstructionUnpivotSource(context.Context, Base, ConstructionProposalRequest, string, ConstructionUnpivotSourceSelection) (authoringv2.ConstructionSourceProjection, error)
-	ConstructionCandidateWithUnpivotSources(context.Context, Base, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
+	ResolveConstructionUnpivotSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionUnpivotSourceSelection) (authoringv2.ConstructionSourceProjection, error)
+	ConstructionCandidateWithUnpivotSources(context.Context, Base, rowsource.ProposalRequest, authoringv2.Construction) (authoringv2.Construction, error)
 	ReauthorizeConstructionUnpivotSources(context.Context, Base, string, authoringv2.Construction) error
 	ConstructionHasUnpivotSourceInput(authoringv2.Construction) bool
 }

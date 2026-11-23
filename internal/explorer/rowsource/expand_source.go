@@ -1,4 +1,4 @@
-package lifecycle
+package rowsource
 
 import (
 	"context"
@@ -105,9 +105,9 @@ var expandSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Expand array source fields is unavailable for the current dataset snapshot",
 }
 
-func (s *Service) constructionExpandSourceCapability(
+func (s *Service) ConstructionExpandSourceCapability(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID, stageID string,
 ) (ConstructionExpandSourceCapability, error) {
 	result := ConstructionExpandSourceCapability{StageID: stageID, Choices: []ConstructionExpandSourceChoice{}}
@@ -177,10 +177,10 @@ func (s *Service) constructionExpandSourceCapability(
 	return result, nil
 }
 
-func (s *Service) resolveConstructionExpandSource(
+func (s *Service) ResolveConstructionExpandSource(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	acceptedStageID string,
 	selection ConstructionExpandSourceSelection,
 ) (authoringv2.ConstructionSourceProjection, error) {
@@ -241,10 +241,10 @@ func (s *Service) resolveConstructionExpandSource(
 	}, nil
 }
 
-func (s *Service) constructionCandidateWithExpandSources(
+func (s *Service) ConstructionCandidateWithExpandSources(
 	ctx context.Context,
-	base constructionBase,
-	request ConstructionProposalRequest,
+	base Base,
+	request ProposalRequest,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, error) {
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
@@ -288,7 +288,7 @@ func (s *Service) constructionCandidateWithExpandSources(
 
 	resolved := make([]authoringv2.ConstructionSourceProjection, 0, len(request.ExpandSources))
 	for _, selection := range request.ExpandSources {
-		projection, err := s.resolveConstructionExpandSource(ctx, base, request, acceptedStageID, selection)
+		projection, err := s.ResolveConstructionExpandSource(ctx, base, request, acceptedStageID, selection)
 		if err != nil {
 			return authoringv2.Construction{}, err
 		}
@@ -591,7 +591,7 @@ func ConstructionExpandSourceFacts(snapshot capability.Snapshot, rootResourceTyp
 	return authoringv2.ConstructionSourceProjection{}, false
 }
 
-func constructionHasExpandSourceInput(construction authoringv2.Construction) bool {
+func ConstructionHasExpandSourceInput(construction authoringv2.Construction) bool {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" {
 			continue
@@ -614,7 +614,7 @@ func isExpandOwnedSourceProjection(construction authoringv2.Construction, projec
 		containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID)
 }
 
-func (s *Service) reauthorizeConstructionExpandSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
+func (s *Service) ReauthorizeConstructionExpandSources(ctx context.Context, base Base, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized expand source choice planning is not configured", nil)
 	}
