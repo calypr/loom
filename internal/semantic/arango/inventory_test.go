@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -811,4 +812,625 @@ func assertBoundedAggregateEvidence(t *testing.T, entries []semantic.Entry, code
 		return
 	}
 	t.Fatalf("inventory is missing code %q", code)
+}
+
+func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
+	owned := arangotest.Owned(t, "loom_test_coded_category_")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	client := owned.Client
+	project := "c01-coded-category-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cleanupCancel()
+		for _, collection := range []string{
+			semantic.Collection,
+			semantic.EntryCollection,
+			semantic.BuildCollection,
+		} {
+			if err := deleteSemanticCategoryFixtureRows(cleanupCtx, client, collection, project, generation); err != nil {
+				t.Errorf("clean scoped %s fixture rows: %v", collection, err)
+			}
+		}
+	})
+
+	store, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PrepareSemanticInventoryBackfill(ctx); err != nil {
+		t.Fatal(err)
+	}
+	build := semantic.NewBuild(project, generation, "")
+	build.SourceKind = semantic.SourceRetained
+	build.SourceAvailability = semantic.SourceAvailabilityVerified
+	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
+		t.Fatal(err)
+	}
+
+	emitter := semantic.NewEmitter(project, generation)
+	contributions := make([]semantic.Contribution, 0, 64)
+	addCategoryCode := func(scope, code, display, system, version string) {
+		t.Helper()
+		payload := map[string]any{
+			"resourceType": "Observation",
+			"id":           strings.ReplaceAll(uuid.NewString(), "-", ""),
+			"category": []any{map[string]any{"coding": []any{map[string]any{
+				"system": system, "version": version, "code": code, "display": display,
+			}}}},
+		}
+		observed := make([]semantic.Contribution, 0, 1)
+		emitter.ObservePayload(payload, "Observation", scope, "retained:Observation/"+payload["id"].(string), func(contribution semantic.Contribution) {
+			observed = append(observed, contribution)
+		})
+		if len(observed) != 1 || observed[0].Observation.RuleHint != semantic.RuleHintCodedConceptV1 {
+			t.Fatalf("category %q emitted %#v; want one CODED_CONCEPT_V1 contribution", code, observed)
+		}
+		contributions = append(contributions, observed...)
+	}
+
+	const (
+		largeSystem  = "urn:c01:category"
+		largeVersion = "2025-01"
+		largeCount   = 55
+	)
+	for i := 0; i < largeCount-1; i++ {
+		code := fmt.Sprintf("large-%03d", i)
+		addCategoryCode("scope-a", code, "Large category "+code, largeSystem, largeVersion)
+	}
+
+	lateCodeOnlyWitness := "zz-late-code-only-witness"
+	addCategoryCode("scope-a", lateCodeOnlyWitness, "", largeSystem, largeVersion)
+	addCategoryCode("scope-b", "scope-b-private", "AAA scope-b private category", largeSystem, largeVersion)
+
+	smallDisplays := []string{"Small category alpha", "Small category beta"}
+	addCategoryCode("scope-a", "small-alpha", smallDisplays[0], "urn:c01:small", "v1")
+	addCategoryCode("scope-a", "small-beta", smallDisplays[1], "urn:c01:small", "v1")
+
+	const fallbackSystem = "urn:c01:fallback"
+	addCategoryCode("scope-a", "small-fallback-code", "", fallbackSystem, "v1")
+	addCategoryCode("scope-a", "other-system-code", "Other system", "urn:c01:other", "v1")
+	addCategoryCode("scope-a", "second-version-code", "Second version", largeSystem, "2026-01")
+	addCategoryCode("scope-a", "unversioned-code", "Unversioned category", largeSystem, "")
+
+	pairedPayload := map[string]any{
+		"resourceType": "Observation",
+		"id":           strings.ReplaceAll(uuid.NewString(), "-", ""),
+		"code": map[string]any{"coding": []any{map[string]any{
+			"system": "urn:c01:paired", "version": "v7", "code": "paired-exact-code", "display": "Paired exact value",
+		}}},
+		"valueQuantity": map[string]any{"value": float64(7), "unit": "mg"},
+	}
+	paired := make([]semantic.Contribution, 0, 1)
+	emitter.ObservePayload(pairedPayload, "Observation", "scope-a", "retained:Observation/"+pairedPayload["id"].(string), func(contribution semantic.Contribution) {
+		paired = append(paired, contribution)
+	})
+	if len(paired) != 1 || paired[0].Observation.RuleHint != semantic.RuleHintCodedValueV1 || paired[0].Observation.Key.Code != "paired-exact-code" {
+		t.Fatalf("paired CODED_VALUE emission = %#v; want exact paired code", paired)
+	}
+	contributions = append(contributions, paired...)
+	if err := store.WriteSemanticInventoryContributions(ctx, contributions, 32); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteSemanticInventoryBuild(ctx, build, int64(len(contributions)), "synthetic-retained-category-fixture"); err != nil {
+		t.Fatal(err)
+	}
+
+	unrestricted := false
+	options := semantic.PageOptions{
+		Project:                       project,
+		DatasetGeneration:             generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths:             []string{"scope-a"},
+		SelectionMode:                 semantic.SystemVersionCategory,
+		Limit:                         1,
+	}
+
+	queried := options
+	queried.Query = lateCodeOnlyWitness
+	latePage, err := store.PageSemanticInventory(ctx, queried)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(latePage.Families) != 1 || len(latePage.Entries) != 0 {
+		t.Fatalf("late code-only category query returned %d families and %d exact entries; want one family", len(latePage.Families), len(latePage.Entries))
+	}
+	largeFamily := latePage.Families[0]
+	if largeFamily.System != largeSystem || largeFamily.Version != largeVersion || largeFamily.Population != largeCount {
+		t.Fatalf("late code-only query family = %+v; want full %s/%s population %d", largeFamily, largeSystem, largeVersion, largeCount)
+	}
+	if largeFamily.FamilyID == "" || largeFamily.FamilyID != semantic.FamilyID(largeFamily.FamilyReference) {
+		t.Fatalf("large family identity = %+v; want stable content-addressed family id", largeFamily.FamilyReference)
+	}
+
+	allRows := collectSemanticCategoryPages(t, ctx, store, options)
+	if len(allRows.families) != 6 {
+		t.Fatalf("scope-a category families = %d, want large, small, fallback, other-system, other-version, and unversioned: %#v", len(allRows.families), allRows.families)
+	}
+	if len(allRows.entries) != 1 {
+		t.Fatalf("category-mode exact entries = %d, want the paired CODED_VALUE row", len(allRows.entries))
+	}
+	pairedEntry := allRows.entries[0]
+	if pairedEntry.Observation.RuleHint != semantic.RuleHintCodedValueV1 ||
+		pairedEntry.Observation.Key.Code != "paired-exact-code" || pairedEntry.Observation.Key.System != "urn:c01:paired" ||
+		pairedEntry.Observation.Key.Version != "v7" {
+		t.Fatalf("category mode changed or grouped the paired CODED_VALUE row: %+v", pairedEntry)
+	}
+
+	familyBySystemVersion := make(map[string]semantic.Family, len(allRows.families))
+	for _, family := range allRows.families {
+		key := family.System + "\x00" + family.Version
+		if _, duplicate := familyBySystemVersion[key]; duplicate {
+			t.Fatalf("duplicate category family for exact system/version %q/%q", family.System, family.Version)
+		}
+		familyBySystemVersion[key] = family
+	}
+	largeRef := findSemanticCategoryFamily(t, allRows.families, largeSystem, largeVersion)
+	smallRef := findSemanticCategoryFamily(t, allRows.families, "urn:c01:small", "v1")
+	fallbackRef := findSemanticCategoryFamily(t, allRows.families, fallbackSystem, "v1")
+	findSemanticCategoryFamily(t, allRows.families, "urn:c01:other", "v1")
+	findSemanticCategoryFamily(t, allRows.families, largeSystem, "2026-01")
+	findSemanticCategoryFamily(t, allRows.families, largeSystem, "")
+	if largeRef.Population != largeCount {
+		t.Fatalf("restricted large family population = %d, want %d; scope-b row leaked", largeRef.Population, largeCount)
+	}
+	if familyHasExample(largeRef, "AAA scope-b private category") {
+		t.Fatalf("restricted large family leaked scope-b example: %+v", largeRef.Examples)
+	}
+	if !familyHasExample(fallbackRef, "small-fallback-code") {
+		t.Fatalf("blank Coding.display did not fall back to code in family examples: %+v", fallbackRef.Examples)
+	}
+	if !strings.HasSuffix(smallRef.KeySelector, "coding[]") || !strings.HasSuffix(smallRef.Value.Selector, "display") ||
+		!smallRef.Value.FallbackOnBlankString || len(smallRef.Value.FallbackSelectors) != 1 ||
+		!strings.HasSuffix(smallRef.Value.FallbackSelectors[0], "code") {
+		t.Fatalf("category display/code fallback descriptor = %+v", smallRef)
+	}
+
+	resolved, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
+		Project:                       project,
+		DatasetGeneration:             generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths:             []string{"scope-a"},
+		FamilyReferences:              []semantic.FamilyReference{smallRef.FamilyReference},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Entries) != 0 || len(resolved.Families) != 1 {
+		t.Fatalf("small family resolution returned %d exact entries and %d families", len(resolved.Entries), len(resolved.Families))
+	}
+	resolvedSmall := resolved.Families[0]
+	if resolvedSmall.FamilyID != smallRef.FamilyID || resolvedSmall.Population != 2 {
+		t.Fatalf("resolved small category family = %+v; want both matching Coding rows", resolvedSmall)
+	}
+
+	assertSemanticCategoryExamples(t, resolvedSmall, []string{smallDisplays[0]})
+	resolvedFallback, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
+		Project:                       project,
+		DatasetGeneration:             generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths:             []string{"scope-a"},
+		FamilyReferences:              []semantic.FamilyReference{fallbackRef.FamilyReference},
+	})
+	if err != nil || len(resolvedFallback.Families) != 1 || resolvedFallback.Families[0].Population != 1 {
+		t.Fatalf("blank-display fallback family resolution = %+v err=%v; want one matching Coding", resolvedFallback, err)
+	}
+	assertSemanticCategoryExamples(t, resolvedFallback.Families[0], []string{"small-fallback-code"})
+
+	resolvedLarge, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
+		Project:                       project,
+		DatasetGeneration:             generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths:             []string{"scope-a"},
+		FamilyReferences:              []semantic.FamilyReference{largeRef.FamilyReference},
+	})
+	if err != nil || len(resolvedLarge.Families) != 1 || resolvedLarge.Families[0].Population != largeCount {
+		t.Fatalf("restricted large family resolution = %+v err=%v; want all %d scope-a rows", resolvedLarge, err, largeCount)
+	}
+	if familyHasExample(resolvedLarge.Families[0], "AAA scope-b private category") {
+		t.Fatalf("restricted large family resolution leaked scope-b example: %+v", resolvedLarge.Families[0].Examples)
+	}
+}
+
+type semanticCategoryPageRows struct {
+	families []semantic.Family
+	entries  []semantic.Entry
+}
+
+func collectSemanticCategoryPages(t *testing.T, ctx context.Context, store *Store, options semantic.PageOptions) semanticCategoryPageRows {
+	t.Helper()
+	rows := semanticCategoryPageRows{
+		families: make([]semantic.Family, 0),
+		entries:  make([]semantic.Entry, 0),
+	}
+	options.Cursor = ""
+	for {
+		page, err := store.PageSemanticInventory(ctx, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Families)+len(page.Entries) > options.Limit {
+			t.Fatalf("category page has %d families and %d exact rows, exceeding combined limit %d", len(page.Families), len(page.Entries), options.Limit)
+		}
+		rows.families = append(rows.families, page.Families...)
+		rows.entries = append(rows.entries, page.Entries...)
+		if page.NextCursor == "" {
+			return rows
+		}
+		options.Cursor = page.NextCursor
+	}
+}
+
+func findSemanticCategoryFamily(t *testing.T, families []semantic.Family, system, version string) semantic.Family {
+	t.Helper()
+	for _, family := range families {
+		if family.System == system && family.Version == version {
+			return family
+		}
+	}
+	t.Fatalf("missing category family for system %q version %q in %#v", system, version, families)
+	return semantic.Family{}
+}
+
+func familyHasExample(family semantic.Family, want string) bool {
+	for _, example := range family.Examples {
+		if example == want {
+			return true
+		}
+	}
+	return false
+}
+
+func assertSemanticCategoryExamples(t *testing.T, family semantic.Family, want []string) {
+	t.Helper()
+	got := append([]string(nil), family.Examples...)
+	expected := append([]string(nil), want...)
+	sort.Strings(got)
+	sort.Strings(expected)
+	if !equalStringSlices(got, expected) {
+		t.Fatalf("family examples = %#v, want selected Coding display/code values %#v", got, expected)
+	}
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func deleteSemanticCategoryFixtureRows(ctx context.Context, client *arangostore.Client, collection, project, generation string) error {
+	exists, err := client.CollectionExists(ctx, collection)
+	if err != nil || !exists {
+		return err
+	}
+	return client.ExecuteAQL(ctx, `
+FOR document IN @@collection
+  FILTER document.project == @project
+  FILTER document.dataset_generation == @dataset_generation
+  REMOVE document IN @@collection`, map[string]interface{}{
+		"@collection":        collection,
+		"project":            project,
+		"dataset_generation": generation,
+	})
+}
+
+func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
+	build := semantic.NewBuild("project", "generation", "")
+	build.State = semantic.Complete
+	build.EntryIndexVersion = semantic.EntryIndexVersion
+	family := categoryTestFamily()
+	measurement := semantic.Entry{
+		BindingID: "measurement-binding", ConceptID: "measurement-concept",
+		Observation: semantic.Observation{
+			RuleHint: semantic.RuleHintCodedValueV1,
+			Key:      semantic.Key{System: "urn:measure", Code: "glucose"},
+			Value:    semantic.Value{Selector: "valueQuantity.value", Type: "number"},
+		},
+	}
+	const selectionID = `family:["Specimen","type.coding[]","urn:specimen",""]`
+	familyRow := map[string]any{"binding_id": family.BindingID, "selection_id": selectionID, "family": semanticInventoryTestRow(t, family)}
+	for _, firstFamily := range []bool{true, false} {
+		rows := []map[string]any{familyRow, semanticInventoryTestRow(t, measurement)}
+		if !firstFamily {
+			rows[0], rows[1] = rows[1], rows[0]
+		}
+		client := &evidenceClient{rows: map[string][]map[string]any{
+			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)}, semanticInventoryCategoryPageAQL: rows,
+		}}
+		adapter, err := New(client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opts := semantic.PageOptions{
+			Project: "project", DatasetGeneration: "generation", Limit: 1,
+			SelectionMode:                 semantic.SystemVersionCategory,
+			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
+			AuthResourcePaths:             []string{"scope-b", "scope-a", "scope-a"},
+		}
+		page, err := adapter.PageSemanticInventory(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Entries)+len(page.Families) != 1 || page.NextCursor == "" {
+			t.Fatalf("mixed page did not retain one selection and a cursor: %#v", page)
+		}
+		bindingID, selectedID, err := semantic.DecodeCursor(page.NextCursor, opts, build.BuildID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if firstFamily {
+			if len(page.Families) != 1 || !reflect.DeepEqual(page.Families[0], family) || bindingID != family.BindingID || selectedID != selectionID {
+				t.Fatalf("category page or cursor lost family: %#v, %q/%q", page, bindingID, selectedID)
+			}
+		} else if len(page.Entries) != 1 || !reflect.DeepEqual(page.Entries[0], measurement) || bindingID != measurement.BindingID || selectedID != measurement.ConceptID {
+			t.Fatalf("category page changed the paired measurement: %#v, %q/%q", page, bindingID, selectedID)
+		}
+		vars := client.vars[1]
+		if client.queries[1] != semanticInventoryCategoryPageAQL || vars["auth_resource_paths_unrestricted"] != false || !reflect.DeepEqual(vars["auth_resource_paths"], []string{"scope-a", "scope-b"}) {
+			t.Fatalf("category query lost mode or authorization: %#v", vars)
+		}
+	}
+}
+
+func TestResolveSemanticInventoryFamilyUsesCurrentInventoryScope(t *testing.T) {
+	for _, indexed := range []bool{true, false} {
+		build := semantic.NewBuild("project", "generation", "")
+		build.State = semantic.Complete
+		collection := semantic.Collection
+		if indexed {
+			build.EntryIndexVersion = semantic.EntryIndexVersion
+			collection = semantic.EntryCollection
+		}
+		family := categoryTestFamily()
+		client := &evidenceClient{rows: map[string][]map[string]any{
+			semanticInventoryBuildByKeyAQL:      {semanticInventoryTestRow(t, build)},
+			semanticInventoryResolveFamiliesAQL: {semanticInventoryTestRow(t, family)},
+		}}
+		adapter, err := New(client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opts := semantic.ResolveOptions{
+			Project: "project", DatasetGeneration: "generation",
+			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
+			AuthResourcePaths:             []string{"scope-a"},
+			FamilyReferences:              []semantic.FamilyReference{family.FamilyReference},
+		}
+		result, err := adapter.ResolveSemanticInventorySelections(context.Background(), opts)
+		if !indexed {
+			if err != ErrSemanticInventoryCategoryIndexUnavailable || len(result.Families) != 0 ||
+				!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildByKeyAQL}) ||
+				!reflect.DeepEqual(client.collectionChecks, []string{semantic.BuildCollection}) {
+				t.Fatalf("unindexed family resolution did not fail before accessing inventory: %#v, %v, queries %#v, collections %#v", result, err, client.queries, client.collectionChecks)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Entries) != 0 || len(result.Families) != 1 || !reflect.DeepEqual(result.Families[0], family) {
+			t.Fatalf("typed family resolution changed: %#v", result)
+		}
+		if len(client.queries) != 2 || client.queries[1] != semanticInventoryResolveFamiliesAQL {
+			t.Fatalf("family resolution queried beyond build and inventory: %#v", client.queries)
+		}
+		vars := client.vars[1]
+		if vars["@inventory"] != collection || vars["build_id"] != build.BuildID || vars["project"] != opts.Project || vars["dataset_generation"] != opts.DatasetGeneration ||
+			vars["auth_resource_paths_unrestricted"] != false || !reflect.DeepEqual(vars["auth_resource_paths"], opts.AuthResourcePaths) || !reflect.DeepEqual(vars["references"], opts.FamilyReferences) {
+			t.Fatalf("family resolver lost immutable scope: %#v", vars)
+		}
+		client.rows[semanticInventoryResolveFamiliesAQL] = nil
+		result, err = adapter.ResolveSemanticInventorySelections(context.Background(), opts)
+		if err != nil || len(result.Families) != 0 {
+			t.Fatalf("missing authorized family did not stay unresolved: %#v, %v", result, err)
+		}
+	}
+}
+
+func TestSemanticInventoryCategoryPageRequiresEntryIndexAndPreservesExactFallback(t *testing.T) {
+	build := semantic.NewBuild("project", "generation", "")
+	build.State = semantic.Complete
+	entry := semantic.Entry{BindingID: "binding", ConceptID: "concept"}
+	for _, mode := range []semantic.SelectionMode{"", semantic.ExactConcept, semantic.SystemVersionCategory} {
+		client := &evidenceClient{rows: map[string][]map[string]any{
+			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)},
+			semanticInventoryPageAQL:   {semanticInventoryTestRow(t, entry)},
+		}}
+		adapter, err := New(client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := adapter.PageSemanticInventory(context.Background(), semantic.PageOptions{
+			Project: "project", DatasetGeneration: "generation", SelectionMode: mode,
+		})
+		if mode == semantic.SystemVersionCategory {
+			if err != ErrSemanticInventoryCategoryIndexUnavailable || len(page.Entries)+len(page.Families) != 0 ||
+				!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildsAQL}) ||
+				!reflect.DeepEqual(client.collectionChecks, []string{semantic.BuildCollection}) {
+				t.Fatalf("unindexed category page did not fail before accessing inventory: %#v, %v, queries %#v, collections %#v", page, err, client.queries, client.collectionChecks)
+			}
+			continue
+		}
+		if err != nil || len(page.Entries) != 1 || page.Entries[0].ConceptID != entry.ConceptID ||
+			!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildsAQL, semanticInventoryPageAQL}) ||
+			client.vars[1]["@inventory"] != semantic.Collection {
+			t.Fatalf("exact mode %q lost its legacy query and contribution fallback: %#v, %v, queries %#v", mode, page, err, client.queries)
+		}
+	}
+}
+
+func TestResolveSemanticInventoryMixedSelectionsRequireEntryIndex(t *testing.T) {
+	build := semantic.NewBuild("project", "generation", "")
+	build.State = semantic.Complete
+	family := categoryTestFamily()
+	client := &evidenceClient{rows: map[string][]map[string]any{
+		semanticInventoryBuildByKeyAQL: {semanticInventoryTestRow(t, build)},
+	}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semantic.ResolveOptions{
+		Project: "project", DatasetGeneration: "generation",
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
+		References:                    []semantic.Reference{{BindingID: "measurement-binding", ConceptID: "measurement-concept"}},
+		FamilyReferences:              []semantic.FamilyReference{family.FamilyReference},
+	})
+	if err != ErrSemanticInventoryCategoryIndexUnavailable ||
+		!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildByKeyAQL}) ||
+		!reflect.DeepEqual(client.collectionChecks, []string{semantic.BuildCollection}) {
+		t.Fatalf("mixed category resolution reached contribution fallback: %v, queries %#v, collections %#v", err, client.queries, client.collectionChecks)
+	}
+}
+
+func TestResolveSemanticInventoryFamilyRejectsTamperedReferences(t *testing.T) {
+	family := categoryTestFamily()
+	for name, change := range map[string]func(*semantic.FamilyReference){
+		"version": func(ref *semantic.FamilyReference) { ref.Version = "v1" },
+		"system":  func(ref *semantic.FamilyReference) { ref.System = "urn:other" },
+		"source":  func(ref *semantic.FamilyReference) { ref.SourcePath = "category.coding[]" },
+		"empty system": func(ref *semantic.FamilyReference) {
+			ref.System = ""
+			ref.FamilyID = semantic.FamilyID(*ref)
+		},
+		"unknown source kind": func(ref *semantic.FamilyReference) {
+			ref.SourceKind = "unknown"
+			ref.FamilyID = semantic.FamilyID(*ref)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ref := family.FamilyReference
+			change(&ref)
+			client := &evidenceClient{}
+			adapter, err := New(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semantic.ResolveOptions{
+				Project: "project", DatasetGeneration: "generation",
+				AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
+				FamilyReferences:              []semantic.FamilyReference{ref},
+			})
+			if err != ErrInvalidSemanticInventorySelection || len(client.queries) != 0 {
+				t.Fatalf("invalid reference reached the inventory: %v, %#v", err, client.queries)
+			}
+		})
+	}
+}
+
+func categoryTestFamily() semantic.Family {
+	family := semantic.Family{
+		FamilyReference: semantic.FamilyReference{
+			BindingID: "binding", SourceKind: semantic.SourceFile,
+			ResourceType: "Specimen", SourcePath: "type.coding[]", System: "urn:specimen", Version: "",
+		},
+		Source:      semantic.Source{Type: "Specimen", Path: "type.coding[]"},
+		KeySelector: "type.coding[]",
+		Value: semantic.Value{
+			Selector: "type.coding[].display", Type: "string", FallbackSelectors: []string{"type.coding[].code"}, FallbackOnBlankString: true,
+		},
+		Population: 2, Examples: []string{"Normal"}, ExamplesTruncated: true,
+	}
+	family.FamilyID = semantic.FamilyID(family.FamilyReference)
+	return family
+}
+
+func TestRefreshSemanticInventorySourceAvailabilityUsesExactCompletedBuildCAS(t *testing.T) {
+	expected := semantic.NewBuild("project", "generation", "")
+	expected.State = semantic.Complete
+	expected.SourceKind = semantic.SourceRetained
+	expected.SourceAvailability = semantic.SourceAvailabilityUnproven
+	expected.ScannedResources = 17
+	refreshed := expected
+	refreshed.SourceAvailability = semantic.SourceAvailabilityVerified
+	client := &evidenceClient{rows: map[string][]map[string]any{
+		refreshSemanticInventorySourceAvailabilityAQL: {semanticInventoryTestRow(t, refreshed)},
+	}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
+	if err != nil || !updated || got.SourceAvailability != semantic.SourceAvailabilityVerified {
+		t.Fatalf("refreshed build = %+v updated=%t err=%v", got, updated, err)
+	}
+	if len(client.queries) != 1 || client.queries[0] != refreshSemanticInventorySourceAvailabilityAQL {
+		t.Fatalf("queries = %v, want one source-availability CAS", client.queries)
+	}
+	vars := client.vars[0]
+	if vars["key"] != expected.Key || vars["project"] != expected.Project || vars["dataset_generation"] != expected.DatasetGeneration || vars["build_id"] != expected.BuildID || vars["auth_resource_path"] != "" || vars["scanned_resources"] != int64(17) {
+		t.Fatalf("CAS scope = %#v", vars)
+	}
+	for _, fragment := range []string{
+		`FILTER d.state == "complete"`,
+		`FILTER d.source_kind == "retained_vertex"`,
+		`FILTER NOT_NULL(d.auth_resource_path, "") == @auth_resource_path`,
+		`FILTER d.source_availability == "unproven"`,
+		`FILTER LENGTH(NOT_NULL(d.diagnostics, [])) == 0`,
+		`FILTER NOT_NULL(d.scanned_resources, 0) == @scanned_resources`,
+	} {
+		if !strings.Contains(client.queries[0], fragment) {
+			t.Fatalf("CAS query missing %q: %s", fragment, client.queries[0])
+		}
+	}
+}
+
+func TestRefreshSemanticInventorySourceAvailabilityRejectsScopedBuild(t *testing.T) {
+	expected := semantic.NewBuild("project", "generation", "scope-a")
+	expected.State = semantic.Complete
+	expected.SourceKind = semantic.SourceRetained
+	expected.SourceAvailability = semantic.SourceAvailabilityUnproven
+	client := &evidenceClient{rows: map[string][]map[string]any{}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
+	if err != nil || updated || got.SourceAvailability != semantic.SourceAvailabilityUnproven || len(client.queries) != 0 {
+		t.Fatalf("scoped build CAS result = %+v updated=%t err=%v queries=%v", got, updated, err, client.queries)
+	}
+}
+
+func TestRefreshSemanticInventorySourceAvailabilityLeavesConcurrentChangeAlone(t *testing.T) {
+	expected := semantic.NewBuild("project", "generation", "")
+	expected.State = semantic.Complete
+	expected.SourceKind = semantic.SourceRetained
+	expected.SourceAvailability = semantic.SourceAvailabilityUnproven
+	client := &evidenceClient{rows: map[string][]map[string]any{}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
+	if err != nil || updated || got.SourceAvailability != semantic.SourceAvailabilityUnproven {
+		t.Fatalf("concurrent CAS result = %+v updated=%t err=%v", got, updated, err)
+	}
+}
+
+func TestRefreshSemanticInventorySourceAvailabilityRejectsDiagnosticBuildBeforeWrite(t *testing.T) {
+	expected := semantic.NewBuild("project", "generation", "")
+	expected.State = semantic.Complete
+	expected.SourceKind = semantic.SourceRetained
+	expected.SourceAvailability = semantic.SourceAvailabilityUnproven
+	expected.Diagnostics = []string{"source scan diagnostic"}
+	client := &evidenceClient{rows: map[string][]map[string]any{}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
+	if err != nil || updated || got.SourceAvailability != semantic.SourceAvailabilityUnproven || len(client.queries) != 0 {
+		t.Fatalf("diagnostic build CAS result = %+v updated=%t err=%v queries=%v", got, updated, err, client.queries)
+	}
 }
