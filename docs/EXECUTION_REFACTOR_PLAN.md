@@ -7,7 +7,7 @@ Original findings measured at `889f8aa30` on `internal-cleanup`.
 | --- | --- | --- |
 | 1 | Done | Declaration-removal compile probe, `go build ./...`, execution tests, `make test-go`, and `make lint-go-comments` passed. |
 | 2 | Skipped | The integration runner requires the exclusion-only `TestCurrentPivotNullMissingExclusionPartitionAgainstArango` to run and pass. Updating `scripts/run-arango-integration.mjs` is outside scope. |
-| 3 | Pending | |
+| 3 | Done | `go build ./...`, execution tests (including unchanged cache and scanner tests), `make test-go`, and `make lint-go-comments` passed. |
 | 4 | Pending | |
 | 5 | Pending | |
 

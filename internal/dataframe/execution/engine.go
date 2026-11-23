@@ -97,25 +97,20 @@ type Config struct {
 }
 
 type Engine struct {
+	streamExecutor streamExecutor
+	previewExecutor
+	groupPreviewPlanner
+
 	registry                   recipe.Reader
 	revisions                  recipe.RevisionStore
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows                  QueryRows
-	previewQueryRows           QueryRows
-	withPreviewReadSnapshot    WithPreviewReadSnapshot
-	preparePreviewIndex        func(context.Context, model.PreviewCoveringIndexSpec) error
-	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
-	previewCollectionRevision  func(context.Context, string) (string, error)
-	previewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
-	previewCollectionCount     func(context.Context, string) (int64, error)
-	groupPreviewRowsCache      groupPreviewRowsCache
 	clickHouseQueryRows        ClickHouseQueryRows
 	resolveClickHouseInputs    ResolveClickHouseInputs
 	withExecutionReadPins      WithExecutionReadPins
 	privateClickHouseArtifacts *chartifact.Manager
 	scopeDigest                func(recipe.RuntimeBindings) string
 	batchSize                  int
-	rootPageRows               int
 }
 
 type Resolved struct {
@@ -227,16 +222,34 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.RootPageRows < 0 {
 		return nil, fmt.Errorf("recipe root page rows cannot be negative")
 	}
-	return &Engine{
+	engine := &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, withPreviewReadSnapshot: cfg.WithPreviewReadSnapshot, preparePreviewIndex: cfg.PreparePreviewIndex,
-		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
-		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
-		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
-		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
+		queryRows: cfg.QueryRows, batchSize: batch,
+		clickHouseQueryRows: cfg.ClickHouseQueryRows, resolveClickHouseInputs: cfg.ResolveClickHouseInputs,
+		withExecutionReadPins:      cfg.WithExecutionReadPins,
 		privateClickHouseArtifacts: cfg.PrivateClickHouseArtifacts,
-		scopeDigest:                cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
-	}, nil
+		scopeDigest:                cfg.ScopeDigest,
+		streamExecutor:             streamExecutor{queryRows: cfg.QueryRows, batchSize: batch, rootPageRows: cfg.RootPageRows},
+		groupPreviewPlanner: groupPreviewPlanner{
+			previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
+			previewCollectionRevision: cfg.PreviewCollectionRevision,
+			previewExplainQuery:       cfg.PreviewExplainQuery,
+			previewCollectionCount:    cfg.PreviewCollectionCount,
+			groupPreviewRowsCache:     &groupPreviewRowsCache{},
+		},
+	}
+	engine.streamExecutor.clickHouseStreamForOutput = engine.clickHouseStreamForOutput
+	engine.previewExecutor = previewExecutor{
+		streamForOutput:         engine.streamExecutor.streamForOutput,
+		preparePreviewIndex:     cfg.PreparePreviewIndex,
+		previewQueryRows:        cfg.PreviewQueryRows,
+		withPreviewReadSnapshot: cfg.WithPreviewReadSnapshot,
+		groupPlanner:            &engine.groupPreviewPlanner,
+		scheduleIndexPrewarm: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) {
+			schedulePreviewIndexPrewarm(ctx, engine, spec)
+		},
+	}
+	return engine, nil
 }
 
 func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (recipe.Entry, error) {
@@ -478,7 +491,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 			if !ok {
 				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q is missing compiled workspace dependency %q", output.Name, input.WorkspaceOutputID)
 			}
-			dependencyStream, _, err := e.outputStreams().buildCompiledOutputStream(resolved, dependency, 0, building, true)
+			dependencyStream, _, err := e.streamExecutor.buildCompiledOutputStream(resolved, dependency, 0, building, true)
 			if err != nil {
 				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q dependency %q: %w", output.Name, input.WorkspaceOutputID, err)
 			}

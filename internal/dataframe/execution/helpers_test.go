@@ -137,3 +137,7 @@ func TestSanitizeColumnNamePreservesCompilerShape(t *testing.T) {
 		t.Fatalf("sanitizeColumnName() = %q, want %q", got, want)
 	}
 }
+
+func (e *Engine) outputStreams() streamExecutor {
+	return e.streamExecutor
+}
