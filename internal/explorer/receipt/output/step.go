@@ -1,4 +1,4 @@
-package receipt
+package output
 
 import (
 	"errors"

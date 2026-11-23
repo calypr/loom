@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receipt/output"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -88,8 +90,8 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 				ID:      recipe.ConstructionSourceProjectionID,
 				Columns: []facade.CompiledOutputColumn{{ID: childID, Name: "family_0", Label: "Family [0]", SourceChild: child}},
 			}}}
-			authored := make(map[string]AuthoredOutputColumn)
-			if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, capability.Snapshot{}); err != nil {
+			authored := make(map[string]output.AuthoredOutputColumn)
+			if err := output.AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, capability.Snapshot{}); err != nil {
 				t.Fatalf("reconcile construction output: %v", err)
 			}
 			for _, outputID := range test.outputIDs {

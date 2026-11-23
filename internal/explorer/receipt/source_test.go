@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/receipt/output"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -70,8 +72,8 @@ func deriveSourceReconcileFixture(t *testing.T) (ws.Document, facade.CompiledRec
 
 func TestDeriveSourceProjectionOutputClaimsArithmeticLossFromUnselectedField(t *testing.T) {
 	document, compiled, snapshot, projection := deriveSourceReconcileFixture(t)
-	authored := make(map[string]AuthoredOutputColumn)
-	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, snapshot); err != nil {
+	authored := make(map[string]output.AuthoredOutputColumn)
+	if err := output.AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, snapshot); err != nil {
 		t.Fatalf("reconcile derive-owned projection: %v", err)
 	}
 	name := ws.ConstructionSourceProjectionName(projection.ColumnID)
@@ -99,7 +101,7 @@ func TestDeriveSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		document, compiled, snapshot, projection := deriveSourceReconcileFixture(t)
 		compiled.Stages[0].Columns[1].SemanticPath = "active"
 		_ = projection
-		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
+		err := output.AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]output.AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "does not carry the compiled source column identity") {
 			t.Fatalf("drifted compiled slot error = %v", err)
 		}
@@ -107,7 +109,7 @@ func TestDeriveSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 
 	t.Run("claim needs an authorized capability snapshot", func(t *testing.T) {
 		document, compiled, _, _ := deriveSourceReconcileFixture(t)
-		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, capability.Snapshot{})
+		err := output.AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]output.AuthoredOutputColumn), compiled, nil, capability.Snapshot{})
 		if err == nil || !strings.Contains(err.Error(), "without an authorized capability snapshot") {
 			t.Fatalf("unarmed snapshot error = %v", err)
 		}
@@ -118,7 +120,7 @@ func TestDeriveSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		document.Construction.SourceProjections[0].FieldPath = "gender"
 		compiled.Stages[0].Columns[1].SemanticPath = "gender"
 		_ = projection
-		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
+		err := output.AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]output.AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "no longer matches the authorized derive source derivation") {
 			t.Fatalf("foreign field error = %v", err)
 		}
@@ -127,7 +129,7 @@ func TestDeriveSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 	t.Run("projection the derive step does not consume", func(t *testing.T) {
 		document, compiled, snapshot, _ := deriveSourceReconcileFixture(t)
 		document.Construction.Steps[0].Operation.Derive.Left = ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: func() *int64 { v := int64(1); return &v }()}}
-		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
+		err := output.AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]output.AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "it does not consume") {
 			t.Fatalf("unconsumed projection error = %v", err)
 		}

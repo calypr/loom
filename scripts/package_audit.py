@@ -158,7 +158,8 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/population': 'Encode and validate signed population mapping cursors.',
  'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
  'internal/explorer/proposal': 'Own proposal preview options, results, and execution errors.',
- 'internal/explorer/receipt': 'Compile, validate, preview, reconcile, and materialize Explorer receipts.',
+ 'internal/explorer/receipt': 'Compile, validate, preview, and materialize Explorer receipts.',
+ 'internal/explorer/receipt/output': 'Reconcile authored output columns and lineage with compiled receipt metadata.',
  'internal/explorer/receiptmodel': 'Expose compilation receipt and output-contract models.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',

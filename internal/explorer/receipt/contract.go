@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receipt/output"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
@@ -155,7 +157,7 @@ func CompileConstructionSourceStage(ctx context.Context, request ports.Construct
 }
 
 func ContractFailure(err error) error {
-	var missing *ConstructionInputMissingError
+	var missing *output.ConstructionInputMissingError
 	if errors.As(err, &missing) {
 		message := fmt.Sprintf("the compiled receipt references construction input column %q, but that column is absent from the prior stage; the authored construction and compiler schema disagree", missing.ColumnID)
 		if missing.StepID != "" || missing.OutputName != "" {
@@ -308,7 +310,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 		combineInputSchemas[output.Name] = inputSchemas
 	}
 	contractBuildStarted := time.Now()
-	translated, err = ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas, snapshot)
+	translated, err = output.ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas, snapshot)
 	if err != nil {
 		return nil, ContractFailure(err)
 	}
