@@ -70,7 +70,7 @@ func (s *dataframeDefaultStore) SaveDraft(_ context.Context, value explorer.Expl
 func defaultDataframeFixture() ws.Workspace {
 	return ws.Workspace{
 		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind,
-		Explorer:  ws.ExplorerMetadata{Title: defaultDataframeTitle},
+		Explorer:  ws.ExplorerMetadata{Title: "Default dataframe"},
 		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Rows: ws.RecordsRowDefinition()}},
 		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}

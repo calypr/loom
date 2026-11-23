@@ -689,7 +689,7 @@ func validateResolvedRowChoice(route ws.RouteNode, resolved rowdef.ResolvedRowCh
 func (s *Service) constructionRoutes() constructionRouteFlow {
 	return constructionRouteFlow{
 		capability: s.config.Capability, loadBase: s.loadConstructionBase,
-		currentWorkspace: s.currentWorkspace, resolveInventory: s.config.ResolveSemanticInventorySelections,
+		currentWorkspace: s.CurrentWorkspace, resolveInventory: s.config.ResolveSemanticInventorySelections,
 	}
 }
 

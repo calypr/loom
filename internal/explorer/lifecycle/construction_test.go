@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -34,7 +35,7 @@ func constructionProposalSetup(t *testing.T, options ...testServiceOption) testS
 	constructionCompiler := func(setup *testServiceSetup) {
 		setup.Config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			receipt := lifecycleConstructionReceipt(setup.Snapshot, request.Workspace)
-			receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
+			receipt.ConstructionProposal = authoringcore.CloneConstructionProposalBinding(request.ConstructionProposal)
 			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 				"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 			}
@@ -351,7 +352,7 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
-		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
+		receipt.ConstructionProposal = authoringcore.CloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}

@@ -85,7 +85,7 @@ construction     rowdef         population        proposal     semanticbrowse   
 
 | Package | Owns | Sources |
 | --- | --- | --- |
-| `explorer/authoringcore` (new, name open) | `getOwner`, `currentWorkspace`, `resolveCompilationCapability`, `compile`/`compileAuthorized`/`validateCompiledReceipt` plus binding clone/compare helpers, `lookupReceipt`, `validateExecutableReceiptRoute`, `verifyProposalReceipt`, `catalog`, `Preview`, interpretation/population input resolution | `authoring.go` (≈ lines 392–560, 680–710), `policy.go`, `proof.go`, `dataframe.go`, `preview.go`, `interpretation.go`, `population.go`, `construction/search.go` `currentWorkspace` |
+| `explorer/authoringcore` | `getOwner`, `currentWorkspace`, `resolveCompilationCapability`, `compile`/`compileAuthorized`/`validateCompiledReceipt` plus binding clone/compare helpers, `lookupReceipt`, `validateExecutableReceiptRoute`, `verifyProposalReceipt`, `catalog`, `Preview`, interpretation/population input resolution | `authoring.go` (≈ lines 392–560, 680–710), `policy.go`, `proof.go`, `dataframe.go`, `preview.go`, `interpretation.go`, `population.go`, `construction/search.go` `currentWorkspace` |
 | `explorer/semanticbrowse` | Semantic inventory browse, field presentation, schema field search, column source, frame-source browse and `reauthorizeFrameSourceChoice` | `inventory.go`, `presentation.go`, `frame.go`, `schema.go`, `column.go`, `browse.go` |
 | `explorer/publication` (new, name open) | Publish, repository publish, artifact prepare/open/download, artifact descriptors, `DelayArtifactRows` | `publish.go`, `repository.go`, `artifact.go`, `download.go`, `prepare.go`, `descriptor.go`, `limits.go` |
 | `explorer/lifecycle` | Authoring command application (`ApplyCommands*`, policy/relationship/imported-source proposals, authoring network, reconcile, revision restore), explorer CRUD and list, cell trace, and composition (`New`) | remainder |
@@ -136,15 +136,50 @@ Each phase is one commit (or one tightly coupled set) and leaves `make test-go` 
 - Create the package with a concrete `Core` built from the store, capability resolver, receipt
   compiler/lookup/previewer ports, interpretation repository, selection members collection and
   clock. Move the functions listed in the target table.
-- `population.ResolveWorkspacePopulations` is already a free function over the store, so
-  depending on it creates no cycle. Move `construction`'s `currentWorkspace` into `Core` and have
-  `construction` call `Core`. Keep the per-package error stage names (`construction-choices`,
-  etc.) by passing the stage, so error codes and messages stay byte-identical.
+- Put workspace population input resolution and route validation in `authoringcore`. The
+  population service owns proposal and route-choice use cases, and may depend on core.
+  Move `construction`'s `currentWorkspace` into Core and have `construction` call Core.
+  Keep the per-package error stage names (`construction-choices`, etc.) by passing the stage.
 - Replace the callback fields in `construction.Config`, `rowdef.Config`, `population.Config` and
   `proposal.Config` with `Core`. The request-shape adapters (`construction.CompileRequest` →
   `compileRequest`) go away. Use one `authoringcore.CompileRequest`.
 - Exit: Phase 1 checks, `make test-integration`, `package_audit_verify.py --full`, and a review of
   the import diff to confirm no sibling imports `lifecycle`.
+
+#### Phase 3 dependency map
+
+Core owns the shared operations below. The four use-case packages can import Core
+together once these symbols move with their dependencies.
+
+| Core responsibility | Source and dependency to account for |
+| --- | --- |
+| Owner and current workspace | `lifecycle/dataframe.go` owns owner loading and the virtual default dataframe. `construction/search.go` owns current workspace loading and its error mapping. Move the loader with its stage parameter and preserve the existing error messages. |
+| Compile and catalog | `lifecycle/authoring.go` owns compile, compile authorization, bindings, and catalog. Use one Core compile request across construction, population, proposal, and rowdef. Population input resolution and route validation are already extracted locally. Interpretation resolution needs the interpretation repository. |
+| Receipt lookup and executable validation | `lifecycle/policy.go` owns the lookup and route checks. The native-contract predicate depends on compiler, preview, population mapping, or materializer availability. Carry that predicate into Core without importing the population or publication use cases. |
+| Verify proposal receipt | Move `proposal.VerifyReceipt` with `lifecycle/proof.go`'s catalog wiring. The verifier uses workspace normalization, receiptmodel, capability, and shared error helpers. |
+| Preview | Move the generic receipt preview in `lifecycle/preview.go` with `proposal.PreviewResult` and `proposal.PreviewSinkFactory`. Proposal keeps its own preview orchestration, including authorization, budgets, and timing. |
+
+Remaining callback ownership matters separately from the import graph.
+
+- Construction frame-source reauthorization is Phase 4 work. Keep the existing boundary
+  through Phase 3.
+- Population member-removal preview can call Core Preview. Selection creation goes through
+  the selection service. The document digest currently forwards to `proposal.DocumentDigest`.
+  Output lookup and compiler scope forward to `construction.ConstructionDocumentIndex`
+  and `construction.ConstructionCompilerScope`. Keep these outside Core or move the
+  shared implementations with their callers. Materialization error classification lives
+  in `lifecycle/publish.go` and also serves mapping. Preserve its caller-supplied stage
+  and current messages when moving it.
+- Rowdef candidate workspace preparation currently dispatches to rowdef or construction
+  workspace shaping. Keep it outside Core. Moving it into Core would introduce a reverse
+  use-case dependency.
+- Proposal network and imported-source editors are configured ports. Pass the configured
+  functions directly. Compiler availability comes from Core.
+
+A Go build overlay added all four use-case imports of Core together, plus Core's
+anticipated imports for the shared operations. The build passed without a Core import
+of any of the four use-case packages. This verifies the package directions. The
+actual symbol moves, behavior checks, and audit registration remain Phase 3 work.
 
 ### Phase 4: move field browse to `semanticbrowse`
 
@@ -183,11 +218,29 @@ Each phase is one commit (or one tightly coupled set) and leaves `make test-go` 
   to Phase 6 pending equivalent sibling coverage. The lifecycle test compile, package audit
   before and after, `go build ./...`, `go vet ./internal/explorer/...`, `make test-go` and
   `make lint-go-comments` passed.
-- Phase 3 — blocked. The specified core population-resolution implementation would import
-  `population` to call `ResolveWorkspacePopulations`. The specified `population.Config` change
-  would import core in the reverse direction. A Go overlay containing those two imports
-  confirmed `import cycle not allowed`. The production files remain untouched for this phase.
-- Phases 4–6 — blocked by the Phase 3 prerequisite.
+- Phase 2 — done in `e06ab6402`. Child services are built once and the tests prepare
+  the config before constructing the service. The operator waived that phase's review.
+- Phase 3 — done. Core now owns workspace loading, compile and input
+  resolution, receipt lookup and verification, and generic receipt preview. Construction,
+  rowdef, population, and proposal use it directly. The lifecycle dependency closure adds
+  only `internal/explorer/authoringcore`. Lifecycle went from 8,101 to 7,377 source
+  lines and from 29,495 to 29,504 test lines. Go build, Explorer vet, comment lint, focused
+  audits before and after, full audit, `make test-go` with loopback access, and
+  `make test-integration` against disposable Arango and ClickHouse passed.
+- Phase 3 gate repairs. The saved-route and publication API failures reproduced on
+  base `e06ab6402` with identical HTTP statuses and bodies. A prior package move
+  dropped the `explorer_` prefix from WorkspaceStore's owner keys. Commit
+  `23a14c133` restored the original key across creation, lookup, draft CAS, and
+  publication. Both API cases passed against disposable Arango and ClickHouse after
+  the repair. The integration driver then exposed stale package paths for recipe
+  Arango tests and semantic backfill. Both paths were corrected and every integration
+  profile was checked against its required tests. The full audit passed after the
+  authorized Core entry was added and moved files were staged for its formatting check.
+- Phase 3 review used three same-model Codex reviewers on the source based on `e06ab6402`
+  (Go diff and new-file fingerprint `ee9e753f265638067feb486595f15f706611e543081ac1aa2ee77b102d365f83`).
+  Their focused compile and receipt, preview and owner, and service wiring checks found
+  no proven behavioral regressions.
+- Phases 4–6 — pending.
 
 ## Verification and review
 
@@ -203,8 +256,9 @@ Each phase is one commit (or one tightly coupled set) and leaves `make test-go` 
 
 ## Risks and open questions
 
-- **Names.** `authoringcore` and `publication` are placeholders. Check for collisions with
-  `publicationcontract` and `server/sourcepublication`.
+- **Names.** `authoringcore` is the shared authoring service used by the Explorer use cases.
+  Choose the Phase 5 package name after checking `publicationcontract` and
+  `server/sourcepublication`.
 - **Test-driven config mutation may hide a real runtime need.** Phase 2 must confirm that
   production code never changes `Config` after `New`. If a test relies on hot-swapping, replace
   it with a test of the real behaviour.

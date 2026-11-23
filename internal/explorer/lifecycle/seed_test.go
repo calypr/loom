@@ -16,6 +16,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -888,7 +889,7 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace w
 		receipt, compileErr := compileTraceReceipt(ctx, request, fixture.Snapshot, fixture.Catalog)
 		if compileErr == nil {
 
-			receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
+			receipt.RowDefinitionProposal = authoringcore.CloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
 			if request.RowDefinitionProposal != nil {
 				receipt.CompilationKey, compileErr = receiptmodel.CompilationKey(*receipt)
 				if compileErr == nil {

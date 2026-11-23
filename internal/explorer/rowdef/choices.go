@@ -420,7 +420,7 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 
 func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (ws.Workspace, error) {
 	project = projectid.Canonical(project)
-	owner, err := s.config.GetOwner(ctx, project, explorerID)
+	owner, err := s.config.Core.GetOwner(ctx, project, explorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
 		return ws.Workspace{}, support.NotFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -1122,11 +1123,11 @@ func newFilterSourceHarness(t *testing.T, options ...func(*filterSourceHarness, 
 			return nil, explorer.ErrNotFound
 		}
 		setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			receipt, err := compileTraceReceipt(ctx, request, harness.snapshot, harness.service.catalog(harness.snapshot, request.ExplorerID))
+			receipt, err := compileTraceReceipt(ctx, request, harness.snapshot, harness.service.core.Catalog(harness.snapshot, request.ExplorerID))
 			if err != nil {
 				return nil, err
 			}
-			receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
+			receipt.RowDefinitionProposal = authoringcore.CloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
 			setup.Store.receipt = receipt
 			if request.ConstructionProposal != nil {
 				harness.proposal = receipt

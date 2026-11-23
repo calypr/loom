@@ -5,15 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/explorer/construction"
-	"github.com/calypr/loom/internal/explorer/proposal"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
@@ -21,7 +21,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/calypr/loom/internal/semantic"
@@ -35,21 +34,21 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	return response.Commands, nil
 }
 
-func (s *Service) ApplyBuilderCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory proposal.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+func (s *Service) ApplyBuilderCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory authoringcore.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		sinkFactory = nil
 	}
 	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
 }
 
-func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory proposal.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory authoringcore.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		return nil, support.Malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
 }
 
-func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, previewSinkFactory proposal.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, previewSinkFactory authoringcore.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if err := request.Validate(); err != nil {
 		if strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
 			return nil, support.Conflict("commands", "UNSUPPORTED_SEMANTICS_VERSION", "the authoring semantics version is unsupported; reload the workspace", nil, err)
@@ -188,14 +187,14 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			if projectionErr != nil {
 				return nil, support.Unprocessable("commands", "INVALID_ROW_CHANGE", projectionErr.Error(), projectionErr)
 			}
-			rowChangeReplacementCandidate, err = s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: receiptWorkspace, SnapshotToken: request.SnapshotToken, RequestID: "row-change-replacement-apply-candidate"})
+			rowChangeReplacementCandidate, err = s.core.Compile(ctx, authoringcore.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: receiptWorkspace, SnapshotToken: request.SnapshotToken, RequestID: "row-change-replacement-apply-candidate"})
 			if err != nil {
 				return nil, err
 			}
 			if err := verifyPreviewReceiptIntent(rowChangeReplacementCandidate, receiptWorkspace); err != nil {
 				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the requested row replacement", nil, err)
 			}
-			if !receiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || validateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
+			if !authoringcore.ReceiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || authoringcore.ValidateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
 				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row replacement candidate receipt does not contain the requested output", nil, nil)
 			}
 			return commands, nil
@@ -205,7 +204,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
 			return validationErr
 		}
-		if _, validationErr := s.resolveWorkspaceInterpretations(ctx, project, workspace, snapshot); validationErr != nil {
+		if _, validationErr := s.core.ResolveWorkspaceInterpretations(ctx, project, workspace, snapshot); validationErr != nil {
 			return validationErr
 		}
 		if err := s.validateInterpretationCandidateCommands(ctx, project, explorerID, request, workspace, snapshot); err != nil {
@@ -258,7 +257,7 @@ func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, exp
 	if request.ExpectedDraftVersion != 1 || strings.TrimSpace(request.ExpectedDraftDigest) == "" {
 		return support.Conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
 	}
-	virtual, err := s.virtualDefaultDataframeOwner(ctx, project, snapshot, catalog)
+	virtual, err := s.core.VirtualDefaultDataframeOwner(ctx, project, snapshot, catalog)
 	if err != nil {
 		return err
 	}
@@ -291,7 +290,7 @@ func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, exp
 }
 
 func checkRowChangeReplacementResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt, outputID string) error {
-	if receipt == nil || !receiptHasOutput(receipt.Bundle, outputID) || validateReceiptOutputContract(receipt, outputID) != nil {
+	if receipt == nil || !authoringcore.ReceiptHasOutput(receipt.Bundle, outputID) || authoringcore.ValidateReceiptOutputContract(receipt, outputID) != nil {
 		return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement does not match its candidate receipt", nil, nil)
 	}
 	for _, document := range workspace.Documents {
@@ -389,168 +388,6 @@ func findSemanticOutput(workspace ws.Workspace, outputID string) *ws.Document {
 	return nil
 }
 
-func (s *Service) compile(ctx context.Context, request compileRequest) (*receiptmodel.CompilationReceipt, error) {
-	if (s.config.Capability.Token == nil && s.config.Capability.ForCompilation == nil) || s.config.CompileReceipt == nil {
-		return nil, support.Unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
-	}
-	authorized, _, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
-	if err != nil {
-		return nil, capabilityResolutionFailure("capability", "the capability snapshot is stale or unavailable", err)
-	}
-	return s.compileAuthorized(ctx, request, authorized)
-}
-
-func (s *Service) compileAuthorized(ctx context.Context, request compileRequest, authorized ports.AuthorizedCapability) (*receiptmodel.CompilationReceipt, error) {
-	if s.config.CompileReceipt == nil {
-		return nil, support.Unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
-	}
-	snapshot := authorized.Snapshot
-	workspace := request.Workspace.NormalizePresentationOrders()
-	if err := (ws.BuilderState{APIVersion: ws.APIVersion, Kind: ws.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
-		return nil, support.Unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
-	}
-	if authorized.Scope.Mode != "" {
-		if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-			return nil, support.Conflict("population", "INVALID_POPULATION_SCOPE", "the effective authorization scope is stale", nil, err)
-		}
-	}
-	resolvedInputs, err := s.resolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
-	if err != nil {
-		var typed *ports.Error
-		if errors.As(err, &typed) {
-			return nil, typed
-		}
-		return nil, support.Unprocessable("population", "INVALID_POPULATION", err.Error(), err)
-	}
-	resolvedInterpretations, err := s.resolveWorkspaceInterpretations(ctx, request.Project, workspace, snapshot)
-	if err != nil {
-		var typed *ports.Error
-		if errors.As(err, &typed) {
-			return nil, typed
-		}
-		return nil, support.Unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
-	}
-	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, ports.CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
-	if err != nil {
-		var compileErr *explorercompilation.Error
-		if errors.As(err, &compileErr) {
-			return nil, &ports.Error{Class: ports.ClassUnprocessable, Stage: compileErr.Stage, Code: compilationErrorCode(compileErr.Code), Message: compileErr.Message, Details: compileErr.Details, Cause: err}
-		}
-		var typed *ports.Error
-		if errors.As(err, &typed) {
-			return nil, typed
-		}
-		return nil, support.Unavailable("compile", "COMPILATION_UNAVAILABLE", "the Explorer workspace could not be compiled", err)
-	}
-	if receipt == nil || strings.TrimSpace(receipt.ID) == "" {
-		return nil, support.Unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted", nil)
-	}
-	if err := s.validateCompiledReceipt(ctx, request, authorized, receipt); err != nil {
-		return nil, err
-	}
-	return receipt, nil
-}
-
-func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRequest, authorized ports.AuthorizedCapability, receipt *receiptmodel.CompilationReceipt) error {
-	if receipt == nil {
-		return support.Unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt is required", nil)
-	}
-	snapshot := authorized.Snapshot
-	identityChecks := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{"project", projectid.Canonical(receipt.Project), projectid.Canonical(request.Project)},
-		{"explorerId", receipt.ExplorerID, request.ExplorerID},
-		{"snapshotToken", receipt.SnapshotToken, request.SnapshotToken},
-		{"sourceGeneration", receipt.SourceGeneration, snapshot.Identity.Generation},
-		{"authorizationScopeDigest", receipt.AuthorizationScopeDigest, snapshot.Identity.AuthorizationScopeDigest},
-		{"capabilitySchemaDigest", receipt.CapabilitySchemaDigest, snapshot.Identity.SchemaDigest},
-		{"shapeDigest", receipt.ShapeDigest, snapshot.Identity.ShapeDigest},
-	}
-	for _, check := range identityChecks {
-		if check.got != check.want {
-			return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
-		}
-	}
-	if !reflect.DeepEqual(request.ColumnPolicyProposal, receipt.ColumnPolicyProposal) {
-		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled column policy proposal binding does not match the request", nil, nil)
-	}
-	if !reflect.DeepEqual(request.SourceRelationshipProposal, receipt.SourceRelationshipProposal) {
-		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
-	}
-	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
-		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
-	}
-	if !sameConstructionProposalBinding(request.ConstructionProposal, receipt.ConstructionProposal) {
-		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
-	}
-	if !samePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal, receipt.PopulationMemberRemovalProposal) {
-		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt population member proposal binding does not match the request", nil, nil)
-	}
-	if authorized.Scope.Mode != "" {
-		if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-			return support.Unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
-		}
-	}
-	if err := receipt.Validate(); err != nil {
-		return support.FailureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt failed integrity validation", nil, err)
-	}
-	persisted, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, receipt.ID)
-	if err != nil {
-		return support.Unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not found after persistence", err)
-	}
-	if persisted == nil || persisted.ID != receipt.ID {
-		return support.Unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not returned from persistence", nil)
-	}
-	if err := persisted.Validate(); err != nil {
-		return support.Unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "persisted compilation receipt failed integrity validation", err)
-	}
-	return nil
-}
-
-func sameRowDefinitionProposalBinding(left, right *receiptmodel.RowDefinitionProposalBinding) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
-}
-
-func cloneRowDefinitionProposalBinding(binding *receiptmodel.RowDefinitionProposalBinding) *receiptmodel.RowDefinitionProposalBinding {
-	if binding == nil {
-		return nil
-	}
-	cloned := *binding
-	return &cloned
-}
-
-func clonePopulationMemberRemovalProposalBinding(binding *receiptmodel.PopulationMemberRemovalProposalBinding) *receiptmodel.PopulationMemberRemovalProposalBinding {
-	if binding == nil {
-		return nil
-	}
-	cloned := *binding
-	return &cloned
-}
-
-func samePopulationMemberRemovalProposalBinding(left, right *receiptmodel.PopulationMemberRemovalProposalBinding) bool {
-	return reflect.DeepEqual(clonePopulationMemberRemovalProposalBinding(left), clonePopulationMemberRemovalProposalBinding(right))
-}
-
-func cloneConstructionProposalBinding(binding *receiptmodel.ConstructionProposalBinding) *receiptmodel.ConstructionProposalBinding {
-	if binding == nil {
-		return nil
-	}
-	cloned := *binding
-	cloned.RemoveStepIDs = append([]string(nil), binding.RemoveStepIDs...)
-	return &cloned
-}
-
-func sameConstructionProposalBinding(left, right *receiptmodel.ConstructionProposalBinding) bool {
-	return reflect.DeepEqual(left, right)
-}
-
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*receiptmodel.CompilationReceipt, error) {
 	result, err := s.ReconcileWithWorkspace(ctx, request)
 	if err != nil {
@@ -563,7 +400,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
 		return ReconcileResult{}, support.Malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
 	}
-	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -575,7 +412,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 		return ReconcileResult{}, support.Conflict("reconcile", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be reconciled", nil, err)
 	}
 	if request.OutputID == "" {
-		receipt, compileErr := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken})
+		receipt, compileErr := s.core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken})
 		if compileErr != nil {
 			return ReconcileResult{}, compileErr
 		}
@@ -584,7 +421,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 	if strings.TrimSpace(request.OutputID) != request.OutputID {
 		return ReconcileResult{}, support.Malformed("reconcile", "outputId must not contain surrounding whitespace", nil)
 	}
-	authorized, snapshot, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
+	authorized, snapshot, err := s.core.ResolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return ReconcileResult{}, support.Conflict("reconcile", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
@@ -593,14 +430,14 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 			return ReconcileResult{}, support.Conflict("reconcile", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 		}
 	}
-	if err := (ws.BuilderState{APIVersion: ws.APIVersion, Kind: ws.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
-		return ReconcileResult{}, support.Unprocessable("reconcile", workspaceValidationCode(err), err.Error(), err)
+	if err := (ws.BuilderState{APIVersion: ws.APIVersion, Kind: ws.StateKind, Workspace: &workspace, Catalog: s.core.Catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
+		return ReconcileResult{}, support.Unprocessable("reconcile", authoringcore.WorkspaceValidationCode(err), err.Error(), err)
 	}
 	scoped, err := workspaceOutputClosure(workspace, request.OutputID)
 	if err != nil {
 		return ReconcileResult{}, support.Unprocessable("reconcile", "INVALID_OUTPUT_SCOPE", err.Error(), err)
 	}
-	receipt, err := s.compileAuthorized(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: scoped, SnapshotToken: request.SnapshotToken}, authorized)
+	receipt, err := s.core.CompileAuthorized(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: scoped, SnapshotToken: request.SnapshotToken}, authorized)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -677,38 +514,6 @@ func workspaceOutputClosure(workspace ws.Workspace, outputID string) (ws.Workspa
 	return projected, nil
 }
 
-func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
-	if s.config.Capability.Catalog == nil {
-		return ws.CatalogSnapshot{}
-	}
-	return s.config.Capability.Catalog(snapshot, explorerID)
-}
-
-func (s *Service) resolveCompilationCapability(ctx context.Context, project, token string) (ports.AuthorizedCapability, capability.Snapshot, error) {
-	if s.config.Capability.ForCompilation != nil {
-		authorized, err := s.config.Capability.ForCompilation(ctx, project, token)
-		return authorized, authorized.Snapshot, err
-	}
-	snapshot, err := s.config.Capability.Token(ctx, project, token)
-	return ports.AuthorizedCapability{Snapshot: snapshot}, snapshot, err
-}
-
-func cloneSourceRelationshipProposalBinding(binding *receiptmodel.SourceRelationshipProposalBinding) *receiptmodel.SourceRelationshipProposalBinding {
-	if binding == nil {
-		return nil
-	}
-	cloned := *binding
-	return &cloned
-}
-
-func cloneColumnPolicyProposalBinding(binding *receiptmodel.ColumnPolicyProposalBinding) *receiptmodel.ColumnPolicyProposalBinding {
-	if binding == nil {
-		return nil
-	}
-	cloned := *binding
-	return &cloned
-}
-
 func (s *Service) prepareDraftRevisionRestore(
 	ctx context.Context,
 	project string,
@@ -721,7 +526,7 @@ func (s *Service) prepareDraftRevisionRestore(
 		return nil, support.Malformed("commands", "RESTORE_DRAFT_REVISION must be the only command", nil)
 	}
 	command := &commands[0]
-	owner, err := s.getOwner(ctx, project, explorerID)
+	owner, err := s.core.GetOwner(ctx, project, explorerID)
 	if err != nil {
 		return nil, support.PersistenceFailure("commands", "the Explorer draft could not be loaded before restoring", err)
 	}

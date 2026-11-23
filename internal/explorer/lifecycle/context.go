@@ -115,7 +115,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request interpret
 	if err != nil {
 		return result, support.Malformed("interpretation-context", err.Error(), err)
 	}
-	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return result, err
 	}

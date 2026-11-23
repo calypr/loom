@@ -3,6 +3,7 @@ package population
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/construction"
 	"strings"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -41,89 +42,6 @@ type PopulationRoutesResponse struct {
 	Truncated           bool                    `json:"truncated"`
 	NextCursor          string                  `json:"nextCursor,omitempty"`
 	Choices             []PopulationRouteChoice `json:"choices"`
-}
-
-func ValidateRoute(document ws.Document, population ws.Population, selectionType string, snapshot capability.Snapshot) ([]ws.PopulationRouteStep, error) {
-	rootNodes := make([]capability.Node, 0, 1)
-	for _, node := range snapshot.Nodes {
-		if node.ResourceType == document.RootResourceType && node.RowRootEligible {
-			rootNodes = append(rootNodes, node)
-		}
-	}
-	if len(rootNodes) != 1 {
-		return nil, fmt.Errorf("population root %q is not uniquely eligible", document.RootResourceType)
-	}
-	if snapshot.Policy.Route.MaxHops > 0 && len(population.Route) > snapshot.Policy.Route.MaxHops {
-		return nil, fmt.Errorf("population route exceeds capability maxHops=%d", snapshot.Policy.Route.MaxHops)
-	}
-	currentID, currentType := rootNodes[0].ID, rootNodes[0].ResourceType
-	seenEdges := map[string]bool{}
-	resolvedRoute := append([]ws.PopulationRouteStep(nil), population.Route...)
-	for index := range resolvedRoute {
-		step := resolvedRoute[index]
-		if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
-			return nil, fmt.Errorf("population route[%d] has an unsupported storage direction", index)
-		}
-		edge, target, err := resolveRouteEdge(snapshot, currentID, currentType, step)
-		if err != nil {
-			return nil, fmt.Errorf("population route[%d] relationship %q is ambiguous or stale: %w", index, step.Relationship, err)
-		}
-		if seenEdges[edge.ID] && !snapshot.Policy.Route.AllowsRepeatedEdges {
-			return nil, fmt.Errorf("population route[%d] repeats edge %q but repeated edges are not allowed", index, edge.ID)
-		}
-		if currentType == target.ResourceType && !snapshot.Policy.Route.AllowsSelfLoops {
-			return nil, fmt.Errorf("population route[%d] uses self-loop edge %q but self-loops are not allowed", index, edge.ID)
-		}
-		if resolvedRoute[index].StorageDirection == "" {
-			direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
-			if direction == "INBOUND" || direction == "OUTBOUND" {
-				resolvedRoute[index].StorageDirection = direction
-			}
-		}
-		seenEdges[edge.ID] = true
-		currentID, currentType = target.ID, target.ResourceType
-	}
-	if currentType != strings.TrimSpace(selectionType) {
-		return nil, fmt.Errorf("population route terminates at %q, selection contains %q", currentType, selectionType)
-	}
-	return resolvedRoute, nil
-}
-
-func resolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step ws.PopulationRouteStep) (capability.Edge, capability.Node, error) {
-	valid := func(edge capability.Edge) (capability.Node, bool) {
-		return snapshot.MatchPopulationRouteEdge(edge, currentID, currentType, step.ResourceType, step.Relationship, step.StorageDirection)
-	}
-	if step.CatalogEdgeID != "" {
-		edge, found := snapshot.Edge(step.CatalogEdgeID)
-		if !found {
-			return capability.Edge{}, capability.Node{}, fmt.Errorf("catalog edge %q is unavailable", step.CatalogEdgeID)
-		}
-		target, ok := valid(edge)
-		if !ok {
-			return capability.Edge{}, capability.Node{}, fmt.Errorf("catalog edge %q no longer identifies this route step", step.CatalogEdgeID)
-		}
-		return edge, target, nil
-	}
-	var match capability.Edge
-	var target capability.Node
-	for _, edge := range snapshot.Edges {
-		resolvedTarget, ok := valid(edge)
-		if !ok {
-			continue
-		}
-		if match.ID != "" {
-			return capability.Edge{}, capability.Node{}, fmt.Errorf("semantic tuple resolves to multiple catalog edges")
-		}
-		match, target = edge, resolvedTarget
-	}
-	if match.ID == "" {
-		return capability.Edge{}, capability.Node{}, fmt.Errorf("semantic tuple does not resolve to a catalog edge")
-	}
-	return match, target, nil
-}
-
-func ResolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step ws.PopulationRouteStep) (capability.Edge, capability.Node, error) {
-	return resolveRouteEdge(snapshot, currentID, currentType, step)
 }
 
 func findPopulationOutput(workspace ws.Workspace, outputID string) *ws.Document {
@@ -167,10 +85,10 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 		strings.TrimSpace(request.SelectionRevisionID) == "" || len(request.Cursor) > 4096 {
 		return result, support.Malformed("population-routes", "project, explorerId, snapshotToken, outputId, and selectionRevisionId are required", nil)
 	}
-	if s.capability().ForCompilation == nil {
+	if s.config.Capability.ForCompilation == nil {
 		return result, support.Unavailable("population-routes", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	authorized, err := s.capability().ForCompilation(ctx, request.Project, request.SnapshotToken)
+	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
 		return result, support.CapabilityFailure("population-routes", "STALE_CATALOG_SNAPSHOT", "reload the catalog before searching population routes", err)
 	}
@@ -184,7 +102,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return result, support.Conflict("population-routes", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	workspace, err := s.config.CurrentWorkspace(ctx, request.Project, request.ExplorerID)
+	workspace, err := s.config.Core.CurrentWorkspace(ctx, "construction-choices", request.Project, request.ExplorerID)
 	if err != nil {
 		return result, err
 	}
@@ -275,7 +193,7 @@ func (s *Service) provePopulationRoute(ctx context.Context, authorized ports.Aut
 		}
 		traversal := facade.Traversal{FromResourceType: step.FromResourceType, EdgeLabel: step.Relationship, ToResourceType: step.ToResourceType, MatchMode: matchMode}
 		proof, err := facade.ProbeTraversal(ctx, facade.TraversalRequest{
-			Scope: s.config.ConstructionCompilerScope(authorized), RootResourceType: step.FromResourceType, Traversal: traversal,
+			Scope: construction.ConstructionCompilerScope(authorized), RootResourceType: step.FromResourceType, Traversal: traversal,
 		})
 		if err != nil || proof.Traversal == nil || string(proof.Traversal.StorageDirection) != step.StorageDirection {
 			return false
@@ -283,7 +201,7 @@ func (s *Service) provePopulationRoute(ctx context.Context, authorized ports.Aut
 		compilerRoute = append(compilerRoute, traversal)
 	}
 	_, err := facade.ProbeCandidate(ctx, facade.CandidateRequest{
-		Scope: s.config.ConstructionCompilerScope(authorized), RootResourceType: rootResourceType,
+		Scope: construction.ConstructionCompilerScope(authorized), RootResourceType: rootResourceType,
 		ResourceType: terminalResourceType, FieldRef: terminalResourceType + ".id", Selector: "id", Route: compilerRoute,
 	})
 	return err == nil

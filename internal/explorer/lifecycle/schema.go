@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -186,7 +187,7 @@ func (b *fieldBrowse) SearchSchemaFields(ctx context.Context, request SearchSche
 		return result, support.Conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, err)
 	}
 	if err != nil {
-		return result, capabilityResolutionFailure("schema-fields", "reload the catalog before browsing generated fields", err)
+		return result, authoringcore.CapabilityResolutionFailure("schema-fields", "reload the catalog before browsing generated fields", err)
 	}
 	snapshot := authorized.Snapshot
 	if snapshot.ValidateToken(request.SnapshotToken) != nil ||

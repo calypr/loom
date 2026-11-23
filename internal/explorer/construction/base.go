@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"strings"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -28,7 +29,7 @@ type constructionBaseLoader struct {
 	sourceStage                ports.ConstructionSourceStageCompiler
 	selectionMembersCollection string
 	canCompile                 bool
-	compile                    func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	compile                    func(context.Context, authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error)
 	verifyProposalReceipt      func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
 	getOwner                   func(context.Context, string, string) (*explorer.Explorer, error)
 }
@@ -178,7 +179,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 			if err != nil {
 				return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 			}
-			receipt, err := s.compile(ctx, CompileRequest{
+			receipt, err := s.compile(ctx, authoringcore.CompileRequest{
 				Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 				RequestID: "construction-capabilities",
 			})
@@ -202,7 +203,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 	if err != nil {
 		return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 	}
-	receipt, err := s.compile(ctx, CompileRequest{
+	receipt, err := s.compile(ctx, authoringcore.CompileRequest{
 		Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 		RequestID: "construction-capabilities",
 	})

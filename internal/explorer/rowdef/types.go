@@ -3,6 +3,7 @@ package rowdef
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"strings"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -20,31 +21,26 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 )
 
-type CompileRequest struct {
-	Project               string
-	ExplorerID            string
-	Workspace             ws.Workspace
-	SnapshotToken         string
-	RequestID             string
-	RowDefinitionProposal *receiptmodel.RowDefinitionProposalBinding
-}
-
 type Store interface {
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
 	RevisionWorkspace(context.Context, explorer.Revision) (ws.Workspace, error)
 }
 
+type authoringOperations interface {
+	Compile(context.Context, authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	GetOwner(context.Context, string, string) (*explorer.Explorer, error)
+	LookupReceipt(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	VerifyProposalReceipt(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
+	ValidateExecutableReceiptRoute(*receiptmodel.CompilationReceipt, string, string) error
+}
+
 type Config struct {
+	Core                       authoringOperations
 	Store                      Store
 	SelectionMembersCollection string
 	Capability                 ports.CapabilityResolver
 
-	GetOwner                       func(context.Context, string, string) (*explorer.Explorer, error)
-	Compile                        func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
-	LookupReceipt                  func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
-	ValidateExecutableReceiptRoute func(*receiptmodel.CompilationReceipt, string, string) error
-	VerifyProposalReceipt          func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
-	PrepareCandidateWorkspace      func(ws.Workspace, string, bool) (ws.Workspace, error)
+	PrepareCandidateWorkspace func(ws.Workspace, string, bool) (ws.Workspace, error)
 
 	PreviewReceipt        func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 	ValidateReceiptStream func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error

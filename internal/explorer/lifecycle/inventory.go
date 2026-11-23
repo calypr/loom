@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 
@@ -811,7 +812,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req semanticbrows
 		return result, support.Conflict("catalog", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing", nil, err)
 	}
 	if err != nil {
-		return result, capabilityResolutionFailure("catalog", "reload the catalog before browsing", err)
+		return result, authoringcore.CapabilityResolutionFailure("catalog", "reload the catalog before browsing", err)
 	}
 	snapshot := authorized.Snapshot
 	if snapshot.ValidateToken(req.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(req.Project) || snapshot.Identity.Generation == "" {

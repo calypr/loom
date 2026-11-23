@@ -40,7 +40,7 @@ func TestLifecycleResolvesEachDistinctRevisionOnce(t *testing.T) {
 	revision := lifecyclePrepareInterpretation(t)
 	repository := &countingInterpretationRepository{revision: revision}
 	service := newTestService(t, &fakeStore{}, Config{InterpretationRepository: repository})
-	inputs, err := service.resolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace(string(revision.ID), false), lifecycleInterpretationSnapshot())
+	inputs, err := service.core.ResolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace(string(revision.ID), false), lifecycleInterpretationSnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestLifecycleResolvesEachDistinctRevisionOnce(t *testing.T) {
 
 func TestLifecycleDoesNotReadRepositoryForInlineWorkspace(t *testing.T) {
 	service := newTestService(t, &fakeStore{}, Config{})
-	inputs, err := service.resolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace("", true), lifecycleInterpretationSnapshot())
+	inputs, err := service.core.ResolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace("", true), lifecycleInterpretationSnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestLifecycleDoesNotReadRepositoryForInlineWorkspace(t *testing.T) {
 
 func TestLifecycleRejectsMissingPinnedRevision(t *testing.T) {
 	service := newTestService(t, &fakeStore{}, Config{InterpretationRepository: &countingInterpretationRepository{}})
-	_, err := service.resolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace("revision-missing", false), lifecycleInterpretationSnapshot())
+	_, err := service.core.ResolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace("revision-missing", false), lifecycleInterpretationSnapshot())
 	if !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("missing revision error = %v", err)
 	}

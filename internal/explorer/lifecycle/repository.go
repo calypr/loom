@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -29,7 +30,7 @@ func classifyRepositoryCompilationError(err error) error {
 		if message == "" {
 			message = "the repository V2 workspace is invalid"
 		}
-		return support.FailureDetails(ports.ClassUnprocessable, "repository_publish", compilationErrorCode(compileErr.Code), message, compileErr.Details, err)
+		return support.FailureDetails(ports.ClassUnprocessable, "repository_publish", authoringcore.CompilationErrorCode(compileErr.Code), message, compileErr.Details, err)
 	}
 	var authoringErr *explorer.AuthoringError
 	if errors.As(err, &authoringErr) {
@@ -68,7 +69,7 @@ func classifyRepositoryCompilationError(err error) error {
 
 func (s *Service) PublishRepository(ctx context.Context, request RepositoryPublishRequest) (RepositoryPublishResult, error) {
 	if err := request.Workspace.ValidateForPublication(); err != nil {
-		code := workspaceValidationCode(err)
+		code := authoringcore.WorkspaceValidationCode(err)
 		return RepositoryPublishResult{}, support.Unprocessable("repository_publish", code, err.Error(), err)
 	}
 	if s.config.Capability.Current == nil || s.config.Capability.ForCompilation == nil || s.config.CompileReceipt == nil {
@@ -76,14 +77,14 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	}
 	snapshot, err := s.config.Capability.Current(ctx, request.Project, "default", request.Generation)
 	if err != nil {
-		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 capability could not be resolved", err)
+		return RepositoryPublishResult{}, authoringcore.CapabilityResolutionFailure("repository_publish", "repository V2 capability could not be resolved", err)
 	}
 	if !snapshot.Usable() || snapshot.Identity.Generation != request.Generation {
 		return RepositoryPublishResult{}, support.Conflict("repository_publish", "RECEIPT_STALE", "repository V2 capability is stale or unusable", nil, nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, snapshot.Token)
 	if err != nil {
-		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 compilation could not be authorized", err)
+		return RepositoryPublishResult{}, authoringcore.CapabilityResolutionFailure("repository_publish", "repository V2 compilation could not be authorized", err)
 	}
 	receipt, err := s.config.CompileReceipt(ctx, ports.CompileReceiptRequest{Project: request.Project, ExplorerID: "default", Workspace: request.Workspace, SnapshotToken: snapshot.Token, Authorized: authorized})
 	if err != nil || receipt == nil {
@@ -98,11 +99,11 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if s.config.Capability.ForExecution != nil {
 		authorized, err = s.config.Capability.ForExecution(ctx, request.Project, receipt.SnapshotToken)
 		if err != nil {
-			return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 materialization could not be authorized", err)
+			return RepositoryPublishResult{}, authoringcore.CapabilityResolutionFailure("repository_publish", "repository V2 materialization could not be authorized", err)
 		}
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
-	applyAuthorizedScope(&bindings, authorized, true)
+	authoringcore.ApplyAuthorizedScope(&bindings, authorized, true)
 	if s.config.MaterializeReceipt == nil {
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "MATERIALIZATION_UNAVAILABLE", "repository V2 materialization is not configured", nil)
 	}

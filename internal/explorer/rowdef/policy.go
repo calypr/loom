@@ -3,6 +3,7 @@ package rowdef
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"strings"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -90,7 +91,7 @@ func (s *Service) ValidateRowValuePolicyCandidate(
 		return support.Malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY requires outputId and column", nil)
 	}
 
-	receipt, err := s.config.Compile(ctx, CompileRequest{
+	receipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: project, ExplorerID: explorerID, Workspace: workspace,
 		SnapshotToken: request.SnapshotToken, RequestID: request.CommandID + "-row-value-policy",
 	})
@@ -100,7 +101,7 @@ func (s *Service) ValidateRowValuePolicyCandidate(
 	if err := support.VerifyPreviewReceiptIntent(receipt, workspace); err != nil {
 		return support.Conflict("commands", "INVALID_COMPILATION_RECEIPT", "the row-value policy receipt does not represent the candidate workspace", nil, err)
 	}
-	if err := s.config.ValidateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
+	if err := s.config.Core.ValidateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
 		return err
 	}
 	if !support.ReceiptHasOutput(receipt.Bundle, command.OutputID) || support.ValidateReceiptOutputContract(receipt, command.OutputID) != nil {

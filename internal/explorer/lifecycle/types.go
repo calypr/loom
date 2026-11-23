@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
@@ -132,19 +133,6 @@ type BuilderRequest struct {
 	ExplorerID string
 }
 
-type compileRequest struct {
-	Project                         string
-	ExplorerID                      string
-	Workspace                       ws.Workspace
-	SnapshotToken                   string
-	RequestID                       string
-	ColumnPolicyProposal            *receiptmodel.ColumnPolicyProposalBinding
-	SourceRelationshipProposal      *receiptmodel.SourceRelationshipProposalBinding
-	RowDefinitionProposal           *receiptmodel.RowDefinitionProposalBinding
-	ConstructionProposal            *receiptmodel.ConstructionProposalBinding
-	PopulationMemberRemovalProposal *receiptmodel.PopulationMemberRemovalProposalBinding
-}
-
 type ReconcileRequest struct {
 	Project       string
 	ExplorerID    string
@@ -157,18 +145,6 @@ type ReconcileRequest struct {
 type ReconcileResult struct {
 	Receipt   *receiptmodel.CompilationReceipt
 	Workspace ws.Workspace
-}
-
-type PreviewRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	Limit      int
-
-	AllowSampledAggregatePreview bool
-
-	SinkFactory func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error)
 }
 
 type ApplyCommandsWithConstructionPreviewResponse struct {
@@ -246,3 +222,5 @@ type RepositoryPublishResult struct {
 	Dataset          viewer.DatasetMetadata
 	Publication      viewer.PublicationMetadata
 }
+
+type PreviewRequest = authoringcore.PreviewRequest

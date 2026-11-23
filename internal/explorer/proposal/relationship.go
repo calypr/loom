@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
@@ -34,11 +36,11 @@ type SourceRelationshipProposalRequest struct {
 	SourceSteps          []authoringv2.ImportedSourceStepChange `json:"sourceSteps,omitempty"`
 	Limit                int                                    `json:"limit,omitempty"`
 	IncludePreview       bool                                   `json:"includePreview,omitempty"`
-	PreviewSinkFactory   PreviewSinkFactory                     `json:"-"`
+	PreviewSinkFactory   authoringcore.PreviewSinkFactory       `json:"-"`
 }
 
 type SourceRelationshipProposal struct {
-	NativePreview            *PreviewResult                    `json:"-"`
+	NativePreview            *authoringcore.PreviewResult      `json:"-"`
 	CandidateDocument        ws.Document                       `json:"candidateDocument"`
 	CandidateNetwork         authoringnetwork.AuthoringNetwork `json:"candidateNetwork"`
 	CandidateRowIdentity     ws.RowIdentityPlan                `json:"candidateRowIdentity"`
@@ -70,13 +72,13 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err := request.validateSourceSelection(); err != nil {
 		return fail, support.Malformed("source-relationship-proposal", err.Error(), err)
 	}
-	capabilityResolver := s.config.Capability()
+	capabilityResolver := s.config.Capability
 	creatingRule := request.SourceRule != nil
-	createRule := s.config.CreateImportedSourceRule()
-	network := s.config.AuthoringNetwork()
-	editRelationship := s.config.EditImportedRelationship()
-	editSource := s.config.EditImportedSource()
-	editSources := s.config.EditImportedSources()
+	createRule := s.config.CreateImportedSourceRule
+	network := s.config.AuthoringNetwork
+	editRelationship := s.config.EditImportedRelationship
+	editSource := s.config.EditImportedSource
+	editSources := s.config.EditImportedSources
 	if creatingRule && createRule == nil {
 		return fail, support.Unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "Column rule creation is unavailable", nil)
 	}
@@ -90,7 +92,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return fail, support.Conflict("source-relationship-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized source scope changed", nil, err)
 	}
-	owner, err := s.config.GetOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.config.Core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return fail, err
 	}
@@ -150,11 +152,11 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, err
 	}
 	binding := &receiptmodel.SourceRelationshipProposalBinding{DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}
-	receipt, err := s.config.Compile(ctx, CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: "source-relationship-proposal", SourceRelationshipProposal: binding})
+	receipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: "source-relationship-proposal", SourceRelationshipProposal: binding})
 	if err != nil {
 		return fail, err
 	}
-	verifiedCandidate, err := s.config.VerifyProposalReceipt(ctx, "source-relationship-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, authorized.Snapshot, &candidate)
+	verifiedCandidate, err := s.config.Core.VerifyProposalReceipt(ctx, "source-relationship-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, authorized.Snapshot, &candidate)
 	if err != nil {
 		return fail, err
 	}
@@ -181,7 +183,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 			return func(map[string]any) error { return nil }, nil
 		}
 	}
-	preview, err := s.config.Preview(ctx, PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: sinkFactory})
+	preview, err := s.config.Core.Preview(ctx, authoringcore.PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: sinkFactory})
 	if err != nil {
 		return fail, err
 	}
@@ -230,7 +232,7 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 		return nil, support.Malformed("commands", "source relationship Apply requires one command", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.config.LookupReceipt(ctx, project, explorerID, command.ProposalID())
+	receipt, err := s.config.Core.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +255,7 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil || baseDigest != binding.BaseDocumentDigest {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved output changed after Preview", nil, err)
 	}
-	candidate, err := s.config.VerifyProposalReceipt(ctx, "commands", receipt, project, explorerID, request.SnapshotToken, authorized.Snapshot, nil)
+	candidate, err := s.config.Core.VerifyProposalReceipt(ctx, "commands", receipt, project, explorerID, request.SnapshotToken, authorized.Snapshot, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -276,13 +278,13 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 		return nil, support.Conflict("commands", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate changes authoring state outside the requested source output", nil, nil)
 	}
 
-	if _, err := s.config.Preview(ctx, PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
+	if _, err := s.config.Core.Preview(ctx, authoringcore.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	}}); err != nil {
 		return nil, err
 	}
 
-	freshReceipt, err := s.config.Compile(ctx, CompileRequest{Project: project, ExplorerID: explorerID, Workspace: applied, SnapshotToken: request.SnapshotToken, RequestID: "source-relationship-apply"})
+	freshReceipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: applied, SnapshotToken: request.SnapshotToken, RequestID: "source-relationship-apply"})
 	if err != nil {
 		return nil, fmt.Errorf("validate source relationship Apply: %w", err)
 	}

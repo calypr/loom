@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -40,11 +41,11 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	if !record.ExpiresAt.After(s.now()) {
 		return nil, record, support.Unavailable("artifact", "ARTIFACT_EXPIRED", "artifact has expired", nil)
 	}
-	receipt, err := s.lookupReceipt(ctx, project, request.ExplorerID, record.ReceiptID)
+	receipt, err := s.core.LookupReceipt(ctx, project, request.ExplorerID, record.ReceiptID)
 	if err != nil {
 		return nil, record, err
 	}
-	if err := s.validateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
+	if err := s.core.ValidateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
 		return nil, record, err
 	}
 	if err := validateArtifactReceiptIdentity(*record, receipt); err != nil {
@@ -52,12 +53,12 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, record.SnapshotToken)
 	if err != nil {
-		return nil, record, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
+		return nil, record, authoringcore.CapabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, record, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
-	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return nil, record, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	revision, err := s.store.GetRevision(ctx, record.RevisionID)

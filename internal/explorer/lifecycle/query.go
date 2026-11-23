@@ -61,7 +61,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (viewer.Exp
 	var value *explorer.Explorer
 	var err error
 	if strings.TrimSpace(request.SourceExplorerID) == DefaultDataframeID {
-		source, sourceErr := s.getOwner(ctx, project, DefaultDataframeID)
+		source, sourceErr := s.core.GetOwner(ctx, project, DefaultDataframeID)
 		if sourceErr != nil {
 			return viewer.ExplorerSummaryV1{}, sourceErr
 		}
@@ -124,7 +124,7 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (ws.Build
 	if err != nil {
 		return ws.BuilderState{}, err
 	}
-	owner, err := s.getOwnerWithSnapshot(ctx, request.Project, request.ExplorerID, snapshot, catalog)
+	owner, err := s.core.GetOwnerWithSnapshot(ctx, request.Project, request.ExplorerID, snapshot, catalog)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) {
 			return ws.BuilderState{}, support.NotFound("builder", "EXPLORER_NOT_FOUND", "Explorer not found", err)

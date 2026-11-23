@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"reflect"
 	"sort"
 	"strconv"
@@ -792,7 +793,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		BaseDocumentDigest: base.BaseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken, PreviewLimit: request.Limit,
 	}
-	candidateReceipt, err := s.compile(ctx, CompileRequest{
+	candidateReceipt, err := s.compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-proposal-candidate", ConstructionProposal: binding,
 	})
@@ -937,7 +938,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction is invalid", nil, err)
 	}
 	captureAvailable := sinkFactory != nil
-	preview, err := s.Preview(ctx, PreviewRequest{
+	preview, err := s.Preview(ctx, authoringcore.PreviewRequest{
 		Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID,
 		Limit: binding.PreviewLimit,
 		SinkFactory: func(previewReceipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
@@ -1071,7 +1072,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, fmt.Errorf("digest construction choice candidate workspace: %w", err)
 	}
-	candidateReceipt, err := s.compile(ctx, CompileRequest{
+	candidateReceipt, err := s.compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-choice-proposal-candidate",
 	})

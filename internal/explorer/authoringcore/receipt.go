@@ -1,4 +1,4 @@
-package proposal
+package authoringcore
 
 import (
 	"strings"

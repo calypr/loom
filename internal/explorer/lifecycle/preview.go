@@ -2,15 +2,14 @@ package lifecycle
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
-
-	"github.com/calypr/loom/internal/explorer/proposal"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
@@ -18,79 +17,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
-
-func (s *Service) Preview(ctx context.Context, request PreviewRequest) (proposal.PreviewResult, error) {
-	if strings.TrimSpace(request.ReceiptID) == "" || strings.TrimSpace(request.OutputID) == "" {
-		return proposal.PreviewResult{}, support.Malformed("preview", "receiptId and outputId are required", nil)
-	}
-	if request.Limit == 0 {
-		request.Limit = dataframeexecution.DefaultPreviewLimit
-	}
-	if request.Limit > dataframeexecution.MaxPreviewLimit {
-		return proposal.PreviewResult{}, support.Unprocessable("preview", "INVALID_PREVIEW_LIMIT", "limit must be between 1 and 1000", nil)
-	}
-	if s.config.Capability.ForExecution == nil {
-		return proposal.PreviewResult{}, support.Unavailable("preview", "PREVIEW_UNAVAILABLE", "authorized receipt execution is not configured", nil)
-	}
-	if s.config.PreviewReceipt == nil {
-		return proposal.PreviewResult{}, support.Unavailable("preview", "PREVIEW_UNAVAILABLE", "Explorer preview is not configured", nil)
-	}
-	receipt, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
-	if err != nil {
-		return proposal.PreviewResult{}, err
-	}
-	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
-		return proposal.PreviewResult{}, err
-	}
-	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil {
-		return proposal.PreviewResult{}, receiptCapabilityFailure("preview", "the receipt's capability snapshot is no longer authorized or retained", err)
-	}
-	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return proposal.PreviewResult{}, support.Conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
-	}
-	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-		return proposal.PreviewResult{}, support.Conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
-	}
-	if !receiptHasOutput(receipt.Bundle, request.OutputID) || validateReceiptOutputContract(receipt, request.OutputID) != nil {
-		return proposal.PreviewResult{}, support.Unprocessable("preview", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
-	}
-	bindings := recipe.RuntimeBindings{
-		Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project),
-		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
-		PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true, IncludeSourceIdentity: true,
-		AllowSampledAggregatePreview: request.AllowSampledAggregatePreview,
-	}
-	applyAuthorizedScope(&bindings, authorized, false)
-	columns := emittedColumnsForOutput(receipt, request.OutputID)
-	result := proposal.PreviewResult{Receipt: receipt, Columns: columns}
-	if request.SinkFactory == nil {
-		return proposal.PreviewResult{}, support.Unavailable("preview", "PREVIEW_UNAVAILABLE", "native preview sink is not configured", nil)
-	}
-	sink, err := request.SinkFactory(receipt, columns)
-	if err != nil {
-		return proposal.PreviewResult{}, err
-	}
-	result.Summary, err = s.config.PreviewReceipt(ctx, receipt, bindings, sink)
-	if err != nil {
-		var typed *ports.Error
-		if errors.As(err, &typed) {
-			return proposal.PreviewResult{}, typed
-		}
-		if userErr, ok := dataframeerrors.AsUserError(err); ok {
-			return proposal.PreviewResult{}, support.FailureDetails(ports.ClassUnprocessable, "preview", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
-		}
-		return proposal.PreviewResult{}, err
-	}
-	return result, nil
-}
 
 func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explorer.Explorer) (ws.Workspace, error) {
 	if owner == nil {
@@ -148,7 +78,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
-	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, err
 	}
@@ -160,17 +90,17 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be previewed", nil, err)
 	}
 
-	catalog := s.catalog(snapshot, request.ExplorerID)
+	catalog := s.core.Catalog(snapshot, request.ExplorerID)
 	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "interpretation-preview", []authoringv2.Command{{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: request.OutputID, Payload: &authoringv2.ColumnPayload{Column: request.Column, InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "preview", RevisionID: request.RevisionID}}}})
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Unprocessable("interpretation-preview", "INVALID_INTERPRETATION_CANDIDATE", err.Error(), err)
 	}
 
-	baseReceipt, err := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken, RequestID: "interpretation-preview-base"})
+	baseReceipt, err := s.core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken, RequestID: "interpretation-preview-base"})
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, err
 	}
-	candidateReceipt, err := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace, SnapshotToken: request.SnapshotToken, RequestID: "interpretation-preview-candidate"})
+	candidateReceipt, err := s.core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace, SnapshotToken: request.SnapshotToken, RequestID: "interpretation-preview-candidate"})
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, err
 	}
@@ -186,15 +116,15 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
-		return interpretation.PreviewInterpretationCandidateResult{}, receiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
+		return interpretation.PreviewInterpretationCandidateResult{}, authoringcore.ReceiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
 	}
 	if authorized.Snapshot.Token != request.SnapshotToken || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation != snapshot.Identity.Generation || authorized.Snapshot.Identity.ShapeDigest != snapshot.Identity.ShapeDigest {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
-	if err := validateAuthorizedReceiptExecution(baseReceipt, authorized); err != nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(baseReceipt, authorized); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the base receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if err := validateAuthorizedReceiptExecution(candidateReceipt, authorized); err != nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(candidateReceipt, authorized); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
 
@@ -208,7 +138,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 		DatasetGeneration: snapshot.Identity.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		PreviewLimit: limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
 	}
-	applyAuthorizedScope(&bindings, authorized, false)
+	authoringcore.ApplyAuthorizedScope(&bindings, authorized, false)
 	baseRows, baseSummary, err := s.previewInterpretationReceipt(ctx, baseReceipt, bindings)
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, err
@@ -248,4 +178,8 @@ func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *rec
 		return interpretation.PreviewRows{}, summary, err
 	}
 	return rows, summary, nil
+}
+
+func (s *Service) Preview(ctx context.Context, request PreviewRequest) (authoringcore.PreviewResult, error) {
+	return s.core.Preview(ctx, request)
 }

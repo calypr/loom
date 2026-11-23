@@ -27,14 +27,14 @@ func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, p
 		if command.InterpretationCandidate() == nil {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE payload is required")
 		}
-		receipt, err := s.lookupReceipt(ctx, project, explorerID, command.InterpretationCandidate().CandidateReceiptID)
+		receipt, err := s.core.LookupReceipt(ctx, project, explorerID, command.InterpretationCandidate().CandidateReceiptID)
 		if err != nil {
 			return err
 		}
 		if receipt == nil || receipt.ID != command.InterpretationCandidate().CandidateReceiptID {
 			return support.Conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt ID does not match the command", nil, nil)
 		}
-		if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
+		if err := s.core.ValidateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
 			return support.Conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt is not usable for this Explorer", nil, err)
 		}
 		if err := receiptmodel.ValidateInterpretationCandidate(receipt, project, explorerID, request.SnapshotToken, snapshot, proposed, command); err != nil {

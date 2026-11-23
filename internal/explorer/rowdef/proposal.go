@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"reflect"
 	"strings"
 
@@ -158,7 +159,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if request.Selection.Kind == RowDefinitionSelectionFieldGroup {
 		return RowDefinitionProposal{}, unsupportedFieldGroupRowDefinition()
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.Compile == nil {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.Core == nil {
 		return RowDefinitionProposal{}, support.Unavailable("row-definition-proposal", "PROPOSAL_UNAVAILABLE", "row definition proposal compilation is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
@@ -169,7 +170,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.config.GetOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.config.Core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
@@ -230,7 +231,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if limit == 0 {
 		limit = dataframeexecution.DefaultPreviewLimit
 	}
-	baseReceipt, err := s.config.Compile(ctx, CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken, RequestID: "row-definition-proposal-base"})
+	baseReceipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken, RequestID: "row-definition-proposal-base"})
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
@@ -245,7 +246,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken,
 	}
-	candidateReceipt, err := s.config.Compile(ctx, CompileRequest{
+	candidateReceipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "row-definition-proposal-candidate",
 		RowDefinitionProposal: binding,
@@ -390,7 +391,7 @@ func (s *Service) validateExplicitGroupReceipt(ctx context.Context, proof *expli
 }
 
 func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
-	return s.config.VerifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
+	return s.config.Core.VerifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
 func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
@@ -398,7 +399,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 		return nil, nil, support.Malformed("commands", "APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.config.LookupReceipt(ctx, project, explorerID, command.ProposalID())
+	receipt, err := s.config.Core.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, nil, err
 	}

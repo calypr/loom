@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -28,16 +29,16 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if s.config.MaterializeReceipt == nil || s.config.PrepareRelease == nil || s.config.ValidateReleaseGeneration == nil || (s.config.Capability.Token == nil && s.config.Capability.ForExecution == nil) {
 		return PublishResult{}, support.Unavailable("publish", "PUBLICATION_UNAVAILABLE", "Explorer publication is not configured", nil)
 	}
-	receipt, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
+	receipt, err := s.core.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
 	if err != nil {
 		return PublishResult{}, err
 	}
-	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.core.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PublishResult{}, err
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, receipt.Project, receipt.SnapshotToken)
 	if err != nil {
-		return PublishResult{}, capabilityResolutionFailure("publish", "the receipt's capability snapshot is no longer authorized or retained", err)
+		return PublishResult{}, authoringcore.CapabilityResolutionFailure("publish", "the receipt's capability snapshot is no longer authorized or retained", err)
 	}
 	if strings.TrimSpace(snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
 		return PublishResult{}, support.Conflict("publish", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
@@ -56,7 +57,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 			return PublishResult{}, support.Conflict("publish", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains invalid authoring intent", nil, decodeErr)
 		}
 		if err := workspace.ValidateForPublication(); err != nil {
-			code := workspaceValidationCode(err)
+			code := authoringcore.WorkspaceValidationCode(err)
 			message := "select at least one visible output column for every visible table before publishing"
 			if code == "UNACKNOWLEDGED_RELATED_FIRST" {
 				message = "acknowledge the related-resource FIRST selection before publishing"
@@ -71,7 +72,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 		return PublishResult{}, support.Unavailable("publish", "RELEASE_GENERATION_UNAVAILABLE", "the receipt generation could not be verified", err)
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection}
-	applyAuthorizedScope(&bindings, authorized, true)
+	authoringcore.ApplyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
 		var typed *ports.Error

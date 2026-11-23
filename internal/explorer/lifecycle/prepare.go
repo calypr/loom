@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -197,14 +198,14 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	if strings.TrimSpace(revision.CompilationReceiptID) == "" || strings.TrimSpace(revision.Publication.ExecutionID) == "" {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "REVISION_NOT_PUBLISHED", "revision has no exact receipt/execution identity", nil, nil)
 	}
-	receipt, err := s.lookupReceipt(ctx, project, request.ExplorerID, revision.CompilationReceiptID)
+	receipt, err := s.core.LookupReceipt(ctx, project, request.ExplorerID, revision.CompilationReceiptID)
 	if err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
-	if err := s.validateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
+	if err := s.core.ValidateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
-	if err := validateReceiptOutputContract(receipt, request.OutputID); err != nil {
+	if err := authoringcore.ValidateReceiptOutputContract(receipt, request.OutputID); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Unprocessable("artifact", "OUTPUT_NOT_PUBLISHED", "requested output is not part of the immutable receipt", err)
 	}
 	if receipt.ID != revision.CompilationReceiptID || receipt.SourceGeneration != revision.SourceGeneration || receipt.SourceGeneration == "" {
@@ -212,12 +213,12 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, receipt.SnapshotToken)
 	if err != nil {
-		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, authoringcore.CapabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
-	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	if err := validateArtifactRevisionReceipt(*revision, *receipt); err != nil {

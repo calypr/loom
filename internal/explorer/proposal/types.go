@@ -4,19 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 )
-
-type PreviewResult struct {
-	Receipt *receiptmodel.CompilationReceipt
-	Columns []viewer.EmittedColumn
-	Summary dataframeexecution.PreviewSummary
-}
-
-type PreviewSinkFactory func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error)
 
 type ProposalPreviewOptions struct {
 	Limit                 *int
@@ -24,11 +13,11 @@ type ProposalPreviewOptions struct {
 	Timeout               time.Duration
 	AllowSampledAggregate bool
 	Authorize             func(context.Context) error
-	Sink                  PreviewSinkFactory
+	Sink                  authoringcore.PreviewSinkFactory
 }
 
 type ProposalPreview struct {
-	Result    PreviewResult
+	Result    authoringcore.PreviewResult
 	Started   time.Time
 	Completed bool
 }

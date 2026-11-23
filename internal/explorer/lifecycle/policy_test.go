@@ -12,6 +12,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -190,11 +191,8 @@ func TestPreviousDynamicInventoryCompilerReceiptCannotExecute(t *testing.T) {
 	if err = receipt.Validate(); err != nil {
 		t.Fatalf("historical generic receipt must remain readable: %v", err)
 	}
-	service := &Service{config: Config{CompileReceipt: func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		t.Fatal("must reject without recompiling")
-		return nil, nil
-	}}}
-	err = service.validateReceiptRoute(receipt, "project-a", "patients")
+	core := authoringcore.New(nil, authoringcore.Config{NativeReceipts: true})
+	err = core.ValidateReceiptRoute(receipt, "project-a", "patients")
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "RECEIPT_RECOMPILE_REQUIRED" {
 		t.Fatalf("historical compiler receipt was executable: %v", err)

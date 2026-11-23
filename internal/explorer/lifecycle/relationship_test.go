@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
@@ -90,7 +91,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		if err != nil {
 			return nil, err
 		}
-		receipt.SourceRelationshipProposal = cloneSourceRelationshipProposalBinding(r.SourceRelationshipProposal)
+		receipt.SourceRelationshipProposal = authoringcore.CloneSourceRelationshipProposalBinding(r.SourceRelationshipProposal)
 		receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
 		receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
 		store.receipt = receipt

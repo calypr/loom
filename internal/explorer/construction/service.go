@@ -21,5 +21,5 @@ func (s *Service) PrepareConstructionProposal(ctx context.Context, project, expl
 }
 
 func (s *Service) CurrentWorkspace(ctx context.Context, project, explorerID string) (ws.Workspace, error) {
-	return s.currentWorkspace(ctx, project, explorerID)
+	return s.config.Core.CurrentWorkspace(ctx, "construction-choices", project, explorerID)
 }

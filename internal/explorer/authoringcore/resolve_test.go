@@ -1,4 +1,4 @@
-package population
+package authoringcore
 
 import (
 	"context"

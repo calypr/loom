@@ -78,7 +78,7 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 	if err != nil {
 		return interpretation.InterpretationRevision{}, support.Malformed("interpretation-create", err.Error(), err)
 	}
-	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return interpretation.InterpretationRevision{}, err
 	}

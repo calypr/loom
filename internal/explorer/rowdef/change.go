@@ -3,6 +3,7 @@ package rowdef
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"strings"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -20,7 +21,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil {
 		return AssessRowChangeResult{}, support.Unavailable("row-change", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
-	owner, err := s.config.GetOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.config.Core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
@@ -66,7 +67,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if err != nil {
 		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
 	}
-	candidateReceipt, err := s.config.Compile(ctx, CompileRequest{
+	candidateReceipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: previewWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "row-change-preview-candidate",
 	})
@@ -80,7 +81,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row-change candidate receipt does not contain the requested output", nil, nil)
 	}
 
-	verified, err := s.config.VerifyProposalReceipt(ctx, "row-change", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &previewWorkspace)
+	verified, err := s.config.Core.VerifyProposalReceipt(ctx, "row-change", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &previewWorkspace)
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}

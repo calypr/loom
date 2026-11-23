@@ -3,6 +3,10 @@ package population
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/proposal"
+	"github.com/calypr/loom/internal/explorer/viewer"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -26,10 +30,10 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if request.Limit == 0 {
 		request.Limit = dataframeexecution.DefaultPreviewLimit
 	}
-	if s == nil || s.config.Store == nil || s.capability().ForCompilation == nil || s.capability().Catalog == nil {
+	if s == nil || s.config.Store == nil || s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
 		return PopulationMemberRemovalProposalResponse{}, support.Unavailable("population-member-proposal", "CAPABILITY_UNAVAILABLE", "authorized population proposal compilation is not configured", nil)
 	}
-	authorized, err := s.capability().ForCompilation(ctx, request.Project, request.SnapshotToken)
+	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, support.CapabilityFailure("population-member-proposal", "STALE_CATALOG_SNAPSHOT", "reload the catalog before changing the selected population", err)
 	}
@@ -43,7 +47,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, support.Conflict("population-member-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.config.GetOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	owner, err := s.config.Core.GetOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, support.PersistenceFailure("population-member-proposal", "the Explorer workspace could not be loaded", err)
 	}
@@ -61,7 +65,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err != nil || workspaceDigest != owner.DraftDigest {
 		return PopulationMemberRemovalProposalResponse{}, support.Conflict("population-member-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	documentIndex := s.config.ConstructionDocumentIndex(workspace, request.OutputID)
+	documentIndex := construction.ConstructionDocumentIndex(workspace, request.OutputID)
 	if documentIndex < 0 {
 		return PopulationMemberRemovalProposalResponse{}, support.Unprocessable("population-member-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify one saved table", nil)
 	}
@@ -69,7 +73,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if baseDocument.Population == nil || baseDocument.Population.SelectionRevisionID != request.BaseSelectionID {
 		return PopulationMemberRemovalProposalResponse{}, support.Conflict("population-member-proposal", "STALE_POPULATION_SELECTION", "the requested immutable selection is not attached to this table", nil, nil)
 	}
-	baseDocumentDigest, err := s.config.DocumentDigest(baseDocument)
+	baseDocumentDigest, err := proposal.DocumentDigest(baseDocument)
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, fmt.Errorf("digest population proposal base document: %w", err)
 	}
@@ -113,7 +117,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	candidatePopulation.SelectionRevisionID = candidateSelection.ID
 	candidateDocument.Population = &candidatePopulation
 	candidateWorkspace.Documents[documentIndex] = candidateDocument
-	preparedCandidate, err := ws.PrepareWorkspaceForCompilation(candidateWorkspace, s.config.Catalog(snapshot, request.ExplorerID))
+	preparedCandidate, err := ws.PrepareWorkspaceForCompilation(candidateWorkspace, s.config.Core.Catalog(snapshot, request.ExplorerID))
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, fmt.Errorf("prepare population removal candidate workspace: %w", err)
 	}
@@ -130,7 +134,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 		RouteChoiceID: routeChoiceID, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken, PreviewLimit: request.Limit,
 	}
-	receipt, err := s.config.Compile(ctx, CompileRequest{
+	receipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "population-member-removal-candidate",
 		PopulationMemberRemovalProposal: binding,
@@ -138,7 +142,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, err
 	}
-	if _, err := s.config.VerifyProposalReceipt(ctx, "population-member-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace); err != nil {
+	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "population-member-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, err
 	}
 	if err := support.ValidateReceiptOutputContract(receipt, request.OutputID); err != nil {
@@ -239,7 +243,7 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 		return nil, nil, support.Malformed("commands", "APPLY_POPULATION_MEMBER_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.config.LookupReceipt(ctx, project, explorerID, command.ProposalID())
+	receipt, err := s.config.Core.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -255,12 +259,12 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the saved draft no longer matches the proposal base", nil, err)
 	}
-	baseIndex := s.config.ConstructionDocumentIndex(current, command.OutputID)
+	baseIndex := construction.ConstructionDocumentIndex(current, command.OutputID)
 	if baseIndex < 0 {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}
 	baseDocument := current.Documents[baseIndex]
-	baseDocumentSHA, err := s.config.DocumentDigest(baseDocument)
+	baseDocumentSHA, err := proposal.DocumentDigest(baseDocument)
 	if err != nil || baseDocumentSHA != binding.BaseDocumentDigest || baseDocument.Population == nil || baseDocument.Population.SelectionRevisionID != binding.BaseSelectionRevisionID {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the target table or attached selection changed after proposal creation", nil, err)
 	}
@@ -305,7 +309,7 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	expectedPopulation.SelectionRevisionID = candidateSelection.ID
 	expectedDocument.Population = &expectedPopulation
 	expectedWorkspace.Documents[baseIndex] = expectedDocument
-	preparedExpected, err := ws.PrepareWorkspaceForCompilation(expectedWorkspace, s.config.Catalog(snapshot, explorerID))
+	preparedExpected, err := ws.PrepareWorkspaceForCompilation(expectedWorkspace, s.config.Core.Catalog(snapshot, explorerID))
 	if err != nil {
 		return nil, nil, support.Conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the expected candidate workspace cannot be normalized for compilation", nil, err)
 	}
@@ -313,7 +317,7 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if err != nil || expectedDigest != binding.CandidateWorkspaceDigest || expectedDigest != receipt.IntentDigest {
 		return nil, nil, support.Conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the receipt does not represent the exact base workspace with only its population revision replaced", nil, err)
 	}
-	if _, err := s.config.VerifyProposalReceipt(ctx, "population-member-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
+	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "population-member-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
 		return nil, nil, err
 	}
 	if err := command.ResolvePopulationMemberProposal(candidateSelection.ID, baseDocument.Population.Route); err != nil {
@@ -341,7 +345,14 @@ func (s *Service) PreviewPopulationMemberRemovalProposal(ctx context.Context, pr
 	if receipt == nil || receipt.PopulationMemberRemovalProposal == nil {
 		return support.Conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the candidate receipt was not prepared", nil, nil)
 	}
-	if err := s.config.PreviewMemberRemoval(ctx, receipt, project, explorerID); err != nil {
+	binding := receipt.PopulationMemberRemovalProposal
+	if _, err := s.config.Core.Preview(ctx, authoringcore.PreviewRequest{
+		Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: binding.OutputID,
+		Limit: binding.PreviewLimit,
+		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
+			return func(map[string]any) error { return nil }, nil
+		},
+	}); err != nil {
 		return support.Conflict("commands", "POPULATION_MEMBER_PREVIEW_FAILED", "the exact candidate preview failed; the accepted draft remains unchanged", nil, err)
 	}
 	return nil

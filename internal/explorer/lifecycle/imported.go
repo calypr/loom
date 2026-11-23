@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -44,7 +45,7 @@ func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID
 		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
 
-	if _, err := s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: authorized.Snapshot.Token, RequestID: "source-edit-validation"}); err != nil {
+	if _, err := s.core.Compile(ctx, authoringcore.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: authorized.Snapshot.Token, RequestID: "source-edit-validation"}); err != nil {
 		return nil, err
 	}
 	return prepared, nil

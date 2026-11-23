@@ -30,11 +30,11 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 	if s.config.Capability.ForExecution == nil || s.config.RowLineage == nil {
 		return RowLineageResult{}, support.Unavailable("rowLineage", "ROW_LINEAGE_UNAVAILABLE", "row lineage is not configured", nil)
 	}
-	receipt, err := s.config.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
+	receipt, err := s.config.Core.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
 	if err != nil {
 		return RowLineageResult{}, err
 	}
-	if err := s.config.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.config.Core.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return RowLineageResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)

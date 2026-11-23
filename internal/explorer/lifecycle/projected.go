@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
@@ -114,7 +115,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 	if err != nil {
 		return nil, support.Unprocessable("commands", "INVALID_PROJECTED_FIELD_REMOVAL", err.Error(), err)
 	}
-	if _, err := s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: "projected-field-removal-candidate"}); err != nil {
+	if _, err := s.core.Compile(ctx, authoringcore.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: "projected-field-removal-candidate"}); err != nil {
 		return nil, fmt.Errorf("validate projected field removal candidate: %w", err)
 	}
 	return commands, nil

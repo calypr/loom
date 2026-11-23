@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -1236,7 +1237,7 @@ func TestPopulationRouteResolutionPreservesPinnedEdgesAndRejectsAmbiguousLegacyR
 	t.Run("unique legacy route remains resolvable", func(t *testing.T) {
 		legacyStep := step
 		legacyStep.CatalogEdgeID = ""
-		resolved, _, err := population.ResolveRouteEdge(snapshot, routeEdge.FromNodeID, sourceNode.ResourceType, legacyStep)
+		resolved, _, err := authoringcore.ResolveRouteEdge(snapshot, routeEdge.FromNodeID, sourceNode.ResourceType, legacyStep)
 		if err != nil || resolved.ID != routeEdge.ID {
 			t.Fatalf("unique legacy route resolved edge=%#v err=%v", resolved, err)
 		}

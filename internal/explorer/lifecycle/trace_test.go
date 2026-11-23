@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -87,7 +88,7 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 	if err != nil {
 		return nil, err
 	}
-	receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
+	receipt.ConstructionProposal = authoringcore.CloneConstructionProposalBinding(request.ConstructionProposal)
 	receipt.ConstructionStages = traceReceiptStages(lowered)
 	receipt.CompiledOutputSchemas = traceReceiptOutputSchemas(lowered)
 	receipt.OutputColumnProvenance = traceOutputProvenance(translated.EmittedColumns)

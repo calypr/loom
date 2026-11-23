@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/semanticauthoring"
@@ -115,7 +116,7 @@ func (browse *frameSourceBrowse) BrowseFrameSourceOptions(ctx context.Context, r
 		return result, support.Conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, err)
 	}
 	if err != nil {
-		return result, capabilityResolutionFailure("frame-source-options", "reload the catalog before choosing a frame source", err)
+		return result, authoringcore.CapabilityResolutionFailure("frame-source-options", "reload the catalog before choosing a frame source", err)
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) || snapshot.Identity.Generation == "" {

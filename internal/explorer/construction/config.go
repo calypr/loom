@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -13,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/semantic"
@@ -24,11 +25,11 @@ type CategoryScanner func(context.Context, *receiptmodel.CompilationReceipt, rec
 type ColumnPopulationScanner func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
 
 type AcceptedConstruction struct {
-	Preview      proposal.PreviewResult
+	Preview      authoringcore.PreviewResult
 	PreviewLimit int
 }
 
-type PreviewSinkFactory = proposal.PreviewSinkFactory
+type PreviewSinkFactory = authoringcore.PreviewSinkFactory
 
 type RowChoiceResolver = rowdef.RowChoiceResolver
 type RowChoicePlanner = rowdef.RowChoicePlanner
@@ -45,34 +46,22 @@ type FrameSourceFamilyCandidate struct {
 	Candidate capability.Candidate
 }
 
-type CompileRequest struct {
-	Project               string
-	ExplorerID            string
-	Workspace             ws.Workspace
-	SnapshotToken         string
-	RequestID             string
-	ConstructionProposal  *receiptmodel.ConstructionProposalBinding
-	RowDefinitionProposal *receiptmodel.RowDefinitionProposalBinding
-}
-
-type PreviewRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	Limit      int
-
-	AllowSampledAggregatePreview bool
-
-	SinkFactory proposal.PreviewSinkFactory
-}
-
 type Store interface {
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
 	RevisionWorkspace(context.Context, explorer.Revision) (ws.Workspace, error)
 }
 
+type authoringOperations interface {
+	Compile(context.Context, authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	GetOwner(context.Context, string, string) (*explorer.Explorer, error)
+	LookupReceipt(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	VerifyProposalReceipt(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
+	Preview(context.Context, authoringcore.PreviewRequest) (authoringcore.PreviewResult, error)
+	CurrentWorkspace(context.Context, string, string, string) (ws.Workspace, error)
+}
+
 type Config struct {
+	Core  authoringOperations
 	Store Store
 
 	Capability                         ports.CapabilityResolver
@@ -84,12 +73,6 @@ type Config struct {
 	RowChoicePlanner                   rowdef.RowChoicePlanner
 
 	CompileReceipt ports.ReceiptCompiler
-
-	Compile               func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
-	VerifyProposalReceipt func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
-	GetOwner              func(context.Context, string, string) (*explorer.Explorer, error)
-	LookupReceipt         func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
-	Preview               func(context.Context, PreviewRequest) (proposal.PreviewResult, error)
 
 	ScanCategories       CategoryScanner
 	ScanColumnPopulation ColumnPopulationScanner
@@ -160,21 +143,21 @@ func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.Ca
 }
 
 func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*explorer.Explorer, error) {
-	return s.config.GetOwner(ctx, project, explorerID)
+	return s.config.Core.GetOwner(ctx, project, explorerID)
 }
 
 func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-	return s.config.LookupReceipt(ctx, project, explorerID, receiptID)
+	return s.config.Core.LookupReceipt(ctx, project, explorerID, receiptID)
 }
 
 func (s *Service) verifyProposalReceipt(ctx context.Context, stage string, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
-	return s.config.VerifyProposalReceipt(ctx, stage, receipt, project, explorerID, snapshotToken, snapshot, expected)
+	return s.config.Core.VerifyProposalReceipt(ctx, stage, receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
-func (s *Service) compile(ctx context.Context, request CompileRequest) (*receiptmodel.CompilationReceipt, error) {
-	return s.config.Compile(ctx, request)
+func (s *Service) compile(ctx context.Context, request authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
+	return s.config.Core.Compile(ctx, request)
 }
 
-func (s *Service) Preview(ctx context.Context, request PreviewRequest) (proposal.PreviewResult, error) {
-	return s.config.Preview(ctx, request)
+func (s *Service) Preview(ctx context.Context, request authoringcore.PreviewRequest) (authoringcore.PreviewResult, error) {
+	return s.config.Core.Preview(ctx, request)
 }

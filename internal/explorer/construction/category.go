@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"reflect"
 	"strconv"
 	"strings"
@@ -106,7 +107,7 @@ const (
 
 type constructionScanFlow struct {
 	loadBase                   func(context.Context, string, string, string, int64, string, string) (Base, error)
-	compile                    func(context.Context, CompileRequest) (*receiptmodel.CompilationReceipt, error)
+	compile                    func(context.Context, authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error)
 	verifyProposalReceipt      func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
 	withPivotSources           func(context.Context, Base, ConstructionProposalRequest, ws.Construction) (ws.Construction, map[string]bool, error)
 	scanCategories             CategoryScanner
@@ -258,7 +259,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		return Base{}, "", failureDetails(ports.ClassUnprocessable, "construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE",
 			"the temporary category input construction is invalid", nil, err)
 	}
-	receipt, err := s.compile(ctx, CompileRequest{
+	receipt, err := s.compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-category-discovery-candidate",
 	})

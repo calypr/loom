@@ -15,6 +15,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
@@ -397,7 +398,7 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 	compileBindings := make([]*receiptmodel.RowDefinitionProposalBinding, 0, 2)
 	compile := setup.Config.CompileReceipt
 	setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		compileBindings = append(compileBindings, cloneRowDefinitionProposalBinding(request.RowDefinitionProposal))
+		compileBindings = append(compileBindings, authoringcore.CloneRowDefinitionProposalBinding(request.RowDefinitionProposal))
 		return compile(ctx, request)
 	}
 	service := newTestServiceFromSetup(t, setup)
@@ -721,7 +722,7 @@ func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newTestServiceFromSetup(t, setup)
-	migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
+	migration := migrateStoredWorkspaceFixture(t, draft, service.core.Catalog(snapshot, store.created.ExplorerID))
 	draft = migration.CanonicalJSON
 	decoded, err := ws.DecodeWorkspace(draft)
 	if err != nil {
@@ -974,7 +975,7 @@ func rowProposalSetup(t *testing.T) testServiceSetup {
 		if err != nil {
 			return nil, err
 		}
-		receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
+		receipt.RowDefinitionProposal = authoringcore.CloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
 		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
@@ -1046,7 +1047,7 @@ func columnPolicySetup(t *testing.T) testServiceSetup {
 		if err != nil {
 			return nil, err
 		}
-		receipt.ColumnPolicyProposal = cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal)
+		receipt.ColumnPolicyProposal = authoringcore.CloneColumnPolicyProposalBinding(request.ColumnPolicyProposal)
 		receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err

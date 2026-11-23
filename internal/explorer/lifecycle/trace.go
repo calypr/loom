@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -60,24 +61,24 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	if s.config.Capability.ForExecution == nil || s.config.CellTrace == nil {
 		return CellTraceResult{}, support.Unavailable("cellTrace", "CELL_TRACE_UNAVAILABLE", "cell explanation is not configured", nil)
 	}
-	receipt, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
+	receipt, err := s.core.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
 	if err != nil {
 		return CellTraceResult{}, err
 	}
-	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.core.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return CellTraceResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
 	if err != nil {
-		return CellTraceResult{}, receiptCapabilityFailure("cellTrace", "the receipt's capability snapshot is no longer authorized or retained", err)
+		return CellTraceResult{}, authoringcore.ReceiptCapabilityFailure("cellTrace", "the receipt's capability snapshot is no longer authorized or retained", err)
 	}
 	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
 		return CellTraceResult{}, support.Conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
-	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return CellTraceResult{}, support.Conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if !receiptHasOutput(receipt.Bundle, request.OutputID) || validateReceiptOutputContract(receipt, request.OutputID) != nil {
+	if !authoringcore.ReceiptHasOutput(receipt.Bundle, request.OutputID) || authoringcore.ValidateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return CellTraceResult{}, support.Unprocessable("cellTrace", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
 	feature, ok := receiptCellTraceFeature(receipt, request.OutputID, request.Column)
@@ -90,7 +91,7 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		OutputNames: []string{request.OutputID},
 	}
-	applyAuthorizedScope(&bindings, authorized, false)
+	authoringcore.ApplyAuthorizedScope(&bindings, authorized, false)
 	trace, err := s.config.CellTrace(ctx, receipt, bindings, dataframeexecution.CellTraceRequest{
 		Output: request.OutputID, RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column),
 		Offset: request.Offset, Limit: request.Limit,

@@ -6,57 +6,24 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	"github.com/calypr/loom/internal/explorer/authoringnetwork"
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/population"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/proposal"
 )
 
 func (s *Service) proposalConfig() proposal.Config {
 	return proposal.Config{
-		Capability:        func() ports.CapabilityResolver { return s.config.Capability },
-		GetOwner:          s.getOwner,
-		LookupReceipt:     s.lookupReceipt,
-		CompileConfigured: func() bool { return s.config.CompileReceipt != nil },
-		Compile: func(ctx context.Context, request proposal.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
-			return s.compile(ctx, compileRequest{
-				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
-				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID,
-				ColumnPolicyProposal: request.ColumnPolicyProposal, SourceRelationshipProposal: request.SourceRelationshipProposal,
-			})
-		},
-		VerifyProposalReceipt: s.verifyProposalReceipt,
-		Preview: func(ctx context.Context, request proposal.PreviewRequest) (proposal.PreviewResult, error) {
-			return s.Preview(ctx, PreviewRequest{
-				Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: request.ReceiptID,
-				OutputID: request.OutputID, Limit: request.Limit, SinkFactory: request.SinkFactory,
-			})
-		},
-		Catalog: func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
-			return s.catalog(snapshot, explorerID)
-		},
-		AuthoringNetwork: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error) {
-			return s.config.AuthoringNetwork
-		},
-		EditImportedRelationship: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, authoringv2.ImportedRelationshipChange) (ws.Document, error) {
-			return s.config.EditImportedRelationship
-		},
-		CreateImportedSourceRule: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, ws.SourceRuleCreate) (ws.Document, error) {
-			return s.config.CreateImportedSourceRule
-		},
-		EditImportedSource: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, *authoringv2.ImportedSourceStepChange) (ws.Document, error) {
-			return s.config.EditImportedSource
-		},
-		EditImportedSources: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, []authoringv2.ImportedSourceStepChange) (ws.Document, error) {
-			return s.config.EditImportedSources
-		},
+		Core:                     s.core,
+		Capability:               s.config.Capability,
+		AuthoringNetwork:         s.config.AuthoringNetwork,
+		EditImportedRelationship: s.config.EditImportedRelationship,
+		CreateImportedSourceRule: s.config.CreateImportedSourceRule,
+		EditImportedSource:       s.config.EditImportedSource,
+		EditImportedSources:      s.config.EditImportedSources,
 	}
 }
 

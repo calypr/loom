@@ -1,4 +1,4 @@
-package population
+package authoringcore
 
 import (
 	"context"
@@ -14,11 +14,11 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-type SelectionReader interface {
+type selectionReader interface {
 	GetSelection(context.Context, string, string) (*selection.SelectionRevision, error)
 }
 
-func ResolveWorkspacePopulations(ctx context.Context, project string, workspace ws.Workspace, snapshot capability.Snapshot, scopeDigest string, selections SelectionReader) (explorercompilation.ResolvedInputs, error) {
+func ResolveWorkspacePopulations(ctx context.Context, project string, workspace ws.Workspace, snapshot capability.Snapshot, scopeDigest string, selections selectionReader) (explorercompilation.ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := explorercompilation.ResolvedInputs{}
 	for index, document := range workspace.Documents {
@@ -48,7 +48,7 @@ func ResolveWorkspacePopulations(ctx context.Context, project string, workspace 
 		if strings.TrimSpace(selected.ScopeDigest) != strings.TrimSpace(snapshot.Identity.AuthorizationScopeDigest) || (scopeDigest != "" && strings.TrimSpace(selected.ScopeDigest) != strings.TrimSpace(scopeDigest)) {
 			return inputs, fmt.Errorf("population at documents[%d]: selection authorization scope is stale", index)
 		}
-		resolvedRoute, err := ValidateRoute(document, *population, selected.ResourceType, snapshot)
+		resolvedRoute, err := validateRoute(document, *population, selected.ResourceType, snapshot)
 		if err != nil {
 			return inputs, fmt.Errorf("population at documents[%d]: %w", index, err)
 		}

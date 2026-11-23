@@ -117,13 +117,23 @@ func rowLineageService(t *testing.T, snapshot capability.Snapshot, receipt *rece
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
 		},
-		LookupReceipt: func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
-			return receipt, nil
-		},
-		ValidateExecutableReceiptRoute: func(*receiptmodel.CompilationReceipt, string, string) error { return nil },
+		Core: lineageAuthoringOperations{receipt: receipt},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return service
+}
+
+type lineageAuthoringOperations struct {
+	authoringOperations
+	receipt *receiptmodel.CompilationReceipt
+}
+
+func (c lineageAuthoringOperations) LookupReceipt(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
+	return c.receipt, nil
+}
+
+func (c lineageAuthoringOperations) ValidateExecutableReceiptRoute(*receiptmodel.CompilationReceipt, string, string) error {
+	return nil
 }

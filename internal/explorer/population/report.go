@@ -71,7 +71,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	if strings.TrimSpace(request.ReceiptID) == "" || strings.TrimSpace(request.OutputID) == "" {
 		return PopulationMappingResult{}, support.Malformed("populationMapping", "receiptId and outputId are required", nil)
 	}
-	if s.capability().ForExecution == nil || s.config.PopulationMapping == nil || s.config.PopulationMappingCursorCodec == nil {
+	if s.config.Capability.ForExecution == nil || s.config.PopulationMapping == nil || s.config.PopulationMappingCursorCodec == nil {
 		return PopulationMappingResult{}, support.Unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping is not configured", nil)
 	}
 	limit := request.Limit
@@ -99,14 +99,14 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 		return PopulationMappingResult{}, support.Conflict("populationMapping", "POPULATION_MAPPING_CURSOR_STALE", "population mapping cursor is stale", nil, nil)
 	}
 
-	receipt, err := s.config.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
+	receipt, err := s.config.Core.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
 	if err != nil {
 		return PopulationMappingResult{}, err
 	}
-	if err := s.config.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.config.Core.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PopulationMappingResult{}, err
 	}
-	authorized, err := s.capability().ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
+	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
 	if err != nil {
 		return PopulationMappingResult{}, support.ReceiptCapabilityFailure("populationMapping", "the receipt's capability snapshot is no longer authorized or retained", err)
 	}

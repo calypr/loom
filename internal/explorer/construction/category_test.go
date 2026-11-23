@@ -9,6 +9,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -164,23 +165,13 @@ func constructionPivotVerifyFixture(t *testing.T) (*Service, *explorer.Explorer,
 			},
 			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog },
 		},
-		GetOwner: func(context.Context, string, string) (*explorer.Explorer, error) { return owner, nil },
-		Compile: func(_ context.Context, request CompileRequest) (*receiptmodel.CompilationReceipt, error) {
-			receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
-			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
-				"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
-			}
-			return receipt, nil
-		},
+		Core: categoryAuthoringOperations{owner: owner, snapshot: snapshot},
 		CompileReceipt: func(_ context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
 			receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 			receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
 				"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 			}
 			return receipt, nil
-		},
-		VerifyProposalReceipt: func(_ context.Context, _ string, _ *receiptmodel.CompilationReceipt, _, _, _ string, _ capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
-			return *expected, nil
 		},
 	})
 	if err != nil {
@@ -300,3 +291,26 @@ func TestPruneConstructionCategorySourceProjectionsKeepsRetainedOwnerSteps(t *te
 }
 
 func constructionCategoryDiscoveryInt(value int64) *int64 { return &value }
+
+type categoryAuthoringOperations struct {
+	authoringOperations
+	owner    *explorer.Explorer
+	snapshot capability.Snapshot
+}
+
+func (c categoryAuthoringOperations) GetOwner(context.Context, string, string) (*explorer.Explorer, error) {
+	return c.owner, nil
+}
+
+func (c categoryAuthoringOperations) Compile(_ context.Context, request authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
+
+	receipt := lifecycleConstructionReceipt(c.snapshot, request.Workspace)
+	receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{
+		"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
+	}
+	return receipt, nil
+}
+
+func (c categoryAuthoringOperations) VerifyProposalReceipt(_ context.Context, _ string, _ *receiptmodel.CompilationReceipt, _, _, _ string, _ capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
+	return *expected, nil
+}

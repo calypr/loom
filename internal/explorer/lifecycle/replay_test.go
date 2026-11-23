@@ -15,12 +15,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -609,7 +610,7 @@ type builderFullUIHarness struct {
 	Fixture      builderFullUICapabilityFixture
 	Base         *receiptmodel.CompilationReceipt
 	Capabilities construction.ConstructionCapabilitiesResponse
-	LastPreview  *proposal.PreviewResult
+	LastPreview  *authoringcore.PreviewResult
 }
 
 type builderFullUIObservation struct {

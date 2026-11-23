@@ -25,7 +25,7 @@ func (s *Service) fieldBrowse() *fieldBrowse {
 		capability:        s.config.Capability,
 		semanticCoverage:  s.config.SemanticCoverage,
 		resolveSelections: s.config.ResolveSemanticInventorySelections,
-		getOwner:          s.getOwner,
+		getOwner:          s.core.GetOwner,
 		currentWorkspace:  s.currentWorkspace,
 		storeConfigured:   s.store != nil,
 	}

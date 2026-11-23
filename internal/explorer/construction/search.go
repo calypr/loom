@@ -2,14 +2,12 @@ package construction
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/semanticauthoring"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
@@ -175,36 +173,6 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 		result.Choices = append(result.Choices, choice)
 	}
 	return result, nil
-}
-
-func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (ws.Workspace, error) {
-	project = projectid.Canonical(project)
-	owner, err := s.getOwner(ctx, project, explorerID)
-	if errors.Is(err, explorer.ErrNotFound) {
-		return ws.Workspace{}, notFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
-	}
-	if err != nil {
-		return ws.Workspace{}, persistenceFailure("construction-choices", "the current Explorer workspace could not be loaded", err)
-	}
-	if len(owner.DraftConfig) != 0 {
-		workspace, decodeErr := ws.DecodeWorkspace(owner.DraftConfig)
-		if decodeErr != nil {
-			return ws.Workspace{}, conflict("construction-choices", "DRAFT_STATE_INVALID", "the saved Explorer draft is invalid", nil, decodeErr)
-		}
-		return workspace, nil
-	}
-	if owner.ActiveRevisionID != "" {
-		active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
-		if activeErr != nil {
-			return ws.Workspace{}, persistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
-		}
-		workspace, decodeErr := s.store.RevisionWorkspace(ctx, *active)
-		if decodeErr != nil {
-			return ws.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace is invalid", nil, decodeErr)
-		}
-		return workspace, nil
-	}
-	return ws.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the Explorer has no V2 authoring workspace", nil, nil)
 }
 
 func (s constructionRouteFlow) resolveConstructionSearchSemanticEntry(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semantic.Entry, string, error) {

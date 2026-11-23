@@ -60,7 +60,7 @@ func TestBuilderRequiresExplicitStoredMigrationForLegacyNilSteps(t *testing.T) {
 	if bytes.Equal(current, legacy) {
 		t.Fatal("fixture did not install legacy nil steps")
 	}
-	migration := migrateStoredWorkspaceFixture(t, legacy, service.catalog(snapshot, store.created.ExplorerID))
+	migration := migrateStoredWorkspaceFixture(t, legacy, service.core.Catalog(snapshot, store.created.ExplorerID))
 	if migration.OriginalNilConstructionStepLists != 1 || migration.OriginalLegacyNilStepsDigest == "" {
 		t.Fatalf("missing exact nil-step migration proof: %#v", migration)
 	}
@@ -163,7 +163,7 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.validateReceiptRoute(raw, receipt.Project, receipt.ExplorerID); err != nil {
+	if err := service.core.ValidateReceiptRoute(raw, receipt.Project, receipt.ExplorerID); err != nil {
 		t.Fatalf("historical raw artifact admission failed: %v", err)
 	}
 	if err := raw.ValidateID(); err != nil {

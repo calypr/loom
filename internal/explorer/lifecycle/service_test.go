@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
@@ -46,7 +47,7 @@ func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
 		return nil, &explorercompilation.Error{Stage: "construction", Code: "PIVOT_REDUCER_REQUIRES_NUMERIC", Message: "Choose a numeric value field for this Pivot duplicate rule, or choose Show an error."}
 	}
 	service := newTestService(t, &fakeStore{}, config)
-	_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+	_, err := service.core.Compile(context.Background(), authoringcore.CompileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != "PIVOT_REDUCER_REQUIRES_NUMERIC" {
 		t.Fatalf("compile error = %v, want unprocessable Pivot reducer diagnostic", err)
@@ -798,7 +799,7 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 				return &receipt, nil
 			}
 			service := newTestService(t, store, config)
-			_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+			_, err := service.core.Compile(context.Background(), authoringcore.CompileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
 			var lifecycleErr *ports.Error
 			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != test.code {
 				t.Fatalf("compile error = %v, want %s", err, test.code)
@@ -812,14 +813,14 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 		return base, nil
 	}
 	service := newTestService(t, store, config)
-	_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+	_, err := service.core.Compile(context.Background(), authoringcore.CompileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "COMPILATION_RECEIPT_NOT_PERSISTED" {
 		t.Fatalf("unpersisted compile error = %v, want COMPILATION_RECEIPT_NOT_PERSISTED", err)
 	}
 
 	store.receipt = base
-	compiled, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+	compiled, err := service.core.Compile(context.Background(), authoringcore.CompileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
 	if err != nil || compiled == nil || compiled.ID != base.ID {
 		t.Fatalf("persisted compile = %#v, err=%v", compiled, err)
 	}
@@ -970,13 +971,13 @@ func TestValidateReceiptRouteAcceptsEquivalentProjectIdentities(t *testing.T) {
 	receipt := nativeReceipt(readySnapshot("HTAN_INT/BForePC", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}))
 	for _, project := range []string{"HTAN_INT/BForePC", "HTAN_INT%2FBForePC", "HTAN_INT-BForePC"} {
 		t.Run(project, func(t *testing.T) {
-			if err := (&Service{}).validateReceiptRoute(receipt, project, "patients"); err != nil {
+			if err := (&authoringcore.Core{}).ValidateReceiptRoute(receipt, project, "patients"); err != nil {
 				t.Fatalf("equivalent project identity %q was rejected: %v", project, err)
 			}
 		})
 	}
 
-	err := (&Service{}).validateReceiptRoute(receipt, "HTAN_INT/OtherProject", "patients")
+	err := (&authoringcore.Core{}).ValidateReceiptRoute(receipt, "HTAN_INT/OtherProject", "patients")
 	var value *ports.Error
 	if !errors.As(err, &value) || value.Code != "COMPILE_RECEIPT_NOT_FOUND" {
 		t.Fatalf("different project error = %v, want COMPILE_RECEIPT_NOT_FOUND", err)
@@ -987,10 +988,10 @@ func TestAuthorizedReceiptExecutionPreservesRestrictedEmptyScope(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
 	receipt := &receiptmodel.CompilationReceipt{Project: "project-a", SnapshotToken: "token", SourceGeneration: "generation-a", CapabilitySchemaDigest: "schema", AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest}
-	if err := validateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}); err != nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{}}); err == nil {
+	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{}}); err == nil {
 		t.Fatal("empty scope mode widened restricted receipt")
 	}
 }
