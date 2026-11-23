@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	populationpkg "github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -41,7 +42,7 @@ func (s *Service) resolveWorkspacePopulations(ctx context.Context, project strin
 		if strings.TrimSpace(selection.ScopeDigest) != strings.TrimSpace(snapshot.Identity.AuthorizationScopeDigest) || (scopeDigest != "" && strings.TrimSpace(selection.ScopeDigest) != strings.TrimSpace(scopeDigest)) {
 			return inputs, fmt.Errorf("population at documents[%d]: selection authorization scope is stale", index)
 		}
-		resolvedRoute, err := validatePopulationRoute(document, *population, selection.ResourceType, snapshot)
+		resolvedRoute, err := populationpkg.ValidateRoute(document, *population, selection.ResourceType, snapshot)
 		if err != nil {
 			return inputs, fmt.Errorf("population at documents[%d]: %w", index, err)
 		}
@@ -53,7 +54,7 @@ func (s *Service) resolveWorkspacePopulations(ctx context.Context, project strin
 	return inputs.Canonical(), nil
 }
 
-func validatePopulationRoute(document authoringv2.Document, population authoringv2.Population, selectionType string, snapshot capability.Snapshot) ([]authoringv2.PopulationRouteStep, error) {
+func ValidateRoute(document authoringv2.Document, population authoringv2.Population, selectionType string, snapshot capability.Snapshot) ([]authoringv2.PopulationRouteStep, error) {
 	rootNodes := make([]capability.Node, 0, 1)
 	for _, node := range snapshot.Nodes {
 		if node.ResourceType == document.RootResourceType && node.RowRootEligible {
@@ -74,7 +75,7 @@ func validatePopulationRoute(document authoringv2.Document, population authoring
 		if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
 			return nil, fmt.Errorf("population route[%d] has an unsupported storage direction", index)
 		}
-		edge, target, err := resolvePopulationRouteEdge(snapshot, currentID, currentType, step)
+		edge, target, err := ResolveRouteEdge(snapshot, currentID, currentType, step)
 		if err != nil {
 			return nil, fmt.Errorf("population route[%d] relationship %q is ambiguous or stale: %w", index, step.Relationship, err)
 		}
@@ -99,7 +100,7 @@ func validatePopulationRoute(document authoringv2.Document, population authoring
 	return resolvedRoute, nil
 }
 
-func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
+func ResolveRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
 	valid := func(edge capability.Edge) (capability.Node, bool) {
 		return snapshot.MatchPopulationRouteEdge(edge, currentID, currentType, step.ResourceType, step.Relationship, step.StorageDirection)
 	}

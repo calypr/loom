@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/population"
 )
 
 func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, capability.Snapshot, authoringv2.CatalogSnapshot, capability.Candidate) {
@@ -1225,7 +1226,7 @@ func TestPopulationRouteResolutionPreservesPinnedEdgesAndRejectsAmbiguousLegacyR
 	t.Run("unique legacy route remains resolvable", func(t *testing.T) {
 		legacyStep := step
 		legacyStep.CatalogEdgeID = ""
-		resolved, _, err := resolvePopulationRouteEdge(snapshot, routeEdge.FromNodeID, sourceNode.ResourceType, legacyStep)
+		resolved, _, err := population.ResolveRouteEdge(snapshot, routeEdge.FromNodeID, sourceNode.ResourceType, legacyStep)
 		if err != nil || resolved.ID != routeEdge.ID {
 			t.Fatalf("unique legacy route resolved edge=%#v err=%v", resolved, err)
 		}
