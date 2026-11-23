@@ -3,21 +3,18 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
-
-	"github.com/calypr/loom/internal/authscope"
-
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -25,6 +22,8 @@ import (
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
@@ -557,6 +556,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []field
 	}
 	return sourceIdentityFixture{resolver, authorized, snapshot, workspace}
 }
+
 func TestImportedSourceGeneratedNamingPreservesNativeKeys(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -890,4 +890,407 @@ func stageColumnsForSourceIdentity(columns []ws.Column) []ws.StageColumn {
 		result = append(result, ws.StageColumn{ID: c.ColumnID, Name: c.Column, Label: c.Label, Type: c.LogicalType})
 	}
 	return result
+}
+
+const (
+	importedOutputID    = "MedicationAdministration"
+	doseUnitColumnID    = "builder_dose_unit"
+	medCategoryColumnID = "builder_medication_category"
+)
+
+type unifiedAuthoringFixture struct {
+	bundle     recipe.Bundle
+	digest     string
+	resolver   Sources
+	authorized ports.AuthorizedCapability
+	workspace  ws.Workspace
+}
+
+func findUnifiedRecipeOutput(bundle recipe.Bundle, name string) (recipe.Output, bool) {
+	for _, output := range bundle.Outputs {
+		if output.Name == name {
+			return output, true
+		}
+	}
+	return recipe.Output{}, false
+}
+
+func unifiedColumnIDs(columns []ws.Column) []string {
+	ids := make([]string, 0, len(columns))
+	for _, column := range columns {
+		ids = append(ids, column.ColumnID)
+	}
+	return ids
+}
+
+func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("..", "recipeimport", "testdata", "default-dataframer.json"))
+	if err != nil {
+		t.Fatalf("read checked-in imported recipe fixture: %v", err)
+	}
+	var bundle recipe.Bundle
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		t.Fatalf("decode checked-in imported recipe fixture: %v", err)
+	}
+	if len(bundle.Outputs) == 0 {
+		t.Fatal("imported recipe fixture has no outputs")
+	}
+	output, ok := findUnifiedRecipeOutput(bundle, importedOutputID)
+	if !ok {
+		t.Fatalf("imported recipe fixture has no %q output", importedOutputID)
+	}
+	bundle.Outputs = []recipe.Output{output}
+	digest, err := bundle.Digest()
+	if err != nil {
+		t.Fatalf("digest imported recipe fixture: %v", err)
+	}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+			return nil, nil
+		}, nil),
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			t.Fatal("baseline fixture unexpectedly queried live data")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("create isolated recipe resolver: %v", err)
+	}
+	resolver := Sources{registry: registry, engine: engine, defaultName: bundle.Name}
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_medication_administration", ResourceType: "MedicationAdministration", RowRootEligible: true, RowGrain: "resource"}},
+		nil,
+		[]capability.Candidate{{ID: "dose-unit", NodeID: "n_medication_administration", ResourceType: "MedicationAdministration", FieldPath: "dosage.dose.unit", Label: "Dose unit", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
+		nil,
+	)
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	source, err := resolver.load(context.Background(), "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
+	if err != nil {
+		if sourceErr, ok := err.(*ports.Error); ok && sourceErr.Cause != nil {
+			t.Fatalf("resolve checked-in imported recipe fixture: %v", sourceErr.Cause)
+		}
+		t.Fatalf("resolve checked-in imported recipe fixture: %v", err)
+	}
+	schemas := make(map[string][]recipe.StageColumn, len(source.resolved.Compiled.Outputs))
+	for _, output := range source.resolved.Compiled.Outputs {
+		columns, err := importedSourceSchema(output.OutputSchema)
+		if err != nil {
+			t.Fatalf("derive %q imported schema: %v", output.Name, err)
+		}
+		for _, column := range columns {
+			schemas[output.Name] = append(schemas[output.Name], column.Column)
+		}
+	}
+	workspace, err := recipeimport.ImportWorkspace(bundle, ws.CatalogFromCapability(snapshot, "test"), schemas)
+	if err != nil {
+		t.Fatalf("import checked-in recipe into Builder document: %v", err)
+	}
+	var selected *ws.Document
+	for index := range workspace.Documents {
+		if workspace.Documents[index].Output.ID == importedOutputID {
+			selected = &workspace.Documents[index]
+			break
+		}
+	}
+	if selected == nil {
+		t.Fatalf("imported workspace has no %q document", importedOutputID)
+	}
+	var selectedTab []ws.Tab
+	for _, tab := range workspace.Tabs {
+		if tab.OutputID == importedOutputID {
+			selectedTab = append(selectedTab, tab)
+		}
+	}
+	workspace.Documents = []ws.Document{*selected}
+	workspace.Tabs = selectedTab
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("selected imported output workspace is invalid: %v", err)
+	}
+	return unifiedAuthoringFixture{bundle: bundle, digest: digest, resolver: resolver, authorized: authorized, workspace: workspace}
+}
+
+func addUnifiedAuthoringColumns(t *testing.T, document ws.Document) ws.Document {
+	t.Helper()
+	visible := true
+	document.Columns = append(document.Columns,
+		ws.Column{
+			ColumnID: doseUnitColumnID, Column: "dose_unit", Label: "Dose unit", LogicalType: "string",
+			OccurrenceID: ws.RootOccurrenceID,
+			Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "dosage.dose.unit", ProjectionMode: "VALUE"}},
+			Table:        &ws.TablePresentation{Visible: &visible},
+		},
+		ws.Column{
+			ColumnID: medCategoryColumnID, Column: "medication_category", Label: "Medication category", LogicalType: "string",
+			OccurrenceID: ws.RootOccurrenceID,
+			Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: &ws.LookupSource{
+				Binding: &fhirbinding.CorrelatedBinding{
+					OwnerPath: "category[]", KeyPath: "category[].coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+					SelectionScope: fhirbinding.CorrelatedSelectionScopeExact,
+					SystemPath:     "system", CodePath: "code", ValuePath: "display",
+					ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
+				},
+				Key: &fhirbinding.CorrelatedKey{System: "urn:example:medication-administration-category", Code: "inpatient"},
+			}},
+			Table: &ws.TablePresentation{Visible: &visible},
+		},
+	)
+	if err := document.Validate(); err != nil {
+		t.Fatalf("imported recipe plus Builder columns is invalid: %v", err)
+	}
+	return document
+}
+
+func TestImportedSourceEditRetainsBuilderAddedColumns(t *testing.T) {
+	fixture := newUnifiedAuthoringFixture(t)
+	document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
+	params := copySourceParametersForTest(t, document, "fields")
+	if params.FieldGroup == nil || len(params.FieldGroup.Fields) == 0 {
+		t.Fatal("MedicationAdministration fixture has no editable source fields")
+	}
+	params.FieldGroup.Fields[0].Label = "Administration identifier"
+	updated, err := fixture.resolver.Edit(context.Background(), "project-a", fixture.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
+	if err != nil {
+		t.Fatalf("edit imported recipe source: %v", err)
+	}
+	if !reflect.DeepEqual(updated.ImportedRecipe, document.ImportedRecipe) {
+		t.Fatal("source edit changed the immutable imported recipe pin")
+	}
+	wantColumns := append([]ws.Column(nil), document.Columns...)
+	wantColumns[0].Label = params.FieldGroup.Fields[0].Label
+	if !reflect.DeepEqual(updated.Columns, wantColumns) {
+		t.Fatalf("source edit changed the authored column sequence or dropped Builder additions: got ids %v, want ids %v", unifiedColumnIDs(updated.Columns), unifiedColumnIDs(wantColumns))
+	}
+
+	workspace := fixture.workspace
+	workspace.Documents = []ws.Document{updated}
+	resolved, err := fixture.resolver.Resolve(context.Background(), "project-a", workspace, fixture.authorized)
+	if err != nil {
+		t.Fatalf("resolve edited imported recipe: %v", err)
+	}
+	compiled, err := explorercompilation.CompileWorkspace(context.Background(), "project-a", "test", workspace, fixture.authorized.Snapshot, explorercompilation.ResolvedInputs{ImportedRecipes: resolved})
+	if err != nil {
+		t.Fatalf("compile imported recipe after source edit: %v", err)
+	}
+	if len(compiled.Bundle.Outputs) != 1 || len(compiled.Presentations) != 1 || len(compiled.OutputContracts) != 1 {
+		t.Fatalf("edited compile has incomplete output metadata: %#v", compiled)
+	}
+	output := compiled.Bundle.Outputs[0]
+	var doseUnit *recipe.Field
+	for index := range output.Fields {
+		if output.Fields[index].ColumnID == doseUnitColumnID {
+			doseUnit = &output.Fields[index]
+			break
+		}
+	}
+	if doseUnit == nil || doseUnit.Name != "dose_unit" || doseUnit.Label != "Dose unit" || doseUnit.FieldRef != "dosage.dose.unit" {
+		t.Fatalf("compiled direct Builder projection lost its identity or meaning: %#v", doseUnit)
+	}
+	var medicationCategory *recipe.Pivot
+	for index := range output.Pivots {
+		if output.Pivots[index].ColumnAliases["inpatient"] == "medication_category" {
+			medicationCategory = &output.Pivots[index]
+			break
+		}
+	}
+	if medicationCategory == nil || medicationCategory.Correlation == nil || medicationCategory.CorrelationCode != "inpatient" {
+		t.Fatalf("compiled coded-value Builder projection lost its exact category binding: %#v", medicationCategory)
+	}
+	presentation := compiled.Presentations[0].Columns
+	columnOrder := map[string]int{}
+	for _, column := range presentation {
+		columnOrder[column.PublicColumn] = column.Order
+	}
+	doseOrder, dosePresent := columnOrder["dose_unit"]
+	categoryOrder, categoryPresent := columnOrder["medication_category"]
+	if !dosePresent || !categoryPresent || doseOrder >= categoryOrder {
+		t.Fatalf("compiled presentation lost authored column order: dose=%d present=%v category=%d present=%v", doseOrder, dosePresent, categoryOrder, categoryPresent)
+	}
+	for _, expected := range []string{"dose_unit", "medication_category"} {
+		found := false
+		for _, column := range compiled.OutputContracts[0].Columns {
+			if column.Column == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("compiled output contract omitted authored column %q", expected)
+		}
+	}
+}
+
+func importedSchemaFromDocument(document ws.Document) []recipe.StageColumn {
+	var schema []recipe.StageColumn
+	for _, column := range document.Columns {
+		if !isImportedRecipeColumn(column) {
+			continue
+		}
+		schema = append(schema, recipe.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	return schema
+}
+
+func rebuildSourceOutput(t *testing.T, fixture unifiedAuthoringFixture) recipe.Output {
+	t.Helper()
+	output, ok := findUnifiedRecipeOutput(fixture.bundle, importedOutputID)
+	if !ok {
+		t.Fatalf("fixture has no %q output", importedOutputID)
+	}
+	return output
+}
+
+func rebuildSourceCatalog(fixture unifiedAuthoringFixture) ws.CatalogSnapshot {
+	return ws.CatalogFromCapability(fixture.authorized.Snapshot, "")
+}
+
+func TestRebuildImportedDocumentPreservesAuthoredColumnsAcrossSchemaChanges(t *testing.T) {
+	fixture := newUnifiedAuthoringFixture(t)
+	document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
+	pinned := importedSchemaFromDocument(document)
+	if len(pinned) < 4 {
+		t.Fatalf("fixture has only %d pinned columns", len(pinned))
+	}
+	authoredDirect, authoredCoded := document.Columns[len(document.Columns)-2], document.Columns[len(document.Columns)-1]
+	visible, tableOrder, filterOrder, chartOrder := false, 7, 3, 2
+	authoredDirect.Table = &ws.TablePresentation{Visible: &visible, Order: &tableOrder, Pinned: true, CellRenderer: "fileActions"}
+	authoredDirect.Filter = &ws.FilterPresentation{Label: "Dose filter", Order: &filterOrder}
+	authoredDirect.Chart = &ws.ChartPresentation{Type: "bar", Title: "Dose units", Order: &chartOrder}
+	authoredDirect.LogicalType = "string"
+	authoredCoded.Table = &ws.TablePresentation{Visible: &visible, Pinned: true}
+	authoredCoded.Label = "Authored medication category"
+	document.Columns = []ws.Column{
+		document.Columns[0], authoredDirect, document.Columns[1], document.Columns[2],
+		authoredCoded, document.Columns[3], document.Columns[4],
+	}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("interleaved source and authored columns are invalid: %v", err)
+	}
+	wantAuthored := []ws.Column{authoredDirect, authoredCoded}
+
+	schema := []recipe.StageColumn{
+		{ID: pinned[0].ID, Name: "renamed_pinned_column", Label: "Renamed source field", Type: "string"},
+		{ID: "new_pinned_column_id", Name: "new_pinned_column", Label: "New pinned field", Type: "boolean"},
+		pinned[1], pinned[3], pinned[4],
+	}
+	updated, err := rebuildImportedDocument(document, rebuildSourceOutput(t, fixture), schema, rebuildSourceCatalog(fixture))
+	if err != nil {
+		t.Fatalf("rebuild changed imported schema: %v", err)
+	}
+	gotIDs := unifiedColumnIDs(updated.Columns)
+	wantIDs := []string{pinned[0].ID, authoredDirect.ColumnID, "new_pinned_column_id", pinned[1].ID, authoredCoded.ColumnID, pinned[3].ID, pinned[4].ID}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("merged column order = %v, want %v", gotIDs, wantIDs)
+	}
+	var gotAuthored []ws.Column
+	for _, column := range updated.Columns {
+		if column.ColumnID == authoredDirect.ColumnID || column.ColumnID == authoredCoded.ColumnID {
+			gotAuthored = append(gotAuthored, column)
+		}
+	}
+	if !reflect.DeepEqual(gotAuthored, wantAuthored) {
+		t.Fatalf("authored column metadata changed during schema refresh:\n got: %#v\nwant: %#v", gotAuthored, wantAuthored)
+	}
+	if got := updated.Columns[0]; got.Column != "renamed_pinned_column" || got.Label != "Renamed source field" || got.Source.Imported == nil || got.Source.Imported.OutputColumn != got.Column {
+		t.Fatalf("stable pinned column did not refresh its schema identity: %#v", got)
+	}
+	for _, column := range updated.Columns {
+		if column.ColumnID == pinned[2].ID {
+			t.Fatalf("removed pinned schema column %q remained in the candidate", pinned[2].ID)
+		}
+	}
+}
+
+func TestRebuildImportedDocumentRejectsAuthoredIdentityAndNameCollisions(t *testing.T) {
+	t.Run("stable id collision", func(t *testing.T) {
+		fixture := newUnifiedAuthoringFixture(t)
+		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
+		document.Columns[len(document.Columns)-2].ColumnID = "new_pinned_column_id"
+		inputColumns := append([]ws.Column(nil), document.Columns...)
+		schema := append(importedSchemaFromDocument(document), recipe.StageColumn{ID: "new_pinned_column_id", Name: "new_pinned", Label: "New pinned"})
+		updated, err := rebuildImportedDocument(document, rebuildSourceOutput(t, fixture), schema, rebuildSourceCatalog(fixture))
+		if err == nil || !strings.Contains(err.Error(), "collides with an authored column") {
+			t.Fatalf("stable ID collision returned document=%#v err=%v", updated, err)
+		}
+		if !reflect.DeepEqual(document.Columns, inputColumns) {
+			t.Fatal("rejected source rebuild mutated the caller's document")
+		}
+	})
+
+	t.Run("public name collision", func(t *testing.T) {
+		fixture := newUnifiedAuthoringFixture(t)
+		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
+		schema := append(importedSchemaFromDocument(document), recipe.StageColumn{ID: "new_pinned_name_collision", Name: "dose_unit", Label: "Conflicting source name"})
+		updated, err := rebuildImportedDocument(document, rebuildSourceOutput(t, fixture), schema, rebuildSourceCatalog(fixture))
+		if err == nil || !strings.Contains(err.Error(), "duplicate column") {
+			t.Fatalf("public name collision returned document=%#v err=%v", updated, err)
+		}
+	})
+}
+
+func TestRebuildImportedDocumentRejectsRemovedAuthoredDependencies(t *testing.T) {
+	t.Run("removed route", func(t *testing.T) {
+		fixture := newUnifiedAuthoringFixture(t)
+		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
+		document.Route.Children = []ws.RouteNode{{OccurrenceID: "pinned_child", ResourceType: "Patient", Relationship: "subject"}}
+		document.Columns[len(document.Columns)-2].OccurrenceID = "pinned_child"
+		if err := document.Validate(); err != nil {
+			t.Fatalf("route dependency fixture is invalid: %v", err)
+		}
+		output := rebuildSourceOutput(t, fixture)
+		output.Traversals = nil
+		updated, err := rebuildImportedDocument(document, output, importedSchemaFromDocument(document), rebuildSourceCatalog(fixture))
+		if err == nil || !strings.Contains(err.Error(), "unknown occurrence") {
+			t.Fatalf("removed route returned document=%#v err=%v", updated, err)
+		}
+	})
+
+	t.Run("removed fixed filter output", func(t *testing.T) {
+		fixture := newUnifiedAuthoringFixture(t)
+		document := fixture.workspace.Documents[0]
+		if len(document.Columns) == 0 {
+			t.Fatal("fixture has no imported columns")
+		}
+		removed := document.Columns[0]
+		document.FixedFilters = []ws.FixedFilter{{Column: removed.Column, Values: []string{"active"}}}
+		if err := document.Validate(); err != nil {
+			t.Fatalf("fixed filter dependency fixture is invalid: %v", err)
+		}
+		schema := importedSchemaFromDocument(document)[1:]
+		updated, err := rebuildImportedDocument(document, rebuildSourceOutput(t, fixture), schema, rebuildSourceCatalog(fixture))
+		if err == nil || !strings.Contains(err.Error(), "fixedFilters") {
+			t.Fatalf("removed fixed-filter column returned document=%#v err=%v", updated, err)
+		}
+	})
+
+	t.Run("removed construction input", func(t *testing.T) {
+		fixture := newUnifiedAuthoringFixture(t)
+		document := addUnifiedAuthoringColumns(t, fixture.workspace.Documents[0])
+		input := document.Columns[0]
+		outputs := make([]ws.StageColumn, len(document.Columns))
+		for index, column := range document.Columns {
+			outputs[index] = ws.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType}
+		}
+		document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+			ID: "retain_source", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+				ColumnID: input.ColumnID, Operator: ws.ConstructionFilterExists,
+			}},
+			Outputs: outputs,
+		}}}
+		if err := document.Validate(); err != nil {
+			t.Fatalf("construction dependency fixture is invalid: %v", err)
+		}
+		schema := importedSchemaFromDocument(document)[1:]
+		updated, err := rebuildImportedDocument(document, rebuildSourceOutput(t, fixture), schema, rebuildSourceCatalog(fixture))
+		if err == nil || !strings.Contains(err.Error(), "construction") {
+			t.Fatalf("removed construction input returned document=%#v err=%v", updated, err)
+		}
+	})
 }
