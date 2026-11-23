@@ -1,4 +1,4 @@
-package arango
+package publicationdb
 
 import (
 	"context"
@@ -69,7 +69,7 @@ func normalizeViewBuilderConflict(err error) error {
 func readViewBuilderSettings(ctx context.Context, tx store.RowQueryer, project string) (*viewBuilderSettingsRow, error) {
 	var found *viewBuilderSettingsRow
 	err := tx.QueryRows(ctx, viewBuilderSettingsReadAQL, 1, map[string]any{
-		"@c": ViewBuilderSettingsCollection, "key": viewBuilderSettingsKey(project),
+		"@c": db.ViewBuilderSettingsCollection, "key": viewBuilderSettingsKey(project),
 	}, func(doc map[string]any) error {
 		if found != nil {
 			return fmt.Errorf("duplicate view builder settings for project %q", project)
@@ -118,7 +118,7 @@ func writeViewBuilderSettings(ctx context.Context, tx store.RowQueryer, current 
 	if current == nil {
 		var inserted bool
 		err := tx.QueryRows(ctx, viewBuilderSettingsInsertAQL, 1, map[string]any{
-			"@c": ViewBuilderSettingsCollection, "doc": doc,
+			"@c": db.ViewBuilderSettingsCollection, "doc": doc,
 		}, func(map[string]any) error { inserted = true; return nil })
 		if err != nil {
 			return fmt.Errorf("insert view builder settings: %w", err)
@@ -139,7 +139,7 @@ func writeViewBuilderSettings(ctx context.Context, tx store.RowQueryer, current 
 	}
 	var updated bool
 	err = tx.QueryRows(ctx, viewBuilderSettingsCASAQL, 1, map[string]any{
-		"@c": ViewBuilderSettingsCollection, "key": key, "expectedRev": expectedRev, "patch": patch,
+		"@c": db.ViewBuilderSettingsCollection, "key": key, "expectedRev": expectedRev, "patch": patch,
 	}, func(map[string]any) error { updated = true; return nil })
 	if err != nil {
 		return fmt.Errorf("update view builder settings: %w", err)
@@ -177,7 +177,7 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 	}
 	publication = canonical[0]
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{
-		Write: []string{ViewBuilderSettingsCollection, ExplorersCollection, RevisionsCollection},
+		Write: []string{db.ViewBuilderSettingsCollection, db.ExplorersCollection, db.RevisionsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		settings, err := readViewBuilderSettings(txCtx, tx, project)
 		if err != nil {
@@ -255,7 +255,7 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 			return err
 		}
 		if reactivate {
-			if err := updateActivationDocument(txCtx, tx, RevisionsCollection, publication.Revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
+			if err := updateActivationDocument(txCtx, tx, db.RevisionsCollection, publication.Revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
 				return fmt.Errorf("prepare superseded view revision %q for reactivation: %w", publication.Revision.ID, err)
 			}
 		}
@@ -263,8 +263,8 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 			return err
 		}
 		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{
-			"@explorers": ExplorersCollection, "@revisions": RevisionsCollection,
-			"explorerKey": explorerKey(project, publication.Definition.ID), "revisionKey": publication.Revision.ID,
+			"@explorers": db.ExplorersCollection, "@revisions": db.RevisionsCollection,
+			"explorerKey": explorerDocumentKey(project, publication.Definition.ID), "revisionKey": publication.Revision.ID,
 			"project": project, "explorerId": publication.Definition.ID, "management": explorer.ManagementRepository,
 		})
 		if err != nil {
@@ -300,7 +300,7 @@ func validateViewBuilderDefaultBinding(settings explorer.ViewBuilderSettings, de
 func readProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project, id string) (*projectConfigOwner, error) {
 	var owner *projectConfigOwner
 	err := tx.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, 1, map[string]any{
-		"@c": ExplorersCollection, "key": explorerKey(project, id), "project": project,
+		"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, id), "project": project,
 	}, func(row map[string]any) error {
 		value, err := db.Decode[explorer.Explorer](row)
 		if err != nil {
@@ -357,12 +357,12 @@ func writeViewBuilderConfigOwner(ctx context.Context, tx store.RowQueryer, proje
 		DraftVersion: 1, DraftDigest: digest, UpdatedBy: revision.CreatedBy, UpdatedAt: updatedAt.UTC(),
 	}
 	if previous == nil {
-		doc, err := db.Document(owner, explorerKey(project, owner.ExplorerID))
+		doc, err := db.Document(owner, explorerDocumentKey(project, owner.ExplorerID))
 		if err != nil {
 			return err
 		}
 		var inserted bool
-		if err := tx.QueryRows(ctx, insertProjectConfigOwnerAQL, 1, map[string]any{"@c": ExplorersCollection, "doc": doc}, func(map[string]any) error { inserted = true; return nil }); err != nil {
+		if err := tx.QueryRows(ctx, insertProjectConfigOwnerAQL, 1, map[string]any{"@c": db.ExplorersCollection, "doc": doc}, func(map[string]any) error { inserted = true; return nil }); err != nil {
 			return err
 		}
 		if !inserted {
@@ -382,7 +382,7 @@ func writeViewBuilderConfigOwner(ctx context.Context, tx store.RowQueryer, proje
 	}
 	var updated bool
 	err = tx.QueryRows(ctx, updateProjectConfigOwnerAQL, 1, map[string]any{
-		"@c": ExplorersCollection, "key": explorerKey(project, owner.ExplorerID),
+		"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, owner.ExplorerID),
 		"expectedRev": stringValue(previous.doc["_rev"]), "patch": patch,
 	}, func(map[string]any) error { updated = true; return nil })
 	if err != nil {
@@ -407,7 +407,7 @@ func (s *ViewBuilderStore) DeleteViewBuilderConfig(ctx context.Context, project,
 		return explorer.ErrDraftConflict
 	}
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{
-		Write: []string{ViewBuilderSettingsCollection, ExplorersCollection, RevisionsCollection},
+		Write: []string{db.ViewBuilderSettingsCollection, db.ExplorersCollection, db.RevisionsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		settings, err := readViewBuilderSettings(txCtx, tx, project)
 		if err != nil {
@@ -428,7 +428,7 @@ func (s *ViewBuilderStore) DeleteViewBuilderConfig(ctx context.Context, project,
 		}
 		var removed bool
 		err = tx.QueryRows(txCtx, deleteViewBuilderOwnerAQL, 1, map[string]any{
-			"@c": ExplorersCollection, "key": explorerKey(project, id), "expectedRev": stringValue(owner.doc["_rev"]),
+			"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, id), "expectedRev": stringValue(owner.doc["_rev"]),
 			"project": project, "explorerId": id, "management": explorer.ManagementRepository,
 			"revisionId": expectedRevisionID,
 		}, func(map[string]any) error { removed = true; return nil })
@@ -455,8 +455,8 @@ func (s *ViewBuilderStore) SaveViewBuilderDefaults(ctx context.Context, project 
 		return fmt.Errorf("view builder default config and frame are required")
 	}
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{
-		Read:  []string{ExplorersCollection},
-		Write: []string{ViewBuilderSettingsCollection},
+		Read:  []string{db.ExplorersCollection},
+		Write: []string{db.ViewBuilderSettingsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		settings, err := readViewBuilderSettings(txCtx, tx, project)
 		if err != nil {
@@ -507,8 +507,8 @@ func (s *ViewBuilderStore) AdoptViewBuilderCatalogs(ctx context.Context, project
 		return fmt.Errorf("view builder project is required")
 	}
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{
-		Read:  []string{ExplorersCollection},
-		Write: []string{RevisionsCollection, ViewBuilderSettingsCollection},
+		Read:  []string{db.ExplorersCollection},
+		Write: []string{db.RevisionsCollection, db.ViewBuilderSettingsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		owners, err := readProjectConfigOwners(txCtx, tx, project)
 		if err != nil {
@@ -563,7 +563,7 @@ func (s *ViewBuilderStore) AdoptViewBuilderCatalogs(ctx context.Context, project
 		catalogSnapshots := make(map[string]explorer.Revision, len(byRecipe))
 		for recipeName, revision := range byRecipe {
 			if updated.Catalogs[recipeName] == "" {
-				snapshot := adoptedCatalogSnapshot(revision, recipeName)
+				snapshot := AdoptedCatalogSnapshot(revision, recipeName)
 				catalogSnapshots[recipeName] = snapshot
 				updated.Catalogs[recipeName] = snapshot.ID
 				changed = true
@@ -611,7 +611,7 @@ func parseViewBuilderFrameID(frameID string) (string, string, bool) {
 	return parts[0], parts[1], true
 }
 
-func adoptedCatalogSnapshot(source explorer.Revision, recipeName string) explorer.Revision {
+func AdoptedCatalogSnapshot(source explorer.Revision, recipeName string) explorer.Revision {
 	id := "catalog_" + db.Key(source.Project, recipeName, source.Publication.ExecutionID, source.RecipeDigest, source.Dataset.SchemaDigest, string(source.PublicOutputContract))
 	snapshot := source
 	snapshot.ID = id

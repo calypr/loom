@@ -19,10 +19,6 @@ type client interface {
 
 type InterpretationStore struct{ client client }
 
-type ViewBuilderStore struct{ client client }
-
-type PublicationStore struct{ client client }
-
 type DraftStore struct{ client client }
 
 type ExplicitGroupStore struct {
@@ -36,10 +32,8 @@ type Store struct {
 	workspacedb.RevisionStore
 	workspacedb.WorkspaceStore
 	ExplicitGroupStore
-	publicationdb.ReceiptStore
+	publicationdb.Store
 	InterpretationStore
-	ViewBuilderStore
-	PublicationStore
 	client client
 }
 
@@ -48,16 +42,18 @@ func New(client client) (*Store, error) {
 		return nil, fmt.Errorf("Explorer Arango client is required")
 	}
 	selections := selectiondb.NewSelectionStore(client)
+	publicationStore, err := publicationdb.NewStore(client)
+	if err != nil {
+		return nil, err
+	}
 	return &Store{
 		DraftStore:          DraftStore{client: client},
 		SelectionStore:      selections,
 		RevisionStore:       workspacedb.NewRevisionStore(client),
 		WorkspaceStore:      workspacedb.NewWorkspaceStore(client),
 		ExplicitGroupStore:  ExplicitGroupStore{client: client, selections: selections},
-		ReceiptStore:        publicationdb.NewReceiptStore(client),
+		Store:               *publicationStore,
 		InterpretationStore: InterpretationStore{client: client},
-		ViewBuilderStore:    ViewBuilderStore{client: client},
-		PublicationStore:    PublicationStore{client: client},
 		client:              client,
 	}, nil
 }

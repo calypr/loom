@@ -1,4 +1,4 @@
-package arango
+package publicationdb
 
 import (
 	"errors"
@@ -14,7 +14,7 @@ import (
 
 func TestAdoptedCatalogSnapshotIsDetachedAndKeepsExactPublishedMetadata(t *testing.T) {
 	view := projectConfigPublication(t, "adopt-project", "config-a", "recipe-a", "A", "view-revision", "generation-a", "execution-a", projectConfigTestBundle("recipe-a", "translation-1")).Revision
-	snapshot := adoptedCatalogSnapshot(view, "recipe-a")
+	snapshot := AdoptedCatalogSnapshot(view, "recipe-a")
 	if snapshot.ID == view.ID || !strings.HasPrefix(snapshot.ID, "catalog_") {
 		t.Fatalf("snapshot ID = %q, want independent catalog_ identity", snapshot.ID)
 	}
@@ -140,7 +140,7 @@ func TestCatalogSnapshotDoesNotChangeDynamicOrQualityEvidence(t *testing.T) {
 		QualityReports:       []publicationdata.QualityReport{{ID: "quality-a", Verdict: publicationdata.QualityPassed}},
 		Publication:          explorer.PublicationMetadata{ExecutionID: "execution-a", Generation: "generation-a"}, ReadyAt: &readyAt,
 	}
-	snapshot := adoptedCatalogSnapshot(revision, "recipe-a")
+	snapshot := AdoptedCatalogSnapshot(revision, "recipe-a")
 	if len(snapshot.EmittedColumns) != 1 || snapshot.EmittedColumns[0].EmissionID != "dynamic:id" || len(snapshot.QualityReports) != 1 || snapshot.QualityReports[0].ID != "quality-a" {
 		t.Fatalf("catalog snapshot lost dynamic/quality evidence: %+v", snapshot)
 	}

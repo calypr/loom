@@ -1,4 +1,4 @@
-package arango
+package publicationdb
 
 import (
 	"context"
@@ -78,7 +78,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 	var active dataset.ActiveRelease
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
-		Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, ViewBuilderSettingsCollection},
+		Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection, db.ViewBuilderSettingsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		execution, err := readProjectConfigExecution(txCtx, tx, executionID)
 		if err != nil {
@@ -147,7 +147,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 				return err
 			}
 			if plan.reactivate {
-				if err := updateActivationDocument(txCtx, tx, RevisionsCollection, revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
+				if err := updateActivationDocument(txCtx, tx, db.RevisionsCollection, revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
 					return fmt.Errorf("prepare superseded project config revision %q for reactivation: %w", revision.ID, err)
 				}
 			}
@@ -161,9 +161,9 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 				return fmt.Errorf("project config revision %q is active without its owner pointer", revision.ID)
 			}
 			row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{
-				"@explorers":  ExplorersCollection,
-				"@revisions":  RevisionsCollection,
-				"explorerKey": explorerKey(project, revision.ExplorerID),
+				"@explorers":  db.ExplorersCollection,
+				"@revisions":  db.RevisionsCollection,
+				"explorerKey": explorerDocumentKey(project, revision.ExplorerID),
 				"revisionKey": revision.ID,
 				"project":     project,
 				"explorerId":  revision.ExplorerID,
@@ -508,13 +508,13 @@ func expectedProjectConfigExecutionID(request explorer.ProjectConfigPublishReque
 func readProjectConfigOwners(ctx context.Context, tx store.RowQueryer, project string) (map[string]projectConfigOwner, error) {
 	owners := make(map[string]projectConfigOwner)
 	err := tx.QueryRows(ctx, projectConfigOwnersAQL, 256, map[string]any{
-		"@c": ExplorersCollection, "project": project,
+		"@c": db.ExplorersCollection, "project": project,
 	}, func(row map[string]any) error {
 		owner, err := db.Decode[explorer.Explorer](row)
 		if err != nil {
 			return err
 		}
-		if owner.Project != project || owner.ExplorerID == "" || explorerKey(project, owner.ExplorerID) != stringValue(row["_key"]) {
+		if owner.Project != project || owner.ExplorerID == "" || explorerDocumentKey(project, owner.ExplorerID) != stringValue(row["_key"]) {
 			return fmt.Errorf("stored Explorer owner identity is invalid")
 		}
 		if _, exists := owners[owner.ExplorerID]; exists {
@@ -604,7 +604,7 @@ func readProjectConfigRevisions(ctx context.Context, tx store.RowQueryer, ids []
 		return revisions, nil
 	}
 	err := tx.QueryRows(ctx, projectConfigRevisionsAQL, 256, map[string]any{
-		"@c": RevisionsCollection, "keys": ids,
+		"@c": db.RevisionsCollection, "keys": ids,
 	}, func(row map[string]any) error {
 		revision, err := db.Decode[explorer.Revision](row)
 		if err != nil {
@@ -678,7 +678,7 @@ func insertProjectConfigRevision(ctx context.Context, tx store.RowQueryer, revis
 		return err
 	}
 	if err := tx.QueryRows(ctx, insertProjectConfigRevisionAQL, 1, map[string]any{
-		"@c": RevisionsCollection, "doc": doc,
+		"@c": db.RevisionsCollection, "doc": doc,
 	}, func(map[string]any) error { return nil }); err != nil {
 		return fmt.Errorf("insert project config revision %q: %w", revision.ID, err)
 	}
@@ -702,12 +702,12 @@ func writeProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project s
 		UpdatedBy: plan.publication.Revision.CreatedBy, UpdatedAt: plan.updatedAt,
 	}
 	if plan.owner == nil {
-		doc, err := db.Document(owner, explorerKey(project, owner.ExplorerID))
+		doc, err := db.Document(owner, explorerDocumentKey(project, owner.ExplorerID))
 		if err != nil {
 			return err
 		}
 		if err := tx.QueryRows(ctx, insertProjectConfigOwnerAQL, 1, map[string]any{
-			"@c": ExplorersCollection, "doc": doc,
+			"@c": db.ExplorersCollection, "doc": doc,
 		}, func(map[string]any) error { return nil }); err != nil {
 			return fmt.Errorf("insert project config owner %q: %w", owner.ExplorerID, err)
 		}
@@ -734,7 +734,7 @@ func writeProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project s
 	}
 	var updated bool
 	err := tx.QueryRows(ctx, updateProjectConfigOwnerAQL, 1, map[string]any{
-		"@c": ExplorersCollection, "key": explorerKey(project, owner.ExplorerID),
+		"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, owner.ExplorerID),
 		"expectedRev": expectedRev, "patch": patch,
 	}, func(map[string]any) error { updated = true; return nil })
 	if err != nil {
@@ -749,7 +749,7 @@ func writeProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project s
 func retireProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project, recipeName string, owner projectConfigOwner, at time.Time) error {
 	var updated bool
 	err := tx.QueryRows(ctx, retireProjectConfigOwnerAQL, 1, map[string]any{
-		"@c": ExplorersCollection, "key": explorerKey(project, owner.value.ExplorerID),
+		"@c": db.ExplorersCollection, "key": explorerDocumentKey(project, owner.value.ExplorerID),
 		"expectedRev": stringValue(owner.doc["_rev"]), "project": project,
 		"explorerId": owner.value.ExplorerID, "management": explorer.ManagementRepository,
 		"recipeName": recipeName, "revisionId": owner.value.ActiveRevisionID,
@@ -765,7 +765,7 @@ func retireProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project,
 }
 
 func supersedeProjectConfigRevision(ctx context.Context, tx store.RowQueryer, id string) error {
-	return updateActivationDocument(ctx, tx, RevisionsCollection, id, map[string]any{"status": explorer.RevisionSuperseded})
+	return updateActivationDocument(ctx, tx, db.RevisionsCollection, id, map[string]any{"status": explorer.RevisionSuperseded})
 }
 
 func uniqueStrings(values []string) []string {

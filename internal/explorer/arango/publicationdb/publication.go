@@ -1,4 +1,4 @@
-package arango
+package publicationdb
 
 import (
 	"context"
@@ -28,12 +28,12 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 		management = explorer.ManagementRepository
 	}
 	var out *explorer.Revision
-	err = s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, CompilationReceiptsCollection, ViewBuilderSettingsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
-		if err := tx.QueryRows(txCtx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": CompilationReceiptsCollection, "doc": receiptDoc}, func(map[string]any) error { return nil }); err != nil {
+	err = s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection, db.CompilationReceiptsCollection, db.ViewBuilderSettingsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
+		if err := tx.QueryRows(txCtx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "doc": receiptDoc}, func(map[string]any) error { return nil }); err != nil {
 			return err
 		}
 		var stored *explorer.CompilationReceipt
-		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, 1, map[string]any{"@c": CompilationReceiptsCollection, "key": receipt.ID, "project": receipt.Project, "explorerId": receipt.ExplorerID}, func(row map[string]any) error {
+		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "key": receipt.ID, "project": receipt.Project, "explorerId": receipt.ExplorerID}, func(row map[string]any) error {
 			value, err := db.Decode[explorer.CompilationReceipt](row)
 			if err != nil {
 				return err
@@ -52,13 +52,13 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 		if !sameReceipt(*stored, receipt) {
 			return explorer.ErrCorruptReceipt
 		}
-		if err := tx.QueryRows(txCtx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID, "doc": revisionDoc}, func(map[string]any) error { return nil }); err != nil {
+		if err := tx.QueryRows(txCtx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN NEW`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID, "doc": revisionDoc}, func(map[string]any) error { return nil }); err != nil {
 			return err
 		}
 		if _, err := datasetarango.CompareAndSwapPublishRelease(txCtx, tx, release, expectedReleaseRevision); err != nil {
 			return err
 		}
-		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{"@explorers": ExplorersCollection, "@revisions": RevisionsCollection, "explorerKey": explorerKey(revision.Project, revision.ExplorerID), "revisionKey": revision.ID, "project": revision.Project, "explorerId": revision.ExplorerID, "management": management})
+		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{"@explorers": db.ExplorersCollection, "@revisions": db.RevisionsCollection, "explorerKey": explorerDocumentKey(revision.Project, revision.ExplorerID), "revisionKey": revision.ID, "project": revision.Project, "explorerId": revision.ExplorerID, "management": management})
 		if err != nil {
 			return err
 		}
@@ -75,7 +75,7 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 		if err := registerAuthoringViewCatalog(txCtx, tx, revision); err != nil {
 			return err
 		}
-		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
+		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
 			value, err := db.Decode[explorer.Revision](row)
 			out = &value
 			return err
@@ -86,7 +86,7 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 
 func registerAuthoringViewCatalog(ctx context.Context, tx store.RowQueryer, revision explorer.Revision) error {
 	name := revision.Recipe.Name
-	snapshot := adoptedCatalogSnapshot(revision, name)
+	snapshot := AdoptedCatalogSnapshot(revision, name)
 	current, err := readViewBuilderSettings(ctx, tx, revision.Project)
 	if err != nil {
 		return err

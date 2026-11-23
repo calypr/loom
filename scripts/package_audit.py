@@ -134,9 +134,9 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                              'state, and atomic project catalog anchors in ArangoDB.',
  'internal/explorer/arango/capabilitydb': 'Expose the Explorer capability snapshot Arango boundary.',
  'internal/explorer/arango/db': 'Own Explorer Arango collection names shared by aggregate stores.',
- 'internal/explorer/arango/publicationdb': 'Expose the Explorer publication Arango boundary.',
- 'internal/explorer/arango/selectiondb': 'Expose the Explorer selection Arango boundary.',
- 'internal/explorer/arango/workspacedb': 'Expose the Explorer workspace/revision Arango boundary.',
+ 'internal/explorer/arango/publicationdb': 'Persist Explorer receipts, authoring publications, activation, and view-builder settings.',
+ 'internal/explorer/arango/selectiondb': 'Persist Explorer selection revisions, members, staging, and reference validation.',
+ 'internal/explorer/arango/workspacedb': 'Persist Explorer workspace revisions, explorer CRUD, and workspace audits.',
  'internal/explorer/artifactfs': 'Persist and serve immutable Explorer training artifacts from a dedicated filesystem '
                                  'root.',
  'internal/explorer/authoringv2': 'Apply commands and proposals to the V2 Explorer Builder authoring workspace.',

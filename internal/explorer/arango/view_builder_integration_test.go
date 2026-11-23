@@ -2,6 +2,7 @@ package arango
 
 import (
 	"errors"
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -247,6 +248,6 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 
 func viewBuilderTestCatalogSnapshot(t *testing.T, publication explorer.ProjectConfigPublication) *explorer.Revision {
 	t.Helper()
-	snapshot := adoptedCatalogSnapshot(publication.Revision, publication.Definition.RecipeRef.Name)
+	snapshot := publicationdb.AdoptedCatalogSnapshot(publication.Revision, publication.Definition.RecipeRef.Name)
 	return &snapshot
 }

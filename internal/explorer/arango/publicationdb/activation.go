@@ -1,8 +1,9 @@
-package arango
+package publicationdb
 
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"time"
 
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
@@ -52,13 +53,13 @@ type activationState struct {
 func (s *Store) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
 	return s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
-		Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection},
+		Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		row, found, err := readActivationRow(txCtx, tx, compositeActivationReadAQL, map[string]any{
-			"@lifecycle": datasetarango.LifecycleCollection, "@explorers": ExplorersCollection,
-			"@revisions": RevisionsCollection, "@executions": publicationarango.BundleExecutionsCollection,
+			"@lifecycle": datasetarango.LifecycleCollection, "@explorers": db.ExplorersCollection,
+			"@revisions": db.RevisionsCollection, "@executions": publicationarango.BundleExecutionsCollection,
 			"manifestKey": datasetarango.ManifestDocumentKey(dataset.Ref{Project: project, Generation: generation}),
-			"activeKey":   datasetarango.ActiveDocumentKey(project), "explorerKey": explorerKey(project, "default"),
+			"activeKey":   datasetarango.ActiveDocumentKey(project), "explorerKey": explorerDocumentKey(project, "default"),
 			"revisionKey": revisionID, "project": project, "generation": generation,
 		})
 		if err != nil {
@@ -168,13 +169,13 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 			return err
 		}
 		if priorKey != candidateKey {
-			if err := updateActivationDocument(ctx, tx, RevisionsCollection, priorKey, map[string]any{"status": explorer.RevisionSuperseded}); err != nil {
+			if err := updateActivationDocument(ctx, tx, db.RevisionsCollection, priorKey, map[string]any{"status": explorer.RevisionSuperseded}); err != nil {
 				return err
 			}
 		}
 	}
 	publication := activatedPublication(state.candidate, candidateKey, now)
-	if err := updateActivationDocument(ctx, tx, RevisionsCollection, candidateKey, map[string]any{
+	if err := updateActivationDocument(ctx, tx, db.RevisionsCollection, candidateKey, map[string]any{
 		"status":      explorer.RevisionActive,
 		"activatedAt": now,
 		"failedAt":    nil,
@@ -210,7 +211,7 @@ func activatedPublication(candidate map[string]any, revisionID string, now time.
 
 func updateActiveExplorerDocument(ctx context.Context, tx store.RowQueryer, ownerKey, revisionID string) error {
 	var updated bool
-	err := tx.QueryRows(ctx, ownerActivationUpdateAQL, 1, map[string]any{"@c": ExplorersCollection, "key": ownerKey, "revisionId": revisionID}, func(map[string]any) error {
+	err := tx.QueryRows(ctx, ownerActivationUpdateAQL, 1, map[string]any{"@c": db.ExplorersCollection, "key": ownerKey, "revisionId": revisionID}, func(map[string]any) error {
 		if updated {
 			return fmt.Errorf("activation owner update returned more than one document")
 		}
