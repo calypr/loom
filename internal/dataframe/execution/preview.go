@@ -95,7 +95,12 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
 	}
-	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
+	source, _ := stream.source.(*arangoSource)
+	var engine ir.PhysicalEngine
+	if _, ok := stream.source.(*clickHouseSource); ok {
+		engine = ir.PhysicalEngineClickHouse
+	}
+	if err := validatePreviewPlan(query, limit, engine); err != nil {
 		return PreviewSummary{}, err
 	}
 	if query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && preview.preparePreviewIndex != nil {
@@ -106,11 +111,13 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 			return PreviewSummary{}, err
 		}
 	}
-	if stream.physicalEngine != ir.PhysicalEngineClickHouse && preview.previewQueryRows != nil {
-		stream.stream = preview.previewQueryRows
+	if source != nil {
+		if preview.previewQueryRows != nil {
+			source.stream = preview.previewQueryRows
+		}
+		source.withPreviewReadSnapshot = preview.withPreviewReadSnapshot
 	}
-	stream.withPreviewReadSnapshot = preview.withPreviewReadSnapshot
-	if err := preview.groupPlanner.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
+	if err := preview.groupPlanner.chooseGroupPreviewScan(ctx, &query, source); err != nil {
 		return PreviewSummary{}, err
 	}
 	loweringDuration := time.Since(loweringStarted)
@@ -139,7 +146,7 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: !stream.sampledAggregate, PartialValidation: query.PartialValidation}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: source == nil || !source.sampledAggregate, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = rowlineage.RowLineageCapabilityForOutput(output)
@@ -211,7 +218,7 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 		return summary, normalizePreviewError(visitorErr, false)
 	}
 	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
-		preview.rejectGroupProjectionDecisionAfterResourceLimit(stream, queryErr)
+		preview.rejectGroupProjectionDecisionAfterResourceLimit(source, queryErr)
 		return summary, normalizePreviewError(queryErr, true)
 	}
 	if errors.Is(queryErr, errPreviewLimit) {
@@ -221,7 +228,7 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	if err := contextError(ctx); err != nil {
 		return summary, err
 	}
-	if err := preview.confirmGroupProjectionDecision(ctx, stream); err != nil {
+	if err := preview.confirmGroupProjectionDecision(ctx, source); err != nil {
 		return summary, err
 	}
 	if previewCacheEnabled && previewCacheHitRows == nil && capture.cacheable &&
@@ -240,8 +247,8 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	return summary, nil
 }
 
-func (preview previewExecutor) rejectGroupProjectionDecisionAfterResourceLimit(stream OutputStream, queryErr error) {
-	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
+func (preview previewExecutor) rejectGroupProjectionDecisionAfterResourceLimit(stream *arangoSource, queryErr error) {
+	if queryErr == nil || stream == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
 		return
 	}
 	decision := *stream.projectionDecision
@@ -249,8 +256,8 @@ func (preview previewExecutor) rejectGroupProjectionDecisionAfterResourceLimit(s
 	preview.groupPlanner.groupPreviewRowsCache.putDecision(*stream.projectionDecisionKey, decision)
 }
 
-func (preview previewExecutor) confirmGroupProjectionDecision(ctx context.Context, stream OutputStream) error {
-	if stream.projectionDecisionKey == nil || stream.projectionDecision == nil || preview.groupPlanner.previewCollectionRevision == nil {
+func (preview previewExecutor) confirmGroupProjectionDecision(ctx context.Context, stream *arangoSource) error {
+	if stream == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || preview.groupPlanner.previewCollectionRevision == nil {
 		return nil
 	}
 	key := *stream.projectionDecisionKey

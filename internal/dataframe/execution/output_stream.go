@@ -8,16 +8,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	rowlineage "github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 
-	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -53,43 +50,26 @@ type PreviewSummary struct {
 }
 
 type OutputStream struct {
-	Name                     string
-	Columns                  []string
-	sourceIdentityMode       string
-	RowIdentity              *spec.RowIdentity
-	DynamicChecks            map[string]map[string]DynamicColumnCheck
-	query                    string
-	bindVars                 map[string]any
-	stream                   QueryRows
-	batchSize                int
-	rootPageRows             int
-	page                     *compiler.CompiledOutputPage
-	withPreviewReadSnapshot  WithPreviewReadSnapshot
-	physicalEngine           ir.PhysicalEngine
-	clickHouseCombine        *ir.PhysicalClickHouseCombine
-	project                  string
-	bindings                 recipe.RuntimeBindings
-	clickHouseQueryRows      ClickHouseQueryRows
-	resolveClickHouseInputs  ResolveClickHouseInputs
-	withExecutionReadPins    WithExecutionReadPins
-	queryLimit               int
-	queryMemoryLimit         int64
-	sampledAggregate         bool
-	projectionDecisionKey    *groupPreviewRowsKey
-	projectionDecision       *groupPreviewProjectionDecision
-	recipeDigest             string
-	planFingerprint          string
-	stageID                  string
-	outputSchema             []lower.CompiledOutputColumn
-	compiledOutput           bool
-	artifactScopeMode        string
-	artifactScopeEvidence    string
-	scopeEvidence            *irscope.WholeRelationScopeEvidence
-	scopeEvidenceIdentity    *irscope.WholeRelationScopeIdentity
-	workspaceArtifactManager *chartifact.Manager
-	workspaceArtifactSources []PrivateClickHouseArtifactSource
-	captureExecutionID       string
-	physicalPlan             ir.PhysicalPlan
+	Name          string
+	Columns       []string
+	RowIdentity   *spec.RowIdentity
+	DynamicChecks map[string]map[string]DynamicColumnCheck
+
+	source                rowSource
+	sourceIdentityMode    string
+	bindings              recipe.RuntimeBindings
+	queryLimit            int
+	recipeDigest          string
+	planFingerprint       string
+	stageID               string
+	outputSchema          []lower.CompiledOutputColumn
+	compiledOutput        bool
+	artifactScopeMode     string
+	artifactScopeEvidence string
+	scopeEvidence         *irscope.WholeRelationScopeEvidence
+	scopeEvidenceIdentity *irscope.WholeRelationScopeIdentity
+	captureExecutionID    string
+	physicalPlan          ir.PhysicalPlan
 }
 
 type DynamicColumnCheck struct {
@@ -138,17 +118,27 @@ func publicPreviewRow(row map[string]any, columns []string, includeRowIdentity b
 
 var errPreviewLimit = fmt.Errorf("preview limit reached")
 
+type rowSource interface {
+	rows(context.Context, OutputStream, func(map[string]any) error) error
+	identityBinds() map[string]any
+}
+
 func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) error) (StreamResult, error) {
 	if visit == nil {
 		return StreamResult{}, fmt.Errorf("row visitor is required")
 	}
+	return s.streamRows(ctx, s.streamRaw, visit)
+}
+
+func (s OutputStream) streamRows(ctx context.Context, rows func(context.Context, func(map[string]any) error) error, visit func(map[string]any) error) (StreamResult, error) {
+	binds := s.source.identityBinds()
 	count := 0
-	err := s.streamRaw(ctx, func(row map[string]any) error {
+	err := rows(ctx, func(row map[string]any) error {
 		resolved, err := materializePostQueryRowWithChecks(row, s.DynamicChecks)
 		if err != nil {
 			return err
 		}
-		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.bindVars); err != nil {
+		if err := ensureStableRowIdentity(resolved, s.RowIdentity, binds); err != nil {
 			return err
 		}
 		resolved = publicStreamRow(resolved, s.Columns)
@@ -159,23 +149,7 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 }
 
 func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
-	if s.queryMemoryLimit > 0 {
-		ctx = arango.WithQueryMemoryLimit(ctx, s.queryMemoryLimit)
-	}
-	if s.physicalEngine == ir.PhysicalEngineClickHouse {
-		return s.withPreparedClickHouse(ctx, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
-			return s.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)
-		})
-	}
-	if s.page == nil || s.rootPageRows == 0 {
-		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
-	}
-	if len(s.page.RowsPartitions) > 0 && s.withPreviewReadSnapshot != nil {
-		return s.withPreviewReadSnapshot(ctx, func(snapshotCtx context.Context, query QueryRows) error {
-			return s.streamRootPages(snapshotCtx, query, true, visit)
-		})
-	}
-	return s.streamRootPages(ctx, s.stream, false, visit)
+	return s.source.rows(ctx, s, visit)
 }
 
 func cloneBindVars(input map[string]any) map[string]any {

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -82,13 +81,16 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		OutputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), Limit: limit,
 		PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: clickHouseCombineFingerprint(combine)},
 	}
-	stream := OutputStream{
-		Name: output.Name, Columns: append([]string(nil), output.Columns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
-		DynamicChecks: map[string]map[string]DynamicColumnCheck{}, physicalEngine: ir.PhysicalEngineClickHouse,
-		clickHouseCombine: &combine, project: bindings.Project, bindings: bindings, queryLimit: limit,
+	source := &clickHouseSource{
+		clickHouseCombine: &combine, project: bindings.Project,
 		clickHouseQueryRows: e.clickHouseQueryRows, resolveClickHouseInputs: e.resolveClickHouseInputs,
 		withExecutionReadPins: e.withExecutionReadPins,
-		recipeDigest:          resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
+	}
+	stream := OutputStream{
+		Name: output.Name, Columns: append([]string(nil), output.Columns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
+		DynamicChecks: map[string]map[string]DynamicColumnCheck{},
+		source:        source, bindings: bindings, queryLimit: limit,
+		recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
 		stageID: compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
 		physicalPlan: physicalPlan,
 	}
@@ -103,7 +105,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		for _, dependency := range resolved.Compiled.WorkspaceDependencies {
 			dependencies[dependency.Name] = dependency
 		}
-		stream.workspaceArtifactManager = e.privateClickHouseArtifacts
+		source.workspaceArtifactManager = e.privateClickHouseArtifacts
 		for _, input := range combine.Inputs {
 			if input.WorkspaceOutputID == "" {
 				continue
@@ -120,7 +122,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 			if err != nil {
 				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q dependency %q schema: %w", output.Name, input.WorkspaceOutputID, err)
 			}
-			stream.workspaceArtifactSources = append(stream.workspaceArtifactSources, PrivateClickHouseArtifactSource{
+			source.workspaceArtifactSources = append(source.workspaceArtifactSources, PrivateClickHouseArtifactSource{
 				OutputID: input.WorkspaceOutputID, Stream: dependencyStream, Columns: columns,
 			})
 		}
@@ -324,34 +326,31 @@ func clonePhysicalClickHouseCombine(plan ir.PhysicalClickHouseCombine) ir.Physic
 	return plan
 }
 
-func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit func(map[string]any) error) (StreamResult, error) {
-	if ctx == nil || visit == nil || s.clickHouseQueryRows == nil || strings.TrimSpace(prepared.Query) == "" {
-		return StreamResult{}, fmt.Errorf("prepared ClickHouse stream requires context, query executor, query, and visitor")
-	}
-	count := 0
-	err := s.clickHouseQueryRows(ctx, prepared.Query, prepared.Columns, func(row map[string]any) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		resolved, err := materializePostQueryRowWithChecks(row, s.DynamicChecks)
-		if err != nil {
-			return err
-		}
-		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.bindVars); err != nil {
-			return err
-		}
-		resolved = publicStreamRow(resolved, s.Columns)
-		count++
-		return visit(resolved)
-	}, prepared.Args...)
-	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
+type clickHouseSource struct {
+	clickHouseCombine        *ir.PhysicalClickHouseCombine
+	project                  string
+	clickHouseQueryRows      ClickHouseQueryRows
+	resolveClickHouseInputs  ResolveClickHouseInputs
+	withExecutionReadPins    WithExecutionReadPins
+	workspaceArtifactManager *chartifact.Manager
+	workspaceArtifactSources []PrivateClickHouseArtifactSource
 }
 
-func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(context.Context, preparedClickHouseQuery) error) error {
-	if ctx == nil || consume == nil || s.clickHouseCombine == nil || s.clickHouseQueryRows == nil {
+func (*clickHouseSource) identityBinds() map[string]any {
+	return nil
+}
+
+func (source *clickHouseSource) rows(ctx context.Context, output OutputStream, visit func(map[string]any) error) error {
+	return source.withPreparedClickHouse(ctx, output, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
+		return source.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)
+	})
+}
+
+func (source *clickHouseSource) withPreparedClickHouse(ctx context.Context, s OutputStream, consume func(context.Context, preparedClickHouseQuery) error) error {
+	if ctx == nil || consume == nil || source.clickHouseCombine == nil || source.clickHouseQueryRows == nil {
 		return fmt.Errorf("ClickHouse preparation requires context, typed plan, query executor, and consumer")
 	}
-	plan := clonePhysicalClickHouseCombine(*s.clickHouseCombine)
+	plan := clonePhysicalClickHouseCombine(*source.clickHouseCombine)
 	workspaceInputCount := 0
 	publishedPlan := plan
 	publishedPlan.Inputs = make([]ir.PhysicalCombineInputRef, 0, len(plan.Inputs))
@@ -364,11 +363,11 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		publishedPlan.Inputs = append(publishedPlan.Inputs, input)
 		revisions = append(revisions, input.RevisionID)
 	}
-	if workspaceInputCount != len(s.workspaceArtifactSources) {
+	if workspaceInputCount != len(source.workspaceArtifactSources) {
 		return fmt.Errorf("workspace ClickHouse capture sources do not match the typed output references")
 	}
 	if workspaceInputCount > 0 {
-		if !s.compiledOutput || s.workspaceArtifactManager == nil {
+		if !s.compiledOutput || source.workspaceArtifactManager == nil {
 			return fmt.Errorf("workspace ClickHouse Combine requires a compiled output and private artifact manager")
 		}
 		if err := plan.ValidateWithWorkspaceArtifacts(); err != nil {
@@ -379,7 +378,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 			return err
 		}
 	}
-	if len(revisions) > 0 && (s.resolveClickHouseInputs == nil || s.withExecutionReadPins == nil) {
+	if len(revisions) > 0 && (source.resolveClickHouseInputs == nil || source.withExecutionReadPins == nil) {
 		return fmt.Errorf("published ClickHouse inputs require exact input resolution and read pins")
 	}
 	if !s.compiledOutput && workspaceInputCount > 0 {
@@ -388,7 +387,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 
 	prepare := func(preparedCtx context.Context, captured []PrivateClickHouseArtifactInput, published []ir.ResolvedClickHouseTable) error {
 		if s.compiledOutput && s.captureExecutionID == "" && workspaceInputCount == 0 {
-			rendered, err := clickhousecombine.RenderCombineWithLimit(plan, published, s.project, s.queryLimit)
+			rendered, err := clickhousecombine.RenderCombineWithLimit(plan, published, source.project, s.queryLimit)
 			if err != nil {
 				return err
 			}
@@ -400,7 +399,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 			if workspaceInputCount > 0 {
 				return fmt.Errorf("uncompiled workspace Combine is unsupported")
 			}
-			rendered, err = clickhousecombine.RenderCombineWithLimit(plan, published, s.project, s.queryLimit)
+			rendered, err = clickhousecombine.RenderCombineWithLimit(plan, published, source.project, s.queryLimit)
 			if err != nil {
 				return err
 			}
@@ -507,9 +506,9 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		}
 		var rendered clickhousecombine.RenderedCombine
 		if workspaceInputCount > 0 {
-			rendered, err = clickhousecombine.RenderWorkspaceClickHouseCombine(plan, workspace, published, s.project, s.bindings.DatasetGeneration, s.queryLimit)
+			rendered, err = clickhousecombine.RenderWorkspaceClickHouseCombine(plan, workspace, published, source.project, s.bindings.DatasetGeneration, s.queryLimit)
 		} else {
-			rendered, err = clickhousecombine.RenderCombineWithLimit(plan, published, s.project, s.queryLimit)
+			rendered, err = clickhousecombine.RenderCombineWithLimit(plan, published, source.project, s.queryLimit)
 		}
 		if err != nil {
 			return err
@@ -526,12 +525,12 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		if executionID == "" {
 			executionID = uuid.NewString()
 		}
-		sources := append([]PrivateClickHouseArtifactSource(nil), s.workspaceArtifactSources...)
-		return WithPrivateClickHouseArtifacts(ctx, s.workspaceArtifactManager, executionID, sources, revisions, s.withExecutionReadPins,
+		sources := append([]PrivateClickHouseArtifactSource(nil), source.workspaceArtifactSources...)
+		return WithPrivateClickHouseArtifacts(ctx, source.workspaceArtifactManager, executionID, sources, revisions, source.withExecutionReadPins,
 			func(pinnedCtx context.Context, captured []PrivateClickHouseArtifactInput) error {
 				var published []ir.ResolvedClickHouseTable
 				if len(revisions) > 0 {
-					resolved, err := s.resolveClickHouseInputs(pinnedCtx, publishedPlan, s.bindings.Clone())
+					resolved, err := source.resolveClickHouseInputs(pinnedCtx, publishedPlan, s.bindings.Clone())
 					if err != nil {
 						return err
 					}
@@ -540,8 +539,8 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 				return prepare(pinnedCtx, captured, published)
 			})
 	}
-	return s.withExecutionReadPins(ctx, revisions, func(pinnedCtx context.Context) error {
-		published, err := s.resolveClickHouseInputs(pinnedCtx, publishedPlan, s.bindings.Clone())
+	return source.withExecutionReadPins(ctx, revisions, func(pinnedCtx context.Context) error {
+		published, err := source.resolveClickHouseInputs(pinnedCtx, publishedPlan, s.bindings.Clone())
 		if err != nil {
 			return err
 		}

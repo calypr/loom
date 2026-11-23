@@ -1,6 +1,6 @@
 # `dataframe/execution` cleanup plan
 
-Status: in progress on `execution-cleanup`, based on `bb50db30b`.
+Status: Phases 1, 3, 4 and 5 done on `execution-cleanup`, based on `bb50db30b`. Phase 2 skipped.
 Original findings measured at `889f8aa30` on `internal-cleanup`.
 
 | Phase | Status | Verification |
@@ -9,7 +9,7 @@ Original findings measured at `889f8aa30` on `internal-cleanup`.
 | 2 | Skipped | The integration runner requires the exclusion-only `TestCurrentPivotNullMissingExclusionPartitionAgainstArango` to run and pass. Updating `scripts/run-arango-integration.mjs` is outside scope. |
 | 3 | Done | `go build ./...`, execution tests (including unchanged cache and scanner tests), `make test-go`, and `make lint-go-comments` passed. |
 | 4 | Done | `go build ./...`, `make test-go`, and `make lint-go-comments` passed. `git diff -M --stat` recognized the move. All 57 Go declarations matched the previous source. |
-| 5 | Pending | |
+| 5 | Done | `go build ./...`, execution tests, `make test-go`, `make lint-go-comments`, and `make test-integration` passed. Interrogate found no reproducible regressions. |
 
 Phase 1 tests kept their invariants and moved to the underlying Engine calls. No tests were
 deleted. The initial compile probe hit Go cache permissions and then a reference inside the
@@ -171,3 +171,33 @@ file.
   its fields must keep cleanup on cancellation and consumer error. The
   `TestWithPrivateClickHouseArtifacts*` tests cover this.
 - Phase 2 edits generated IR code. Regenerate it. Never hand-edit `children.gen.go`.
+
+### Phase 5 field inventory
+
+| Owner | Fields and access |
+| --- | --- |
+| Shared row and preview pipeline | Builders set `Name`, `Columns`, `RowIdentity`, `DynamicChecks` and `sourceIdentityMode`. Full streaming reads the first four. Preview also reads `sourceIdentityMode`. Full streaming uses Arango's current identity binds and passes nil binds for ClickHouse as before. |
+| Arango source | The builder sets `query`, `bindVars`, `stream`, `batchSize`, `rootPageRows`, `page` and `sampledAggregate`. Preview may replace `stream` and supplies `withPreviewReadSnapshot`. Arango reads these plus the planner's `queryMemoryLimit` for query execution and paging. Preview reads `sampledAggregate` and the planner's `projectionDecisionKey` and `projectionDecision` for its summary and cache bookkeeping. |
+| ClickHouse source | The builder supplies `clickHouseCombine`, `project`, `clickHouseQueryRows`, `resolveClickHouseInputs`, `withExecutionReadPins`, `workspaceArtifactManager` and `workspaceArtifactSources`. Prepare uses these for pinned inputs, dependency captures and rendering. The source type replaces the `physicalEngine` selector. |
+| Shared artifact capture | Both builders set `bindings`, `queryLimit`, `recipeDigest`, `planFingerprint`, `stageID`, `outputSchema`, `compiledOutput` and `physicalPlan`. Artifact validation reads them with `artifactScopeMode`, `artifactScopeEvidence`, `scopeEvidence` and `scopeEvidenceIdentity`. Arango sets scope metadata at build time and updates the fingerprint for pagination. ClickHouse prepares scope evidence and writes it to a copy for identity derivation. Capture sets `captureExecutionID` only on stream copies. |
+
+The group-preview planner operates on Arango. It reads the query callback `stream` for
+assessments. Index selection, the sequential fallback and projection factorization update
+`query` and `bindVars` along with the companion compiled query. Factorization sets
+`queryMemoryLimit`. Reused and newly computed decisions set `projectionDecisionKey` and
+`projectionDecision`. All five stream writes go to the same Arango source used by preview.
+
+
+Phase 5 migrated nine test literals and their backend field access with the same assertions.
+An initial test build caught a prepared-artifact signature mismatch. Restoring the existing
+private method signature resolved it. Three `gpt-6.1-sol` reviewers traced planner mutations,
+cancellation and lease loss, and consumer error and read-pin cleanup. Review probes with the
+default Go cache failed due to sandbox permissions, and duplicate cold-cache retries were
+interrupted. The coordinator's focused tests passed on the reviewed source.
+
+The execution diff SHA-256 was
+`437f196599e3d3a1f0a75756aa7f7af804a803213c23cda2ee69d96a46f2ed34`.
+The disposable Arango and ClickHouse run exited 0. The runner reported
+`passed-with-explicit-unverified-external-cases` for six external-data cases, with zero
+profile failures and successful database cleanup. See `p5-integration.log` and
+`loom-arango-integration-83340/summary.json` in the local verification evidence.

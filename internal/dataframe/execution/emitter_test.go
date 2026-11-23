@@ -361,10 +361,10 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build Group/Pivot workspace stream: %v", err)
 	}
-	if len(stream.workspaceArtifactSources) != 2 {
-		t.Fatalf("Group/Pivot capture dependencies = %d, want two", len(stream.workspaceArtifactSources))
+	if len(stream.source.(*clickHouseSource).workspaceArtifactSources) != 2 {
+		t.Fatalf("Group/Pivot capture dependencies = %d, want two", len(stream.source.(*clickHouseSource).workspaceArtifactSources))
 	}
-	for _, source := range stream.workspaceArtifactSources {
+	for _, source := range stream.source.(*clickHouseSource).workspaceArtifactSources {
 		if source.Stream.artifactScopeMode != chartifact.ScopeModeWhole || source.Stream.scopeEvidence == nil || source.Stream.scopeEvidenceIdentity == nil {
 			t.Fatalf("workspace source %q lacks compiler-issued whole-relation evidence", source.OutputID)
 		}
@@ -582,10 +582,10 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			if !reflect.DeepEqual(stream.outputSchema, resolved.Compiled.Outputs[0].OutputSchema) {
 				t.Fatal("private source projection changed the selected Combine output schema")
 			}
-			if len(stream.workspaceArtifactSources) != 2 {
-				t.Fatalf("workspace capture sources = %d, want two", len(stream.workspaceArtifactSources))
+			if len(stream.source.(*clickHouseSource).workspaceArtifactSources) != 2 {
+				t.Fatalf("workspace capture sources = %d, want two", len(stream.source.(*clickHouseSource).workspaceArtifactSources))
 			}
-			for index, source := range stream.workspaceArtifactSources {
+			for index, source := range stream.source.(*clickHouseSource).workspaceArtifactSources {
 				if !source.Stream.bindings.IncludeAuthResourcePath {
 					t.Fatalf("restricted row-scoped source %q was not compiled with its private auth-path projection", source.OutputID)
 				}
@@ -888,7 +888,7 @@ func TestPublicationRowStreamRejectsPayloadMetadataSmuggling(t *testing.T) {
 		t.Fatalf("streamed __loom_row_id = %#v, want compiler-derived identity rather than payload value", row["__loom_row_id"])
 	}
 	wantIdentity := map[string]any{"project": project, "_key": key}
-	if err := ensureStableRowIdentity(wantIdentity, streams[0].RowIdentity, streams[0].bindVars); err != nil {
+	if err := ensureStableRowIdentity(wantIdentity, streams[0].RowIdentity, streams[0].source.(*arangoSource).bindVars); err != nil {
 		t.Fatalf("derive expected compiler row identity: %v", err)
 	}
 	if row["__loom_row_id"] != wantIdentity["__loom_row_id"] {

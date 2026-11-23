@@ -34,7 +34,7 @@ type groupPreviewPlanner struct {
 	groupPreviewRowsCache     *groupPreviewRowsCache
 }
 
-func (e groupPreviewPlanner) chooseGroupPreviewScan(ctx context.Context, query *model.CompiledQuery, stream *OutputStream) error {
+func (e groupPreviewPlanner) chooseGroupPreviewScan(ctx context.Context, query *model.CompiledQuery, stream *arangoSource) error {
 	if query == nil || stream == nil || stream.stream == nil ||
 		(query.PreviewGroupScan == nil && query.PreviewGroupProjection == nil) {
 		return contextError(ctx)
@@ -178,7 +178,7 @@ func (e groupPreviewPlanner) selectGroupProjectionIndex(ctx context.Context, que
 	return arango.PreviewCoveringIndex{}, false
 }
 
-func (e groupPreviewPlanner) chooseGroupProjectionFactorization(ctx context.Context, query *model.CompiledQuery, stream *OutputStream,
+func (e groupPreviewPlanner) chooseGroupProjectionFactorization(ctx context.Context, query *model.CompiledQuery, stream *arangoSource,
 	ordinaryQuery string, ordinaryBinds map[string]any, selectedIndex arango.PreviewCoveringIndex,
 	assessedScopeCount int64, assessedScopeCountKnown, assessedScopeCountAttempted bool) error {
 	spec := query.PreviewGroupProjection
@@ -268,7 +268,7 @@ func (e groupPreviewPlanner) chooseGroupProjectionFactorization(ctx context.Cont
 	return nil
 }
 
-func readGroupPreviewCount(ctx context.Context, stream *OutputStream, query string, bindVars map[string]any) (int64, bool) {
+func readGroupPreviewCount(ctx context.Context, stream *arangoSource, query string, bindVars map[string]any) (int64, bool) {
 	if stream == nil || stream.stream == nil || query == "" {
 		return 0, false
 	}
@@ -486,7 +486,7 @@ func groupProjectionIndexIdentity(selected arango.PreviewCoveringIndex) string {
 	return "index:" + selected.Collection + ":" + selected.Name
 }
 
-func applyGroupProjectionFactorization(query *model.CompiledQuery, stream *OutputStream, indexName string) bool {
+func applyGroupProjectionFactorization(query *model.CompiledQuery, stream *arangoSource, indexName string) bool {
 	factoredQuery, factoredBinds, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, indexName, false)
 	if err != nil || factoredQuery == "" {
 		return false

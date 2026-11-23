@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/calypr/loom/internal/store/arango"
+
 	"github.com/calypr/loom/internal/dataframe/compiler"
 )
 
@@ -12,7 +14,40 @@ type QueryRows func(context.Context, string, int, map[string]any, func(map[strin
 
 type WithPreviewReadSnapshot func(context.Context, func(context.Context, QueryRows) error) error
 
-func (s OutputStream) streamRootPages(ctx context.Context, query QueryRows, partitioned bool, visit func(map[string]any) error) error {
+type arangoSource struct {
+	query                   string
+	bindVars                map[string]any
+	stream                  QueryRows
+	batchSize               int
+	rootPageRows            int
+	page                    *compiler.CompiledOutputPage
+	withPreviewReadSnapshot WithPreviewReadSnapshot
+	queryMemoryLimit        int64
+	sampledAggregate        bool
+	projectionDecisionKey   *groupPreviewRowsKey
+	projectionDecision      *groupPreviewProjectionDecision
+}
+
+func (s *arangoSource) identityBinds() map[string]any {
+	return s.bindVars
+}
+
+func (s *arangoSource) rows(ctx context.Context, _ OutputStream, visit func(map[string]any) error) error {
+	if s.queryMemoryLimit > 0 {
+		ctx = arango.WithQueryMemoryLimit(ctx, s.queryMemoryLimit)
+	}
+	if s.page == nil || s.rootPageRows == 0 {
+		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
+	}
+	if len(s.page.RowsPartitions) > 0 && s.withPreviewReadSnapshot != nil {
+		return s.withPreviewReadSnapshot(ctx, func(snapshotCtx context.Context, query QueryRows) error {
+			return s.streamRootPages(snapshotCtx, query, true, visit)
+		})
+	}
+	return s.streamRootPages(ctx, s.stream, false, visit)
+}
+
+func (s *arangoSource) streamRootPages(ctx context.Context, query QueryRows, partitioned bool, visit func(map[string]any) error) error {
 	after := ""
 	pageRows := s.rootPageRows
 	for {
