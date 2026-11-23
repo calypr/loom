@@ -361,37 +361,8 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request expli
 	return s.explicitGroupService.CreateExplicitGroupRevision(ctx, request)
 }
 
-const ()
-
-const ()
-
-const ()
-
 func NewSchemaRowChoiceResolver(index *fhirschema.Index) (*rowdef.SchemaRowChoiceResolver, error) {
 	return rowdef.NewSchemaRowChoiceResolver(index)
-}
-
-func fhirIdentifierPath(path string) bool { return rowdef.FHIRIdentifierPath(path) }
-func applicableRowChoiceKinds(facts capability.RowChoiceFacts) []capability.RowChoiceKind {
-	return rowdef.ApplicableRowChoiceKinds(facts)
-}
-func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
-	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, expectedNodeID)
-}
-func capabilityRowChoiceKind(kind rowdef.RowChoiceKind) (capability.RowChoiceKind, error) {
-	return rowdef.CapabilityRowChoiceKind(kind)
-}
-func lifecycleRowChoiceKind(kind capability.RowChoiceKind) rowdef.RowChoiceKind {
-	return rowdef.LifecycleRowChoiceKind(kind)
-}
-func rowChoicePolicies(kind capability.RowChoiceKind) []rowdef.RowDefinitionChoicePolicy {
-	return rowdef.RowChoicePolicies(kind)
-}
-func rowChoiceOccurrenceSummary(choice capability.RowChoice) string {
-	return rowdef.OccurrenceSummary(choice)
-}
-func rowChoiceRouteSummary(choice capability.RowChoice) string {
-	return rowdef.RouteSummary(choice)
 }
 
 func (s *Service) AssessRowChange(ctx context.Context, request rowdef.AssessRowChangeRequest) (rowdef.AssessRowChangeResult, error) {
@@ -412,10 +383,6 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDe
 
 func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace ws.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
 	return s.syncRowDefService().ValidateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, compilationAuth, command)
-}
-
-func validateResolvedRowChoice(route ws.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
-	return rowdef.ValidateResolvedRowChoice(route, resolved, expected)
 }
 
 func proposalDocument(workspace ws.Workspace, outputID string) *ws.Document {

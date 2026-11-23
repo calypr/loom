@@ -5,22 +5,11 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-
-	"unicode"
-
-	"github.com/calypr/loom/internal/dataframe/recipe"
-
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/construction"
 )
 
 type constructionBase = construction.Base
-
-func importedSourceChoiceUnavailable(document ws.Document) bool {
-
-	return document.ImportedRecipe != nil
-}
 
 type rowSourceSkipClass int
 
@@ -38,13 +27,6 @@ type rowSourceEnumeration struct {
 	skips             map[rowSourceSkipClass]int
 }
 
-func (e *rowSourceEnumeration) skip(class rowSourceSkipClass) {
-	if e.skips == nil {
-		e.skips = make(map[rowSourceSkipClass]int)
-	}
-	e.skips[class]++
-}
-
 type rowSourceLaneReasons struct {
 	codeStem        string
 	inventoryReason string
@@ -57,9 +39,6 @@ type rowSourceLaneReasons struct {
 	genericReason   string
 }
 
-func rowSourceInventoryFailure(reasons rowSourceLaneReasons) (string, string) {
-	return reasons.codeStem + "_SOURCE_INVENTORY_UNAVAILABLE", reasons.inventoryReason
-}
 func (e rowSourceEnumeration) decision(reasons rowSourceLaneReasons) (string, string) {
 	if !e.rootReachable {
 		return "ROOT_SOURCE_PROJECTION_UNAVAILABLE", reasons.reachReason
@@ -81,75 +60,6 @@ func (e rowSourceEnumeration) decision(reasons rowSourceLaneReasons) (string, st
 	}
 	return reasons.genericCode, reasons.genericReason
 }
-func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability.RowChoice) rowSourceSkipClass {
-	var found *capability.Candidate
-	for index := range snapshot.Candidates {
-		current := &snapshot.Candidates[index]
-		if current.NodeID != choice.NodeID || current.ResourceType != choice.ResourceType || canonicalRowPath(current.FieldPath) != choice.Path {
-			continue
-		}
-		if found != nil {
-			return rowSourceSkipInventory
-		}
-		found = current
-	}
-	switch {
-	case found == nil:
-		return rowSourceSkipInventory
-	case !found.Populated:
-		return rowSourceSkipObserved
-	case len(found.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(found.Cardinality):
-		return rowSourceSkipRoute
-	case !containsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
-		return rowSourceSkipInventory
-	case !capability.IsSupportedConstructionSourceType(found.LogicalType):
-		return rowSourceSkipType
-	default:
-		return rowSourceSkipInventory
-	}
-}
-func rowSourceChoiceIsStaleVersion(choice capability.RowChoice, snapshot capability.Snapshot) bool {
-	identity, err := capability.DecodeRowChoiceID(choice.ChoiceID)
-	if err != nil {
-		return false
-	}
-	return identity.SnapshotToken != snapshot.Token || identity.SchemaDigest != snapshot.Identity.SchemaDigest
-}
-func constructionRootProjectionCanReachStage(construction ws.Construction, stageID string) bool {
-	if stageID == recipe.ConstructionSourceProjectionID {
-		return true
-	}
-	for _, step := range construction.Steps {
-		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
-			return false
-		}
-		if step.ID == stageID {
-			return true
-		}
-	}
-	return false
-}
-func constructionReceiptStage(stages []receiptmodel.ReceiptConstructionStage, stageID string) (receiptmodel.ReceiptConstructionStage, bool) {
-	for _, stage := range stages {
-		if stage.ID == stageID {
-			return stage, true
-		}
-	}
-	return receiptmodel.ReceiptConstructionStage{}, false
-}
-func constructionStepInputStageID(step ws.ConstructionStep) string {
-	if len(step.Inputs) != 1 {
-		return ""
-	}
-	switch step.Inputs[0].Kind {
-	case ws.ConstructionInputSourceProjection:
-		return recipe.ConstructionSourceProjectionID
-	case ws.ConstructionInputStepOutput:
-		return step.Inputs[0].StepID
-	default:
-		return ""
-	}
-}
 func constructionStepIndex(steps []ws.ConstructionStep, id string) int {
 	for index, step := range steps {
 		if step.ID == id {
@@ -157,47 +67,6 @@ func constructionStepIndex(steps []ws.ConstructionStep, id string) int {
 		}
 	}
 	return -1
-}
-func constructionFieldDisplayLabel(resourceType, path string, displayCandidates ...string) string {
-	for _, candidate := range displayCandidates {
-		label := strings.TrimSpace(candidate)
-		if label == "" || strings.IndexFunc(label, unicode.IsControl) >= 0 {
-			continue
-		}
-		return label
-	}
-	return constructionFHIRPathLabel(resourceType, path)
-}
-func preserveConstructionOwnedInputs(base ws.Construction, candidate ws.Construction, skipOwnerID string) ws.Construction {
-	present := make(map[string]bool, len(candidate.Steps))
-	for _, step := range candidate.Steps {
-		present[step.ID] = true
-	}
-	for baseIndex, owner := range base.Steps {
-		if owner.ID == skipOwnerID || owner.Operation.Kind != ws.ConstructionOperationPivot || constructionStepIndex(candidate.Steps, owner.ID) < 0 {
-			continue
-		}
-		if constructionOwnerInputsClearedFromCandidate(base, candidate, owner.ID) {
-			continue
-		}
-		missing := make([]ws.ConstructionStep, 0)
-		for _, step := range base.Steps[:baseIndex] {
-			if step.OwnerStepID == owner.ID && step.Operation.Kind == ws.ConstructionOperationRelatedField && !present[step.ID] {
-				missing = append(missing, step)
-				present[step.ID] = true
-			}
-		}
-		index := constructionStepIndex(candidate.Steps, owner.ID)
-		if len(missing) != 0 && index >= 0 {
-			candidate.Steps = append(candidate.Steps[:index], append(missing, candidate.Steps[index:]...)...)
-		}
-		for _, projection := range base.SourceProjections {
-			if projection.OwnerStepID == owner.ID && !hasPivotSourceProjection(candidate.SourceProjections, projection.ColumnID) {
-				candidate.SourceProjections = append(candidate.SourceProjections, projection)
-			}
-		}
-	}
-	return candidate
 }
 func constructionOwnerInputsClearedFromCandidate(base ws.Construction, candidate ws.Construction, ownerID string) bool {
 	baseInputs := 0
@@ -254,14 +123,6 @@ func constructionRootFieldAlreadyProjected(document ws.Document, steps []ws.Cons
 	}
 	return false
 }
-func appendStageColumnIfAbsent(columns []ws.StageColumn, column ws.StageColumn) []ws.StageColumn {
-	for _, current := range columns {
-		if current.ID == column.ID {
-			return columns
-		}
-	}
-	return append(columns, column)
-}
 func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, columnID string) bool {
 	for _, projection := range projections {
 		if projection.ColumnID == columnID {
@@ -269,20 +130,6 @@ func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, col
 		}
 	}
 	return false
-}
-func uniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType, path string) (capability.Candidate, bool) {
-	var result capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID != nodeID || candidate.ResourceType != resourceType || canonicalRowPath(candidate.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		result, found = candidate, true
-	}
-	return result, found
 }
 func constructionGroupSourceCandidate(snapshot capability.Snapshot, choice capability.RowChoice) (capability.Candidate, bool) {
 	var candidate capability.Candidate

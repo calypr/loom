@@ -35,22 +35,6 @@ func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceTy
 	return rowsource.ConstructionUnpivotSourceFacts(snapshot, rootResourceType, fieldPath)
 }
 
-func deriveSourceLogicalTypeIsNumeric(logicalType string) bool {
-	return rowsource.DeriveSourceLogicalTypeIsNumeric(logicalType)
-}
-
-func unpivotSourceLogicalTypeIsTableScalar(logicalType string) bool {
-	return rowsource.UnpivotSourceLogicalTypeIsTableScalar(logicalType)
-}
-
-func unpivotSourceLogicalTypeIsMeltEligible(logicalType string) bool {
-	return rowsource.UnpivotSourceLogicalTypeIsMeltEligible(logicalType)
-}
-
-func unpivotMeltKindsSatisfiable(kinds []string) bool {
-	return rowsource.UnpivotMeltKindsSatisfiable(kinds)
-}
-
 func (s *Service) rowSourceService() *rowsource.Service {
 	return rowsource.NewService(rowsource.Config{
 		Capability:        s.config.Capability,
@@ -72,10 +56,6 @@ func (s *Service) constructionCandidateWithFilterSources(ctx context.Context, ba
 	return s.rowSourceService().ConstructionCandidateWithFilterSources(ctx, base, rowSourceProposalRequest(request), candidate)
 }
 
-func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base constructionBase, outputID string, construction ws.Construction) error {
-	return s.rowSourceService().ReauthorizeConstructionFilterSources(ctx, base, outputID, construction)
-}
-
 func (s *Service) constructionDeriveSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (rowsource.ConstructionDeriveSourceCapability, error) {
 	return s.rowSourceService().ConstructionDeriveSourceCapability(ctx, base, outputID, stageID)
 }
@@ -88,16 +68,8 @@ func (s *Service) constructionCandidateWithDeriveSources(ctx context.Context, ba
 	return s.rowSourceService().ConstructionCandidateWithDeriveSources(ctx, base, rowSourceProposalRequest(request), candidate)
 }
 
-func (s *Service) reauthorizeConstructionDeriveSources(ctx context.Context, base constructionBase, outputID string, construction ws.Construction) error {
-	return s.rowSourceService().ReauthorizeConstructionDeriveSources(ctx, base, outputID, construction)
-}
-
 func (s *Service) constructionExpandSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (rowsource.ConstructionExpandSourceCapability, error) {
 	return s.rowSourceService().ConstructionExpandSourceCapability(ctx, base, outputID, stageID)
-}
-
-func (s *Service) resolveConstructionExpandSource(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, acceptedStageID string, selection rowsource.ConstructionExpandSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.rowSourceService().ResolveConstructionExpandSource(ctx, base, rowSourceProposalRequest(request), acceptedStageID, selection)
 }
 
 func (s *Service) constructionCandidateWithExpandSources(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
@@ -118,8 +90,4 @@ func (s *Service) resolveConstructionUnpivotSource(ctx context.Context, base con
 
 func (s *Service) constructionCandidateWithUnpivotSources(ctx context.Context, base constructionBase, request construction.ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
 	return s.rowSourceService().ConstructionCandidateWithUnpivotSources(ctx, base, rowSourceProposalRequest(request), candidate)
-}
-
-func (s *Service) reauthorizeConstructionUnpivotSources(ctx context.Context, base constructionBase, outputID string, construction ws.Construction) error {
-	return s.rowSourceService().ReauthorizeConstructionUnpivotSources(ctx, base, outputID, construction)
 }
