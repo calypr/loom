@@ -94,7 +94,17 @@ func runApply(root, ledgerPath, currentPkg string) error {
 	}
 	byFile := map[string][]applyRow{}
 	for _, r := range selected {
-		byFile[r.file] = append(byFile[r.file], r)
+		seenFile := map[string]bool{}
+		for _, rg := range r.ranges {
+			if rg.file == "" || seenFile[rg.file] {
+				continue
+			}
+			seenFile[rg.file] = true
+			byFile[rg.file] = append(byFile[rg.file], r)
+		}
+		if len(seenFile) == 0 {
+			byFile[r.file] = append(byFile[r.file], r)
+		}
 	}
 	var files []string
 	for f := range byFile {
@@ -132,7 +142,14 @@ func runApply(root, ledgerPath, currentPkg string) error {
 			}
 		}
 		allDeclsCovered := declsCovered(fset, af, rowsForFile)
-		if sameDest && allDeclsCovered {
+		primaryOnly := true
+		for _, r := range rowsForFile {
+			if r.file != file {
+				primaryOnly = false
+				break
+			}
+		}
+		if sameDest && allDeclsCovered && primaryOnly {
 			target := destPath(root, destPkg, destFileName, file)
 			if target == srcAbs {
 				continue
