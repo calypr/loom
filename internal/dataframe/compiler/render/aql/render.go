@@ -791,3 +791,24 @@ type physicalNavigationTraversal struct {
 	traversal ir.PhysicalTraversal
 	scope     []ir.PhysicalOperation
 }
+
+func (r *physicalPlanRenderer) cellTraces() cellTraceRenderer {
+	return cellTraceRenderer{renderContext: &r.renderContext, core: r}
+}
+
+func RenderClickHousePrefix(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
+	if plan.Engine != ir.PhysicalEngineClickHouse || plan.ClickHousePrefix == nil || plan.ClickHouseCombine == nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("typed composite ClickHouse plan is required")
+	}
+	if err := plan.Validate(); err != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("validate composite ClickHouse prefix: %w", err)
+	}
+	prefix := ir.ClonePhysicalPlan(plan)
+	prefix.Engine = ir.PhysicalEngineAQL
+	prefix.ClickHouseCombine = nil
+	prefix.ClickHousePrefix = nil
+	if prefix.StageSequence == nil || prefix.StageSequence.PreviewLimitBindKey != "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("private ClickHouse prefix must be an unbounded typed AQL stage sequence")
+	}
+	return RenderPhysicalPlan(prefix)
+}

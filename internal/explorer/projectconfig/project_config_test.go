@@ -17,6 +17,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataset"
@@ -224,7 +225,7 @@ func TestPrepareProjectConfigsIsDeterministicAndRequiresPublishedExecution(t *te
 
 func TestPrepareProjectConfigsAllowsOnlyOmittedDiscoveredPublicationColumns(t *testing.T) {
 	resolved, published, _ := projectConfigPublicationFixture()
-	logical, err := publication.WithPublicationMetadata(execution.PublicationColumns(resolved, "Documents"))
+	logical, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, "Documents"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +313,7 @@ func TestPrepareProjectConfigsUsesFinalEngineResolvedSchemaDigest(t *testing.T) 
 	publishedAt := created.Add(time.Minute)
 	verifiedAt := publishedAt.Add(-time.Second)
 	compiledOutput := resolved.Compiled.Outputs[0]
-	logicalColumns, err := publication.WithPublicationMetadata(execution.PublicationColumns(resolved, compiledOutput.Name))
+	logicalColumns, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, compiledOutput.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +402,7 @@ func projectConfigPublicationFixture() (execution.Resolved, publication.BundleEx
 			}},
 		},
 	}
-	logicalColumns, err := publication.WithPublicationMetadata(execution.PublicationColumns(resolved, "Documents"))
+	logicalColumns, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, "Documents"))
 	if err != nil {
 		panic(err)
 	}
@@ -530,7 +531,7 @@ func TestPrepareProjectConfigsDetachesNestedPresentationAfterRealPublication(t *
 		AuthResourcePaths: bindings.AuthResourcePaths,
 	}
 	if _, err := publication.Publish(context.Background(), target, identity, []publication.OutputStream{{
-		Name: "Documents", Columns: execution.PublicationColumns(resolved, "Documents"),
+		Name: "Documents", Columns: reciperuntime.PublicationColumns(resolved, "Documents"),
 		Stream: func(context.Context, func(map[string]any) error) error { return nil },
 	}}, publication.Limits{}); err != nil {
 		t.Fatalf("publication.Publish() error = %v", err)

@@ -687,3 +687,8 @@ func formatPhysicalValue(value PhysicalValue) string {
 	}
 	return value.Variable + "." + value.Path[0]
 }
+
+const (
+	datasetGenerationBindKey = "dataset_generation"
+	datasetGenerationField   = "dataset_generation"
+)

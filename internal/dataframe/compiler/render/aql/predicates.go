@@ -394,3 +394,10 @@ func (r *physicalPlanRenderer) renderDocumentLookup(lookup ir.PhysicalDocumentLo
 		fmt.Sprintf("%sFILTER %s != null && %s._id == %s", indent, lookup.Variable, lookup.Variable, exactID),
 	}, nil
 }
+
+func correlationValueSource(correlation ir.PhysicalCorrelation, owner, coding string) string {
+	if correlation.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
+		return coding
+	}
+	return owner
+}

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 )
 
 func TestInitialProjectConfigForRecipeUsesRealOutputIDs(t *testing.T) {
@@ -172,7 +172,7 @@ func TestPrepareProjectConfigsForPublicationPreservesStaleChoicesAndHidesView(t 
 		}},
 	}
 	resolved.Compiled.Outputs[0].OutputSchema = filterCompiledSchema(resolved.Compiled.Outputs[0].OutputSchema, "extension-tag")
-	logicalColumns, err := publication.WithPublicationMetadata(execution.PublicationColumns(resolved, "Documents"))
+	logicalColumns, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, "Documents"))
 	if err != nil {
 		t.Fatal(err)
 	}

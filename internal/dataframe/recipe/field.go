@@ -1,5 +1,12 @@
 package recipe
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+)
+
 type RootColumnNaming string
 
 const (
@@ -69,4 +76,43 @@ func (m ValueMode) Normalized() ValueMode {
 		return ValueModeAuto
 	}
 	return m
+}
+
+func (f *Field) UnmarshalJSON(data []byte) error {
+	type fieldJSON struct {
+		Name      string       `json:"name"`
+		ColumnID  string       `json:"columnId,omitempty"`
+		Label     string       `json:"label,omitempty"`
+		FieldRef  string       `json:"fieldRef,omitempty"`
+		Expr      Expression   `json:"expr"`
+		Fallbacks []Expression `json:"fallbacks,omitempty"`
+		ValueMode ValueMode    `json:"valueMode,omitempty"`
+
+		LogicalType   string `json:"logicalType,omitempty"`
+		Repeated      bool   `json:"repeated,omitempty"`
+		Family        string `json:"family,omitempty"`
+		SelectionKey  string `json:"selectionKey,omitempty"`
+		ValueSelector string `json:"valueSelector,omitempty"`
+		FamilyName    string `json:"familyName,omitempty"`
+		FamilyKind    string `json:"familyKind,omitempty"`
+	}
+	var value fieldJSON
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("field contains trailing JSON")
+		}
+		return err
+	}
+	*f = Field{
+		Name: value.Name, ColumnID: value.ColumnID, Label: value.Label,
+		FieldRef: value.FieldRef, Expr: value.Expr,
+		Fallbacks: value.Fallbacks, ValueMode: value.ValueMode,
+	}
+	return nil
 }

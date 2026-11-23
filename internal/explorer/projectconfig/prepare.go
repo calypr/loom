@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -310,7 +311,7 @@ func validateFinalPublicationSchema(
 	retainedByOutput := make(map[string]map[string]struct{}, len(resolved.Bundle.Outputs))
 	for _, recipeOutput := range resolved.Bundle.Outputs {
 		publishedOutput := outputs[recipeOutput.Name]
-		columns, err := publication.WithPublicationMetadata(execution.PublicationColumns(resolved, recipeOutput.Name))
+		columns, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, recipeOutput.Name))
 		if err != nil {
 			return nil, fmt.Errorf("prepare publication schema for output %q: %w", recipeOutput.Name, err)
 		}

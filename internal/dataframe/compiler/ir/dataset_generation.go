@@ -2,11 +2,6 @@ package ir
 
 import "strings"
 
-const (
-	datasetGenerationBindKey = "dataset_generation"
-	datasetGenerationField   = "dataset_generation"
-)
-
 func normalizeDatasetGeneration(generation string) string {
 	return strings.TrimSpace(generation)
 }

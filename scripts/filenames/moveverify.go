@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/printer"
+	"go/scanner"
 	"go/token"
 	"os"
 	"os/exec"
@@ -26,6 +27,7 @@ type mvDecl struct {
 	Receiver string
 	File     string
 	Hash     string
+	Loose    string
 }
 
 func declKey(kind, name, receiver string) string {
@@ -137,8 +139,10 @@ func headFiles(root string) ([]mvFile, error) {
 
 func extractDecls(files []mvFile) ([]mvDecl, error) {
 	type typeUnit struct {
-		hash    string
-		methods []string
+		hash     string
+		loose    string
+		methods  []string
+		lmethods []string
 	}
 	byDir := map[string][]mvFile{}
 	for _, f := range files {
@@ -155,10 +159,11 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 		types := map[string]*typeUnit{}
 		typeFile := map[string]string{}
 		var methods []struct {
-			recv string
-			hash string
-			name string
-			file string
+			recv  string
+			hash  string
+			loose string
+			name  string
+			file  string
 		}
 		for _, f := range byDir[dir] {
 			fset := token.NewFileSet()
@@ -177,7 +182,7 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 							name := ts.Name.Name
 							normalizeNode(ts, aliases, nil)
 							h := hashNode(fset, ts)
-							types[name] = &typeUnit{hash: h}
+							types[name] = &typeUnit{hash: h, loose: looseHashNode(fset, ts)}
 							typeFile[name] = f.path
 						}
 					case token.VAR, token.CONST:
@@ -193,8 +198,9 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 							}
 							normalizeNode(vs, aliases, nil)
 							h := hashNode(fset, vs)
+							lh := looseHashNode(fset, vs)
 							for _, n := range names {
-								decls = append(decls, mvDecl{Kind: kind, Name: n, File: f.path, Hash: h})
+								decls = append(decls, mvDecl{Kind: kind, Name: n, File: f.path, Hash: h, Loose: lh})
 							}
 						}
 					}
@@ -202,32 +208,36 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 					if d.Recv == nil {
 						name := d.Name.Name
 						normalizeNode(d, aliases, localNames(d))
-						decls = append(decls, mvDecl{Kind: "func", Name: name, File: f.path, Hash: hashNode(fset, d)})
+						decls = append(decls, mvDecl{Kind: "func", Name: name, File: f.path, Hash: hashNode(fset, d), Loose: looseHashNode(fset, d)})
 						continue
 					}
 					recv := receiverBase(d.Recv.List[0].Type)
 					name := d.Name.Name
 					normalizeNode(d, aliases, localNames(d))
 					methods = append(methods, struct {
-						recv string
-						hash string
-						name string
-						file string
-					}{recv: recv, hash: hashNode(fset, d), name: name, file: f.path})
+						recv  string
+						hash  string
+						loose string
+						name  string
+						file  string
+					}{recv: recv, hash: hashNode(fset, d), loose: looseHashNode(fset, d), name: name, file: f.path})
 				}
 			}
 		}
 		for _, m := range methods {
 			if t := types[m.recv]; t != nil {
 				t.methods = append(t.methods, m.hash)
+				t.lmethods = append(t.lmethods, m.loose)
 			} else {
-				decls = append(decls, mvDecl{Kind: "method", Name: m.recv + "." + m.name, Receiver: m.recv, File: m.file, Hash: m.hash})
+				decls = append(decls, mvDecl{Kind: "method", Name: m.recv + "." + m.name, Receiver: m.recv, File: m.file, Hash: m.hash, Loose: m.loose})
 			}
 		}
 		for name, t := range types {
 			sort.Strings(t.methods)
 			parts := append([]string{t.hash}, t.methods...)
-			decls = append(decls, mvDecl{Kind: "type", Name: name, File: typeFile[name], Hash: hashString(strings.Join(parts, "\n"))})
+			sort.Strings(t.lmethods)
+			lparts := append([]string{t.loose}, t.lmethods...)
+			decls = append(decls, mvDecl{Kind: "type", Name: name, File: typeFile[name], Hash: hashString(strings.Join(parts, "\n")), Loose: hashString(strings.Join(lparts, "\n"))})
 		}
 	}
 	return decls, nil
@@ -337,6 +347,45 @@ func hashNode(fset *token.FileSet, n ast.Node) string {
 	return hashString(buf.String())
 }
 
+func looseHashNode(fset *token.FileSet, n ast.Node) string {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, n); err != nil {
+		return ""
+	}
+	var sc scanner.Scanner
+	file := token.NewFileSet().AddFile("", -1, len(buf.Bytes()))
+	sc.Init(file, buf.Bytes(), nil, 0)
+	var out []string
+	var toks []token.Token
+	var lits []string
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		_ = pos
+		if tok == token.COMMENT || tok == token.SEMICOLON {
+			continue
+		}
+		toks = append(toks, tok)
+		lits = append(lits, lit)
+	}
+	for i := 0; i < len(toks); i++ {
+		if toks[i] == token.PERIOD {
+			continue
+		}
+		if toks[i] == token.IDENT && i+1 < len(toks) && toks[i+1] == token.PERIOD {
+			continue
+		}
+		if toks[i] == token.IDENT {
+			out = append(out, lowerFirst(lits[i]))
+			continue
+		}
+		out = append(out, string(lits[i]))
+	}
+	return hashString(strings.Join(out, "\x00"))
+}
+
 func hashString(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return fmt.Sprintf("%x", sum[:])
@@ -371,7 +420,7 @@ func compareDecls(base, head []mvDecl) (missing, added []mvDecl, changed []struc
 		for i := 0; i < len(bs); {
 			matched := -1
 			for j := 0; j < len(hs); j++ {
-				if bs[i].Hash == hs[j].Hash {
+				if bs[i].Hash == hs[j].Hash || (bs[i].Loose != "" && bs[i].Loose == hs[j].Loose) {
 					matched = j
 					break
 				}

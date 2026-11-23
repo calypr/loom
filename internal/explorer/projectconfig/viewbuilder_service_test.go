@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -167,7 +168,7 @@ func viewBuilderPublicationFixture() (execution.Resolved, publication.BundleExec
 			}},
 		},
 	}
-	logicalColumns, err := publication.WithPublicationMetadata(execution.PublicationColumns(resolved, "Documents"))
+	logicalColumns, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, "Documents"))
 	if err != nil {
 		panic(err)
 	}
