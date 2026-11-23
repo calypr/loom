@@ -55,7 +55,7 @@ func TestConstructionCodedGroupCompilesNestedAndDirectGeneratedCodingPaths(t *te
 				t.Fatalf("coded group output types = %#v, want nullable string keys and required integer count", compiled.OutputSchema)
 			}
 
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -103,7 +103,7 @@ func TestConstructionCodedGroupMissingPoliciesAndTupleDeduplication(t *testing.T
 	for _, test := range policies {
 		t.Run(test.name, func(t *testing.T) {
 			compiled := compileDerivedTestOutput(t, codedGroupOutput("Specimen", "type.coding[]", test.policy))
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -160,7 +160,7 @@ func TestConstructionCodedGroupOutputFeedsLaterConstructionStage(t *testing.T) {
 		sequence.Stages[1].Kind != ir.PhysicalStageFilterOp || sequence.Stages[1].InputStageID != "group_codes" {
 		t.Fatalf("CODED_GROUP plus later Filter stages = %#v", sequence)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render later construction stage: %v", err)
 	}

@@ -33,10 +33,10 @@ func terminalGroupRowValuePreviewWindowFor(
 		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil ||
 		sequence.OutputAuthResourcePathBindKey != "" || options.omitTerminalRowSort || options.omitTerminalReturn ||
 		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
-		options.disableRootIndex ||
+		(options.rootIndex.kind == rootIndexOff) ||
 		options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
-		options.twoScanPivotPreview || options.dynamicPivotPreview || options.streamingMissingCategoryPivotPreview ||
-		options.storedPresenceObject || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
+		options.twoScanPivot() || options.dynamicPivot() || options.streamingMissingCategoryPivot() ||
+		(options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted) || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
 		options.pivotGroupTupleFilter != nil {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
@@ -51,7 +51,7 @@ func terminalGroupRowValuePreviewWindowFor(
 	group := stage.Group
 	semanticGroup := group != nil && group.SemanticKey != nil
 
-	if options.rootIndexHint != "" && !semanticGroup {
+	if options.rootIndex.hint != "" && !semanticGroup {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
@@ -216,9 +216,9 @@ func renderGroupRowValuePreviewFrontier(
 ) (groupRowValuePreviewFrontier, error) {
 
 	source, err := renderPhysicalPlanWithOptions(frontierPlan, physicalRenderOptions{
-		rootIndexHint:    options.rootIndexHint,
-		disableRootIndex: options.disableRootIndex,
-		internalPrefix:   "group_preview_source_",
+		rootIndex: options.rootIndex,
+
+		internalPrefix: "group_preview_source_",
 	})
 	if err != nil {
 		return groupRowValuePreviewFrontier{}, fmt.Errorf("render selected GROUP-key source: %w", err)

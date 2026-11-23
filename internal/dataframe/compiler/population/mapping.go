@@ -41,7 +41,7 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 		}
 		rowIdentity = effectiveIdentity
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("render population mapping physical plan: %w", err)
 	}

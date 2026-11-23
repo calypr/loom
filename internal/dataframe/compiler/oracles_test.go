@@ -688,7 +688,7 @@ func executeOracleQuery(t *testing.T, ctx context.Context, client *store.Client,
 }
 
 func queryOracleOutput(ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) ([]map[string]any, error) {
-	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	rendered, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		return nil, err
 	}

@@ -25,7 +25,7 @@ func TestRenderGraphPhysicalPlanUsesGlobalLookaheadWindow(t *testing.T) {
 			{Kind: ir.PhysicalGraphReturnOp, GraphReturn: &ir.PhysicalGraphReturn{PathSets: []string{"seed", "hop"}, LimitBindKey: "limit"}},
 		},
 	}
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := Render(plan, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

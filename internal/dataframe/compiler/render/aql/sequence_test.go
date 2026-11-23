@@ -179,7 +179,7 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 	}
 
 	pruneUnusedSourceGroupProjections(&plan, sequence)
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := Render(plan, Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}

@@ -33,7 +33,7 @@ func TestComposeClickHouseCombineRendersExactUnboundedAQLPrefix(t *testing.T) {
 	aqlPlan.Engine = ir.PhysicalEngineAQL
 	aqlPlan.ClickHouseCombine = nil
 	aqlPlan.ClickHousePrefix = nil
-	rendered, err := aql.RenderPhysicalPlan(aqlPlan)
+	rendered, err := aql.Render(aqlPlan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 		},
 	}
 	prefix := compileCompositePrefixTestOutput(t, output, bindings)
-	rendered, err := aql.RenderPhysicalPlan(prefix.Plan)
+	rendered, err := aql.Render(prefix.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() for FILTER→COHORT_GROUP: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestComposedCohortGroupRowsNamespacePerMemberRecodeBinds(t *testing.T) {
 		t.Fatal("namespacing cohort literals mutated the source-plan transformation expression")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}

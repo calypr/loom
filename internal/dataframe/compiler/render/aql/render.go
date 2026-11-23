@@ -18,37 +18,6 @@ var rootIndexHintPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 var previewSourcePathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
-	return renderPhysicalPlan(plan, "")
-}
-
-func RenderPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
-	if !rootIndexHintPattern.MatchString(indexHint) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
-	}
-	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp ||
-		plan.Operations[0].RootScan == nil || plan.Operations[0].RootScan.Population != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint requires one direct root scan")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{rootIndexHint: indexHint})
-}
-
-func RenderPhysicalPlanWithRootIndexDisabled(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
-	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp ||
-		plan.Operations[0].RootScan == nil || plan.Operations[0].RootScan.Population != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("disabled root index requires one direct root scan")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{disableRootIndex: true})
-}
-
-func RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (RenderedPhysicalPlan, error) {
-	return renderSemanticGroupProjectionPreview(plan, indexName, disableIndex, false)
-}
-
-func RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (RenderedPhysicalPlan, error) {
-	return renderSemanticGroupProjectionPreview(plan, indexName, disableIndex, true)
-}
-
 func ValidateSemanticGroupProjectionPreviewPlan(plan ir.PhysicalPlan) error {
 	_, _, _, err := semanticGroupProjectionPreviewShape(plan)
 	return err
@@ -122,36 +91,6 @@ func RenderPhysicalRootScopeCount(plan ir.PhysicalPlan) (RenderedPhysicalPlan, e
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
 }
 
-func RenderPhysicalPlanWithRelatedExpandPreviewLimit(plan ir.PhysicalPlan, limit int) (RenderedPhysicalPlan, error) {
-	if limit < 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("related expansion preview limit must be positive")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{relatedExpandPreviewLimit: limit})
-}
-
-func RenderPhysicalPlanWithRootPageKeys(plan ir.PhysicalPlan, bindKey string, relatedExpandPreviewLimit int) (RenderedPhysicalPlan, error) {
-	if !previewSourcePathSegmentPattern.MatchString(bindKey) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root page key bind %q is not a safe bind name", bindKey)
-	}
-	if relatedExpandPreviewLimit < 0 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("related expansion preview limit cannot be negative")
-	}
-	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root page key lookup requires one direct root scan")
-	}
-	root := plan.Operations[0].RootScan
-	if root.Population != nil || root.CohortSource != nil || root.PageCandidateSeed != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root page key lookup requires an unmodified root scan")
-	}
-	if _, ok := plan.BindVars[bindKey].([]string); !ok {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root page key bind %q must contain []string", bindKey)
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
-		previewRootKeyWindowVariable: fmt.Sprintf("SORTED_UNIQUE(@%s)", bindKey),
-		relatedExpandPreviewLimit:    relatedExpandPreviewLimit,
-	})
-}
-
 func terminalProjectionPresenceNames(sequence *ir.PhysicalStageSequence, columnID string) map[string]struct{} {
 	names := make(map[string]struct{})
 	for index := len(sequence.Stages) - 1; index >= 0; index-- {
@@ -185,117 +124,22 @@ func physicalStageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.Ph
 	return ir.PhysicalStageColumn{}, false
 }
 
-func RenderPhysicalPlanWithDynamicCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
-	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a terminal Pivot preview")
-	}
-	stage := sequence.Stages[0]
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a nonunique terminal Pivot")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{dynamicPivotPreview: true})
-}
-
-func RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
-	return renderStreamingMissingCategoryPivotPreview(plan, "", false)
-}
-
-func RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
-	if !rootIndexHintPattern.MatchString(indexHint) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
-	}
-	return renderStreamingMissingCategoryPivotPreview(plan, indexHint, true)
-}
-
-func renderStreamingMissingCategoryPivotPreview(plan ir.PhysicalPlan, indexHint string, storedPresenceObject bool) (RenderedPhysicalPlan, error) {
-	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
-		sequence.PopulationMappingReturn != nil || sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category preview requires one terminal Pivot preview")
-	}
-	stage := sequence.Stages[0]
-	pivot := stage.GroupedPivot
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || pivot == nil || pivot.OneInputRowPerGroup ||
-		pivot.CodedCorrelation != nil || len(pivot.GroupKeys) == 0 || len(pivot.RowValues) != 0 ||
-		pivot.RootContributorInputColumn != "" || pivot.RootContributorOutputColumn != "" || len(pivot.Categories) == 0 ||
-		!pivot.CategoryPresenceFromInput || pivot.CategoryPresence != nil || pivot.CategoryPresenceColumn == "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category preview requires a simple presence-aware Pivot")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
-		rootIndexHint: indexHint, streamingMissingCategoryPivotPreview: true,
-		storedPresenceObject: storedPresenceObject,
-	})
-}
-
-func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint string, groupKeySourcePaths [][]string) (RenderedPhysicalPlan, error) {
-	if !rootIndexHintPattern.MatchString(indexHint) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
-	}
-	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a terminal Pivot preview")
-	}
-	stage := sequence.Stages[0]
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
-		stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a simple nonunique terminal Pivot")
-	}
-	if len(groupKeySourcePaths) != len(stage.GroupedPivot.GroupKeys) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview has %d group-key source paths for %d Pivot keys", len(groupKeySourcePaths), len(stage.GroupedPivot.GroupKeys))
-	}
-	for index, path := range groupKeySourcePaths {
-		if len(path) == 0 {
-			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview group-key source path %d is empty", index)
-		}
-		for _, segment := range path {
-			if segment == "" {
-				return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview group-key source path %d has an empty segment", index)
-			}
-		}
-	}
-	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil ||
-		plan.Operations[0].RootScan.Population != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a direct root source scan")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
-		rootIndexHint:            indexHint,
-		twoScanPivotPreview:      true,
-		dynamicPivotPreview:      true,
-		pivotGroupKeySourcePaths: groupKeySourcePaths,
-	})
-}
-
 type physicalRenderOptions struct {
-	rootCategoryResourceType             string
-	rootIndexHint                        string
-	disableRootIndex                     bool
-	internalPrefix                       string
-	relatedExpandPreviewLimit            int
-	terminalProjectionColumn             string
-	omitTerminalRowSort                  bool
-	omitTerminalReturn                   bool
-	terminalReturnVariable               string
-	preserveProjectionPresenceNames      map[string]struct{}
-	projectionPresenceMarkerColumn       string
-	twoScanPivotPreview                  bool
-	dynamicPivotPreview                  bool
-	streamingMissingCategoryPivotPreview bool
-	storedPresenceObject                 bool
-	storedPresenceOutputName             string
-	storedPresenceParentPath             []string
-	pivotGroupKeySourcePaths             [][]string
-	pivotGroupTupleFilter                *pivotGroupTupleFilter
-	previewRootKeyWindowVariable         string
-	previewGroupIdentityFilter           *previewGroupIdentityFilter
+	rootCategoryResourceType        string
+	rootIndex                       RootIndex
+	internalPrefix                  string
+	terminalProjectionColumn        string
+	omitTerminalRowSort             bool
+	omitTerminalReturn              bool
+	terminalReturnVariable          string
+	preserveProjectionPresenceNames map[string]struct{}
+	projectionPresenceMarkerColumn  string
+	renderPreview
+	storedPresenceOutputName     string
+	storedPresenceParentPath     []string
+	pivotGroupTupleFilter        *pivotGroupTupleFilter
+	previewRootKeyWindowVariable string
+	previewGroupIdentityFilter   *previewGroupIdentityFilter
 }
 
 type pivotGroupTupleFilter struct {
@@ -325,10 +169,6 @@ func (r *physicalPlanRenderer) renderPivotGroupTupleFilter(filter *pivotGroupTup
 		return "FILTER " + keyValues[0] + " IN " + filter.SelectedGroupKeysVariable, nil
 	}
 	return "FILTER POSITION(" + filter.SelectedGroupKeysVariable + ", [" + strings.Join(keyValues, ", ") + "])", nil
-}
-
-func renderPhysicalPlan(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhysicalPlan, error) {
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{rootIndexHint: rootIndexHint})
 }
 
 func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderOptions) (RenderedPhysicalPlan, error) {
@@ -370,13 +210,14 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 	}
 
 	renderer := physicalPlanRenderer{renderContext: renderContext{
-		bindVars:                        runtimePhysicalBindVars(plan.BindVars, collectionKeys),
-		collectionKeys:                  collectionKeys,
-		rootIndexHint:                   options.rootIndexHint,
-		rootCategoryResourceType:        options.rootCategoryResourceType,
-		disableRootIndex:                options.disableRootIndex,
-		internalPrefix:                  options.internalPrefix,
-		dynamicPivotPreview:             options.dynamicPivotPreview,
+		bindVars:                 runtimePhysicalBindVars(plan.BindVars, collectionKeys),
+		collectionKeys:           collectionKeys,
+		rootIndex:                options.rootIndex,
+		rootCategoryResourceType: options.rootCategoryResourceType,
+
+		internalPrefix: options.internalPrefix,
+
+		renderPreview:                   options.renderPreview,
 		setVariables:                    map[string]string{},
 		reservedVars:                    physicalPlanVariableNames(plan),
 		rootVariable:                    layout.root.Variable,
@@ -545,12 +386,12 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 	}
 	if root.Population == nil {
 		line := fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)
-		if r.disableRootIndex {
+		if r.rootIndex.kind == rootIndexOff {
 			line += " OPTIONS { disableIndex: true }"
 		} else if root.IndexHint != "" {
 			line += fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", root.IndexHint)
-		} else if r.rootIndexHint != "" {
-			line += fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", r.rootIndexHint)
+		} else if r.rootIndex.hint != "" {
+			line += fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", r.rootIndex.hint)
 		}
 		lines := []string{line}
 		if r.rootCategoryResourceType != "" {
@@ -685,26 +526,24 @@ type physicalPlanRenderer struct {
 }
 
 type renderContext struct {
-	rootCategoryResourceType             string
-	bindVars                             map[string]any
-	collectionKeys                       map[string]struct{}
-	rootIndexHint                        string
-	disableRootIndex                     bool
-	setVariables                         map[string]string
-	reservedVars                         map[string]struct{}
-	internalPrefix                       string
-	preparedItem                         string
-	rootVariable                         string
-	cellTrace                            *ir.PhysicalCellTraceReturn
-	dynamicPivotPreview                  bool
-	streamingMissingCategoryPivotPreview bool
-	storedPresenceOutputName             string
-	storedPresenceParentPath             []string
-	preserveProjectionPresenceNames      map[string]struct{}
-	projectionPresenceMarkerColumn       string
-	projectionPresenceMarkerRows         map[string]struct{}
-	previewRootKeyWindowVariable         string
-	previewGroupIdentityFilter           *previewGroupIdentityFilter
+	rootCategoryResourceType string
+	bindVars                 map[string]any
+	collectionKeys           map[string]struct{}
+	rootIndex                RootIndex
+	setVariables             map[string]string
+	reservedVars             map[string]struct{}
+	internalPrefix           string
+	preparedItem             string
+	rootVariable             string
+	cellTrace                *ir.PhysicalCellTraceReturn
+	renderPreview
+	storedPresenceOutputName        string
+	storedPresenceParentPath        []string
+	preserveProjectionPresenceNames map[string]struct{}
+	projectionPresenceMarkerColumn  string
+	projectionPresenceMarkerRows    map[string]struct{}
+	previewRootKeyWindowVariable    string
+	previewGroupIdentityFilter      *previewGroupIdentityFilter
 }
 
 func (r *physicalPlanRenderer) renderExpressionLet(operation ir.PhysicalOperation, indent string) ([]string, error) {

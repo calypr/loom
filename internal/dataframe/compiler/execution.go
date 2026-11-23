@@ -95,20 +95,20 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	var rendered aql.RenderedPhysicalPlan
 	if streamingMissingCategoryPivot {
 		if previewCoveringIndex != nil && len(previewCoveringIndex.StoredValues) != 0 {
-			rendered, err = aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint(physical, previewCoveringIndex.Name)
+			rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name), Preview: aql.StreamingMissingCategoryPivotPreview{}})
 		} else {
-			rendered, err = aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(physical)
+			rendered, err = aql.Render(physical, aql.Options{Preview: aql.StreamingMissingCategoryPivotPreview{}})
 		}
 	} else if previewCoveringIndex != nil {
 		if len(previewCoveringIndex.PivotGroupKeyPaths) != 0 {
-			rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.PivotGroupKeyPaths)
+			rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name), Preview: aql.TwoScanPivotPreview{GroupKeySourcePaths: previewCoveringIndex.PivotGroupKeyPaths}})
 		} else {
-			rendered, err = aql.RenderPhysicalPlanWithRootIndexHint(physical, previewCoveringIndex.Name)
+			rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name)})
 		}
 	} else if canRenderDynamicCategoryPivotPreview(physical) {
-		rendered, err = aql.RenderPhysicalPlanWithDynamicCategoryPivotPreview(physical)
+		rendered, err = aql.Render(physical, aql.Options{Preview: aql.DynamicCategoryPivotPreview{}})
 	} else {
-		rendered, err = aql.RenderPhysicalPlan(physical)
+		rendered, err = aql.Render(physical, aql.Options{})
 	}
 	if err != nil {
 		return model.CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)

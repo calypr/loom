@@ -30,12 +30,12 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	inlineCodedGroupRoot := sourceRenderer.codedGroupSourceRootVariable()
 	inlineCodedPivotRoot := sourceRenderer.codedPivotSourceRootVariable()
 	inlineStreamingPivotRoot := sourceRenderer.streamingMissingCategoryPivotSourceRootVariable()
-	if options.streamingMissingCategoryPivotPreview && inlineStreamingPivotRoot == "" {
+	if options.streamingMissingCategoryPivot() && inlineStreamingPivotRoot == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category Pivot preview source proof failed")
 	}
 	storedPresenceOutputName := ""
 	var storedPresenceParentPath []string
-	if options.storedPresenceObject {
+	if options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted {
 		if inlineStreamingPivotRoot == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("stored-parent presence requires the direct-root streaming Pivot")
 		}
@@ -123,7 +123,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	groupIdentityVariable := ""
 	groupKeyVariables := []string(nil)
 	var groupKeyQuery RenderedPhysicalPlan
-	if options.twoScanPivotPreview {
+	if options.twoScanPivot() {
 		pivot, ok := terminalPreviewPivot(sequence)
 		if !ok {
 			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires one simple terminal Pivot")
@@ -146,7 +146,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			return RenderedPhysicalPlan{}, keyErr
 		}
 		groupKeyQuery, err = renderPhysicalPlanWithOptions(keyPlan, physicalRenderOptions{
-			rootIndexHint:  options.rootIndexHint,
+			rootIndex:      options.rootIndex,
 			internalPrefix: "preview_key_",
 		})
 		if err != nil {
@@ -154,13 +154,13 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 		options.pivotGroupTupleFilter = &pivotGroupTupleFilter{
 			SelectedGroupKeysVariable: selectedGroupKeysVariable,
-			SourcePaths:               options.pivotGroupKeySourcePaths,
+			SourcePaths:               options.mode.(TwoScanPivotPreview).GroupKeySourcePaths,
 		}
 	}
 	sourceOptions := physicalRenderOptions{
-		internalPrefix:                  options.internalPrefix,
-		rootIndexHint:                   options.rootIndexHint,
-		disableRootIndex:                options.disableRootIndex,
+		internalPrefix: options.internalPrefix,
+		rootIndex:      options.rootIndex,
+
 		previewRootKeyWindowVariable:    options.previewRootKeyWindowVariable,
 		storedPresenceOutputName:        storedPresenceOutputName,
 		storedPresenceParentPath:        storedPresenceParentPath,
@@ -218,31 +218,31 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}
 	presenceMarkerRows := projectionPresenceRows(stages, options.projectionPresenceMarkerColumn)
 	renderer := physicalPlanRenderer{renderContext: renderContext{
-		bindVars:                             bindVars,
-		collectionKeys:                       collectionKeys,
-		setVariables:                         map[string]string{},
-		reservedVars:                         reservedVars,
-		internalPrefix:                       options.internalPrefix + "construction_",
-		rootVariable:                         inlineStreamingPivotRoot,
-		dynamicPivotPreview:                  options.dynamicPivotPreview,
-		streamingMissingCategoryPivotPreview: options.streamingMissingCategoryPivotPreview,
-		storedPresenceOutputName:             storedPresenceOutputName,
-		storedPresenceParentPath:             append([]string(nil), storedPresenceParentPath...),
-		preserveProjectionPresenceNames:      options.preserveProjectionPresenceNames,
-		projectionPresenceMarkerColumn:       options.projectionPresenceMarkerColumn,
-		projectionPresenceMarkerRows:         presenceMarkerRows,
-		previewGroupIdentityFilter:           options.previewGroupIdentityFilter,
+		bindVars:       bindVars,
+		collectionKeys: collectionKeys,
+		setVariables:   map[string]string{},
+		reservedVars:   reservedVars,
+		internalPrefix: options.internalPrefix + "construction_",
+		rootVariable:   inlineStreamingPivotRoot,
+
+		renderPreview:                   options.renderPreview,
+		storedPresenceOutputName:        storedPresenceOutputName,
+		storedPresenceParentPath:        append([]string(nil), storedPresenceParentPath...),
+		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
+		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
+		projectionPresenceMarkerRows:    presenceMarkerRows,
+		previewGroupIdentityFilter:      options.previewGroupIdentityFilter,
 	}}
 	relatedExpandPreviewStageIndex, hasRelatedExpandPreviewStage := terminalRelatedExpandPreviewStage(sequence)
 	if options.omitTerminalRowSort || options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		options.twoScanPivotPreview || options.dynamicPivotPreview || options.streamingMissingCategoryPivotPreview {
+		options.twoScanPivot() || options.dynamicPivot() || options.streamingMissingCategoryPivot() {
 		hasRelatedExpandPreviewStage = false
 	}
 	relatedExpandPreviewLimitBindKey := ""
 	if hasRelatedExpandPreviewStage {
-		if options.relatedExpandPreviewLimit > 0 {
+		if options.relatedExpandLimit() > 0 {
 			relatedExpandPreviewLimitBindKey = renderer.newInternalBindKey("related_expand_preview_limit")
-			renderer.bindVars[relatedExpandPreviewLimitBindKey] = options.relatedExpandPreviewLimit
+			renderer.bindVars[relatedExpandPreviewLimitBindKey] = options.relatedExpandLimit()
 		} else if previewLimit, ok := renderer.bindVars[sequence.PreviewLimitBindKey].(int); sequence.PreviewLimitBindKey != "" && ok && previewLimit > 0 {
 			relatedExpandPreviewLimitBindKey = sequence.PreviewLimitBindKey
 		}
@@ -258,7 +258,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	} else if hasSourceGroupWindow {
 		lines = append(lines, strings.Split(strings.TrimSuffix(sourceGroupFrontier.query, "\n"), "\n")...)
 	}
-	if options.twoScanPivotPreview {
+	if options.twoScanPivot() {
 		pivot, _ := terminalPreviewPivot(sequence)
 		groupLines, groupErr := renderTerminalPivotGroupIdentitySelection(
 			groupKeyQuery.Query, *pivot, selectedGroupKeysVariable,

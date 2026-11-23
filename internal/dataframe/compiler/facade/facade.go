@@ -93,6 +93,8 @@ type Scope = capability.Scope
 type Traversal = capability.Traversal
 type TraversalRequest = capability.TraversalRequest
 
-var RenderPhysicalPlan = aql.RenderPhysicalPlan
+var Render = aql.Render
+
+type RenderOptions = aql.Options
 
 type RenderedPhysicalPlan = aql.RenderedPhysicalPlan

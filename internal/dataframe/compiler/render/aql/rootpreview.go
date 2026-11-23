@@ -35,10 +35,10 @@ func terminalSourceGroupPreviewWindowFor(
 		sequence.PreviewLimitBindKey == "" || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
 		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil ||
 		sequence.OutputAuthResourcePathBindKey != "" || options.omitTerminalRowSort || options.omitTerminalReturn ||
-		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" || options.rootIndexHint != "" ||
-		options.disableRootIndex || options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
-		options.twoScanPivotPreview || options.dynamicPivotPreview || options.streamingMissingCategoryPivotPreview ||
-		options.storedPresenceObject || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
+		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" || options.rootIndex.hint != "" ||
+		(options.rootIndex.kind == rootIndexOff) || options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
+		options.twoScanPivot() || options.dynamicPivot() || options.streamingMissingCategoryPivot() ||
+		(options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted) || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
 		options.pivotGroupTupleFilter != nil {
 		return ir.PhysicalPlan{}, sourceGroupPreviewShape{}, false
 	}

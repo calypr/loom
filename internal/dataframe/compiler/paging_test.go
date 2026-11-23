@@ -1426,7 +1426,7 @@ func TestCompiledQueryRetainsFinalizedPlanThatRendersExecutedQuery(t *testing.T)
 	if len(queries) != 1 || queries[0].PhysicalPlan.Engine != ir.PhysicalEngineAQL {
 		t.Fatalf("compiled query did not retain one finalized AQL plan: %#v", queries)
 	}
-	rendered, err := aql.RenderPhysicalPlan(queries[0].PhysicalPlan)
+	rendered, err := aql.Render(queries[0].PhysicalPlan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render retained plan: %v", err)
 	}

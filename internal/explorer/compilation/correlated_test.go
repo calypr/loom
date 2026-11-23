@@ -83,7 +83,7 @@ func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *test
 			if len(physical.Outputs) != 1 {
 				t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
 			}
-			rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
+			rendered, err := facade.Render(physical.Outputs[0].Plan, facade.RenderOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -172,7 +172,7 @@ func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing
 	if len(physical.Outputs) != 1 {
 		t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
 	}
-	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.Render(physical.Outputs[0].Plan, facade.RenderOptions{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}

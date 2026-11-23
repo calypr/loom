@@ -41,10 +41,10 @@ func relatedGroupPreviewShapeFor(plan ir.PhysicalPlan, sequence *ir.PhysicalStag
 	if plan.Engine == ir.PhysicalEngineClickHouse || sequence == nil || sequence.PreviewLimitBindKey == "" ||
 		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow || sequence.CellTraceReturn != nil ||
 		sequence.RowLineageReturn != nil || sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) < 2 ||
-		options.rootIndexHint != "" || options.disableRootIndex || options.omitTerminalRowSort || options.omitTerminalReturn ||
+		options.rootIndex.hint != "" || (options.rootIndex.kind == rootIndexOff) || options.omitTerminalRowSort || options.omitTerminalReturn ||
 		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
 		options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
-		options.twoScanPivotPreview || options.dynamicPivotPreview || options.pivotGroupTupleFilter != nil {
+		options.twoScanPivot() || options.dynamicPivot() || options.pivotGroupTupleFilter != nil {
 		return relatedGroupPreviewShape{}, false
 	}
 	if limit, ok := plan.BindVars[sequence.PreviewLimitBindKey].(int); !ok || limit <= 0 {

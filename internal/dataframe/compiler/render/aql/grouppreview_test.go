@@ -162,7 +162,7 @@ func TestTerminalGroupRowValuePreviewRequiresDeferredProjectionWork(t *testing.T
 
 func TestTerminalGroupRowValuePreviewKeepsHintedOrdinaryGroupOnGenericPath(t *testing.T) {
 	plan := groupRowValuePreviewTestPlan("ALL")
-	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{rootIndexHint: "loom_pivot_preview_test"})
+	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{rootIndex: RootIndexHint("loom_pivot_preview_test")})
 	if err != nil {
 		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
 	}
@@ -198,7 +198,7 @@ func TestTerminalGroupRowValuePreviewRejectsPostScopeSourceFilter(t *testing.T) 
 
 func TestTerminalSemanticGroupPreviewWindowsByLeadingScalarKey(t *testing.T) {
 	plan := semanticGroupPreviewTestPlan(ir.PhysicalStageGroupMissingKeyGroup)
-	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{rootIndexHint: "loom_pivot_preview_test"})
+	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{rootIndex: RootIndexHint("loom_pivot_preview_test")})
 	if err != nil {
 		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
 	}

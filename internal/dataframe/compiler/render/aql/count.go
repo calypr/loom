@@ -166,8 +166,8 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 func terminalRelatedEligibilityCategoryScanOnly(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (ir.PhysicalConstructionStage, ir.PhysicalProjection, string, bool) {
 	if sequence == nil || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
 		sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 1 || options.terminalProjectionColumn == "" ||
-		options.projectionPresenceMarkerColumn == "" || len(options.preserveProjectionPresenceNames) != 1 || options.twoScanPivotPreview ||
-		options.dynamicPivotPreview || options.pivotGroupTupleFilter != nil || sequence.SourceRowIdentity != "_key" {
+		options.projectionPresenceMarkerColumn == "" || len(options.preserveProjectionPresenceNames) != 1 || options.twoScanPivot() ||
+		options.dynamicPivot() || options.pivotGroupTupleFilter != nil || sequence.SourceRowIdentity != "_key" {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
 	if _, preserved := options.preserveProjectionPresenceNames[options.terminalProjectionColumn]; !preserved {
@@ -433,7 +433,7 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 	if sequence == nil || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
 		sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 2 ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview || options.dynamicPivotPreview || options.pivotGroupTupleFilter != nil {
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivot() || options.dynamicPivot() || options.pivotGroupTupleFilter != nil {
 		return false
 	}
 	eligibility, group := sequence.Stages[0], sequence.Stages[1]

@@ -76,7 +76,7 @@ func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}
-			rendered, renderErr := aql.RenderPhysicalPlan(physical)
+			rendered, renderErr := aql.Render(physical, aql.Options{})
 			if renderErr != nil {
 				t.Fatal(renderErr)
 			}
@@ -390,7 +390,7 @@ func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}
-			rendered, renderErr := aql.RenderPhysicalPlan(physical)
+			rendered, renderErr := aql.Render(physical, aql.Options{})
 			if renderErr != nil {
 				t.Fatal(renderErr)
 			}
@@ -464,7 +464,7 @@ func TestExtensionCompilerLiteralValuesAgainstArango(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			rendered, err := aql.RenderPhysicalPlan(physical)
+			rendered, err := aql.Render(physical, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -546,7 +546,7 @@ func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				rendered, err := aql.RenderPhysicalPlan(physical)
+				rendered, err := aql.Render(physical, aql.Options{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -639,7 +639,7 @@ func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -782,7 +782,7 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +815,7 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requiredRendered, err := aql.RenderPhysicalPlan(requiredPhysical)
+	requiredRendered, err := aql.Render(requiredPhysical, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

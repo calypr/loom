@@ -108,7 +108,7 @@ func TestRelatedEligibilityCountRowsReverseMatchesForwardOnArango(t *testing.T) 
 	plan := compileRelatedCountPhysicalPlan(t, project, generation)
 	compare := func(name string, scoped ir.PhysicalPlan, want float64) {
 		t.Helper()
-		fast, err := RenderPhysicalPlan(scoped)
+		fast, err := Render(scoped, Options{})
 		if err != nil {
 			t.Fatalf("render fast %s plan: %v", name, err)
 		}

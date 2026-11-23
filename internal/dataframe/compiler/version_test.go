@@ -87,7 +87,7 @@ FOR document IN Observation
 	if err != nil {
 		t.Fatalf("compile SYSTEM_VERSION semantic plan: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		t.Fatalf("render SYSTEM_VERSION semantic plan: %v", err)
 	}

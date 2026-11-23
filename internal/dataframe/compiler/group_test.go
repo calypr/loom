@@ -1056,7 +1056,7 @@ func codedGroupSourceProjectionIDs(t *testing.T, ctx context.Context, client *st
 	terminal.Return.Projections = []ir.PhysicalProjection{{
 		Name: "resource_id", Value: ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}},
 	}}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render authorized source projection: %v", err)
 	}

@@ -217,7 +217,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 
 	genericPlan := ir.ClonePhysicalPlan(preview.PhysicalPlan)
 	genericPlan.StageSequence.PreviewLimitBindKey = ""
-	genericRendered, err := aql.RenderPhysicalPlan(genericPlan)
+	genericRendered, err := aql.Render(genericPlan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render generic full-source typed GROUP plan: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestConstructionPivotSourceProjectionLivenessAgainstBindOnlyArango(t *testi
 		t.Fatal("compiled query does not contain a source Pivot stage")
 	}
 	planBeforeRender := ir.ClonePhysicalPlan(query.PhysicalPlan)
-	if _, err := aql.RenderPhysicalPlan(query.PhysicalPlan); err != nil {
+	if _, err := aql.Render(query.PhysicalPlan, aql.Options{}); err != nil {
 		t.Fatalf("render compiled Pivot plan: %v", err)
 	}
 	if !reflect.DeepEqual(query.PhysicalPlan, planBeforeRender) {

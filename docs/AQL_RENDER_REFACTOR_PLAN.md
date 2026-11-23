@@ -1,6 +1,6 @@
 # `compiler/render/aql` cleanup plan
 
-Status: Phases 0–3 done. Phase 4 pending. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Phases 0–4 done. Original measurements at `bb50db30b` on `internal-cleanup`.
 Relation to other plans: this follows the `render/aql` item under "Proposed: IR, AQL and
 execution receiver ownership" in `docs/INTERNAL_CLEANUP_PLAN.md`. That item asked for
 per-family renderers sharing a `renderContext`. The renderers exist, but they did not separate
@@ -214,6 +214,35 @@ issues in navigation, lineage and trace, or table-shape calls.
 - Check: `go build ./...`, `make test-go`, `make test-integration`, snapshot identical. Run
   `pstack:interrogate` on the diff, focused on preview preconditions that might be lost or
   weakened.
+
+### Preview options and compatibility
+
+`Render(plan, Options{})` renders the default plan. `Options.RootIndex` accepts
+the zero value, `RootIndexHint(name)`, or `RootIndexDisabled()`. `Options.Preview`
+holds one sealed variant.
+
+| Preview value | Root index choices | Parameters |
+| --- | --- | --- |
+| nil | default, hint, disabled | none |
+| `RelatedExpandPreview` | default | positive limit |
+| `RootPageKeysPreview` | default | key bind, nonnegative related-expand limit |
+| `DynamicCategoryPivotPreview` | default | none |
+| `StreamingMissingCategoryPivotPreview` | default, hint | hinted mode retains stored-presence rendering |
+| `TwoScanPivotPreview` | hint | group-key source paths |
+| `SemanticGroupProjectionFactorizationPreview` | default, hint, disabled | none |
+| `SemanticGroupProjectionAssessmentPreview` | default, hint, disabled | none |
+
+The compiler façade re-exports `Render` and `RenderOptions`. The prior call-site
+inventory originally counted 12 generic invocations, 12 variant invocations, and
+seven calls to specialized terminals. Phase 0 removed one generic invocation. The
+façade also referenced the old symbol and now points directly to the new renderer.
+The renderer carries typed index and preview values through its rendering state.
+
+Phase 4 passed the Go build, comment lint, full Go suite and disposable Arango
+and ClickHouse integration. All 8,308 render records matched after labeling
+`Render` calls by their corresponding former entry point. Three reviews
+checked pivot previews, semantic Group previews and paging/index combinations.
+No confirmed findings remained.
 
 ## Out of scope
 

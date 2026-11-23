@@ -61,7 +61,7 @@ func TestOwnerRecordsLowerToOneTypedArrayProjection(t *testing.T) {
 		t.Fatalf("owner-record correlation = %#v", correlation)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

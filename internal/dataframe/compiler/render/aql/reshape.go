@@ -30,7 +30,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	var input string
 	var inputLines []string
 	var scalarInputs map[string]string
-	if r.streamingMissingCategoryPivotPreview && !pivot.OneInputRowPerGroup {
+	if r.streamingMissingCategoryPivot() && !pivot.OneInputRowPerGroup {
 		inputLines, scalarInputs, err = r.renderStreamingPivotDirectScalarInputs(pivot)
 		if err != nil {
 			return nil, err
@@ -110,7 +110,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		collectClause := fmt.Sprintf(
 			"  COLLECT %s INTO %s = %s", strings.Join(collect, ", "), pivot.GroupRowsVariable, pivot.InputRowVariable,
 		)
-		if r.streamingMissingCategoryPivotPreview {
+		if r.streamingMissingCategoryPivot() {
 			return r.renderGroupedTablePivotStreamingMissingPreview(
 				pivot, lines, collect, categoryColumnBind, valueColumnBind, categoryPresenceBind,
 				categoryTypeBind, valueTypeBind, previewLimitBindKey, sortGroups, scalarInputs,
@@ -161,7 +161,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		))
 	}
 
-	if r.dynamicPivotPreview && !pivot.OneInputRowPerGroup {
+	if r.dynamicPivot() && !pivot.OneInputRowPerGroup {
 		return r.renderGroupedTablePivotDynamicPreview(
 			pivot, lines, categoryColumnBind, valueColumnBind, categoryPresenceBind,
 			categoryTypeBind, valueTypeBind, previewIdentityVariable,

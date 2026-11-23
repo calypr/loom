@@ -18,7 +18,7 @@ const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
 var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation"}
 
 func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
-	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
+	rendered, err := aql.Render(plan, aql.Options{RootIndex: aql.RootIndexHint(indexName)})
 	if err != nil {
 		return "", nil, err
 	}
@@ -269,7 +269,7 @@ func previewGroupScanSpec(plan ir.PhysicalPlan, covering *model.PreviewCoveringI
 	if err != nil {
 		return nil
 	}
-	sequential, err := aql.RenderPhysicalPlanWithRootIndexDisabled(plan)
+	sequential, err := aql.Render(plan, aql.Options{RootIndex: aql.RootIndexDisabled()})
 	if err != nil {
 		return nil
 	}

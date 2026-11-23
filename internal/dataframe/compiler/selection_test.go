@@ -92,7 +92,7 @@ func TestPreviewProjectionPlanEmitsMetadataByItself(t *testing.T) {
 	for i := 0; i < 160; i++ {
 		terminal.Projections = append(terminal.Projections, ir.PhysicalProjection{Name: fmt.Sprintf("wide_%03d", i), Value: ir.PhysicalValue{Variable: root, Path: []string{"payload", fmt.Sprintf("wide_%03d", i)}}})
 	}
-	rendered, err := aql.RenderPhysicalPlanWithRootPageKeys(plan, RootPageKeysBind, 25)
+	rendered, err := aql.Render(plan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: RootPageKeysBind, RelatedExpandLimit: 25}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestPreviewProjectionPlanDeclinesExcessiveRetainedPrefix(t *testing.T) {
 		plan.Operations = append(plan.Operations[:len(plan.Operations)-1], append([]ir.PhysicalOperation{mandatory}, plan.Operations[len(plan.Operations)-1:]...)...)
 	}
 	plan.BindVars[RootPageKeysBind] = []string{}
-	full, err := aql.RenderPhysicalPlanWithRootPageKeys(plan, RootPageKeysBind, 25)
+	full, err := aql.Render(plan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: RootPageKeysBind, RelatedExpandLimit: 25}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestCorrelatedSystemVersionSelectionPropagatesThroughPhysicalPlan(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			rendered, err := aql.RenderPhysicalPlan(plan)
+			rendered, err := aql.Render(plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -248,7 +248,7 @@ func TestCorrelatedExplicitExactSelectionKeepsLegacyAQLAndBinds(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				rendered, err := aql.RenderPhysicalPlan(plan)
+				rendered, err := aql.Render(plan, aql.Options{})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -23,7 +23,7 @@ func CompileResolvedGraphQueryWithPolicy(resolved recipeplan.ResolvedRecipePlan,
 	if err != nil {
 		return model.CompiledQuery{}, fmt.Errorf("optimize graph physical plan: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return model.CompiledQuery{}, fmt.Errorf("render graph physical plan: %w", err)
 	}

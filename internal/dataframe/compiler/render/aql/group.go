@@ -275,16 +275,13 @@ func semanticGroupProjectionPreviewShape(
 	return root, stage, semantic, nil
 }
 
-func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, indexName string, disableIndex, assessment bool) (RenderedPhysicalPlan, error) {
+func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, index RootIndex, assessment bool) (RenderedPhysicalPlan, error) {
 	root, stage, semantic, err := semanticGroupProjectionPreviewShape(plan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	if disableIndex && indexName != "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("a disabled root index cannot also carry index hint %q", indexName)
-	}
-	if indexName != "" && !rootIndexHintPattern.MatchString(indexName) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexName)
+	if err := index.validateHint(); err != nil {
+		return RenderedPhysicalPlan{}, err
 	}
 	collectionKeys, err := collectionBindKeys(plan)
 	if err != nil {
@@ -294,7 +291,7 @@ func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, indexName string
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = false
 	source, err := renderPhysicalPlanWithOptions(sourcePlan, physicalRenderOptions{
-		rootIndexHint: indexName, disableRootIndex: disableIndex,
+		rootIndex:      index,
 		internalPrefix: "semantic_group_projection_source_", omitTerminalReturn: true,
 	})
 	if err != nil {

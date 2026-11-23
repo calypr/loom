@@ -16,7 +16,7 @@ func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -50,7 +50,7 @@ func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestBuildPhysicalPlanRequiredTraversalWithFilterUsesTypedPredicate(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil || !strings.Contains(rendered.Query, "required_0_0") {
 		t.Fatalf("required filter did not render physically: err=%v query=%s", err, rendered.Query)
 	}

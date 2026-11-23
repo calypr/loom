@@ -39,7 +39,7 @@ func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
 		t.Fatal("missing current stage output-row window")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(windowed)
+	rendered, err := aql.Render(windowed, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
 		t.Fatal("missing current stage output-row window")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(windowed)
+	rendered, err := aql.Render(windowed, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
 			t.Fatalf("sort key %d = %#v, want %#v", index, sort.Keys[index], wantKeys[index])
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(window)
+	rendered, err := aql.Render(window, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

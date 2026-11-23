@@ -36,9 +36,13 @@ func TestDynamicPivotPreviewQuerySizeDoesNotScaleWithCategoryCount(t *testing.T)
 			Categories: categories, DuplicatePolicy: "SUM", MissingCellPolicy: "NULL",
 			UnlistedCategoryPolicy: "ERROR",
 		}
+		var preview Preview
+		if dynamic {
+			preview = DynamicCategoryPivotPreview{}
+		}
 		renderer := physicalPlanRenderer{renderContext: renderContext{
 			bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
-			dynamicPivotPreview: dynamic,
+			renderPreview: renderPreview{preview},
 		}}
 		lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 		if err != nil {
@@ -126,7 +130,7 @@ func TestDynamicPivotPreviewBindsMissingCategoryWithPresenceProof(t *testing.T) 
 	}
 	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
-		dynamicPivotPreview: true,
+		renderPreview: renderPreview{DynamicCategoryPivotPreview{}},
 	}}
 	lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 	if err != nil {
@@ -164,11 +168,11 @@ func TestStreamingMissingCategoryPivotUsesDirectScalarInputs(t *testing.T) {
 				"limit":          10,
 				"category_false": false,
 			},
-			collectionKeys:                       map[string]struct{}{},
-			reservedVars:                         map[string]struct{}{},
-			rootVariable:                         "root",
-			storedPresenceParentPath:             []string{"payload", "valueQuantity"},
-			streamingMissingCategoryPivotPreview: true,
+			collectionKeys:           map[string]struct{}{},
+			reservedVars:             map[string]struct{}{},
+			rootVariable:             "root",
+			storedPresenceParentPath: []string{"payload", "valueQuantity"},
+			renderPreview:            renderPreview{StreamingMissingCategoryPivotPreview{}},
 		}}
 		pivot := ir.PhysicalGroupedPivot{
 			ConstructionID: "pivot", ConstructionIDBindKey: "construction",
@@ -331,7 +335,7 @@ func TestStreamingMissingCategoryPivotFallsBackWithoutDirectScalarProof(t *testi
 			renderer := physicalPlanRenderer{renderContext: renderContext{
 				bindVars:       map[string]any{"construction": "pivot", "limit": 10},
 				collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
-				rootVariable: test.rootVariable, streamingMissingCategoryPivotPreview: true,
+				rootVariable: test.rootVariable, renderPreview: renderPreview{StreamingMissingCategoryPivotPreview{}},
 			}}
 			pivot := ir.PhysicalGroupedPivot{
 				ConstructionID: "pivot", ConstructionIDBindKey: "construction",

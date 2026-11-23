@@ -84,7 +84,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 	if err != nil {
 		t.Fatalf("compile ordered unpivot: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiledOrder.Plan)
+	rendered, err := aql.Render(compiledOrder.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render unwindowed compiler plan: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestCurrentUnpivotPreservesAuthoredSlotsAndCanonicalRendererOrdering(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

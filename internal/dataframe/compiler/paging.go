@@ -81,7 +81,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 			return CompiledOutputPage{}, err
 		}
 	}
-	keys, err := aql.RenderPhysicalPlan(keysPlan)
+	keys, err := aql.Render(keysPlan, aql.Options{})
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render root-key page: %w", err)
 	}
@@ -91,11 +91,11 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	}
 	var rows aql.RenderedPhysicalPlan
 	if keyWindow {
-		rows, err = aql.RenderPhysicalPlanWithRootPageKeys(rowsPlan, RootPageKeysBind, previewLimit)
+		rows, err = aql.Render(rowsPlan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: RootPageKeysBind, RelatedExpandLimit: previewLimit}})
 	} else if bindings.PreviewLimit > 0 {
-		rows, err = aql.RenderPhysicalPlanWithRelatedExpandPreviewLimit(rowsPlan, bindings.PreviewLimit)
+		rows, err = aql.Render(rowsPlan, aql.Options{Preview: aql.RelatedExpandPreview{Limit: bindings.PreviewLimit}})
 	} else {
-		rows, err = aql.RenderPhysicalPlan(rowsPlan)
+		rows, err = aql.Render(rowsPlan, aql.Options{})
 	}
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
@@ -217,7 +217,7 @@ func renderSelectedRootProjectionPartitions(plan ir.PhysicalPlan, fullRendered a
 		if !pruned {
 			return nil, nil
 		}
-		rendered, err := aql.RenderPhysicalPlanWithRootPageKeys(partitionPlan, bindKey, relatedExpandPreviewLimit)
+		rendered, err := aql.Render(partitionPlan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: bindKey, RelatedExpandLimit: relatedExpandPreviewLimit}})
 		if err != nil {
 			return nil, err
 		}
