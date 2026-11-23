@@ -12,6 +12,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -264,7 +265,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if candidateDocument == nil {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
 	}
-	candidateNetwork, err := ws.NetworkForDocument(*candidateDocument, catalog)
+	candidateNetwork, err := authoringnetwork.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}

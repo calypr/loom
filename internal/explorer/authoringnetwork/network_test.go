@@ -1,15 +1,17 @@
-package workspace
+package authoringnetwork
 
 import (
 	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestNetworkLegacyRouteUsesExactCatalogIdentity(t *testing.T) {
-	d := Document{Output: Output{ID: "subjects"}, Route: RouteNode{OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []RouteNode{{OccurrenceID: "patient", ResourceType: "Patient", Relationship: "subject"}}}, Rows: RecordsRowDefinition()}
-	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "subject", ResourceType: "ResearchSubject", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}}, Edges: []CatalogEdge{{ID: "subject-out", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}}
+	d := workspace.Document{Output: workspace.Output{ID: "subjects"}, Route: workspace.RouteNode{OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []workspace.RouteNode{{OccurrenceID: "patient", ResourceType: "Patient", Relationship: "subject"}}}, Rows: workspace.RecordsRowDefinition()}
+	catalog := workspace.CatalogSnapshot{Nodes: []workspace.CatalogNode{{ID: "subject", ResourceType: "ResearchSubject", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}}, Edges: []workspace.CatalogEdge{{ID: "subject-out", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}}
 	n, err := NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +22,7 @@ func TestNetworkLegacyRouteUsesExactCatalogIdentity(t *testing.T) {
 	if d.Route.Children[0].CatalogEdgeID != "" {
 		t.Fatal("read adapter mutated saved legacy route")
 	}
-	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "subject-in", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "INBOUND"})
+	catalog.Edges = append(catalog.Edges, workspace.CatalogEdge{ID: "subject-in", FromNodeID: "subject", ToNodeID: "patient", Label: "subject", StorageDirection: "INBOUND"})
 	if _, err := NetworkForDocument(d, catalog); err == nil || !strings.Contains(err.Error(), "multiple catalog edges") {
 		t.Fatalf("ambiguous legacy route was guessed: %v", err)
 	}
@@ -35,8 +37,8 @@ func TestNetworkLegacyRouteUsesExactCatalogIdentity(t *testing.T) {
 }
 
 func TestNetworkLegacyColumnsRemainInDocumentWithoutInventedBindingIdentity(t *testing.T) {
-	d := Document{Output: Output{ID: "patients"}, Route: RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: RecordsRowDefinition(), Columns: []Column{{Column: "legacy_id", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}, {ColumnID: "saved-id", Column: "other_id", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "FIRST"}}}}}
-	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}}
+	d := workspace.Document{Output: workspace.Output{ID: "patients"}, Route: workspace.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: workspace.RecordsRowDefinition(), Columns: []workspace.Column{{Column: "legacy_id", OccurrenceID: "base", Source: workspace.ColumnSource{Kind: workspace.SourceField, Field: &workspace.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}, {ColumnID: "saved-id", Column: "other_id", OccurrenceID: "base", Source: workspace.ColumnSource{Kind: workspace.SourceField, Field: &workspace.FieldSource{Path: "id", ProjectionMode: "FIRST"}}}}}
+	catalog := workspace.CatalogSnapshot{Nodes: []workspace.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}}
 	network, err := NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -50,17 +52,17 @@ func TestNetworkLegacyColumnsRemainInDocumentWithoutInventedBindingIdentity(t *t
 }
 
 func TestNetworkProjectsOrderedFieldsWithExactRepeatedOccurrencesAndLegacyVisibility(t *testing.T) {
-	d := Document{
-		Output: Output{ID: "observations"},
-		Route:  RouteNode{OccurrenceID: "base", ResourceType: "Observation"},
-		Rows:   RecordsRowDefinition(),
-		Columns: []Column{
-			{ColumnID: "subject-id", Column: "subject_id", Label: "Subject ID", OccurrenceID: "patient_subject", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
-			{ColumnID: "performer-id", Column: "performer_id", Label: "Performer ID", OccurrenceID: "patient_performer", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
-			{Column: "legacy", Label: "Legacy", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}},
+	d := workspace.Document{
+		Output: workspace.Output{ID: "observations"},
+		Route:  workspace.RouteNode{OccurrenceID: "base", ResourceType: "Observation"},
+		Rows:   workspace.RecordsRowDefinition(),
+		Columns: []workspace.Column{
+			{ColumnID: "subject-id", Column: "subject_id", Label: "Subject ID", OccurrenceID: "patient_subject", Source: workspace.ColumnSource{Kind: workspace.SourceField, Field: &workspace.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+			{ColumnID: "performer-id", Column: "performer_id", Label: "Performer ID", OccurrenceID: "patient_performer", Source: workspace.ColumnSource{Kind: workspace.SourceField, Field: &workspace.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+			{Column: "legacy", Label: "Legacy", OccurrenceID: "base", Source: workspace.ColumnSource{Kind: workspace.SourceField, Field: &workspace.FieldSource{Path: "status", ProjectionMode: "VALUE"}}},
 		},
 	}
-	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}}
+	catalog := workspace.CatalogSnapshot{Nodes: []workspace.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}}
 	network, err := NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -81,10 +83,10 @@ func TestNetworkProjectsOrderedFieldsWithExactRepeatedOccurrencesAndLegacyVisibi
 }
 
 func TestImportedProjectedFieldOccurrenceRequiresCompilerBinding(t *testing.T) {
-	d := Document{
-		Output:         Output{ID: "patients"},
-		ImportedRecipe: &ImportedRecipeRef{Name: "pin", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"},
-		Columns:        []Column{{ColumnID: "imported-id", Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceImported, Imported: &ImportedSource{OutputColumn: "patient_id"}}}},
+	d := workspace.Document{
+		Output:         workspace.Output{ID: "patients"},
+		ImportedRecipe: &workspace.ImportedRecipeRef{Name: "pin", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"},
+		Columns:        []workspace.Column{{ColumnID: "imported-id", Column: "patient_id", Label: "Patient ID", OccurrenceID: workspace.RootOccurrenceID, Source: workspace.ColumnSource{Kind: workspace.SourceImported, Imported: &workspace.ImportedSource{OutputColumn: "patient_id"}}}},
 	}
 	unknown := ProjectedFieldsForDocument(d, AuthoringNetwork{})[0]
 	if unknown.Owner != ProjectedFieldOwnerPinned || unknown.Status != ProjectedFieldStatusUnknown || unknown.OccurrenceID != "" || unknown.Removal != ProjectedFieldRemovalUnavailable {
@@ -97,8 +99,8 @@ func TestImportedProjectedFieldOccurrenceRequiresCompilerBinding(t *testing.T) {
 }
 
 func TestAuthoringNetworkEmitsEmptyProjectedFieldsAsArray(t *testing.T) {
-	document := Document{Output: Output{ID: "patients"}, Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition()}
-	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}}
+	document := workspace.Document{Output: workspace.Output{ID: "patients"}, Route: workspace.RouteNode{OccurrenceID: workspace.RootOccurrenceID, ResourceType: "Patient"}, Rows: workspace.RecordsRowDefinition()}
+	catalog := workspace.CatalogSnapshot{Nodes: []workspace.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}}
 	network, err := NetworkForDocument(document, catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -116,10 +118,10 @@ func TestAuthoringNetworkEmitsEmptyProjectedFieldsAsArray(t *testing.T) {
 }
 
 func TestProjectedFieldsPreserveSavedInventoryAndExactBindings(t *testing.T) {
-	document := Document{Columns: []Column{
-		{ColumnID: "pinned-id", Column: "LICENSE", Label: "License", Source: ColumnSource{Kind: SourceImported}},
-		{ColumnID: "authored-id", Column: "added", Label: "Added", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField}},
-		{Column: "legacy", Label: "Legacy", Source: ColumnSource{Kind: SourceImported}},
+	document := workspace.Document{Columns: []workspace.Column{
+		{ColumnID: "pinned-id", Column: "LICENSE", Label: "License", Source: workspace.ColumnSource{Kind: workspace.SourceImported}},
+		{ColumnID: "authored-id", Column: "added", Label: "Added", OccurrenceID: "base", Source: workspace.ColumnSource{Kind: workspace.SourceField}},
+		{Column: "legacy", Label: "Legacy", Source: workspace.ColumnSource{Kind: workspace.SourceImported}},
 	}}
 	before, _ := json.Marshal(document)
 	network := AuthoringNetwork{Bindings: []NetworkColumnBinding{{ColumnID: "pinned-id", OccurrenceID: "base", SourceStepID: "source-step", Status: "EXACT"}}}
@@ -152,11 +154,11 @@ func TestProjectedFieldsPreserveSavedInventoryAndExactBindings(t *testing.T) {
 }
 
 func TestProjectedFieldsWireContainsTheDerivedInventory(t *testing.T) {
-	document := Document{Output: Output{ID: "output-a"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: RecordsRowDefinition(), Columns: []Column{{ColumnID: "license-id", Column: "LICENSE", Label: "License", Source: ColumnSource{Kind: SourceImported}}}}
+	document := workspace.Document{Output: workspace.Output{ID: "output-a"}, RootResourceType: "Patient", Route: workspace.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: workspace.RecordsRowDefinition(), Columns: []workspace.Column{{ColumnID: "license-id", Column: "LICENSE", Label: "License", Source: workspace.ColumnSource{Kind: workspace.SourceImported}}}}
 	network := NewAuthoringNetwork(document, "IMPORTED_SOURCE")
 	network.Bindings = []NetworkColumnBinding{{ColumnID: "license-id", OccurrenceID: "base", SourceStepID: "source-step", Status: "EXACT"}}
 	network.ProjectedFields = ProjectedFieldsForDocument(document, network)
-	wire, err := json.Marshal(map[string]any{"snapshotToken": "snapshot-proof", "draftVersion": 1, "draftDigest": "sha256:proof", "network": network, "rowIdentity": DescribeRowIdentity(document)})
+	wire, err := json.Marshal(map[string]any{"snapshotToken": "snapshot-proof", "draftVersion": 1, "draftDigest": "sha256:proof", "network": network, "rowIdentity": workspace.DescribeRowIdentity(document)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
@@ -27,7 +28,7 @@ func DocumentDigest(document ws.Document) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func RowIdentityForNetwork(document ws.Document, network ws.AuthoringNetwork) ws.RowIdentityPlan {
+func RowIdentityForNetwork(document ws.Document, network authoringnetwork.AuthoringNetwork) ws.RowIdentityPlan {
 	effective := document
 	effective.Rows = network.SourceRows
 	var route func(string) ws.RouteNode

@@ -6,19 +6,20 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledOutputColumn, plans ...*ws.ImportedSourcePlan) (ws.AuthoringNetwork, error) {
+func BindCompiledNetwork(network authoringnetwork.AuthoringNetwork, columns []facade.CompiledOutputColumn, plans ...*ws.ImportedSourcePlan) (authoringnetwork.AuthoringNetwork, error) {
 	if len(plans) != 1 || plans[0] == nil {
-		return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: exact source descriptors are required")
+		return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: exact source descriptors are required")
 	}
 	plan := plans[0]
 	if err := plan.Validate(); err != nil {
-		return ws.AuthoringNetwork{}, err
+		return authoringnetwork.AuthoringNetwork{}, err
 	}
-	occurrences := map[string]ws.NetworkOccurrence{}
-	scopes := map[string]ws.NetworkOccurrence{}
+	occurrences := map[string]authoringnetwork.NetworkOccurrence{}
+	scopes := map[string]authoringnetwork.NetworkOccurrence{}
 	for _, o := range network.Occurrences {
 		occurrences[o.OccurrenceID] = o
 		scopes[o.SourceStepID] = o
@@ -29,7 +30,7 @@ func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledO
 			additions[a.OccurrenceID] = a
 		}
 	}
-	bound := map[string]ws.NetworkColumnBinding{}
+	bound := map[string]authoringnetwork.NetworkColumnBinding{}
 	for _, column := range columns {
 		if column.Internal || column.Identity || column.SourceOrigin == nil {
 			continue
@@ -41,7 +42,7 @@ func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledO
 			occurrence, ok = scopes[scope]
 		}
 		if !ok {
-			return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: compiled source column %q refers to unavailable occurrence %q", column.ID, origin.OccurrenceID)
+			return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: compiled source column %q refers to unavailable occurrence %q", column.ID, origin.OccurrenceID)
 		}
 		sourceStep := ""
 		if addition, exists := additions[occurrence.OccurrenceID]; exists && (origin.SourceKind == SourcePlanFieldGroup || origin.SourceKind == "" && strings.HasPrefix(relative, "fields")) {
@@ -51,7 +52,7 @@ func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledO
 				}
 			}
 			if sourceStep == "" {
-				return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: addition %q does not own column %q", addition.OccurrenceID, column.ID)
+				return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: addition %q does not own column %q", addition.OccurrenceID, column.ID)
 			}
 		} else {
 			kind := origin.SourceKind
@@ -74,7 +75,7 @@ func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledO
 				if end := strings.Index(relative[start:], "]"); end >= 0 {
 					value, err := strconv.Atoi(relative[start+1 : start+end])
 					if err != nil {
-						return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: malformed compiler source path")
+						return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: malformed compiler source path")
 					}
 					index = value
 				}
@@ -96,18 +97,18 @@ func BindCompiledNetwork(network ws.AuthoringNetwork, columns []facade.CompiledO
 				eligible = matching
 				index = 0
 				if len(eligible) != 1 {
-					return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d source owners matching native family %q", column.ID, len(eligible), origin.SourceKey)
+					return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d source owners matching native family %q", column.ID, len(eligible), origin.SourceKey)
 				}
 			}
 			if kind == SourcePlanCatalogProjection && len(eligible) != 1 {
-				return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d eligible catalog projection owners in occurrence %q", column.ID, len(eligible), occurrence.OccurrenceID)
+				return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_AMBIGUOUS: column %q has %d eligible catalog projection owners in occurrence %q", column.ID, len(eligible), occurrence.OccurrenceID)
 			}
 			if index >= len(eligible) || kind == "" {
-				return ws.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: column %q has no original %s source step in occurrence %q", column.ID, kind, occurrence.OccurrenceID)
+				return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: column %q has no original %s source step in occurrence %q", column.ID, kind, occurrence.OccurrenceID)
 			}
 			sourceStep = eligible[index].ID
 		}
-		bound[column.ID] = ws.NetworkColumnBinding{ColumnID: column.ID, OccurrenceID: occurrence.OccurrenceID, SourceStepID: sourceStep, OutputKey: origin.OutputKey, ValueMode: authoringValueMode(origin.ValueMode), Status: "EXACT"}
+		bound[column.ID] = authoringnetwork.NetworkColumnBinding{ColumnID: column.ID, OccurrenceID: occurrence.OccurrenceID, SourceStepID: sourceStep, OutputKey: origin.OutputKey, ValueMode: authoringValueMode(origin.ValueMode), Status: "EXACT"}
 	}
 	for i, b := range network.Bindings {
 		if exact, ok := bound[b.ColumnID]; ok {

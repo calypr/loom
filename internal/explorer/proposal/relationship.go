@@ -9,6 +9,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
@@ -37,23 +38,23 @@ type SourceRelationshipProposalRequest struct {
 }
 
 type SourceRelationshipProposal struct {
-	NativePreview            *PreviewResult      `json:"-"`
-	CandidateDocument        ws.Document         `json:"candidateDocument"`
-	CandidateNetwork         ws.AuthoringNetwork `json:"candidateNetwork"`
-	CandidateRowIdentity     ws.RowIdentityPlan  `json:"candidateRowIdentity"`
-	ProposalID               string              `json:"proposalId"`
-	CandidateReceiptID       string              `json:"candidateReceiptId"`
-	OutputID                 string              `json:"outputId"`
-	SnapshotToken            string              `json:"snapshotToken"`
-	DraftVersion             int64               `json:"draftVersion"`
-	DraftDigest              string              `json:"draftDigest"`
-	BaseDocumentDigest       string              `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string              `json:"candidateWorkspaceDigest"`
-	PreviewStatus            string              `json:"previewStatus"`
-	SampledRows              int                 `json:"sampledRows"`
-	Sampled                  bool                `json:"sampled"`
-	AffectedColumns          []string            `json:"affectedColumns"`
-	Notices                  []string            `json:"notices"`
+	NativePreview            *PreviewResult                    `json:"-"`
+	CandidateDocument        ws.Document                       `json:"candidateDocument"`
+	CandidateNetwork         authoringnetwork.AuthoringNetwork `json:"candidateNetwork"`
+	CandidateRowIdentity     ws.RowIdentityPlan                `json:"candidateRowIdentity"`
+	ProposalID               string                            `json:"proposalId"`
+	CandidateReceiptID       string                            `json:"candidateReceiptId"`
+	OutputID                 string                            `json:"outputId"`
+	SnapshotToken            string                            `json:"snapshotToken"`
+	DraftVersion             int64                             `json:"draftVersion"`
+	DraftDigest              string                            `json:"draftDigest"`
+	BaseDocumentDigest       string                            `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                            `json:"candidateWorkspaceDigest"`
+	PreviewStatus            string                            `json:"previewStatus"`
+	SampledRows              int                               `json:"sampledRows"`
+	Sampled                  bool                              `json:"sampled"`
+	AffectedColumns          []string                          `json:"affectedColumns"`
+	Notices                  []string                          `json:"notices"`
 }
 
 func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceRelationshipProposalRequest) (SourceRelationshipProposal, error) {

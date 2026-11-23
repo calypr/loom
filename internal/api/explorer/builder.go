@@ -9,6 +9,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
@@ -143,14 +144,14 @@ func (r *Handlers) AssessExplorerRowChange(ctx context.Context, request loomapi.
 		}
 		return directAuthoringJSON[loomapi.RowChangeAssessmentResponse](struct {
 			authoringv2.RowChangeAssessment
-			SnapshotToken        string               `json:"snapshotToken"`
-			DraftVersion         int64                `json:"draftVersion"`
-			DraftDigest          string               `json:"draftDigest"`
-			CandidateReceiptID   string               `json:"candidateReceiptId,omitempty"`
-			CandidateDocument    *ws.Document         `json:"candidateDocument,omitempty"`
-			CandidateNetwork     *ws.AuthoringNetwork `json:"candidateNetwork,omitempty"`
-			CandidateRowIdentity *ws.RowIdentityPlan  `json:"candidateRowIdentity,omitempty"`
-			Diagnostics          []map[string]any     `json:"diagnostics"`
+			SnapshotToken        string                             `json:"snapshotToken"`
+			DraftVersion         int64                              `json:"draftVersion"`
+			DraftDigest          string                             `json:"draftDigest"`
+			CandidateReceiptID   string                             `json:"candidateReceiptId,omitempty"`
+			CandidateDocument    *ws.Document                       `json:"candidateDocument,omitempty"`
+			CandidateNetwork     *authoringnetwork.AuthoringNetwork `json:"candidateNetwork,omitempty"`
+			CandidateRowIdentity *ws.RowIdentityPlan                `json:"candidateRowIdentity,omitempty"`
+			Diagnostics          []map[string]any                   `json:"diagnostics"`
 		}{
 			RowChangeAssessment: value.Assessment,
 			SnapshotToken:       value.SnapshotToken,

@@ -8,6 +8,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
@@ -350,7 +351,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 		return empty, support.Unprocessable("authoring-network", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
 	if network.ProjectedFields == nil {
-		network.ProjectedFields = ws.ProjectedFieldsForDocument(*document, network)
+		network.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(*document, network)
 	}
 	rowIdentity := rowIdentityForNetwork(*document, network)
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil

@@ -137,6 +137,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/arango/workspacedb': 'Persist Explorer workspace revisions, explorer CRUD, and workspace audits.',
  'internal/explorer/artifactfs': 'Persist and serve immutable Explorer training artifacts from a dedicated filesystem '
                                  'root.',
+ 'internal/explorer/authoringnetwork': 'Build the Builder network view from authored routes and construction steps.',
  'internal/explorer/authoringv2': 'Apply commands and proposals to the V2 Explorer Builder authoring workspace.',
  'internal/explorer/capability': 'Build the immutable compiler-backed capability contract exposed to Explorer Builder.',
  'internal/explorer/capability/resolver': 'Resolve scoped Explorer capability snapshots and compiler-proven catalog '

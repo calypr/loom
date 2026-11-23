@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeschema "github.com/calypr/loom/internal/dataframe/recipe/schema"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
@@ -845,9 +846,9 @@ func TestNewCatalogRuleKeepsSeparateColumnOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	network := ws.AuthoringNetwork{
-		Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}},
-		Bindings:    []ws.NetworkColumnBinding{{ColumnID: "status"}, {ColumnID: "description"}},
+	network := authoringnetwork.AuthoringNetwork{
+		Occurrences: []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base"}},
+		Bindings:    []authoringnetwork.NetworkColumnBinding{{ColumnID: "status"}, {ColumnID: "description"}},
 	}
 	columns := []facade.CompiledOutputColumn{
 		{ID: "status", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourceKind: SourcePlanCatalogProjection, SourceKey: effective.CatalogProjections[0].Name}},
@@ -1080,7 +1081,7 @@ func TestCompiledNetworkUsesAuthoringValuePolicyVocabulary(t *testing.T) {
 	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "fields", Kind: SourcePlanFieldGroup, Title: "Fields", Summary: "Pinned fields", Editable: true}}}
 	for _, tc := range []struct{ compiled, authored string }{{"scalar", "VALUE"}, {"first", "FIRST"}, {"array", "ALL"}, {"distinct_array", "DISTINCT"}, {"AUTO", "AUTO"}, {"ALL", "ALL"}} {
 		t.Run(tc.compiled, func(t *testing.T) {
-			network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
+			network := authoringnetwork.AuthoringNetwork{Occurrences: []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}, Bindings: []authoringnetwork.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
 			got, err := BindCompiledNetwork(network, []facade.CompiledOutputColumn{{ID: "id", Name: "id", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanFieldGroup, ValueMode: tc.compiled}}}, &plan)
 			if err != nil {
 				t.Fatal(err)

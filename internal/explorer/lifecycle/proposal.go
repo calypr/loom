@@ -6,6 +6,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -41,7 +42,7 @@ func (s *Service) proposalConfig() proposal.Config {
 		Catalog: func(snapshot capability.Snapshot, explorerID string) ws.CatalogSnapshot {
 			return s.catalog(snapshot, explorerID)
 		},
-		AuthoringNetwork: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document) (ws.AuthoringNetwork, error) {
+		AuthoringNetwork: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error) {
 			return s.config.AuthoringNetwork
 		},
 		EditImportedRelationship: func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, authoringv2.ImportedRelationshipChange) (ws.Document, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -104,7 +105,7 @@ func bindPinnedFieldRemoval(
 	original recipe.Output,
 	current importedRecipeResolution,
 	plan ws.ImportedSourcePlan,
-	network *ws.AuthoringNetwork,
+	network *authoringnetwork.AuthoringNetwork,
 ) error {
 	if network == nil {
 		return fmt.Errorf("authoring network is required")
@@ -129,7 +130,7 @@ func bindPinnedFieldRemoval(
 	for _, step := range plan.Steps {
 		steps[step.ID] = step
 	}
-	bindings := map[string]ws.NetworkColumnBinding{}
+	bindings := map[string]authoringnetwork.NetworkColumnBinding{}
 	bindingCount := map[string]int{}
 	for _, binding := range network.Bindings {
 		bindingCount[binding.ColumnID]++
@@ -139,7 +140,7 @@ func bindPinnedFieldRemoval(
 	}
 	for index := range network.ProjectedFields {
 		field := &network.ProjectedFields[index]
-		if field.Owner != ws.ProjectedFieldOwnerPinned || field.ColumnID == "" {
+		if field.Owner != authoringnetwork.ProjectedFieldOwnerPinned || field.ColumnID == "" {
 			continue
 		}
 		binding, ok := bindings[field.ColumnID]
@@ -156,8 +157,8 @@ func bindPinnedFieldRemoval(
 		}
 		if binding.OutputKey != "" && supportsPinnedOutputRemoval(step, binding.OutputKey) {
 			field.SourceOutputKey = binding.OutputKey
-			field.Removal = ws.ProjectedFieldRemovalDisablePinnedOutput
-			field.Status = ws.ProjectedFieldStatusExact
+			field.Removal = authoringnetwork.ProjectedFieldRemovalDisablePinnedOutput
+			field.Status = authoringnetwork.ProjectedFieldStatusExact
 			continue
 		}
 		if step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters.FieldGroup == nil || !fieldSlotsExact {
@@ -177,8 +178,8 @@ func bindPinnedFieldRemoval(
 		}
 		if !ambiguous && matched != "" {
 			field.SourceFieldID = matched
-			field.Removal = ws.ProjectedFieldRemovalDisablePinned
-			field.Status = ws.ProjectedFieldStatusExact
+			field.Removal = authoringnetwork.ProjectedFieldRemovalDisablePinned
+			field.Status = authoringnetwork.ProjectedFieldStatusExact
 		}
 	}
 	return nil
@@ -202,43 +203,43 @@ func supportsPinnedOutputRemoval(step ws.ImportedSourceStep, outputKey string) b
 	}
 }
 
-func (r Sources) Network(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
+func (r Sources) Network(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document) (authoringnetwork.AuthoringNetwork, error) {
 	catalog := ws.CatalogFromCapability(authorized.Snapshot, "")
 	if document.ImportedRecipe == nil {
-		return ws.NetworkForDocument(document, catalog)
+		return authoringnetwork.NetworkForDocument(document, catalog)
 	}
 	ref := document.ImportedRecipe
 	source, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized, document)
 	if err != nil {
-		return ws.AuthoringNetwork{}, err
+		return authoringnetwork.AuthoringNetwork{}, err
 	}
 	for _, output := range source.bundle.Outputs {
 		if output.Name == ref.Output {
 			network, err := recipeimport.HydrateNetwork(document, output, catalog)
 			if err != nil {
-				return ws.AuthoringNetwork{}, err
+				return authoringnetwork.AuthoringNetwork{}, err
 			}
 			for _, compiled := range source.resolved.Compiled.Outputs {
 				if compiled.Name == ref.Output {
 					plan, err := recipeimport.HydrateSourcePlan(output, document.ImportedSource)
 					if err != nil {
-						return ws.AuthoringNetwork{}, err
+						return authoringnetwork.AuthoringNetwork{}, err
 					}
 					network, err = recipeimport.BindCompiledNetwork(network, compiled.OutputSchema, &plan)
 					if err != nil {
-						return ws.AuthoringNetwork{}, err
+						return authoringnetwork.AuthoringNetwork{}, err
 					}
-					network.ProjectedFields = ws.ProjectedFieldsForDocument(document, network)
+					network.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(document, network)
 					if err := bindPinnedFieldRemoval(document, output, source, plan, &network); err != nil {
-						return ws.AuthoringNetwork{}, err
+						return authoringnetwork.AuthoringNetwork{}, err
 					}
 					return network, nil
 				}
 			}
-			return ws.AuthoringNetwork{}, fmt.Errorf("compiled source output was not found")
+			return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("compiled source output was not found")
 		}
 	}
-	return ws.AuthoringNetwork{}, fmt.Errorf("pinned source output was not found")
+	return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("pinned source output was not found")
 }
 
 func (r Sources) RemoveOutput(

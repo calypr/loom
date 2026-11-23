@@ -8,6 +8,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 )
@@ -87,7 +88,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if candidateDocument == nil {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
 	}
-	candidateNetwork, err := ws.NetworkForDocument(*candidateDocument, catalog)
+	candidateNetwork, err := authoringnetwork.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
 		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}

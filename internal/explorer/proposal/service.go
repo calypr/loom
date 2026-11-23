@@ -6,6 +6,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
@@ -45,7 +46,7 @@ type Config struct {
 	VerifyProposalReceipt    func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
 	Preview                  func(context.Context, PreviewRequest) (PreviewResult, error)
 	Catalog                  func(capability.Snapshot, string) ws.CatalogSnapshot
-	AuthoringNetwork         func() func(context.Context, string, ports.AuthorizedCapability, ws.Document) (ws.AuthoringNetwork, error)
+	AuthoringNetwork         func() func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error)
 	EditImportedRelationship func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, authoringv2.ImportedRelationshipChange) (ws.Document, error)
 	CreateImportedSourceRule func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, ws.SourceRuleCreate) (ws.Document, error)
 	EditImportedSource       func() func(context.Context, string, ports.AuthorizedCapability, ws.Document, *authoringv2.ImportedSourceStepChange) (ws.Document, error)
@@ -148,7 +149,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if candidateDocument == nil {
 		return fail, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "candidate output missing", nil, nil)
 	}
-	network, err := ws.NetworkForDocument(*candidateDocument, catalog)
+	network, err := authoringnetwork.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
 		return fail, support.Unprocessable(stage, "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}

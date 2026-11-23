@@ -7,28 +7,29 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 )
 
-func HydrateNetwork(d ws.Document, pinned recipe.Output, catalog ws.CatalogSnapshot) (ws.AuthoringNetwork, error) {
+func HydrateNetwork(d ws.Document, pinned recipe.Output, catalog ws.CatalogSnapshot) (authoringnetwork.AuthoringNetwork, error) {
 	if d.ImportedRecipe == nil {
-		return ws.NetworkForDocument(d, catalog)
+		return authoringnetwork.NetworkForDocument(d, catalog)
 	}
 	if pinned.Name != d.ImportedRecipe.Output {
-		return ws.AuthoringNetwork{}, fmt.Errorf("network source output does not match imported pin")
+		return authoringnetwork.AuthoringNetwork{}, fmt.Errorf("network source output does not match imported pin")
 	}
 	if err := ValidateRelationshipOverlay(pinned, d.ImportedSource, catalog); err != nil {
-		return ws.AuthoringNetwork{}, err
+		return authoringnetwork.AuthoringNetwork{}, err
 	}
 	effective, err := ApplySourcePlan(pinned, d.ImportedSource)
 	if err != nil {
-		return ws.AuthoringNetwork{}, err
+		return authoringnetwork.AuthoringNetwork{}, err
 	}
 	effective = freezeOccurrences(effective)
 	route, err := ImportRoute(effective, catalog)
 	if err != nil {
-		return ws.AuthoringNetwork{}, err
+		return authoringnetwork.AuthoringNetwork{}, err
 	}
-	n := ws.NewAuthoringNetwork(d, "IMPORTED_SOURCE")
+	n := authoringnetwork.NewAuthoringNetwork(d, "IMPORTED_SOURCE")
 	n.SourceRows = ImportRows(effective)
 	stepIDs := map[string]string{ws.RootOccurrenceID: ""}
 	original := freezeOccurrences(pinned)
@@ -53,19 +54,19 @@ func HydrateNetwork(d ws.Document, pinned recipe.Output, catalog ws.CatalogSnaps
 	var walk func(ws.RouteNode, string, bool)
 	walk = func(r ws.RouteNode, parent string, requiredPrefix bool) {
 		e := edges[r.CatalogEdgeID]
-		n.Occurrences = append(n.Occurrences, ws.NetworkOccurrence{OccurrenceID: r.OccurrenceID, ParentOccurrenceID: parent, SourceStepID: stepIDs[r.OccurrenceID], ResourceType: r.ResourceType, Label: r.ResourceType, CatalogEdgeID: r.CatalogEdgeID, Relationship: r.Relationship, StorageDirection: e.StorageDirection, MatchMode: r.MatchMode.Normalized(), Enabled: true, PreservesRowIdentity: true, CanExcludeRows: parent != "" && requiredPrefix && r.MatchMode == ws.RouteMatchRequired})
+		n.Occurrences = append(n.Occurrences, authoringnetwork.NetworkOccurrence{OccurrenceID: r.OccurrenceID, ParentOccurrenceID: parent, SourceStepID: stepIDs[r.OccurrenceID], ResourceType: r.ResourceType, Label: r.ResourceType, CatalogEdgeID: r.CatalogEdgeID, Relationship: r.Relationship, StorageDirection: e.StorageDirection, MatchMode: r.MatchMode.Normalized(), Enabled: true, PreservesRowIdentity: true, CanExcludeRows: parent != "" && requiredPrefix && r.MatchMode == ws.RouteMatchRequired})
 		for _, c := range r.Children {
 			walk(c, r.OccurrenceID, requiredPrefix && (parent == "" || r.MatchMode == ws.RouteMatchRequired))
 		}
 	}
 	walk(route, "", true)
 
-	bindings := map[string]ws.NetworkColumnBinding{}
+	bindings := map[string]authoringnetwork.NetworkColumnBinding{}
 	var bind func([]recipe.Field, []recipe.Traversal, string)
 	bind = func(fields []recipe.Field, items []recipe.Traversal, occurrence string) {
 		for _, f := range fields {
 			if f.ColumnID != "" {
-				bindings[f.ColumnID] = ws.NetworkColumnBinding{ColumnID: f.ColumnID, OccurrenceID: occurrence, SourceStepID: sourcePath(stepIDs[occurrence], "fields"), ValueMode: string(f.ValueMode.Normalized()), Status: "EXACT"}
+				bindings[f.ColumnID] = authoringnetwork.NetworkColumnBinding{ColumnID: f.ColumnID, OccurrenceID: occurrence, SourceStepID: sourcePath(stepIDs[occurrence], "fields"), ValueMode: string(f.ValueMode.Normalized()), Status: "EXACT"}
 			}
 		}
 		for _, t := range items {
@@ -76,7 +77,7 @@ func HydrateNetwork(d ws.Document, pinned recipe.Output, catalog ws.CatalogSnaps
 	for _, c := range d.Columns {
 		b, ok := bindings[c.ColumnID]
 		if !ok {
-			b = ws.NetworkColumnBinding{ColumnID: c.ColumnID, Status: "UNKNOWN"}
+			b = authoringnetwork.NetworkColumnBinding{ColumnID: c.ColumnID, Status: "UNKNOWN"}
 		}
 		n.Bindings = append(n.Bindings, b)
 	}

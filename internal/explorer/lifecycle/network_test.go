@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
@@ -15,8 +16,8 @@ func TestRowIdentityForNetworkUsesEffectiveOccurrencesAndPreservesDocument(t *te
 		Route:            ws.RouteNode{OccurrenceID: "base", ResourceType: "ResearchSubject", Children: []ws.RouteNode{{OccurrenceID: "historical", ResourceType: "Patient"}}},
 	}
 	before := document
-	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []ws.NetworkOccurrence{
+	network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []authoringnetwork.NetworkOccurrence{
 		{OccurrenceID: "base", ResourceType: "ResearchSubject", Enabled: true},
 		{OccurrenceID: "subject_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: ws.RouteMatchRequired},
 		{OccurrenceID: "observation_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: ws.RouteMatchOptional},

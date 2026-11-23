@@ -8,6 +8,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -96,7 +97,7 @@ func VerifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, worksp
 	return nil
 }
 
-func RowIdentityForNetwork(document ws.Document, network ws.AuthoringNetwork) ws.RowIdentityPlan {
+func RowIdentityForNetwork(document ws.Document, network authoringnetwork.AuthoringNetwork) ws.RowIdentityPlan {
 	effective := document
 	effective.Rows = network.SourceRows
 	var route func(string) ws.RouteNode

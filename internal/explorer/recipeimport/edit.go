@@ -7,6 +7,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
@@ -18,7 +19,7 @@ type PlanEdit struct {
 
 type PlanEditInput struct {
 	PinnedFieldIDs  map[string]string
-	Occurrences     []ws.NetworkOccurrence
+	Occurrences     []authoringnetwork.NetworkOccurrence
 	NewOccurrenceID string
 }
 
@@ -173,7 +174,7 @@ func EditPlan(original recipe.Output, plan ws.ImportedSourcePlan, catalog ws.Cat
 			plan.Relationships = &ws.ImportedRelationshipOverlay{}
 		}
 		overlay := plan.Relationships
-		occurrences := map[string]ws.NetworkOccurrence{}
+		occurrences := map[string]authoringnetwork.NetworkOccurrence{}
 		for _, o := range input.Occurrences {
 			if o.Enabled {
 				occurrences[o.OccurrenceID] = o

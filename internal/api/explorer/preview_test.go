@@ -20,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -108,12 +109,12 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		AuthoringNetwork: func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
+		AuthoringNetwork: func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (authoringnetwork.AuthoringNetwork, error) {
 			networks++
-			network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-			network.Occurrences = append(network.Occurrences, ws.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Label: "Patient", Enabled: true, PreservesRowIdentity: true})
+			network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+			network.Occurrences = append(network.Occurrences, authoringnetwork.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Label: "Patient", Enabled: true, PreservesRowIdentity: true})
 			if !containsSourceStepRemoval(document.ImportedSource, "fields") {
-				network.Bindings = append(network.Bindings, ws.NetworkColumnBinding{ColumnID: "patient-id", OccurrenceID: "base", SourceStepID: "fields", ValueMode: "ALL", Status: "EXACT"})
+				network.Bindings = append(network.Bindings, authoringnetwork.NetworkColumnBinding{ColumnID: "patient-id", OccurrenceID: "base", SourceStepID: "fields", ValueMode: "ALL", Status: "EXACT"})
 			}
 			return network, nil
 		},

@@ -8,6 +8,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
@@ -196,15 +197,15 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 	}
 	raw, _ := workspace.CanonicalJSON()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
-	config.AuthoringNetwork = func(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
+	config.AuthoringNetwork = func(ctx context.Context, project string, authorized ports.AuthorizedCapability, document ws.Document) (authoringnetwork.AuthoringNetwork, error) {
 		network, err := projectedFieldNetwork(ctx, project, authorized, document)
 		if err != nil {
-			return ws.AuthoringNetwork{}, err
+			return authoringnetwork.AuthoringNetwork{}, err
 		}
 		for index := range network.ProjectedFields {
 			field := &network.ProjectedFields[index]
 			if field.ColumnID == "patient-status" {
-				field.Removal = ws.ProjectedFieldRemovalDisablePinnedOutput
+				field.Removal = authoringnetwork.ProjectedFieldRemovalDisablePinnedOutput
 				field.SourceOutputKey = "urn:loinc|8480-6"
 				field.SourceFieldID = ""
 			}
@@ -287,22 +288,22 @@ func projectedFieldRemovalFixture(t *testing.T, snapshot capability.Snapshot) (w
 	return workspace, bundle, config
 }
 
-func projectedFieldNetwork(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
-	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Bindings = []ws.NetworkColumnBinding{
+func projectedFieldNetwork(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (authoringnetwork.AuthoringNetwork, error) {
+	network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Bindings = []authoringnetwork.NetworkColumnBinding{
 		{ColumnID: "patient-id", OccurrenceID: ws.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
 		{ColumnID: "patient-status", OccurrenceID: ws.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
 	}
-	network.ProjectedFields = ws.ProjectedFieldsForDocument(document, network)
+	network.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(document, network)
 	for index := range network.ProjectedFields {
 		field := &network.ProjectedFields[index]
 		if field.ColumnID == "patient-id" {
 			field.SourceFieldID = "fields[0]"
-			field.Removal = ws.ProjectedFieldRemovalDisablePinned
+			field.Removal = authoringnetwork.ProjectedFieldRemovalDisablePinned
 		}
 		if field.ColumnID == "patient-status" {
 			field.SourceFieldID = "fields[1]"
-			field.Removal = ws.ProjectedFieldRemovalDisablePinned
+			field.Removal = authoringnetwork.ProjectedFieldRemovalDisablePinned
 		}
 	}
 	return network, nil

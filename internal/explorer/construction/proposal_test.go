@@ -13,6 +13,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowdef"
@@ -448,7 +449,7 @@ func TestConstructionNodeOccurrencesKeepsRootAndOmitsAmbiguousNodes(t *testing.T
 		{ID: "edge-o-s", FromNodeID: "n_observation", ToNodeID: "n_specimen", Label: "specimens"},
 	}
 	catalog := ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Nodes: nodes, Edges: edges}
-	if _, err := ws.NetworkForDocument(doc, catalog); err != nil {
+	if _, err := authoringnetwork.NetworkForDocument(doc, catalog); err != nil {
 		t.Fatalf("authored route does not resolve against its catalog: %v", err)
 	}
 	snapshotNodes := make([]capability.Node, 0, len(nodes))

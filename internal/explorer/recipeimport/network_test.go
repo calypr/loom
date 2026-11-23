@@ -14,6 +14,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 )
 
 func TestNetworkHydratesAllDefaultOutputsWithoutChangingSource(t *testing.T) {
@@ -271,7 +272,7 @@ func TestNetworkRequiredUnderOptionalCannotExcludeSourceRows(t *testing.T) {
 	root := ws.RouteNode{OccurrenceID: "base", ResourceType: "Observation", Children: []ws.RouteNode{{OccurrenceID: "optional_patient", ResourceType: "Patient", Relationship: "subject_Patient", MatchMode: ws.RouteMatchOptional, Children: []ws.RouteNode{{OccurrenceID: "required_child", ResourceType: "Condition", Relationship: "subject_Patient", MatchMode: ws.RouteMatchRequired}}}}}
 	d := ws.Document{Output: ws.Output{ID: "observations"}, Route: root, Rows: ws.RecordsRowDefinition()}
 	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "obs", ResourceType: "Observation", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}, {ID: "condition", ResourceType: "Condition"}}, Edges: []ws.CatalogEdge{{ID: "patient_edge", FromNodeID: "obs", ToNodeID: "patient", Label: "subject_Patient"}, {ID: "condition_edge", FromNodeID: "patient", ToNodeID: "condition", Label: "subject_Patient"}}}
-	n, err := ws.NetworkForDocument(d, catalog)
+	n, err := authoringnetwork.NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +297,7 @@ func TestNetworkRequiredUnderOptionalCannotExcludeSourceRows(t *testing.T) {
 		}
 	}
 	d.Route.Children[0].MatchMode = ws.RouteMatchRequired
-	n, err = ws.NetworkForDocument(d, catalog)
+	n, err = authoringnetwork.NetworkForDocument(d, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +352,7 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 }
 
 func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
-	network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
+	network := authoringnetwork.AuthoringNetwork{Occurrences: []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringnetwork.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
 	columns := []facade.CompiledOutputColumn{{ID: "id", Name: "id", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection}}}
 	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "catalogProjections[0]", Kind: SourcePlanCatalogProjection, Title: "First", Summary: "First", Editable: true}, {ID: "catalogProjections[1]", Kind: SourcePlanCatalogProjection, Title: "Second", Summary: "Second", Editable: true}}}
 	if _, err := BindCompiledNetwork(network, columns, &plan); err == nil || !strings.Contains(err.Error(), "SOURCE_PROVENANCE_AMBIGUOUS") {
@@ -368,7 +369,7 @@ func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 }
 
 func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
-	network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
+	network := authoringnetwork.AuthoringNetwork{Occurrences: []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringnetwork.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
 	columns := []facade.CompiledOutputColumn{{ID: "gender", Name: "gender", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection, SourceKey: "populated_fields", OutputKey: "gender"}}}
 	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
@@ -381,7 +382,7 @@ func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
 }
 
 func TestCompiledNetworkFamilyKeysSurviveDiscoveryPruning(t *testing.T) {
-	network := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []ws.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
+	network := authoringnetwork.AuthoringNetwork{Occurrences: []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringnetwork.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
 	columns := []facade.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second", OutputKey: "urn:loinc|8480-6"}}}
 	plan := ws.ImportedSourcePlan{Steps: []ws.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
@@ -411,7 +412,7 @@ func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := ws.AuthoringNetwork{Occurrences: []ws.NetworkOccurrence{{OccurrenceID: "base"}}}
+	n := authoringnetwork.AuthoringNetwork{Occurrences: []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base"}}}
 	columns := compiled.Outputs[0].OutputSchema
 	sourceKeys := map[string]string{}
 	for i := range columns {
@@ -420,7 +421,7 @@ func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 			continue
 		}
 		c.ID = fmt.Sprintf("column_%d", i)
-		n.Bindings = append(n.Bindings, ws.NetworkColumnBinding{ColumnID: c.ID, Status: "UNKNOWN"})
+		n.Bindings = append(n.Bindings, authoringnetwork.NetworkColumnBinding{ColumnID: c.ID, Status: "UNKNOWN"})
 		if c.SourceOrigin == nil {
 			t.Fatalf("extension %s lacks origin", c.Name)
 		}

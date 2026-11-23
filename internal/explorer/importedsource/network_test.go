@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -91,14 +92,14 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var target ws.ProjectedField
+	var target authoringnetwork.ProjectedField
 	for _, field := range network.ProjectedFields {
 		if field.Column == "gender" {
 			target = field
 			break
 		}
 	}
-	if target.ColumnID == "" || target.Owner != ws.ProjectedFieldOwnerPinned || target.Removal != ws.ProjectedFieldRemovalDisablePinned || target.SourceStepID != "fields" || target.SourceFieldID != "fields[1]" {
+	if target.ColumnID == "" || target.Owner != authoringnetwork.ProjectedFieldOwnerPinned || target.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinned || target.SourceStepID != "fields" || target.SourceFieldID != "fields[1]" {
 		t.Fatalf("legacy pinned field removal capability = %+v", target)
 	}
 	updated, err := resolver.RemoveField(ctx, "project-a", authorized, document, target.SourceStepID, target.SourceFieldID)
@@ -187,7 +188,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 		}
 		if field.Column == "patient__id" {
 			traversalID = field.ColumnID
-			if field.Removal != ws.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]" {
+			if field.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]" {
 				t.Fatalf("initial traversal field has no exact removal action: %+v", field)
 			}
 		}
@@ -212,7 +213,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 		t.Fatal(err)
 	}
 	for _, field := range after.ProjectedFields {
-		if field.ColumnID == traversalID && (field.Removal != ws.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]") {
+		if field.ColumnID == traversalID && (field.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinned || field.SourceFieldID != "traversals[0].fields[0]") {
 			t.Fatalf("unmodified traversal field lost its exact removal action after root edit: %+v", field)
 		}
 	}
@@ -253,13 +254,13 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 			{ColumnID: "discovered-gender", Column: "gender", Label: "Gender", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: "gender"}}},
 		},
 	}
-	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []ws.NetworkOccurrence{
+	network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []authoringnetwork.NetworkOccurrence{
 		{OccurrenceID: "base", ResourceType: "Observation", Enabled: true},
 		{OccurrenceID: "patient_subject", SourceStepID: "traversals[0]", ResourceType: "Patient", Enabled: true},
 		{OccurrenceID: "patient_performer", SourceStepID: "traversals[1]", ResourceType: "Patient", Enabled: true},
 	}
-	network.Bindings = []ws.NetworkColumnBinding{
+	network.Bindings = []authoringnetwork.NetworkColumnBinding{
 		{ColumnID: "subject-id", Status: "UNKNOWN"},
 		{ColumnID: "performer-id", Status: "UNKNOWN"},
 		{ColumnID: "discovered-gender", Status: "UNKNOWN"},
@@ -268,7 +269,7 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound.ProjectedFields = ws.ProjectedFieldsForDocument(document, bound)
+	bound.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(document, bound)
 	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
@@ -276,7 +277,7 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 	if len(bound.ProjectedFields) != 3 {
 		t.Fatalf("inventory hid a source output: %#v", bound.ProjectedFields)
 	}
-	byID := map[string]ws.ProjectedField{}
+	byID := map[string]authoringnetwork.ProjectedField{}
 	for _, field := range bound.ProjectedFields {
 		byID[field.ColumnID] = field
 	}
@@ -287,12 +288,12 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 		{"performer-id", "patient_performer", "traversals[1].fields", "traversals[1].fields[0]"},
 	} {
 		got := byID[want.id]
-		if got.Owner != ws.ProjectedFieldOwnerPinned || got.Status != ws.ProjectedFieldStatusExact || got.Removal != ws.ProjectedFieldRemovalDisablePinned || got.OccurrenceID != want.occurrence || got.SourceStepID != want.sourceStep || got.SourceFieldID != want.fieldID {
+		if got.Owner != authoringnetwork.ProjectedFieldOwnerPinned || got.Status != authoringnetwork.ProjectedFieldStatusExact || got.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinned || got.OccurrenceID != want.occurrence || got.SourceStepID != want.sourceStep || got.SourceFieldID != want.fieldID {
 			t.Fatalf("legacy field %q mapping = %+v, want exact slot %+v", want.id, got, want)
 		}
 	}
 	generated := byID["discovered-gender"]
-	if generated.Owner != ws.ProjectedFieldOwnerPinned || generated.Status != ws.ProjectedFieldStatusExact || generated.SourceStepID != "catalogProjections[0]" || generated.Removal != ws.ProjectedFieldRemovalDisablePinnedOutput || generated.SourceOutputKey != "gender" || generated.SourceFieldID != "" {
+	if generated.Owner != authoringnetwork.ProjectedFieldOwnerPinned || generated.Status != authoringnetwork.ProjectedFieldStatusExact || generated.SourceStepID != "catalogProjections[0]" || generated.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinnedOutput || generated.SourceOutputKey != "gender" || generated.SourceFieldID != "" {
 		t.Fatalf("generated projection must have an exact output removal identity: %+v", generated)
 	}
 }
@@ -312,14 +313,14 @@ func TestPinnedPivotOutputGetsExactRemovalIdentity(t *testing.T) {
 		ImportedSource: &plan,
 		Columns:        []ws.Column{{ColumnID: "systolic", Column: columns[0].Name, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: columns[0].Name}}}},
 	}
-	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []ws.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Observation", Enabled: true}}
-	network.Bindings = []ws.NetworkColumnBinding{{ColumnID: "systolic", Status: "UNKNOWN"}}
+	network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Observation", Enabled: true}}
+	network.Bindings = []authoringnetwork.NetworkColumnBinding{{ColumnID: "systolic", Status: "UNKNOWN"}}
 	bound, err := recipeimport.BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound.ProjectedFields = ws.ProjectedFieldsForDocument(document, bound)
+	bound.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(document, bound)
 	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
@@ -328,7 +329,7 @@ func TestPinnedPivotOutputGetsExactRemovalIdentity(t *testing.T) {
 		t.Fatalf("projected field count = %d", len(bound.ProjectedFields))
 	}
 	got := bound.ProjectedFields[0]
-	if got.ColumnID != "systolic" || got.SourceStepID != "pivots[0]" || got.SourceOutputKey != "urn:loinc|8480-6" || got.Removal != ws.ProjectedFieldRemovalDisablePinnedOutput {
+	if got.ColumnID != "systolic" || got.SourceStepID != "pivots[0]" || got.SourceOutputKey != "urn:loinc|8480-6" || got.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinnedOutput {
 		t.Fatalf("pivot output removal identity = %+v", got)
 	}
 }
@@ -396,14 +397,14 @@ func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *t
 		Output: ws.Output{ID: "patients"}, ImportedRecipe: &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: "pin", Output: "patients"},
 		ImportedSource: &plan, Columns: []ws.Column{{ColumnID: "extension-status", Column: columns[0].Name, Source: ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: columns[0].Name}}}},
 	}
-	network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-	network.Occurrences = []ws.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}
-	network.Bindings = []ws.NetworkColumnBinding{{ColumnID: "extension-status", Status: "UNKNOWN"}}
+	network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+	network.Occurrences = []authoringnetwork.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}
+	network.Bindings = []authoringnetwork.NetworkColumnBinding{{ColumnID: "extension-status", Status: "UNKNOWN"}}
 	bound, err := recipeimport.BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound.ProjectedFields = ws.ProjectedFieldsForDocument(document, bound)
+	bound.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(document, bound)
 	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
@@ -412,7 +413,7 @@ func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *t
 		t.Fatalf("extension projected field inventory = %+v", bound.ProjectedFields)
 	}
 	field := bound.ProjectedFields[0]
-	if field.Removal != ws.ProjectedFieldRemovalDisablePinnedOutput || field.SourceStepID != "extensionColumns[0]" || field.SourceOutputKey != key {
+	if field.Removal != authoringnetwork.ProjectedFieldRemovalDisablePinnedOutput || field.SourceStepID != "extensionColumns[0]" || field.SourceOutputKey != key {
 		t.Fatalf("extension compiler binding did not yield exact removal: %+v", field)
 	}
 }

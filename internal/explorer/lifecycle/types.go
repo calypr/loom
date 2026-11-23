@@ -6,6 +6,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -47,7 +48,7 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 
 type Config struct {
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, ws.CatalogSnapshot) (ws.Workspace, error)
-	AuthoringNetwork          func(context.Context, string, ports.AuthorizedCapability, ws.Document) (ws.AuthoringNetwork, error)
+	AuthoringNetwork          func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error)
 	EditImportedRelationship  func(context.Context, string, ports.AuthorizedCapability, ws.Document, authoringv2.ImportedRelationshipChange) (ws.Document, error)
 	CreateImportedSourceRule  func(context.Context, string, ports.AuthorizedCapability, ws.Document, ws.SourceRuleCreate) (ws.Document, error)
 	EditImportedSource        func(context.Context, string, ports.AuthorizedCapability, ws.Document, *authoringv2.ImportedSourceStepChange) (ws.Document, error)

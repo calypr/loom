@@ -9,6 +9,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
@@ -70,9 +71,9 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		d.ImportedSource = &plan
 		return d, nil
 	}
-	config.AuthoringNetwork = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (ws.AuthoringNetwork, error) {
-		network := ws.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
-		network.Occurrences = append(network.Occurrences, ws.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Enabled: true, PreservesRowIdentity: true})
+	config.AuthoringNetwork = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document ws.Document) (authoringnetwork.AuthoringNetwork, error) {
+		network := authoringnetwork.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+		network.Occurrences = append(network.Occurrences, authoringnetwork.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Enabled: true, PreservesRowIdentity: true})
 		return network, nil
 	}
 	compileFailure := false
@@ -162,8 +163,8 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 
 	projectNetwork := service.config.AuthoringNetwork
-	service.config.AuthoringNetwork = func(context.Context, string, ports.AuthorizedCapability, ws.Document) (ws.AuthoringNetwork, error) {
-		return ws.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
+	service.config.AuthoringNetwork = func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error) {
+		return authoringnetwork.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
 	}
 	if failed, err := service.ProposeSourceRelationship(ctx, request); err == nil || failed.ProposalID != "" {
 		t.Fatal("failed candidate network produced a ready proposal")

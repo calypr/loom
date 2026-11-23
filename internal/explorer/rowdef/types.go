@@ -7,6 +7,7 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -80,7 +81,7 @@ type AssessRowChangeRequest struct {
 
 type AssessRowChangeResult struct {
 	CandidateDocument    *ws.Document
-	CandidateNetwork     *ws.AuthoringNetwork
+	CandidateNetwork     *authoringnetwork.AuthoringNetwork
 	CandidateRowIdentity *ws.RowIdentityPlan
 	SnapshotToken        string
 	DraftVersion         int64
@@ -280,17 +281,17 @@ type RowDefinitionComparison struct {
 }
 
 type RowDefinitionProposal struct {
-	CandidateDocument        ws.Document                `json:"candidateDocument"`
-	CandidateNetwork         ws.AuthoringNetwork        `json:"candidateNetwork"`
-	CandidateRowIdentity     ws.RowIdentityPlan         `json:"candidateRowIdentity"`
-	ProposalID               string                     `json:"proposalId,omitempty"`
-	BaseReceiptID            string                     `json:"baseReceiptId"`
-	OutputID                 string                     `json:"outputId"`
-	SnapshotToken            string                     `json:"snapshotToken"`
-	DraftVersion             int64                      `json:"draftVersion"`
-	DraftDigest              string                     `json:"draftDigest"`
-	BaseDocumentDigest       string                     `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                     `json:"candidateWorkspaceDigest"`
-	Mode                     RowDefinitionSelectionKind `json:"mode"`
-	Comparison               RowDefinitionComparison    `json:"comparison"`
+	CandidateDocument        ws.Document                       `json:"candidateDocument"`
+	CandidateNetwork         authoringnetwork.AuthoringNetwork `json:"candidateNetwork"`
+	CandidateRowIdentity     ws.RowIdentityPlan                `json:"candidateRowIdentity"`
+	ProposalID               string                            `json:"proposalId,omitempty"`
+	BaseReceiptID            string                            `json:"baseReceiptId"`
+	OutputID                 string                            `json:"outputId"`
+	SnapshotToken            string                            `json:"snapshotToken"`
+	DraftVersion             int64                             `json:"draftVersion"`
+	DraftDigest              string                            `json:"draftDigest"`
+	BaseDocumentDigest       string                            `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                            `json:"candidateWorkspaceDigest"`
+	Mode                     RowDefinitionSelectionKind        `json:"mode"`
+	Comparison               RowDefinitionComparison           `json:"comparison"`
 }
