@@ -63,8 +63,13 @@ type PreviewRequest struct {
 	SinkFactory proposal.PreviewSinkFactory
 }
 
+type Store interface {
+	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
+	RevisionWorkspace(context.Context, explorer.Revision) (authoringv2.Workspace, error)
+}
+
 type Config struct {
-	Store *explorer.Service
+	Store Store
 
 	Capability                         ports.CapabilityResolver
 	ConstructionSourceStage            ports.ConstructionSourceStageCompiler
@@ -122,7 +127,7 @@ type SourceLanes interface {
 
 type Service struct {
 	config                Config
-	store                 *explorer.Service
+	store                 Store
 	now                   func() time.Time
 	constructionBaseCache *constructionBaseCache
 	columnPopulationCache *columnPopulationCache

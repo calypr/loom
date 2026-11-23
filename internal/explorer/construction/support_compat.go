@@ -71,7 +71,7 @@ func firstNonEmpty(values ...string) string {
 	return support.FirstNonEmpty(values...)
 }
 
-func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explorer.Explorer) (authoringv2.Workspace, error) {
+func previewWorkspace(ctx context.Context, store Store, owner *explorer.Explorer) (authoringv2.Workspace, error) {
 	return support.PreviewWorkspace(ctx, store, owner)
 }
 

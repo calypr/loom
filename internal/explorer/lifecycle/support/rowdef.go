@@ -116,7 +116,12 @@ func RowIdentityForNetwork(document authoringv2.Document, network authoringv2.Au
 	return authoringv2.DescribeRowIdentity(effective)
 }
 
-func PreviewWorkspace(ctx context.Context, store *explorer.Service, owner *explorer.Explorer) (authoringv2.Workspace, error) {
+type WorkspaceReader interface {
+	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
+	RevisionWorkspace(context.Context, explorer.Revision) (authoringv2.Workspace, error)
+}
+
+func PreviewWorkspace(ctx context.Context, store WorkspaceReader, owner *explorer.Explorer) (authoringv2.Workspace, error) {
 	if owner == nil {
 		return authoringv2.Workspace{}, fmt.Errorf("Explorer owner is required")
 	}
