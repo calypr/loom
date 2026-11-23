@@ -16,7 +16,7 @@ import (
 )
 
 type dataframeDefaultStore struct {
-	explorer.Store
+	explorer.ExplorerStore
 	fakeRevisionStore
 	fakeSelectionStore
 	mu      sync.Mutex

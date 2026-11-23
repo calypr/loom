@@ -20,7 +20,7 @@ import (
 )
 
 type selectionLifecycleStore struct {
-	explorer.Store
+	explorer.ExplorerStore
 	fakeRevisionStore
 	fakeSelectionStore
 	header   explorerselection.SelectionRevision
@@ -32,7 +32,7 @@ type selectionLifecycleStore struct {
 }
 
 type selectionVariantStore struct {
-	explorer.Store
+	explorer.ExplorerStore
 	fakeRevisionStore
 	fakeSelectionStore
 	base           explorerselection.SelectionRevision

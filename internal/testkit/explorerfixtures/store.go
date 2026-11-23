@@ -10,7 +10,7 @@ import (
 )
 
 type Store struct {
-	explorer.Store
+	explorer.ExplorerStore
 	explorer.RevisionStore
 	Mu             sync.Mutex
 	Explorers      map[string]explorer.Explorer

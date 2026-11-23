@@ -7,7 +7,7 @@ import (
 )
 
 type defaultViewBuilderStore struct {
-	Store
+	ExplorerStore
 	ViewBuilderRepository
 }
 

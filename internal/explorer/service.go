@@ -19,13 +19,13 @@ import (
 )
 
 type Service struct {
-	store          Store
+	store          ExplorerStore
 	revisionStore  RevisionStore
 	selectionStore SelectionStore
 	now            func() time.Time
 }
 
-func NewService(store Store) (*Service, error) {
+func NewService(store ExplorerStore) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("Explorer store is required")
 	}

@@ -32,7 +32,7 @@ import (
 )
 
 type routeRoundtripStore interface {
-	explorer.Store
+	explorer.ExplorerStore
 	explorer.RevisionStore
 }
 

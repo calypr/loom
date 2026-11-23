@@ -20,7 +20,7 @@ import (
 )
 
 type viewBuilderServiceStore struct {
-	explorer.Store
+	explorer.ExplorerStore
 	explorer.RevisionStore
 	explorer.ViewBuilderRepository
 	settings    explorer.ViewBuilderSettings

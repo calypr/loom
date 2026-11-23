@@ -48,10 +48,6 @@ type SelectionStore interface {
 	VisitSelectionMembers(context.Context, string, string, string, int, func(explorerselection.SelectionMember) error) (string, error)
 }
 
-type Store interface {
-	ExplorerStore
-}
-
 type DraftRevisionReader interface {
 	GetDraftRevision(context.Context, string, string, string) (*DraftRevision, error)
 }

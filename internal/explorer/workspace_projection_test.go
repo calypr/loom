@@ -11,7 +11,7 @@ import (
 )
 
 type projectionTestReader struct {
-	Store
+	ExplorerStore
 	projection WorkspaceProjection
 	err        error
 	calls      []WorkspaceArtifact
@@ -151,7 +151,7 @@ func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 			}
 		})
 	}
-	s := &Service{store: struct{ Store }{}}
+	s := &Service{store: struct{ ExplorerStore }{}}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err == nil {
 		t.Fatal("accepted legacy packet without projection reader")
 	}

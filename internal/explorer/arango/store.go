@@ -60,5 +60,5 @@ func New(client client) (*Store, error) {
 
 func explorerKey(project, id string) string { return "explorer_" + db.Key(project, id) }
 
-var _ explorer.Store = (*Store)(nil)
+var _ explorer.ExplorerStore = (*Store)(nil)
 var _ explorer.DraftRevisionReader = (*Store)(nil)
