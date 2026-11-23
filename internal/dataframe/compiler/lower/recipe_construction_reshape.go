@@ -218,63 +218,16 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 		metadataByOutputID[output.ID] = column
 		projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalKey.Variable}}
 	}
-	for _, aggregate := range group.Aggregates {
-		output, ok := outputs[aggregate.OutputColumnID]
-		if !ok {
-			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate output column ID %q is missing from step schema", aggregate.OutputColumnID)
-		}
-		physicalAggregate := ir.PhysicalStageGroupAggregate{
-			Operation: string(aggregate.Operation), Output: output.Name,
-			Variable: allocateConstructionVariable(lowerer.usedVariables, "group_aggregate", stepIndex),
-		}
-		column := CompiledOutputColumn{
-			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
-			SemanticPath: "construction_group:" + group.ConstructionID,
-			Cardinality:  string(expression.RequiredOne),
-		}
-		switch aggregate.Operation {
-		case recipe.ConstructionGroupCountRows:
-			column.Kind = string(expression.KindInteger)
-		case recipe.ConstructionGroupCountNonNull, recipe.ConstructionGroupCountDistinct,
-			recipe.ConstructionGroupSum, recipe.ConstructionGroupMin, recipe.ConstructionGroupMax, recipe.ConstructionGroupMean:
-			inputColumn, ok := input[aggregate.InputColumnID]
-			if !ok || inputColumn.Internal {
-				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate input column ID %q is not public", aggregate.InputColumnID)
-			}
-			inputKind, scalar := TableReshapeScalarKind(inputColumn.Kind)
-			if !scalar || inputColumn.Cardinality == string(expression.Many) {
-				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate input column %q must be a public scalar column", inputColumn.Name)
-			}
-			physicalAggregate.InputColumn, physicalAggregate.InputKind = inputColumn.Name, inputKind
-			switch aggregate.Operation {
-			case recipe.ConstructionGroupCountNonNull, recipe.ConstructionGroupCountDistinct:
-				column.Kind = string(expression.KindInteger)
-			case recipe.ConstructionGroupMin, recipe.ConstructionGroupMax:
-				column.Kind = inputColumn.Kind
-				column.Nullable = true
-				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
-			case recipe.ConstructionGroupSum:
-				if inputKind != string(recipe.TableScalarInteger) && inputKind != string(recipe.TableScalarDecimal) {
-					return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate %s requires a numeric input column", aggregate.Operation)
-				}
-				column.Kind = inputColumn.Kind
-				column.Nullable = true
-				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
-			case recipe.ConstructionGroupMean:
-				if inputKind != string(recipe.TableScalarInteger) && inputKind != string(recipe.TableScalarDecimal) {
-					return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate MEAN requires a numeric input column")
-				}
-				column.Kind = string(expression.KindDecimal)
-				column.Nullable = true
-				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
-			}
-		default:
-			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("unsupported group aggregate operation %q", aggregate.Operation)
-		}
-		physicalAggregate.OutputKind = column.Kind
-		metadataByOutputID[output.ID] = column
-		projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalAggregate.Variable}}
-		physical.Aggregates = append(physical.Aggregates, physicalAggregate)
+	aggregates, aggregateColumns, aggregateProjections, err := lowerConstructionGroupAggregates(group, input, outputs, lowerer.usedVariables, stepIndex)
+	if err != nil {
+		return ir.PhysicalStageGroup{}, nil, nil, err
+	}
+	physical.Aggregates = aggregates
+	for id, column := range aggregateColumns {
+		metadataByOutputID[id] = column
+	}
+	for id, projection := range aggregateProjections {
+		projectionByOutputID[id] = projection
 	}
 	rowValueSource := &constructionGroupRowValueSourceContext{
 		Plan: lowerer.plan, SourceContext: groupFieldContext, InputStageID: inputStageID,
@@ -310,6 +263,71 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 		Name: constructionRowID, Hidden: true, Value: ir.PhysicalValue{Variable: physical.IdentityVariable},
 	})
 	return physical, projections, compiled, nil
+}
+
+func lowerConstructionGroupAggregates(group recipe.ConstructionGroup, input map[string]CompiledOutputColumn, outputs map[string]recipe.StageColumn, usedVariables map[string]bool, stepIndex int) ([]ir.PhysicalStageGroupAggregate, map[string]CompiledOutputColumn, map[string]ir.PhysicalProjection, error) {
+	aggregates := make([]ir.PhysicalStageGroupAggregate, 0, len(group.Aggregates))
+	metadata := make(map[string]CompiledOutputColumn, len(group.Aggregates))
+	projections := make(map[string]ir.PhysicalProjection, len(group.Aggregates))
+	for _, aggregate := range group.Aggregates {
+		output, ok := outputs[aggregate.OutputColumnID]
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("group aggregate output column ID %q is missing from step schema", aggregate.OutputColumnID)
+		}
+		physicalAggregate := ir.PhysicalStageGroupAggregate{
+			Operation: string(aggregate.Operation), Output: output.Name,
+			Variable: allocateConstructionVariable(usedVariables, "group_aggregate", stepIndex),
+		}
+		column := CompiledOutputColumn{
+			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+			SemanticPath: "construction_group:" + group.ConstructionID,
+			Cardinality:  string(expression.RequiredOne),
+		}
+		switch aggregate.Operation {
+		case recipe.ConstructionGroupCountRows:
+			column.Kind = string(expression.KindInteger)
+		case recipe.ConstructionGroupCountNonNull, recipe.ConstructionGroupCountDistinct,
+			recipe.ConstructionGroupSum, recipe.ConstructionGroupMin, recipe.ConstructionGroupMax, recipe.ConstructionGroupMean:
+			inputColumn, ok := input[aggregate.InputColumnID]
+			if !ok || inputColumn.Internal {
+				return nil, nil, nil, fmt.Errorf("group aggregate input column ID %q is not public", aggregate.InputColumnID)
+			}
+			inputKind, scalar := TableReshapeScalarKind(inputColumn.Kind)
+			if !scalar || inputColumn.Cardinality == string(expression.Many) {
+				return nil, nil, nil, fmt.Errorf("group aggregate input column %q must be a public scalar column", inputColumn.Name)
+			}
+			physicalAggregate.InputColumn, physicalAggregate.InputKind = inputColumn.Name, inputKind
+			switch aggregate.Operation {
+			case recipe.ConstructionGroupCountNonNull, recipe.ConstructionGroupCountDistinct:
+				column.Kind = string(expression.KindInteger)
+			case recipe.ConstructionGroupMin, recipe.ConstructionGroupMax:
+				column.Kind = inputColumn.Kind
+				column.Nullable = true
+				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
+			case recipe.ConstructionGroupSum:
+				if inputKind != string(recipe.TableScalarInteger) && inputKind != string(recipe.TableScalarDecimal) {
+					return nil, nil, nil, fmt.Errorf("group aggregate %s requires a numeric input column", aggregate.Operation)
+				}
+				column.Kind = inputColumn.Kind
+				column.Nullable = true
+				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
+			case recipe.ConstructionGroupMean:
+				if inputKind != string(recipe.TableScalarInteger) && inputKind != string(recipe.TableScalarDecimal) {
+					return nil, nil, nil, fmt.Errorf("group aggregate MEAN requires a numeric input column")
+				}
+				column.Kind = string(expression.KindDecimal)
+				column.Nullable = true
+				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
+			}
+		default:
+			return nil, nil, nil, fmt.Errorf("unsupported group aggregate operation %q", aggregate.Operation)
+		}
+		physicalAggregate.OutputKind = column.Kind
+		metadata[output.ID] = column
+		projections[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalAggregate.Variable}}
+		aggregates = append(aggregates, physicalAggregate)
+	}
+	return aggregates, metadata, projections, nil
 }
 
 func lowerConstructionRowValues(
