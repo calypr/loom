@@ -262,10 +262,6 @@ func (e *Engine) CellTrace(ctx context.Context, resolved Resolved, request CellT
 	return e.cellTraceCompiled(ctx, compiled, request)
 }
 
-func (e *Engine) CellTraceCompiled(ctx context.Context, compiled celltrace.CompiledCellTraceQuery, request CellTraceRequest) (CellTraceResult, error) {
-	return e.cellTraceCompiled(ctx, compiled, request)
-}
-
 func (e *Engine) cellTraceCompiled(ctx context.Context, compiled celltrace.CompiledCellTraceQuery, request CellTraceRequest) (CellTraceResult, error) {
 	if e == nil || e.queryRows == nil {
 		return CellTraceResult{}, fmt.Errorf("cell trace query executor is required")

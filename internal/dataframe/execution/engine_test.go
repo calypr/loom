@@ -1164,7 +1164,7 @@ func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testi
 	if len(normalStreams) != len(directStreams) || normalStreams[0].query != directStreams[0].query {
 		t.Fatalf("resolved output differs from catalog-resolved output")
 	}
-	if _, err := e.PreviewResolvedBundle(context.Background(), bundle, bindings); err != nil {
+	if _, err := e.Preview(context.Background(), direct, bindings.PreviewLimit); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.MaterializeResolvedBundle(context.Background(), bundle, bindings, nil); err != nil {

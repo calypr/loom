@@ -23,10 +23,6 @@ func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, reque
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }
 
-func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled population.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
-	return e.populationMappingCompiled(ctx, compiled, request, reader)
-}
-
 func (e *Engine) populationMappingCompiled(ctx context.Context, compiled population.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
 	if e == nil || e.queryRows == nil {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query executor is required")

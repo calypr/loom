@@ -261,14 +261,6 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
-	entry, err := e.registry.LoadRecipeVersion(ctx, name, translationVersion)
-	if err != nil {
-		return Resolved{}, err
-	}
-	return e.resolveEntry(ctx, entry, bindings)
-}
-
 func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -289,35 +281,6 @@ func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 		return Resolved{}, fmt.Errorf("digest resolved bundle: %w", err)
 	}
 	return e.compileResolvedBundle(ctx, bundle, bindings, digest)
-}
-
-func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
-	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
-	if err != nil {
-		return nil, &ResolutionError{Err: err}
-	}
-	return e.Preview(ctx, resolved, bindings.PreviewLimit)
-}
-
-func (e *Engine) PreviewResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
-	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
-	if err != nil {
-		return nil, &ResolutionError{Err: err}
-	}
-	return e.Preview(ctx, resolved, bindings.PreviewLimit)
-}
-
-func (e *Engine) MaterializeBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
-	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
-	if err != nil {
-		return Resolved{}, &ResolutionError{Err: err}
-	}
-	if publish != nil {
-		if err := publish(ctx, resolved); err != nil {
-			return Resolved{}, err
-		}
-	}
-	return resolved, nil
 }
 
 func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
@@ -438,19 +401,6 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
-	if err != nil {
-		return Resolved{}, &ResolutionError{Err: err}
-	}
-	if publish != nil {
-		if err := publish(ctx, resolved); err != nil {
-			return Resolved{}, err
-		}
-	}
-	return resolved, nil
-}
-
-func (e *Engine) MaterializeVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
-	resolved, err := e.ResolveVersion(ctx, name, translationVersion, bindings)
 	if err != nil {
 		return Resolved{}, &ResolutionError{Err: err}
 	}

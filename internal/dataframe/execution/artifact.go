@@ -14,14 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 )
 
-func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*chartifact.Artifact, error) {
-	capture, err := s.materializeClickHouseArtifact(ctx, manager, executionID, stageID, columns)
-	if err != nil {
-		return nil, err
-	}
-	return capture.Artifact, nil
-}
-
 func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*materializedClickHouseCapture, error) {
 	if ctx == nil || manager == nil {
 		return nil, fmt.Errorf("private artifact context and manager are required")

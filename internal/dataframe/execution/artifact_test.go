@@ -24,10 +24,11 @@ func TestMaterializeClickHouseArtifactUsesCompleteScopedAQLStream(t *testing.T) 
 		t.Fatal(err)
 	}
 	stream, columns := compiledPrivateCaptureStream(t, "patients", "name", "Ada")
-	artifact, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns)
+	capture, err := stream.materializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns)
 	if err != nil {
 		t.Fatal(err)
 	}
+	artifact := capture.Artifact
 	manifest := artifact.Manifest()
 	if manifest.Identity.ExecutionID != "execution-9" || manifest.Identity.OutputID != stream.Name || manifest.Identity.RecipeDigest != stream.recipeDigest || manifest.Identity.PlanDigest != stream.planFingerprint || manifest.RowCount != 1 {
 		t.Fatalf("private artifact lost its exact source identity: %#v", manifest)
@@ -48,12 +49,12 @@ func TestMaterializeClickHouseArtifactRejectsPreviewAndMissingRowScope(t *testin
 	}
 	stream, columns := compiledPrivateCaptureStream(t, "patients", "name", "Ada")
 	stream.queryLimit = 10
-	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
+	if _, err := stream.materializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
 		t.Fatal("private artifact accepted a bounded preview")
 	}
 	stream.queryLimit = 0
 	stream.bindings.IncludeAuthResourcePath = false
-	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
+	if _, err := stream.materializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
 		t.Fatal("private artifact accepted restricted scope without row-level paths")
 	}
 	if len(catalog.items) != 0 {

@@ -85,7 +85,11 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 		requireTyped("compileResolvedBundle(unexported)", err)
 	}
 
-	_, err = engine.ResolveVersion(context.Background(), "x", "v1", blank)
+	versionEntry, err := registry.LoadRecipeVersion(context.Background(), "x", "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = engine.resolveEntry(context.Background(), versionEntry, blank)
 	requireTyped("ResolveVersion->resolveEntry lane", err)
 	if registry.loads == 0 {
 		t.Fatal("ResolveVersion lane must consult registry before the resolveEntry guard")
