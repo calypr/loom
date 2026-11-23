@@ -3,6 +3,8 @@ package arango
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,18 +14,14 @@ import (
 	"testing"
 	"time"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
-	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
-
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -445,4 +443,63 @@ func workspaceMigrationCollectionCount(t *testing.T, ctx context.Context, client
 
 func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection workspacepkg.Projection) error {
 	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
+}
+
+func TestStoredWorkspaceMigrationMixedNilDigestAgainstArango(t *testing.T) {
+	ctx, client, adapter, _ := draftCASDB(t)
+	workspace := auditFixture(t)
+	workspace.Documents[0].Construction.Steps = []ws.ConstructionStep{}
+	second := workspace.Documents[0]
+	second.Output.ID, second.Output.Title = "more_patients", "More patients"
+	second.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}}
+	workspace.Documents = append(workspace.Documents, second)
+	workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: second.Output.ID, Title: second.Output.Title, OutputID: second.Output.ID, Order: 1})
+	canonical, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := bytes.LastIndex(canonical, []byte(`"steps":[]`))
+	if at < 0 {
+		t.Fatal("missing second empty sequence")
+	}
+	original := append([]byte(nil), canonical[:at]...)
+	original = append(original, []byte(`"steps":null`)...)
+	original = append(original, canonical[at+len(`"steps":[]`):]...)
+	sum := sha256.Sum256(original)
+	oldDigest := "sha256:" + hex.EncodeToString(sum[:])
+	owner := workspaceMigrationSeed(t, ctx, adapter, "mixed-empty-nil", "Mixed lists", original, oldDigest, "snapshot-wp18")
+	dry, err := MigrateStoredWorkspaces(ctx, client, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Owners != 1 || dry.ChangedDigests != 1 {
+		t.Fatalf("dry-run=%#v", dry)
+	}
+	if _, err := MigrateStoredWorkspaces(ctx, client, false); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := adapter.Get(ctx, owner.Project, owner.ExplorerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.DraftVersion != owner.DraftVersion+1 || migrated.DraftDigest == oldDigest {
+		t.Fatalf("owner did not advance exactly once: %#v", migrated)
+	}
+	current, err := ws.DecodeCurrentWorkspace(migrated.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, document := range current.Documents {
+		if document.Construction == nil || document.Construction.Steps == nil || len(document.Construction.Steps) != 0 {
+			t.Fatalf("document %d lost its empty construction", index)
+		}
+	}
+	workspaceMigrationVerifyHistoryProjection(t, ctx, client, adapter, owner, migrated.DraftDigest)
+	before := workspaceMigrationInventory(t, ctx, client)
+	if _, err := MigrateStoredWorkspaces(ctx, client, false); err != nil {
+		t.Fatal(err)
+	}
+	if after := workspaceMigrationInventory(t, ctx, client); !reflect.DeepEqual(before, after) {
+		t.Fatal("mixed nil migration rerun changed stored state")
+	}
 }
