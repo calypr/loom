@@ -142,89 +142,6 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 	}
 }
 
-func TestVerifyConstructionProposalPivotCategoriesReportsUnchangedPivot(t *testing.T) {
-	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
-	scans := 0
-	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		scans++
-		if scan.StageID != recipe.ConstructionSourceProjectionID || !scan.RequireValue {
-			t.Fatalf("unchanged Pivot scan request = %#v", scan)
-		}
-		var category explorer.ReceiptConstructionStageColumn
-		for _, stage := range receipt.ConstructionStages["patients"] {
-			if stage.ID != scan.StageID {
-				continue
-			}
-			for _, column := range stage.Columns {
-				if column.ID == scan.ColumnID {
-					category = column
-				}
-			}
-		}
-		proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
-			OutputID: scan.Output, StageID: scan.StageID,
-			CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
-		}, category)
-		return dataframeexecution.CategoryScanResult{
-			Values:   []dataframeexecution.CategoryValue{{Present: true, Value: "final"}},
-			Complete: true, Proof: proof,
-		}, nil
-	}
-	request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}})
-	request.ChangedStepID = "keep_positive"
-	candidate := request.CandidateConstruction
-	diagnostics, err := service.verifyConstructionProposalPivotCategories(context.Background(), request, candidate)
-	if err != nil {
-		t.Fatalf("unchanged Pivot verification must not reject the edit: %v", err)
-	}
-	if len(diagnostics) != 1 || diagnostics[0].Code != "PIVOT_CATEGORIES_UNVERIFIABLE" ||
-		diagnostics[0].StepID != "pivot_status" || diagnostics[0].Outcome != "CATEGORY_HAS_NO_VALUES" {
-		t.Fatalf("unchanged Pivot diagnostics = %#v, want one CATEGORY_HAS_NO_VALUES probe diagnostic", diagnostics)
-	}
-	if scans != 1 {
-		t.Fatalf("unchanged Pivot verification scans = %d, want 1", scans)
-	}
-}
-
-func TestVerifyConstructionProposalPivotCategoriesRejectsModifiedDownstreamPivot(t *testing.T) {
-	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
-	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		var category explorer.ReceiptConstructionStageColumn
-		for _, stage := range receipt.ConstructionStages["patients"] {
-			if stage.ID != scan.StageID {
-				continue
-			}
-			for _, column := range stage.Columns {
-				if column.ID == scan.ColumnID {
-					category = column
-				}
-			}
-		}
-		proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
-			OutputID: scan.Output, StageID: scan.StageID,
-			CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
-		}, category)
-		return dataframeexecution.CategoryScanResult{
-			Values:   []dataframeexecution.CategoryValue{{Present: true, Value: "final"}},
-			Complete: true, Proof: proof,
-		}, nil
-	}
-	request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}})
-	request.ChangedStepID = "unrelated_step"
-	candidate := request.CandidateConstruction
-	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := workspace.Documents[0].Construction
-	if base == nil {
-		t.Fatal("fixture has no base construction")
-	}
-	if _, err := service.syncConstructionService().VerifyConstructionProposalPivotCategoriesExcept(context.Background(), request, candidate, base, nil); lifecycleErrorCode(err) != "PIVOT_CATEGORY_HAS_NO_VALUES" {
-		t.Fatalf("modified downstream Pivot verification error = %v, want PIVOT_CATEGORY_HAS_NO_VALUES", err)
-	}
-}
-
 func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -437,12 +354,4 @@ func constructionProposalPivotRequest(
 			}},
 		},
 	}
-}
-
-func (s *Service) verifyConstructionProposalPivotCategories(
-	ctx context.Context,
-	request ConstructionProposalRequest,
-	candidate authoringv2.Construction,
-) ([]ConstructionProposalDiagnostic, error) {
-	return s.syncConstructionService().VerifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
 }

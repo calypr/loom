@@ -231,14 +231,3 @@ func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, st
 	}
 	return unchanged(stepID)
 }
-
-// Essential: lifecycle verifies proposal Pivot categories across its construction source lanes.
-func (s *Service) VerifyConstructionProposalPivotCategoriesExcept(
-	ctx context.Context,
-	request ConstructionProposalRequest,
-	candidate authoringv2.Construction,
-	base *authoringv2.Construction,
-	skip map[string]bool,
-) ([]ConstructionProposalDiagnostic, error) {
-	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, base, skip)
-}

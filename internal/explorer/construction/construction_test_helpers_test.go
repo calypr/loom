@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"errors"
 	"sort"
 	"strconv"
@@ -303,4 +305,98 @@ func filterSourceProposalRequest(changedStepID string, sources []ConstructionFil
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:filter-source-draft", OutputID: filterSourceOutput,
 		ChangedStepID: changedStepID, FilterSources: sources,
 	}
+}
+
+type constructionReceiptColumn struct {
+	name, label, logical string
+	nullable             bool
+	construction         string
+}
+
+func nativeConstructionReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "native-test",
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
+	}
+	emitted := []explorer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
+	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
+	bundleDigest, _ := bundle.Digest()
+	workspace := authoringv2.NewWorkspace("Patients")
+	workspace.Documents = []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: authoringv2.RecordsRowDefinition(), Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
+	workspace.Tabs = []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	normalized, err := workspace.CanonicalJSON()
+	if err != nil {
+		panic(err)
+	}
+	intentDigest, err := workspace.Digest()
+	if err != nil {
+		panic(err)
+	}
+	receipt := &explorer.CompilationReceipt{
+		ReceiptFormatVersion:     explorer.CurrentReceiptFormatVersion,
+		CompilerContractVersion:  explorer.CurrentCompilerContractVersion,
+		Project:                  snapshot.Identity.Project,
+		ExplorerID:               "patients",
+		IntentDigest:             intentDigest,
+		NormalizedBundle:         normalized,
+		SnapshotToken:            snapshot.Token,
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		CapabilitySchemaDigest:   snapshot.Identity.SchemaDigest,
+		ShapeDigest:              snapshot.Identity.ShapeDigest,
+		SourceGeneration:         snapshot.Identity.Generation,
+		RecipeDigest:             bundleDigest,
+		ResolvedRecipeDigest:     bundleDigest,
+		ResolvedSchemaDigest:     "resolved-schema",
+		CompiledConfig:           json.RawMessage(`{}`),
+		PublicOutputContract:     contract,
+		Bundle:                   bundle,
+		EmittedColumns:           emitted,
+		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
+	}
+	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(contract)
+	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
+	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	return receipt
+}
+
+func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace authoringv2.Workspace) *explorer.CompilationReceipt {
+	receipt := nativeConstructionReceipt(snapshot)
+	receipt.IntentDigest, _ = workspace.Digest()
+	receipt.NormalizedBundle, _ = workspace.CanonicalJSON()
+	columns := []constructionReceiptColumn{
+		{name: "patient_id", label: "Patient ID", logical: "string"},
+		{name: "category", label: "Category", logical: "string", nullable: true},
+		{name: "value", label: "Value", logical: "decimal", nullable: true},
+		{name: "value_alt", label: "Alternate value", logical: "decimal"},
+		{name: "category_number", label: "Numeric category", logical: "integer"},
+		{name: "category_boolean", label: "Boolean category", logical: "boolean"},
+		{name: "text_value", label: "Text value", logical: "string"},
+		{name: "overflow", label: "Overflow category", logical: "string"},
+	}
+	public := explorer.PublicOutputContract{OutputID: "patients", Columns: make([]explorer.PublicOutputColumn, 0, len(columns))}
+	receipt.EmittedColumns = make([]explorer.EmittedColumn, 0, len(columns))
+	provenance := make(map[string]string, len(columns))
+	for index, column := range columns {
+		constructionID := column.construction
+		public.Columns = append(public.Columns, explorer.PublicOutputColumn{
+			Column: column.name, ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
+			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
+		})
+		receipt.EmittedColumns = append(receipt.EmittedColumns, explorer.EmittedColumn{
+			EmissionID: fmt.Sprintf("em_%02d", index), OutputID: "patients", PublicColumn: column.name,
+			ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
+			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
+		})
+		provenance[column.name] = "EXPLICIT"
+	}
+	contract, _ := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{public}})
+	receipt.PublicOutputContract = contract
+	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(contract)
+	receipt.OutputFingerprints = map[string]string{"patients": "fingerprint-" + receipt.IntentDigest}
+	receipt.OutputColumnProvenance = map[string]map[string]string{"patients": provenance}
+	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
+	receipt.ID, _ = explorer.ReceiptID(*receipt)
+	return receipt
 }
