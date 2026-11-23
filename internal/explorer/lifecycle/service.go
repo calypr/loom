@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
@@ -21,6 +22,7 @@ type Service struct {
 	columnPopulationCache *columnPopulationCache
 	interpretationService *interpretation.Service
 	selectionService      *selection.Service
+	explicitGroupService  *explicitgroup.Service
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -91,6 +93,13 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.selectionService = selectionService
+	explicitGroupService, err := explicitgroup.NewService(explicitgroup.Config{
+		Store: store, Repository: config.ExplicitGroupRepository, Capability: config.Capability, Now: now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	service.explicitGroupService = explicitGroupService
 	return service, nil
 }
 
