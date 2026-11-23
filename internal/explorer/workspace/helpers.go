@@ -197,105 +197,10 @@ func ValidateEditableSourcePolicy(document Document, catalog CatalogSnapshot, oc
 	if path == "" && source.Kind != SourceAggregate {
 		return fmt.Errorf("source path is required for %s", source.Kind)
 	}
-	findCandidate := func(candidatePath string) (CatalogCandidate, bool) {
-		candidatePath = strings.TrimPrefix(strings.TrimSpace(candidatePath), "root.")
-		for _, candidate := range catalog.Candidates {
-			node, ok := CatalogNodeByID(catalog, candidate.NodeID)
-			if !ok || node.ResourceType != occurrence.ResourceType {
-				continue
-			}
-			if candidatePath == strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") {
-				return candidate, true
-			}
-		}
-		return CatalogCandidate{}, false
-	}
 	if source.Kind == SourceAggregate {
-		var selected CatalogCandidate
-		hasSelected := false
-		if path != "" {
-			selected, hasSelected = findCandidate(path)
-			if !hasSelected {
-				return fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
-			}
-		}
-		if source.Aggregate != nil {
-			related := occurrenceID != RootOccurrenceID
-			input := capability.AggregateInput{
-				HasField: path != "" && hasSelected, RelatedResource: related,
-				ContributorWindowConfigured: source.Aggregate.ContributorWindow != nil,
-				OrderingConfigured:          source.Aggregate.Ordering != nil,
-				RequiredValuesConfigured:    len(source.Aggregate.RequiredValues) > 0,
-			}
-			if hasSelected {
-				input.LogicalType, input.Cardinality = selected.LogicalType, selected.Cardinality
-			}
-			choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
-			operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)))
-			for _, choice := range choices {
-				if choice.Operation != operation {
-					continue
-				}
-				if !choice.Supported && (operation == capability.AggregateSum || operation == capability.AggregateMean) {
-					return fmt.Errorf("aggregate operation %s unavailable (%s): %s", operation, choice.ReasonCode, choice.Reason)
-				}
-				break
-			}
-		}
-		if source.Aggregate != nil && source.Aggregate.ContributorWindow != nil {
-			if occurrenceID == RootOccurrenceID {
-				return fmt.Errorf("contributor window requires a related resource occurrence")
-			}
-			window := source.Aggregate.ContributorWindow
-			timestampPath := canonicalTransformPath(window.TimestampPath)
-			timestampCandidate, hasTimestamp := findCandidate(timestampPath)
-			if !hasTimestamp {
-				return fmt.Errorf("contributor window timestamp path %q is not advertised for occurrence %q", window.TimestampPath, occurrenceID)
-			}
-			transformCandidate := timestampCandidate
-			if hasSelected {
-				transformCandidate = selected
-			} else if operation := strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)); operation != "COUNT" && operation != "EXISTS" {
-				return fmt.Errorf("contributor window requires an advertised aggregate candidate")
-			}
-			transformations := AggregateTransformationCapabilitiesForCatalog(catalog, transformCandidate.ID)
-			if !transformations.Temporal.Available {
-				return fmt.Errorf("contributor window unavailable (%s): %s", transformations.Temporal.ReasonCode, transformations.Temporal.Reason)
-			}
-			if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, timestampPath) {
-				return fmt.Errorf("contributor window timestamp path %q is not advertised for occurrence %q", window.TimestampPath, occurrenceID)
-			}
-			anchorPath := canonicalTransformPath(window.AnchorPath)
-			root := FindRoute(&document.Route, RootOccurrenceID)
-			if root == nil || !transformations.Temporal.SupportsAnchor(root.ResourceType, anchorPath) {
-				return fmt.Errorf("contributor window anchor path %q is not advertised for the root resource", window.AnchorPath)
-			}
-			if ordering := source.Aggregate.Ordering; ordering != nil {
-				orderingPath := canonicalTransformPath(ordering.TimestampPath)
-				if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, orderingPath) {
-					return fmt.Errorf("ordering timestamp path %q is not advertised for occurrence %q", ordering.TimestampPath, occurrenceID)
-				}
-			}
-		}
-		if source.Aggregate != nil && source.Aggregate.UnitNormalization != nil {
-			if !hasSelected {
-				return fmt.Errorf("unit normalization requires an advertised aggregate candidate")
-			}
-			transformations := AggregateTransformationCapabilitiesForCatalog(catalog, selected.ID)
-			for _, preset := range transformations.UnitNormalization.Presets {
-				if preset.PolicyID != source.Aggregate.UnitNormalization.PolicyID || preset.Version != source.Aggregate.UnitNormalization.Version {
-					continue
-				}
-				if !preset.Available {
-					return fmt.Errorf("unit normalization policy %s@%s unavailable (%s): %s", preset.PolicyID, preset.Version, preset.ReasonCode, preset.Reason)
-				}
-				return nil
-			}
-			return fmt.Errorf("unit normalization policy %s@%s is not advertised for aggregate candidate %q", source.Aggregate.UnitNormalization.PolicyID, source.Aggregate.UnitNormalization.Version, selected.ID)
-		}
-		return nil
+		return validateAggregateSourcePolicy(document, catalog, occurrenceID, occurrence, path, source)
 	}
-	candidate, ok := findCandidate(path)
+	candidate, ok := catalogCandidateForOccurrencePath(catalog, occurrence.ResourceType, path)
 	if !ok {
 		return fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
 	}
@@ -307,6 +212,128 @@ func ValidateEditableSourcePolicy(document Document, catalog CatalogSnapshot, oc
 		return fmt.Errorf("projection mode %q is not advertised for source path %q", mode, path)
 	}
 	return nil
+}
+
+func catalogCandidateForOccurrencePath(catalog CatalogSnapshot, resourceType, candidatePath string) (CatalogCandidate, bool) {
+	candidatePath = strings.TrimPrefix(strings.TrimSpace(candidatePath), "root.")
+	for _, candidate := range catalog.Candidates {
+		node, ok := CatalogNodeByID(catalog, candidate.NodeID)
+		if !ok || node.ResourceType != resourceType {
+			continue
+		}
+		if candidatePath == strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") {
+			return candidate, true
+		}
+	}
+	return CatalogCandidate{}, false
+}
+
+func validateAggregateSourcePolicy(document Document, catalog CatalogSnapshot, occurrenceID string, occurrence *RouteNode, path string, source ColumnSource) error {
+	selected, hasSelected, err := validateAggregateOperationPolicy(document, catalog, occurrenceID, occurrence, path, source)
+	if err != nil {
+		return err
+	}
+	if source.Aggregate == nil {
+		return nil
+	}
+	if source.Aggregate.ContributorWindow != nil {
+		if err := validateAggregateContributorWindow(document, catalog, occurrenceID, occurrence, selected, hasSelected, source.Aggregate.ContributorWindow, source); err != nil {
+			return err
+		}
+	}
+	if source.Aggregate.UnitNormalization != nil {
+		return validateAggregateUnitNormalization(catalog, selected, hasSelected, source.Aggregate.UnitNormalization)
+	}
+	return nil
+}
+
+func validateAggregateOperationPolicy(document Document, catalog CatalogSnapshot, occurrenceID string, occurrence *RouteNode, path string, source ColumnSource) (CatalogCandidate, bool, error) {
+	var selected CatalogCandidate
+	hasSelected := false
+	if path != "" {
+		selected, hasSelected = catalogCandidateForOccurrencePath(catalog, occurrence.ResourceType, path)
+		if !hasSelected {
+			return CatalogCandidate{}, false, fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
+		}
+	}
+	if source.Aggregate != nil {
+		related := occurrenceID != RootOccurrenceID
+		input := capability.AggregateInput{
+			HasField:                    path != "" && hasSelected,
+			RelatedResource:             related,
+			ContributorWindowConfigured: source.Aggregate.ContributorWindow != nil,
+			OrderingConfigured:          source.Aggregate.Ordering != nil,
+			RequiredValuesConfigured:    len(source.Aggregate.RequiredValues) > 0,
+		}
+		if hasSelected {
+			input.LogicalType, input.Cardinality = selected.LogicalType, selected.Cardinality
+		}
+		choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
+		operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)))
+		for _, choice := range choices {
+			if choice.Operation != operation {
+				continue
+			}
+			if !choice.Supported && (operation == capability.AggregateSum || operation == capability.AggregateMean) {
+				return CatalogCandidate{}, false, fmt.Errorf("aggregate operation %s unavailable (%s): %s", operation, choice.ReasonCode, choice.Reason)
+			}
+			break
+		}
+	}
+	return selected, hasSelected, nil
+}
+
+func validateAggregateContributorWindow(document Document, catalog CatalogSnapshot, occurrenceID string, occurrence *RouteNode, selected CatalogCandidate, hasSelected bool, window *ContributorWindowSource, source ColumnSource) error {
+	if occurrenceID == RootOccurrenceID {
+		return fmt.Errorf("contributor window requires a related resource occurrence")
+	}
+	timestampPath := canonicalTransformPath(window.TimestampPath)
+	timestampCandidate, hasTimestamp := catalogCandidateForOccurrencePath(catalog, occurrence.ResourceType, timestampPath)
+	if !hasTimestamp {
+		return fmt.Errorf("contributor window timestamp path %q is not advertised for occurrence %q", window.TimestampPath, occurrenceID)
+	}
+	transformCandidate := timestampCandidate
+	if hasSelected {
+		transformCandidate = selected
+	} else if operation := strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)); operation != "COUNT" && operation != "EXISTS" {
+		return fmt.Errorf("contributor window requires an advertised aggregate candidate")
+	}
+	transformations := AggregateTransformationCapabilitiesForCatalog(catalog, transformCandidate.ID)
+	if !transformations.Temporal.Available {
+		return fmt.Errorf("contributor window unavailable (%s): %s", transformations.Temporal.ReasonCode, transformations.Temporal.Reason)
+	}
+	if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, timestampPath) {
+		return fmt.Errorf("contributor window timestamp path %q is not advertised for occurrence %q", window.TimestampPath, occurrenceID)
+	}
+	anchorPath := canonicalTransformPath(window.AnchorPath)
+	root := FindRoute(&document.Route, RootOccurrenceID)
+	if root == nil || !transformations.Temporal.SupportsAnchor(root.ResourceType, anchorPath) {
+		return fmt.Errorf("contributor window anchor path %q is not advertised for the root resource", window.AnchorPath)
+	}
+	if ordering := source.Aggregate.Ordering; ordering != nil {
+		orderingPath := canonicalTransformPath(ordering.TimestampPath)
+		if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, orderingPath) {
+			return fmt.Errorf("ordering timestamp path %q is not advertised for occurrence %q", ordering.TimestampPath, occurrenceID)
+		}
+	}
+	return nil
+}
+
+func validateAggregateUnitNormalization(catalog CatalogSnapshot, selected CatalogCandidate, hasSelected bool, policy *UnitNormalizationPolicy) error {
+	if !hasSelected {
+		return fmt.Errorf("unit normalization requires an advertised aggregate candidate")
+	}
+	transformations := AggregateTransformationCapabilitiesForCatalog(catalog, selected.ID)
+	for _, preset := range transformations.UnitNormalization.Presets {
+		if preset.PolicyID != policy.PolicyID || preset.Version != policy.Version {
+			continue
+		}
+		if !preset.Available {
+			return fmt.Errorf("unit normalization policy %s@%s unavailable (%s): %s", preset.PolicyID, preset.Version, preset.ReasonCode, preset.Reason)
+		}
+		return nil
+	}
+	return fmt.Errorf("unit normalization policy %s@%s is not advertised for aggregate candidate %q", policy.PolicyID, policy.Version, selected.ID)
 }
 
 func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, predicate ContributorPredicate) error {
