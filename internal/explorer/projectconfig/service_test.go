@@ -27,14 +27,19 @@ type viewBuilderServiceStore struct {
 	explorer.ExplorerStore
 	explorer.RevisionStore
 	explorer.ViewBuilderRepository
-	settings    viewer.ViewBuilderSettings
-	owners      []explorer.Explorer
-	revisions   map[string]explorer.Revision
-	writes      int
-	lastProject string
+	settings      viewer.ViewBuilderSettings
+	owners        []explorer.Explorer
+	revisions     map[string]explorer.Revision
+	writes        int
+	settingsReads int
+	ownerLists    int
+	lastProject   string
+	settingsErr   error
+	afterWrite    func()
 }
 
 func (s *viewBuilderServiceStore) List(_ context.Context, project string) ([]explorer.Explorer, error) {
+	s.ownerLists++
 	s.lastProject = project
 	return s.owners, nil
 }
@@ -46,7 +51,8 @@ func (s *viewBuilderServiceStore) GetRevision(_ context.Context, id string) (*ex
 	return &value, nil
 }
 func (s *viewBuilderServiceStore) GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error) {
-	return s.settings, nil
+	s.settingsReads++
+	return s.settings, s.settingsErr
 }
 func (s *viewBuilderServiceStore) SaveViewBuilderConfig(_ context.Context, request explorer.ViewBuilderMutation) error {
 	s.writes++
@@ -55,6 +61,9 @@ func (s *viewBuilderServiceStore) SaveViewBuilderConfig(_ context.Context, reque
 	revision.Status = explorer.RevisionActive
 	s.revisions[revision.ID] = revision
 	s.owners = []explorer.Explorer{{Project: request.Project, ExplorerID: definition.ID, ProjectConfig: &definition, ActiveRevisionID: revision.ID}}
+	if s.afterWrite != nil {
+		s.afterWrite()
+	}
 	return nil
 }
 
@@ -97,26 +106,75 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 	service := New(explorers)
 	config := explorerconfig.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
 	request := viewer.ViewBuilderSaveRequest{CatalogRevisionID: snapshot.ID, Config: config}
-	state, err := service.SaveViewBuilderConfig(context.Background(), "HTAN_INT/BForePC", config.ID, request, "editor")
+	stateChecks := 0
+	access := MutationAccess{
+		CheckState: func(_ context.Context, state viewer.ViewBuilderState) (viewer.ViewBuilderState, error) {
+			stateChecks++
+			return state, nil
+		},
+		CheckExecution: func(context.Context, string) error { return nil },
+		StorageError:   func(err error) error { return err },
+	}
+	store.settingsReads = 0
+	store.ownerLists = 0
+	state, err := service.SaveConfig(context.Background(), "HTAN_INT/BForePC", config.ID, "editor", func() (viewer.ViewBuilderSaveRequest, error) {
+		return request, nil
+	}, access)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if store.writes != 1 || len(state.Configs) != 1 || state.Configs[0].Config.Title != "Custom" {
 		t.Fatalf("save=%+v writes=%d", state, store.writes)
 	}
+	if store.settingsReads != 3 || store.ownerLists != 2 || stateChecks != 2 {
+		t.Fatalf("mutation reads settings=%d owners=%d stateChecks=%d, want settings=3 owners=2 checks=2", store.settingsReads, store.ownerLists, stateChecks)
+	}
 	revision := store.revisions[state.Configs[0].RevisionID]
 	if revision.Publication.ExecutionID != published.ID || revision.SourceGeneration != published.DatasetGeneration || revision.CreatedBy != "editor" {
 		t.Fatalf("view save changed execution or lost actor: %+v", revision.Publication)
 	}
 	request.CatalogRevisionID = "stale-catalog"
-	_, err = service.SaveViewBuilderConfig(context.Background(), "HTAN_INT/BForePC", config.ID, request, "editor")
+	_, err = service.SaveConfig(context.Background(), "HTAN_INT/BForePC", config.ID, "editor", func() (viewer.ViewBuilderSaveRequest, error) {
+		return request, nil
+	}, access)
 	if !errors.Is(err, explorer.ErrDraftConflict) || store.writes != 1 {
 		t.Fatalf("stale catalog err=%v writes=%d", err, store.writes)
 	}
 	request.CatalogRevisionID = snapshot.ID
-	_, err = service.SaveViewBuilderConfig(context.Background(), "different/project", config.ID, request, "editor")
-	if !errors.Is(err, viewer.ErrInvalidViewBuilder) || store.writes != 1 {
+	if err := service.saveViewBuilderConfig(context.Background(), "different/project", config.ID, request, "editor"); !errors.Is(err, viewer.ErrInvalidViewBuilder) || store.writes != 1 {
 		t.Fatalf("foreign project err=%v writes=%d", err, store.writes)
+	}
+
+	request.ExpectedRevisionID = store.owners[0].ActiveRevisionID
+	read := func() (viewer.ViewBuilderSaveRequest, error) { return request, nil }
+
+	denied := errors.New("execution access denied")
+	checks := 0
+	access.CheckState = func(_ context.Context, state viewer.ViewBuilderState) (viewer.ViewBuilderState, error) {
+		checks++
+		if checks == 2 {
+			return viewer.ViewBuilderState{}, denied
+		}
+		return state, nil
+	}
+	_, err = service.SaveConfig(context.Background(), "HTAN_INT/BForePC", config.ID, "editor", read, access)
+	if !errors.Is(err, denied) || store.writes != 2 || checks != 2 {
+		t.Fatalf("post-write authorization err=%v writes=%d checks=%d", err, store.writes, checks)
+	}
+
+	readFailed := errors.New("settings read failed")
+	mapped := errors.New("mapped storage failure")
+	store.afterWrite = func() { store.settingsErr = readFailed }
+	access.StorageError = func(err error) error {
+		if !errors.Is(err, readFailed) {
+			t.Fatalf("storage error = %v", err)
+		}
+		return mapped
+	}
+	checks = 0
+	_, err = service.SaveConfig(context.Background(), "HTAN_INT/BForePC", config.ID, "editor", read, access)
+	if !errors.Is(err, mapped) || store.writes != 3 || checks != 1 {
+		t.Fatalf("post-write read err=%v writes=%d checks=%d", err, store.writes, checks)
 	}
 }
 

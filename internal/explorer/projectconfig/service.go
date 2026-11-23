@@ -112,80 +112,80 @@ func (v *Service) ViewBuilderState(ctx context.Context, project string) (viewer.
 	return result, nil
 }
 
-func (v *Service) SaveViewBuilderConfig(ctx context.Context, project, id string, request viewer.ViewBuilderSaveRequest, actor string) (viewer.ViewBuilderState, error) {
+func (v *Service) saveViewBuilderConfig(ctx context.Context, project, id string, request viewer.ViewBuilderSaveRequest, actor string) error {
 	repository, err := v.repository()
 	if err != nil {
-		return viewer.ViewBuilderState{}, err
+		return err
 	}
 	if !projectConfigIDPattern.MatchString(id) || id != request.Config.ID || strings.TrimSpace(request.CatalogRevisionID) == "" {
-		return viewer.ViewBuilderState{}, fmt.Errorf("%w: config ID and published catalog revision are required", viewer.ErrInvalidViewBuilder)
+		return fmt.Errorf("%w: config ID and published catalog revision are required", viewer.ErrInvalidViewBuilder)
 	}
 	storageProject := projectid.Legacy(project)
 	settings, err := repository.GetViewBuilderSettings(ctx, storageProject)
 	if err != nil {
-		return viewer.ViewBuilderState{}, fmt.Errorf("read project view settings: %w", err)
+		return fmt.Errorf("read project view settings: %w", err)
 	}
 	if settings.Catalogs[request.Config.RecipeRef.Name] != request.CatalogRevisionID {
-		return viewer.ViewBuilderState{}, explorer.ErrDraftConflict
+		return explorer.ErrDraftConflict
 	}
 	snapshot, err := v.explorers.GetRevision(ctx, request.CatalogRevisionID)
 	if err != nil {
-		return viewer.ViewBuilderState{}, fmt.Errorf("read published dataframe catalog: %w", err)
+		return fmt.Errorf("read published dataframe catalog: %w", err)
 	}
 	if snapshot == nil || snapshot.Project != storageProject || snapshot.Recipe.Name != request.Config.RecipeRef.Name {
-		return viewer.ViewBuilderState{}, fmt.Errorf("%w: published catalog does not belong to this project and recipe", viewer.ErrInvalidViewBuilder)
+		return fmt.Errorf("%w: published catalog does not belong to this project and recipe", viewer.ErrInvalidViewBuilder)
 	}
 	publication, err := PrepareViewBuilderConfig(request.Config, *snapshot, actor)
 	if err != nil {
-		return viewer.ViewBuilderState{}, err
+		return err
 	}
 	if err := repository.SaveViewBuilderConfig(ctx, explorer.ViewBuilderMutation{
 		Project: storageProject, ExpectedRevisionID: request.ExpectedRevisionID, CatalogRevisionID: request.CatalogRevisionID,
 		Publication: publication, Actor: actor,
 	}); err != nil {
-		return viewer.ViewBuilderState{}, fmt.Errorf("save project view: %w", err)
+		return fmt.Errorf("save project view: %w", err)
 	}
-	return v.ViewBuilderState(ctx, project)
+	return nil
 }
 
-func (v *Service) DeleteViewBuilderConfig(ctx context.Context, project, id, expectedRevisionID string) (viewer.ViewBuilderState, error) {
+func (v *Service) deleteViewBuilderConfig(ctx context.Context, project, id, expectedRevisionID string) error {
 	repository, err := v.repository()
 	if err != nil {
-		return viewer.ViewBuilderState{}, err
+		return err
 	}
 	if !projectConfigIDPattern.MatchString(id) || strings.TrimSpace(expectedRevisionID) == "" {
-		return viewer.ViewBuilderState{}, fmt.Errorf("%w: view ID and expected revision are required", viewer.ErrInvalidViewBuilder)
+		return fmt.Errorf("%w: view ID and expected revision are required", viewer.ErrInvalidViewBuilder)
 	}
 	if err := repository.DeleteViewBuilderConfig(ctx, projectid.Legacy(project), id, expectedRevisionID); err != nil {
-		return viewer.ViewBuilderState{}, fmt.Errorf("delete project view: %w", err)
+		return fmt.Errorf("delete project view: %w", err)
 	}
-	return v.ViewBuilderState(ctx, project)
+	return nil
 }
 
-func (v *Service) SaveViewBuilderDefaults(ctx context.Context, project string, request viewer.ViewBuilderDefaultsRequest) (viewer.ViewBuilderState, error) {
+func (v *Service) saveViewBuilderDefaults(ctx context.Context, project string, request viewer.ViewBuilderDefaultsRequest) error {
 	repository, err := v.repository()
 	if err != nil {
-		return viewer.ViewBuilderState{}, err
+		return err
 	}
 	_, _, validFrame := parseDefaultFrameID(request.DefaultFrameID)
 	if request.ExpectedVersion < 0 || !projectConfigIDPattern.MatchString(request.DefaultConfigID) || !validFrame {
-		return viewer.ViewBuilderState{}, fmt.Errorf("%w: select a saved view and a qualified published dataframe", viewer.ErrInvalidViewBuilder)
+		return fmt.Errorf("%w: select a saved view and a qualified published dataframe", viewer.ErrInvalidViewBuilder)
 	}
 	if err := repository.SaveViewBuilderDefaults(ctx, projectid.Legacy(project), request); err != nil {
-		return viewer.ViewBuilderState{}, fmt.Errorf("save project view defaults: %w", err)
+		return fmt.Errorf("save project view defaults: %w", err)
 	}
-	return v.ViewBuilderState(ctx, project)
+	return nil
 }
 
-func (v *Service) AdoptViewBuilderCatalogs(ctx context.Context, project string) (viewer.ViewBuilderState, error) {
+func (v *Service) adoptViewBuilderCatalogs(ctx context.Context, project string) error {
 	repository, err := v.repository()
 	if err != nil {
-		return viewer.ViewBuilderState{}, err
+		return err
 	}
 	if err := repository.AdoptViewBuilderCatalogs(ctx, projectid.Legacy(project)); err != nil {
-		return viewer.ViewBuilderState{}, fmt.Errorf("attach published dataframe catalogs: %w", err)
+		return fmt.Errorf("attach published dataframe catalogs: %w", err)
 	}
-	return v.ViewBuilderState(ctx, project)
+	return nil
 }
 
 func parseDefaultFrameID(id string) (string, string, bool) {
