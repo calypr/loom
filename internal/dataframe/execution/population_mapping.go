@@ -24,7 +24,7 @@ const (
 	PopulationMappingIncomplete PopulationMappingStatus = "INCOMPLETE"
 )
 
-type PopulationMemberReader interface {
+type populationMemberReader interface {
 	VisitMembers(context.Context, func(string) error) error
 }
 
@@ -67,7 +67,7 @@ const (
 	defaultPopulationMappingWitness  = 1_000_000
 )
 
-func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
+func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
 	if strings.TrimSpace(request.Output) == "" {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping output is required")
 	}
@@ -78,11 +78,11 @@ func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, reque
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }
 
-func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
+func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }
 
-func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
+func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
 	if e == nil || e.queryRows == nil {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query executor is required")
 	}

@@ -203,7 +203,7 @@ func TestResolveInterpretationCandidateNormalizesLegacyIdentifierSource(t *testi
 	}
 }
 
-func readyInterpretationMatch(t *testing.T, resolution InterpretationCandidateResolution) InterpretationCandidateMatch {
+func readyInterpretationMatch(t *testing.T, resolution interpretationCandidateResolution) InterpretationCandidateMatch {
 	t.Helper()
 	match, ok := resolution.Match()
 	if !ok || resolution.State() != InterpretationCandidateReady {

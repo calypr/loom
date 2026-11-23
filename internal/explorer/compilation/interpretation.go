@@ -25,7 +25,7 @@ type InterpretationCandidateMatch struct {
 	StructuralCandidate    explorer.InterpretationStructuralCandidate
 }
 
-type InterpretationCandidateResolution interface {
+type interpretationCandidateResolution interface {
 	State() InterpretationCandidateResolutionState
 	Reason() string
 	Match() (InterpretationCandidateMatch, bool)
@@ -133,7 +133,7 @@ func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Works
 	return inputs.Canonical(), nil
 }
 
-func ResolveInterpretationCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (InterpretationCandidateResolution, error) {
+func ResolveInterpretationCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (interpretationCandidateResolution, error) {
 	occurrences, _, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve occurrence %q: %w", column.OccurrenceID, err)
