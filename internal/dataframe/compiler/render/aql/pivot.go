@@ -34,7 +34,7 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 	if pivot.PreparedKey != nil {
 		items = pivot.PreparedKey.SetVariable
 	}
-	item := r.navigation().newInternalVariable("pivot_item")
+	item := r.newInternalVariable("pivot_item")
 	itemExpression := item
 	itemLoop := fmt.Sprintf("FOR %s IN %s", item, items)
 	if pivot.ItemResourceType != "" {
@@ -45,7 +45,7 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 		if sourceErr != nil {
 			return "", fmt.Errorf("pivot item source: %w", sourceErr)
 		}
-		itemExpression = r.navigation().newInternalVariable("pivot_item_value")
+		itemExpression = r.newInternalVariable("pivot_item_value")
 
 		itemLoop += fmt.Sprintf("\n      FOR %s IN FLATTEN(%s)", itemExpression, itemValues)
 	}
@@ -133,8 +133,8 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
-	owner := r.navigation().newInternalVariable("correlation_pivot_owner")
-	coding := r.navigation().newInternalVariable("correlation_pivot_coding")
+	owner := r.newInternalVariable("correlation_pivot_owner")
+	coding := r.newInternalVariable("correlation_pivot_coding")
 	codings, err := r.renderCorrelationCodingItems(owner, correlation)
 	if err != nil {
 		return "", err

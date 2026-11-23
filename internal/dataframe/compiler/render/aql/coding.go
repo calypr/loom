@@ -14,7 +14,7 @@ func codedGroupIdentityExpression(coded *ir.PhysicalStageCodedGroup, system, ver
 	)
 }
 
-func (r rowLineageRenderer) renderCodedGroupRowLineage(
+func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	terminal ir.PhysicalRowLineageReturn,
@@ -26,10 +26,10 @@ func (r rowLineageRenderer) renderCodedGroupRowLineage(
 	if _, ok := r.collectionKeys[coded.RootCollectionBindKey]; !ok {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root collection bind %q is not an authorized collection binding", coded.RootCollectionBindKey)
 	}
-	identity := r.core.navigation().newInternalVariable("row_lineage_coded_group_identity")
-	selected := r.core.navigation().newInternalVariable("row_lineage_coded_group_selected")
-	page := r.core.navigation().newInternalVariable("row_lineage_coded_group_page")
-	resourceTypeBind := r.core.newInternalBindKey("row_lineage_resource_type")
+	identity := r.newInternalVariable("row_lineage_coded_group_identity")
+	selected := r.newInternalVariable("row_lineage_coded_group_selected")
+	page := r.newInternalVariable("row_lineage_coded_group_page")
+	resourceTypeBind := r.newInternalBindKey("row_lineage_resource_type")
 	r.bindVars[resourceTypeBind] = terminal.ResourceType
 	requestedRowID := "@" + terminal.RowIDBindKey
 
@@ -37,7 +37,7 @@ func (r rowLineageRenderer) renderCodedGroupRowLineage(
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	selectedTuple := r.core.navigation().newInternalVariable("row_lineage_coded_group_selected_tuple")
+	selectedTuple := r.newInternalVariable("row_lineage_coded_group_selected_tuple")
 	identityExpr := codedGroupIdentityExpression(coded, selectedTuple+".system", selectedTuple+".version", selectedTuple+".code")
 	lines := []string{
 		"LET " + selected + " = FIRST(",
@@ -52,9 +52,9 @@ func (r rowLineageRenderer) renderCodedGroupRowLineage(
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	contributor := r.core.navigation().newInternalVariable("row_lineage_coded_group_contributor")
-	contributorKey := r.core.navigation().newInternalVariable("row_lineage_coded_group_contributor_key")
-	contributorDocument := r.core.navigation().newInternalVariable("row_lineage_coded_group_contributor_document")
+	contributor := r.newInternalVariable("row_lineage_coded_group_contributor")
+	contributorKey := r.newInternalVariable("row_lineage_coded_group_contributor_key")
+	contributorDocument := r.newInternalVariable("row_lineage_coded_group_contributor_document")
 	contributorRows := []string{
 		"FOR " + contributor + " IN (\n" + indentQuery(strings.Join(contributors, "\n"), "  ") + "\n)",
 		"FILTER " + selected + " != null",
@@ -85,25 +85,25 @@ func (r rowLineageRenderer) renderCodedGroupRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r rowLineageRenderer) codedGroupTupleRows(
+func (r *physicalPlanRenderer) codedGroupTupleRows(
 	stage ir.PhysicalConstructionStage,
 	sourceQuery string,
 ) ([]string, error) {
 	coded := stage.CodedGroup
-	input := r.core.navigation().newInternalVariable("row_lineage_coded_group_input")
-	document := r.core.navigation().newInternalVariable("row_lineage_coded_group_document")
-	rawCodings := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_codings")
-	candidate := r.core.navigation().newInternalVariable("row_lineage_coded_group_candidate")
-	valid := r.core.navigation().newInternalVariable("row_lineage_coded_group_valid")
-	missingCandidate := r.core.navigation().newInternalVariable("row_lineage_coded_group_missing_candidate")
-	sourceID := r.core.navigation().newInternalVariable("row_lineage_coded_group_source_id")
-	rawSystem := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_system")
-	rawVersion := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_version")
-	rawCode := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_code")
-	system := r.core.navigation().newInternalVariable("row_lineage_coded_group_system")
-	version := r.core.navigation().newInternalVariable("row_lineage_coded_group_version")
-	code := r.core.navigation().newInternalVariable("row_lineage_coded_group_code")
-	rootKeyBind := r.core.newInternalBindKeyWithValue("row_lineage_coded_group_source_key", coded.SourceIdentityColumn)
+	input := r.newInternalVariable("row_lineage_coded_group_input")
+	document := r.newInternalVariable("row_lineage_coded_group_document")
+	rawCodings := r.newInternalVariable("row_lineage_coded_group_raw_codings")
+	candidate := r.newInternalVariable("row_lineage_coded_group_candidate")
+	valid := r.newInternalVariable("row_lineage_coded_group_valid")
+	missingCandidate := r.newInternalVariable("row_lineage_coded_group_missing_candidate")
+	sourceID := r.newInternalVariable("row_lineage_coded_group_source_id")
+	rawSystem := r.newInternalVariable("row_lineage_coded_group_raw_system")
+	rawVersion := r.newInternalVariable("row_lineage_coded_group_raw_version")
+	rawCode := r.newInternalVariable("row_lineage_coded_group_raw_code")
+	system := r.newInternalVariable("row_lineage_coded_group_system")
+	version := r.newInternalVariable("row_lineage_coded_group_version")
+	code := r.newInternalVariable("row_lineage_coded_group_code")
+	rootKeyBind := r.newInternalBindKeyWithValue("row_lineage_coded_group_source_key", coded.SourceIdentityColumn)
 	lines := []string{
 		"FOR " + input + " IN (\n" + indentQuery(sourceQuery, "  ") + "\n)",
 		fmt.Sprintf("FILTER ASSERT(TYPENAME(%s[@%s]) == \"string\" AND %s[@%s] != \"\", \"CODED_GROUP_SOURCE_ID_MISSING\")",
@@ -121,7 +121,7 @@ func (r rowLineageRenderer) codedGroupTupleRows(
 			pathExpression = attribute
 			continue
 		}
-		item := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_coded_group_path_%d", index))
+		item := r.newInternalVariable(fmt.Sprintf("row_lineage_coded_group_path_%d", index))
 		lines = append(lines, fmt.Sprintf("  FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
 		pathExpression = item
 	}
@@ -161,20 +161,20 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 	}
 	rootDocument := sourceRootVariable
 	if rootDocument == "" {
-		rootDocument = r.navigation().newInternalVariable("construction_coded_group_root")
+		rootDocument = r.newInternalVariable("construction_coded_group_root")
 	}
-	rawCodings := r.navigation().newInternalVariable("construction_coded_group_raw")
-	candidate := r.navigation().newInternalVariable("construction_coded_group_candidate")
-	valid := r.navigation().newInternalVariable("construction_coded_group_valid")
-	sourceTuples := r.navigation().newInternalVariable("construction_coded_group_source_tuples")
-	tuple := r.navigation().newInternalVariable("construction_coded_group_tuple")
+	rawCodings := r.newInternalVariable("construction_coded_group_raw")
+	candidate := r.newInternalVariable("construction_coded_group_candidate")
+	valid := r.newInternalVariable("construction_coded_group_valid")
+	sourceTuples := r.newInternalVariable("construction_coded_group_source_tuples")
+	tuple := r.newInternalVariable("construction_coded_group_tuple")
 	var rootKeyBind string
 	if sourceRootVariable == "" {
 		rootKeyBind = r.newInternalBindKeyWithValue("construction_coded_group_source_id", coded.SourceIdentityColumn)
 	}
-	systemKeyVariable := r.navigation().newInternalVariable("construction_coded_system")
-	versionKeyVariable := r.navigation().newInternalVariable("construction_coded_version")
-	codeKeyVariable := r.navigation().newInternalVariable("construction_coded_code")
+	systemKeyVariable := r.newInternalVariable("construction_coded_system")
+	versionKeyVariable := r.newInternalVariable("construction_coded_version")
+	codeKeyVariable := r.newInternalVariable("construction_coded_code")
 	rowValuesSource := stage.InputRowVariable
 	lines := make([]string, 0, 24)
 	if sourceRootVariable == "" {
@@ -193,7 +193,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 		if err != nil {
 			return nil, fmt.Errorf("row value source projection: %w", err)
 		}
-		rowValuesSource = r.navigation().newInternalVariable("construction_coded_group_row_values_source")
+		rowValuesSource = r.newInternalVariable("construction_coded_group_row_values_source")
 		lines = append(lines, fmt.Sprintf("    LET %s = %s", rowValuesSource, projection))
 	}
 	lines = append(lines, fmt.Sprintf("    LET %s = (", rawCodings))
@@ -204,7 +204,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 			pathExpression = attribute
 			continue
 		}
-		item := r.navigation().newInternalVariable(fmt.Sprintf("construction_coded_group_path_%d", index))
+		item := r.newInternalVariable(fmt.Sprintf("construction_coded_group_path_%d", index))
 		lines = append(lines,
 			fmt.Sprintf("      FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute),
 		)
@@ -214,7 +214,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 		fmt.Sprintf("        RETURN %s", pathExpression),
 		"    )",
 	)
-	missingCandidates := r.navigation().newInternalVariable("construction_coded_group_missing_candidate")
+	missingCandidates := r.newInternalVariable("construction_coded_group_missing_candidate")
 	lines = append(lines,
 		fmt.Sprintf("    LET %s = (", sourceTuples),
 		fmt.Sprintf("      LET %s = (LENGTH(%s) == 0 ? [null] : %s)", missingCandidates, rawCodings, rawCodings),

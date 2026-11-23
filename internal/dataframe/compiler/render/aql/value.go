@@ -22,13 +22,13 @@ func (r *physicalPlanRenderer) renderConstructionRowValueLets(
 			return nil, fmt.Errorf("row value %q input type: %w", rowValue.Output, err)
 		}
 		typeBind := r.newInternalBindKeyWithValue("construction_row_value_type", typeName)
-		member := r.navigation().newInternalVariable(fmt.Sprintf("construction_row_value_member_%d", index))
+		member := r.newInternalVariable(fmt.Sprintf("construction_row_value_member_%d", index))
 		source := member
 		if valueField != "" {
 			source += "." + valueField
 		}
 		source += "[@" + columnBind + "]"
-		values := r.navigation().newInternalVariable(fmt.Sprintf("construction_row_value_values_%d", index))
+		values := r.newInternalVariable(fmt.Sprintf("construction_row_value_values_%d", index))
 		if rowValue.InputMany {
 			lines = append(lines, fmt.Sprintf(
 				"  LET %s = FLATTEN((FOR %s IN %s LET row_value = %s FILTER row_value != null RETURN ASSERT(IS_ARRAY(row_value), \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") ? row_value : []), 1)",
@@ -40,8 +40,8 @@ func (r *physicalPlanRenderer) renderConstructionRowValueLets(
 				values, member, contributors, source,
 			))
 		}
-		item := r.navigation().newInternalVariable(fmt.Sprintf("construction_row_value_item_%d", index))
-		unique := r.navigation().newInternalVariable(fmt.Sprintf("construction_row_value_unique_%d", index))
+		item := r.newInternalVariable(fmt.Sprintf("construction_row_value_item_%d", index))
+		unique := r.newInternalVariable(fmt.Sprintf("construction_row_value_unique_%d", index))
 		lines = append(lines, fmt.Sprintf(
 			"  LET %s = SORTED_UNIQUE((FOR %s IN %s FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") RETURN %s))",
 			unique, item, values, item, item, typeBind, item,
@@ -82,9 +82,9 @@ func (r *physicalPlanRenderer) renderConstructionGroupRowValueAggregate(
 	} else {
 		values = fmt.Sprintf("(%s == null ? [] : [%s])", value, value)
 	}
-	aggregateVariable := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_row_value_arrays_%d", index))
-	item := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_row_value_item_%d", index))
-	unique := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_row_value_unique_%d", index))
+	aggregateVariable := r.newInternalVariable(fmt.Sprintf("construction_group_row_value_arrays_%d", index))
+	item := r.newInternalVariable(fmt.Sprintf("construction_group_row_value_item_%d", index))
+	unique := r.newInternalVariable(fmt.Sprintf("construction_group_row_value_unique_%d", index))
 	uniqueLine := fmt.Sprintf(
 		"  LET %s = SORTED_UNIQUE((FOR %s IN FLATTEN(%s, 1) FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") RETURN %s))",
 		unique, item, aggregateVariable, item, item, typeBind, item,
@@ -186,7 +186,7 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 	resourceTypeBind := r.newInternalBindKey("related_field_resource_type")
 	r.bindVars[resourceTypeBind] = expression.RelatedField.ResourceType
 	if expression.RelatedField.PresenceOnly {
-		present, err := r.tableShape().renderPropertyPathPresence(document+".payload", expression.RelatedField.Path[1:])
+		present, err := r.renderPropertyPathPresence(document+".payload", expression.RelatedField.Path[1:])
 		if err != nil {
 			return "", fmt.Errorf("related field presence: %w", err)
 		}

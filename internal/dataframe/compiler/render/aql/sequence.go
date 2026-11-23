@@ -134,12 +134,12 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			reservedVars:   reservedVars,
 			internalPrefix: "construction_",
 		}}
-		selectedGroupKeysVariable = allocator.navigation().newInternalVariable("reshape_preview_selected_group_keys")
-		groupKeySourceVariable = allocator.navigation().newInternalVariable("reshape_preview_key_row")
-		groupIdentityVariable = allocator.navigation().newInternalVariable("reshape_preview_identity")
+		selectedGroupKeysVariable = allocator.newInternalVariable("reshape_preview_selected_group_keys")
+		groupKeySourceVariable = allocator.newInternalVariable("reshape_preview_key_row")
+		groupIdentityVariable = allocator.newInternalVariable("reshape_preview_identity")
 		groupKeyVariables = make([]string, len(pivot.GroupKeys))
 		for index := range groupKeyVariables {
-			groupKeyVariables[index] = allocator.navigation().newInternalVariable(fmt.Sprintf("reshape_preview_group_key_%d", index+1))
+			groupKeyVariables[index] = allocator.newInternalVariable(fmt.Sprintf("reshape_preview_group_key_%d", index+1))
 		}
 		keyPlan, keyErr := terminalPivotGroupKeySourcePlan(sourcePlan, pivot)
 		if keyErr != nil {
@@ -248,7 +248,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 	}
 	if sequence.RowLineageReturn != nil {
-		return renderer.rowLineage().renderConstructionRowLineage(source.Query, stages, *sequence.RowLineageReturn)
+		return renderer.renderConstructionRowLineage(source.Query, stages, *sequence.RowLineageReturn)
 	}
 	lines := make([]string, 0, 16)
 	if hasRelatedGroupPreview {
@@ -417,7 +417,7 @@ func renderTerminalPivotGroupIdentitySelection(sourceQuery string, pivot ir.Phys
 		renderer.bindVars[columnBind] = key.Column
 		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s[@%s]", groupKeyVariables[index], sourceVariable, columnBind))
 	}
-	identity, err := renderer.tableShape().renderGroupedPivotIdentity(pivot, groupKeyValues)
+	identity, err := renderer.renderGroupedPivotIdentity(pivot, groupKeyValues)
 	if err != nil {
 		return nil, fmt.Errorf("render terminal Pivot group identity selection: %w", err)
 	}

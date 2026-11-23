@@ -107,7 +107,7 @@ SORT row.group_ordinal ASC, row.group_id ASC
 			if err != nil {
 				return RenderedPhysicalPlan{}, err
 			}
-			variable := renderer.navigation().newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
+			variable := renderer.newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
 			projections = append(projections, fmt.Sprintf("%q: %s", value.Output, expression))
 			outputs = append(outputs, fmt.Sprintf("%q: %s", value.Output, variable))
 			values = append(values, ir.PhysicalStageRowValue{InputColumn: value.Output, InputKind: value.Kind, InputMany: value.Expression.Cardinality == ir.PhysicalArrayCardinality, Output: value.Output, Policy: value.Policy, Variable: variable})
@@ -121,7 +121,7 @@ SORT row.group_ordinal ASC, row.group_id ASC
 		if rows.CellTrace == nil {
 			query += "RETURN MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
 		} else {
-			finalRow := renderer.navigation().newInternalVariable("cohort_group_final_row")
+			finalRow := renderer.newInternalVariable("cohort_group_final_row")
 			query += "LET " + finalRow + " = MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
 			var contributorRows *string
 			if traceMemberValueFound {
@@ -179,7 +179,7 @@ func renderGroupRowsCellTraceReturn(renderer physicalPlanRenderer, trace ir.Phys
 		terminal.Contribution = &ir.PhysicalCellTraceContribution{SetVariable: contributorRows, ValueField: "value"}
 		terminal.OmissionCode = ""
 	}
-	traceLines, err := renderer.cellTraces().renderCellTraceReturn(terminal)
+	traceLines, err := renderer.renderCellTraceReturn(terminal)
 	if err != nil {
 		return nil, err
 	}
@@ -193,9 +193,9 @@ func renderGroupRowsCellTraceContributors(
 	memberValue ir.PhysicalGroupMemberValue,
 ) (string, []string, error) {
 	columnBind := renderer.newInternalBindKeyWithValue("group_rows_trace_column", memberValue.Output)
-	input := renderer.navigation().newInternalVariable("group_rows_trace_input")
-	item := renderer.navigation().newInternalVariable("group_rows_trace_value")
-	contributors := renderer.navigation().newInternalVariable("group_rows_trace_contributors")
+	input := renderer.newInternalVariable("group_rows_trace_input")
+	item := renderer.newInternalVariable("group_rows_trace_value")
+	contributors := renderer.newInternalVariable("group_rows_trace_contributors")
 	finalValue, err := renderer.renderExpression(ir.PhysicalExpression{
 		Kind: ir.PhysicalValueExpression, Cardinality: trace.Cardinality,
 		NullBehavior: ir.PhysicalPreserveNull,
@@ -215,7 +215,7 @@ func renderGroupRowsCellTraceContributors(
 	}
 	var source string
 	if memberValue.Expression.Cardinality == ir.PhysicalArrayCardinality {
-		arrayValue := renderer.navigation().newInternalVariable("group_rows_trace_array")
+		arrayValue := renderer.newInternalVariable("group_rows_trace_array")
 		source = fmt.Sprintf(
 			"(FOR %s IN %s LET %s = %s[@%s] FILTER %s != null FOR %s IN (ASSERT(IS_ARRAY(%s), \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") ? %s : []) FILTER %s != null FILTER %s RETURN %s)",
 			input, valueRows, arrayValue, input, columnBind, arrayValue,
@@ -227,7 +227,7 @@ func renderGroupRowsCellTraceContributors(
 			input, valueRows, item, input, columnBind, item, match, project(item),
 		)
 	}
-	uniqueRows := renderer.navigation().newInternalVariable("group_rows_trace_unique")
+	uniqueRows := renderer.newInternalVariable("group_rows_trace_unique")
 	lines := []string{
 		"LET " + contributors + " = " + source,
 		fmt.Sprintf("LET %s = (FOR %s IN UNIQUE(%s) SORT %s.resourceType ASC, %s.id ASC, %s.value ASC RETURN %s)", uniqueRows, item, contributors, item, item, item, item),

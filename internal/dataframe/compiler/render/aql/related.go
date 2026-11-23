@@ -31,7 +31,7 @@ func (r *physicalPlanRenderer) renderConstructionExpandStage(stage ir.PhysicalCo
 	}
 	identityColumnBind := r.newInternalBindKey("construction_expand_identity_column")
 	r.bindVars[identityColumnBind] = identityColumn
-	rawVariable := r.navigation().newInternalVariable("construction_expand_raw")
+	rawVariable := r.newInternalVariable("construction_expand_raw")
 	errorMessage := fmt.Sprintf("CONCAT(\"%s: construction \", @%s, \" has no items for row \", %s[@%s])", dataframeerrors.CodeConstructionExpansionEmpty, expand.ConstructionIDBindKey, stage.InputRowVariable, identityColumnBind)
 	lines := []string{
 		fmt.Sprintf("  LET %s = %s[@%s]", rawVariable, stage.InputRowVariable, columnBind),
@@ -606,16 +606,16 @@ func RenderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCate
 	return RenderedPhysicalPlan{Query: query, BindVars: binds}, nil
 }
 
-func (r navigationRenderer) renderConstructionRelatedExpandStage(stage ir.PhysicalConstructionStage, previewLimitBindKey string) ([]string, error) {
+func (r *physicalPlanRenderer) renderConstructionRelatedExpandStage(stage ir.PhysicalConstructionStage, previewLimitBindKey string) ([]string, error) {
 	related := stage.RelatedExpand
 	if related == nil {
 		return nil, fmt.Errorf("related expansion stage is missing its typed payload")
 	}
-	records, err := r.core.renderSubplan(related.RelatedRecords, "  ", false)
+	records, err := r.renderSubplan(related.RelatedRecords, "  ", false)
 	if err != nil {
 		return nil, fmt.Errorf("render exact related-resource route: %w", err)
 	}
-	identityColumnBind := r.core.newInternalBindKey("related_expand_parent_identity_column")
+	identityColumnBind := r.newInternalBindKey("related_expand_parent_identity_column")
 	r.bindVars[identityColumnBind] = related.ParentIdentityColumn
 	lines := make([]string, 0, 12)
 	if previewLimitBindKey != "" {
@@ -650,7 +650,7 @@ func (r navigationRenderer) renderConstructionRelatedExpandStage(stage ir.Physic
 		fmt.Sprintf("  LET %s = (%s == null ? null : %s[%s])", related.ItemVariable, related.IndexVariable, related.RelatedRecordsVariable, related.IndexVariable),
 		fmt.Sprintf("  LET %s = %s", related.IdentityVariable, constructionRelatedExpandIdentityExpression(stage.InputRowVariable, identityColumnBind, related.ConstructionIDBindKey, related.ItemVariable)),
 	)
-	object, err := r.core.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	object, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
 	if err != nil {
 		return nil, fmt.Errorf("render related expansion output row: %w", err)
 	}

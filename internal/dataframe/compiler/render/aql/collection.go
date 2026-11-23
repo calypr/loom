@@ -19,7 +19,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupCollection(group *ir.Physi
 	codingDisplayVariable := keys.codingDisplayVariable
 	codingDisplayAggregateVariable := keys.codingDisplayAggregateVariable
 	if countRowsOnly && !aggregateRowValues {
-		countVariable := r.navigation().newInternalVariable("construction_group_count_rows")
+		countVariable := r.newInternalVariable("construction_group_count_rows")
 		collect := "COLLECT"
 		if len(collectKeys) != 0 {
 			collect += " " + strings.Join(collectKeys, ", ")
@@ -45,7 +45,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupCollection(group *ir.Physi
 			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.CodingKey.LabelVariable, codingDisplayAggregateVariable, codingDisplayAggregateVariable, group.CodingKey.TupleVariable))
 		}
 	} else if aggregateRowValues {
-		countVariable := r.navigation().newInternalVariable("construction_group_count_rows")
+		countVariable := r.newInternalVariable("construction_group_count_rows")
 		aggregateParts := []string{fmt.Sprintf("%s = SUM(%s != null ? 1 : 0)", countVariable, inputRowVariable)}
 		if group.SemanticKey != nil {
 			aggregateParts = append(aggregateParts, fmt.Sprintf("%s = MIN(%s)", semanticDisplayAggregateVariable, semanticDisplayVariable))
@@ -101,7 +101,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupCollection(group *ir.Physi
 			groupMembers = fmt.Sprintf("{row: %s, present: %s != null, codingDisplay: %s}", inputRowVariable, inputRowVariable, codingDisplayVariable)
 		}
 		if len(collectKeys) == 0 {
-			allRowsVariable := r.navigation().newInternalVariable("construction_group_all_rows")
+			allRowsVariable := r.newInternalVariable("construction_group_all_rows")
 			lines = append(lines, fmt.Sprintf("  COLLECT %s = null INTO %s = %s", allRowsVariable, group.GroupRowsVariable, groupMembers))
 		} else {
 			lines = append(lines, fmt.Sprintf("  COLLECT %s INTO %s = %s", strings.Join(collectKeys, ", "), group.GroupRowsVariable, groupMembers))
@@ -109,15 +109,15 @@ func (r *physicalPlanRenderer) renderConstructionGroupCollection(group *ir.Physi
 			lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
 		}
 		if group.SemanticKey != nil {
-			displays := r.navigation().newInternalVariable("construction_group_semantic_displays")
-			member := r.navigation().newInternalVariable("construction_group_semantic_display")
+			displays := r.newInternalVariable("construction_group_semantic_displays")
+			member := r.newInternalVariable("construction_group_semantic_display")
 			lines = append(lines,
 				fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.semanticDisplay != null RETURN %s.semanticDisplay)", displays, member, group.GroupRowsVariable, member, member),
 				fmt.Sprintf("  LET %s = (LENGTH(%s) != 0 ? MIN(%s) : %s[2])", group.SemanticKey.LabelVariable, displays, displays, group.SemanticKey.TupleVariable),
 			)
 		} else if group.CodingKey != nil {
-			displays := r.navigation().newInternalVariable("construction_group_coding_displays")
-			member := r.navigation().newInternalVariable("construction_group_coding_display")
+			displays := r.newInternalVariable("construction_group_coding_displays")
+			member := r.newInternalVariable("construction_group_coding_display")
 			lines = append(lines,
 				fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.codingDisplay != null RETURN %s.codingDisplay)", displays, member, group.GroupRowsVariable, member, member),
 				fmt.Sprintf("  LET %s = (LENGTH(%s) != 0 ? MIN(%s) : %s[2])", group.CodingKey.LabelVariable, displays, displays, group.CodingKey.TupleVariable),
@@ -146,7 +146,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupCollection(group *ir.Physi
 			lines = append(lines, contributorLines...)
 		}
 		if group.DynamicRuntimeKeysVariable != "" {
-			member := r.navigation().newInternalVariable("construction_group_dynamic_member")
+			member := r.newInternalVariable("construction_group_dynamic_member")
 
 			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.present RETURN %s.row[\"__loom_dynamic_runtime_keys\"])", group.DynamicRuntimeKeysVariable, member, group.GroupRowsVariable, member, member))
 		}
@@ -228,7 +228,7 @@ func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (st
 	if !setSource {
 		items = "[" + source + "]"
 	}
-	item := r.navigation().newInternalVariable("slice_item")
+	item := r.newInternalVariable("slice_item")
 	lines := []string{"(FOR " + item + " IN " + items}
 	if slice.Predicate != nil {
 		if slice.Predicate.Kind != ir.PhysicalComparisonPredicate || slice.Predicate.Comparison == nil {

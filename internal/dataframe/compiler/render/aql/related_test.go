@@ -38,7 +38,7 @@ func TestRelatedExpandEmptyErrorUsesStableConstructionCode(t *testing.T) {
 		},
 	}
 
-	lines, err := renderer.navigation().renderConstructionRelatedExpandStage(stage, "")
+	lines, err := renderer.renderConstructionRelatedExpandStage(stage, "")
 	if err != nil {
 		t.Fatal(err)
 	}

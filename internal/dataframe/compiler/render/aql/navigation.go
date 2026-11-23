@@ -559,12 +559,7 @@ func validateNavigationReturnScope(returnOp ir.PhysicalReturn, rootVariable, roo
 	return nil
 }
 
-type navigationRenderer struct {
-	*renderContext
-	core *physicalPlanRenderer
-}
-
-func (r navigationRenderer) renderTraversalSet(block physicalNavigationTraversal, rootVariable string, traversalIndex int) ([]string, error) {
+func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraversal, rootVariable string, traversalIndex int) ([]string, error) {
 	traversal := block.traversal
 	setVariable := r.newInternalVariable(fmt.Sprintf("set_%d", traversalIndex))
 	parentVariable := traversal.SourceVariable
@@ -581,7 +576,7 @@ func (r navigationRenderer) renderTraversalSet(block physicalNavigationTraversal
 	}
 	lines = append(lines, r.renderTraversalScan(traversal, parentVariable, traversalIndent)...)
 	for scopeIndex, operation := range block.scope {
-		line, err := r.core.renderScopeOperation(operation, traversalIndent+"  ")
+		line, err := r.renderScopeOperation(operation, traversalIndent+"  ")
 		if err != nil {
 			return nil, fmt.Errorf("render traversal scope operation %d: %w", scopeIndex, err)
 		}
@@ -592,7 +587,7 @@ func (r navigationRenderer) renderTraversalSet(block physicalNavigationTraversal
 	return lines, nil
 }
 
-func (r navigationRenderer) renderTraversalScan(traversal ir.PhysicalTraversal, sourceVariable, indent string) []string {
+func (r *physicalPlanRenderer) renderTraversalScan(traversal ir.PhysicalTraversal, sourceVariable, indent string) []string {
 	strategy := traversal.Strategy
 	if strategy == "" {
 		strategy = ir.PhysicalTraversalNative
@@ -616,9 +611,9 @@ func (r navigationRenderer) renderTraversalScan(traversal ir.PhysicalTraversal, 
 	}
 }
 
-func (r navigationRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string, error) {
+func (r *physicalPlanRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string, error) {
 	if len(unnest.Ancestors) == 0 {
-		return r.core.renderExpression(unnest.Expression)
+		return r.renderExpression(unnest.Expression)
 	}
 	extract := unnest.Expression.Extract
 	if extract == nil || extract.Prepared != nil || len(extract.Selector.Steps) == 0 {
@@ -628,7 +623,7 @@ func (r navigationRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string
 	if !selector.Steps[len(selector.Steps)-1].Iterate {
 		return "", fmt.Errorf("unnest ancestry requires a repeated terminal selector step")
 	}
-	source, err := r.core.renderValue(extract.Source)
+	source, err := r.renderValue(extract.Source)
 	if err != nil {
 		return "", err
 	}
@@ -648,7 +643,7 @@ func (r navigationRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string
 	lines := []string{"FOR " + root + " IN [" + source + "]"}
 	for index, step := range selector.Steps {
 		if index == len(selector.Steps)-1 && selector.Filter != nil {
-			key := r.core.newInternalBindKey("unnest_lineage_contains")
+			key := r.newInternalBindKey("unnest_lineage_contains")
 			r.bindVars[key] = selector.Filter.Needle
 			lines = append(lines, fmt.Sprintf("  FILTER CONTAINS(%s.%s ? %s.%s : \"\", @%s)", current, selector.Filter.Field, current, selector.Filter.Field, key))
 		}
@@ -687,7 +682,7 @@ func (r navigationRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
-func (r navigationRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
+func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
 	source, err := r.renderUnnestSource(unnest)
 	if err != nil {
 		return nil, fmt.Errorf("unnest source: %w", err)
@@ -704,7 +699,7 @@ func (r navigationRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string
 	for routeIndex, step := range unnest.Owner.Route {
 		lines = append(lines, r.renderTraversalScan(step.Traversal, parentVariable, baseIndent)...)
 		for scopeIndex, operation := range step.Scope {
-			rendered, err := r.core.renderScopeOperation(operation, baseIndent+"  ")
+			rendered, err := r.renderScopeOperation(operation, baseIndent+"  ")
 			if err != nil {
 				return nil, fmt.Errorf("owner route step %d scope operation %d: %w", routeIndex, scopeIndex, err)
 			}
@@ -757,7 +752,7 @@ func (r navigationRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string
 	return lines, nil
 }
 
-func (r navigationRenderer) renderSet(set ir.PhysicalSet, index int) ([]string, error) {
+func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]string, error) {
 	if set.SourceSetVariable != "" {
 		return r.renderSharedSubset(set)
 	}
@@ -827,13 +822,13 @@ func (r navigationRenderer) renderSet(set ir.PhysicalSet, index int) ([]string, 
 			lines = append(lines, rendered...)
 			continue
 		}
-		rendered, err := r.core.renderScopeOperation(operation, indent+"  ")
+		rendered, err := r.renderScopeOperation(operation, indent+"  ")
 		if err != nil {
 			return nil, fmt.Errorf("set operation %d: %w", opIndex+1, err)
 		}
 		lines = append(lines, rendered...)
 	}
-	value, err := r.core.renderExpression(set.Subplan.Return)
+	value, err := r.renderExpression(set.Subplan.Return)
 	if err != nil {
 		return nil, err
 	}
@@ -872,7 +867,7 @@ func (r navigationRenderer) renderSet(set ir.PhysicalSet, index int) ([]string, 
 	return lines, nil
 }
 
-func (r navigationRenderer) renderPhysicalSetProjection(item string, projection ir.PhysicalSetProjection) (string, error) {
+func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projection ir.PhysicalSetProjection) (string, error) {
 	if len(projection.Fields) == 0 {
 		return "", fmt.Errorf("set projection requires at least one field")
 	}
@@ -884,7 +879,7 @@ func (r navigationRenderer) renderPhysicalSetProjection(item string, projection 
 		"resourceType: " + item + ".resourceType",
 	}
 	for _, field := range projection.Fields {
-		values, err := r.core.renderSelectorByMode(item+".payload", field.Selector, field.ExecutionMode, field.Demand)
+		values, err := r.renderSelectorByMode(item+".payload", field.Selector, field.ExecutionMode, field.Demand)
 		if err != nil {
 			return "", fmt.Errorf("projected field %q: %w", field.Name, err)
 		}
@@ -893,7 +888,7 @@ func (r navigationRenderer) renderPhysicalSetProjection(item string, projection 
 	return "{ " + strings.Join(fields, ", ") + " }", nil
 }
 
-func (r navigationRenderer) renderPhysicalSetReduction(reduction ir.PhysicalSetReduction) ([]string, error) {
+func (r *physicalPlanRenderer) renderPhysicalSetReduction(reduction ir.PhysicalSetReduction) ([]string, error) {
 	if r.setVariables[reduction.SourceSetVariable] == "" {
 		return nil, fmt.Errorf("reduction source set %q has not been rendered", reduction.SourceSetVariable)
 	}
@@ -916,7 +911,7 @@ func (r navigationRenderer) renderPhysicalSetReduction(reduction ir.PhysicalSetR
 	return []string{fmt.Sprintf("  LET %s = { %s }", reduction.Variable, strings.Join(fields, ", "))}, nil
 }
 
-func (r navigationRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet) ([]string, error) {
+func (r *physicalPlanRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet) ([]string, error) {
 	if r.setVariables[prepared.SourceSetVariable] == "" {
 		return nil, fmt.Errorf("prepared source set %q has not been rendered", prepared.SourceSetVariable)
 	}
@@ -932,7 +927,7 @@ func (r navigationRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet) (
 		fmt.Sprintf("__loom_prepared_node: %s", item),
 	}
 	for _, field := range prepared.Fields {
-		values, err := r.core.renderSelectorArrayFromSource(item+".payload", field.Selector, false, false)
+		values, err := r.renderSelectorArrayFromSource(item+".payload", field.Selector, false, false)
 		if err != nil {
 			return nil, fmt.Errorf("prepared field %q: %w", field.Name, err)
 		}
@@ -942,7 +937,7 @@ func (r navigationRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet) (
 	return lines, nil
 }
 
-func (r navigationRenderer) renderTraversalTypeFilters(t *ir.PhysicalTraversal, indent string) []string {
+func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *ir.PhysicalTraversal, indent string) []string {
 	if t.TargetTypeBindKey == "" || t.EdgeTargetTypeField == "" {
 		return nil
 	}
@@ -956,7 +951,7 @@ func (r navigationRenderer) renderTraversalTypeFilters(t *ir.PhysicalTraversal, 
 	return []string{fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey), fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey)}
 }
 
-func (r navigationRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string, error) {
+func (r *physicalPlanRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string, error) {
 	if r.setVariables[set.SourceSetVariable] == "" {
 		return nil, fmt.Errorf("shared subset source %q has not been rendered", set.SourceSetVariable)
 	}
@@ -973,13 +968,13 @@ func (r navigationRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string, er
 			lines = append(lines, rendered...)
 			continue
 		}
-		rendered, err := r.core.renderScopeOperation(operation, "      ")
+		rendered, err := r.renderScopeOperation(operation, "      ")
 		if err != nil {
 			return nil, fmt.Errorf("shared subset operation %d: %w", index, err)
 		}
 		lines = append(lines, rendered...)
 	}
-	value, err := r.core.renderExpression(set.Subplan.Return)
+	value, err := r.renderExpression(set.Subplan.Return)
 	if err != nil {
 		return nil, err
 	}
@@ -1018,7 +1013,7 @@ func (r navigationRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string, er
 	return lines, nil
 }
 
-func (r navigationRenderer) newInternalVariable(suffix string) string {
+func (r *physicalPlanRenderer) newInternalVariable(suffix string) string {
 	base := "__loom_physical_" + r.internalPrefix + suffix
 	variable := base
 	for counter := 1; ; counter++ {
@@ -1151,8 +1146,4 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 		}
 	}
 	return variables
-}
-
-func (r *physicalPlanRenderer) navigation() navigationRenderer {
-	return navigationRenderer{renderContext: &r.renderContext, core: r}
 }

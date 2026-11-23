@@ -40,7 +40,7 @@ func TestDynamicPivotPreviewQuerySizeDoesNotScaleWithCategoryCount(t *testing.T)
 			bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
 			dynamicPivotPreview: dynamic,
 		}}
-		lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
+		lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 		if err != nil {
 			t.Fatalf("render %d-category pivot (dynamic=%t): %v", categoryCount, dynamic, err)
 		}
@@ -128,7 +128,7 @@ func TestDynamicPivotPreviewBindsMissingCategoryWithPresenceProof(t *testing.T) 
 		bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
 		dynamicPivotPreview: true,
 	}}
-	lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
+	lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestStreamingMissingCategoryPivotUsesDirectScalarInputs(t *testing.T) {
 			DuplicatePolicy: duplicatePolicy, MissingCellPolicy: missingCellPolicy,
 			UnlistedCategoryPolicy: unlistedPolicy, UnlistedEvidenceColumn: "unlisted_count",
 		}
-		lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
+		lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 		if err != nil {
 			t.Fatalf("render %s/%s/%s Pivot: %v", duplicatePolicy, missingCellPolicy, unlistedPolicy, err)
 		}
@@ -355,14 +355,14 @@ func TestStreamingMissingCategoryPivotFallsBackWithoutDirectScalarProof(t *testi
 				Categories:      []ir.PhysicalGroupedPivotCategory{{Output: "missing_category", MatchKind: ir.PhysicalPivotCategoryMissingMatch}},
 				DuplicatePolicy: "SUM", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 			}
-			scalarLines, scalarInputs, err := renderer.tableShape().renderStreamingPivotDirectScalarInputs(pivot)
+			scalarLines, scalarInputs, err := renderer.renderStreamingPivotDirectScalarInputs(pivot)
 			if err != nil {
 				t.Fatalf("check direct scalar eligibility: %v", err)
 			}
 			if len(scalarLines) != 0 || scalarInputs != nil {
 				t.Fatalf("ineligible projections selected the direct scalar path: lines=%v inputs=%v", scalarLines, scalarInputs)
 			}
-			lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
+			lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 			if err != nil {
 				t.Fatalf("render generic streaming fallback: %v", err)
 			}

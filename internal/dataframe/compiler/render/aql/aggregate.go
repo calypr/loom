@@ -23,7 +23,7 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			if err != nil {
 				return "", err
 			}
-			item := r.navigation().newInternalVariable("aggregate_count_value")
+			item := r.newInternalVariable("aggregate_count_value")
 			return "LENGTH(FOR " + item + " IN FLATTEN(" + values + ") FILTER " + item + " != null RETURN 1)", nil
 		}
 		return "LENGTH(" + items + ")", nil
@@ -44,9 +44,9 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 		if err != nil {
 			return "", err
 		}
-		outer := r.navigation().newInternalVariable("aggregate_numeric_values")
-		value := r.navigation().newInternalVariable("aggregate_numeric_value")
-		numeric := r.navigation().newInternalVariable("aggregate_numeric_values")
+		outer := r.newInternalVariable("aggregate_numeric_values")
+		value := r.newInternalVariable("aggregate_numeric_value")
+		numeric := r.newInternalVariable("aggregate_numeric_values")
 		numericValues := "(FOR " + value + " IN " + outer + " FILTER " + value + " != null FILTER ASSERT(IS_NUMBER(" + value + "), \"NUMERIC_AGGREGATE_NON_NUMERIC\") RETURN " + value + ")"
 		reduction := "SUM(" + numeric + ")"
 		if aggregate.Operation == ir.PhysicalMeanAggregate {
@@ -94,7 +94,7 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "", err
 		}
 		required := "@" + aggregate.RequiredValuesBindKey
-		item := r.navigation().newInternalVariable("aggregate_required_value")
+		item := r.newInternalVariable("aggregate_required_value")
 		return "LENGTH(" + required + ") == LENGTH(FOR " + item + " IN " + required + " FILTER POSITION(FLATTEN(" + values + "), " + item + ") RETURN 1)", nil
 	}
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
@@ -117,7 +117,7 @@ func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggreg
 		if aggregate.Predicate.Kind != ir.PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
 			return "", false, fmt.Errorf("aggregate predicate must be a comparison")
 		}
-		item := r.navigation().newInternalVariable("aggregate_item")
+		item := r.newInternalVariable("aggregate_item")
 		comparison := *aggregate.Predicate.Comparison
 		if comparison.LeftExpression == nil || comparison.LeftExpression.Extract == nil {
 			return "", false, fmt.Errorf("aggregate predicate must extract a selector")
@@ -153,7 +153,7 @@ func (r *physicalPlanRenderer) renderContributorWindowItems(aggregate *ir.Physic
 	if window == nil {
 		return items, nil
 	}
-	item := r.navigation().newInternalVariable("contributor_window_item")
+	item := r.newInternalVariable("contributor_window_item")
 	timestamp, err := r.renderAggregateItemValue(window.Timestamp, item)
 	if err != nil {
 		return "", fmt.Errorf("contributor window timestamp: %w", err)
@@ -175,10 +175,10 @@ func (r *physicalPlanRenderer) renderContributorWindowItems(aggregate *ir.Physic
 	if window.UpperInclusive {
 		upperOperator = "<="
 	}
-	anchorVariable := r.navigation().newInternalVariable("contributor_window_anchor")
-	scopeVariable := r.navigation().newInternalVariable("contributor_window_scope")
-	eligibleVariable := r.navigation().newInternalVariable("contributor_window_eligible")
-	timestampVariable := r.navigation().newInternalVariable("contributor_window_timestamp")
+	anchorVariable := r.newInternalVariable("contributor_window_anchor")
+	scopeVariable := r.newInternalVariable("contributor_window_scope")
+	eligibleVariable := r.newInternalVariable("contributor_window_eligible")
+	timestampVariable := r.newInternalVariable("contributor_window_timestamp")
 	candidates := "(FOR " + item + " IN " + items +
 		" LET " + timestampVariable + " = FIRST(FLATTEN([" + timestamp + "]))" +
 		" FILTER " + timestampVariable + " != null" +
@@ -198,7 +198,7 @@ func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.Physica
 	if err != nil {
 		return "", err
 	}
-	selected := r.navigation().newInternalVariable("temporal_selected_result")
+	selected := r.newInternalVariable("temporal_selected_result")
 	return "FIRST(FOR " + selected + " IN [" + selection + "] RETURN " + selected + " == null ? null : " + selected + ".value)", nil
 }
 
@@ -206,7 +206,7 @@ func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.Physica
 	if aggregate.Ordering == nil || aggregate.Value == nil {
 		return "", fmt.Errorf("FIRST_ORDERED requires value and temporal ordering")
 	}
-	item := r.navigation().newInternalVariable("temporal_item")
+	item := r.newInternalVariable("temporal_item")
 	value, err := r.renderAggregateItemValue(*aggregate.Value, item)
 	if err != nil {
 		return "", err
@@ -220,8 +220,8 @@ func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.Physica
 	patternKey := r.newInternalBindKey("temporal_instant_pattern")
 	r.bindVars[patternKey] = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$`
 	direction := strings.ToUpper(aggregate.Ordering.Direction)
-	candidatesVariable := r.navigation().newInternalVariable("temporal_candidates")
-	selectedVariable := r.navigation().newInternalVariable("temporal_selected")
+	candidatesVariable := r.newInternalVariable("temporal_candidates")
+	selectedVariable := r.newInternalVariable("temporal_selected")
 	candidates := "(FOR " + item + " IN " + items +
 		" LET __loom_temporal_value = " + value +
 		" LET __loom_temporal_timestamp = " + timestamp +
@@ -233,7 +233,7 @@ func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.Physica
 		" RETURN { resourceType: " + item + ".resourceType, resourceId: " + item + ".id, value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
 	result := selectedVariable
 	if aggregate.Ordering.TiePolicy == "REQUIRE_UNIQUE" {
-		tie := r.navigation().newInternalVariable("temporal_tie")
+		tie := r.newInternalVariable("temporal_tie")
 		ties := "LENGTH(FOR " + tie + " IN " + candidatesVariable + " FILTER DATE_TIMESTAMP(" + tie + ".timestamp) == DATE_TIMESTAMP(" + selectedVariable + ".timestamp) LIMIT 2 RETURN 1)"
 		result = selectedVariable + " == null ? null : (ASSERT(" + ties + " <= 1, \"TEMPORAL_TIE_AMBIGUOUS\") ? " + selectedVariable + " : null)"
 	}
@@ -273,7 +273,7 @@ func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpres
 	if expression.Kind != ir.PhysicalExtractExpression || expression.Extract == nil {
 		return "", fmt.Errorf("aggregate predicates require an extract value expression")
 	}
-	item := r.navigation().newInternalVariable("aggregate_value_item")
+	item := r.newInternalVariable("aggregate_value_item")
 	value, err := r.renderAggregateItemValue(expression, item)
 	if err != nil {
 		return "", err

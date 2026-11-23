@@ -186,19 +186,19 @@ func renderSourceGroupPreviewFrontier(
 		}
 	}
 	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: bindVars, collectionKeys: collectionKeys, reservedVars: reserved, internalPrefix: "construction_source_group_preview_"}}
-	frontierRows := renderer.navigation().newInternalVariable("rows")
-	groupRoots := renderer.navigation().newInternalVariable("roots_by_key")
-	selectedGroups := renderer.navigation().newInternalVariable("selected_groups")
-	selectedRootKeys := renderer.navigation().newInternalVariable("selected_root_keys")
-	row := renderer.navigation().newInternalVariable("row")
-	group := renderer.navigation().newInternalVariable("group")
-	rootKey := renderer.navigation().newInternalVariable("root_key")
-	badGroups := renderer.navigation().newInternalVariable("bad_key_groups")
-	badGroup := renderer.navigation().newInternalVariable("bad_key_group")
-	badRootKey := renderer.navigation().newInternalVariable("bad_key_root_key")
-	badRoot := renderer.navigation().newInternalVariable("bad_key_root")
-	eligibleRootKey := renderer.navigation().newInternalVariable("eligible_root_key")
-	eligibleRoot := renderer.navigation().newInternalVariable("eligible_root")
+	frontierRows := renderer.newInternalVariable("rows")
+	groupRoots := renderer.newInternalVariable("roots_by_key")
+	selectedGroups := renderer.newInternalVariable("selected_groups")
+	selectedRootKeys := renderer.newInternalVariable("selected_root_keys")
+	row := renderer.newInternalVariable("row")
+	group := renderer.newInternalVariable("group")
+	rootKey := renderer.newInternalVariable("root_key")
+	badGroups := renderer.newInternalVariable("bad_key_groups")
+	badGroup := renderer.newInternalVariable("bad_key_group")
+	badRootKey := renderer.newInternalVariable("bad_key_root_key")
+	badRoot := renderer.newInternalVariable("bad_key_root")
+	eligibleRootKey := renderer.newInternalVariable("eligible_root_key")
+	eligibleRoot := renderer.newInternalVariable("eligible_root")
 	keyTypeBind := renderer.newInternalBindKey("group_key_type")
 	renderer.bindVars[keyTypeBind] = shape.keyType
 	if _, found := renderer.bindVars[sequence.PreviewLimitBindKey]; !found {
@@ -210,7 +210,7 @@ func renderSourceGroupPreviewFrontier(
 	}
 	traversal := shape.unnest.Owner.Route[0].Traversal
 	routeForRoot := func(rootVariable string, indent string) ([]string, error) {
-		lines := renderer.navigation().renderTraversalScan(traversal, rootVariable, indent)
+		lines := renderer.renderTraversalScan(traversal, rootVariable, indent)
 		for index, operation := range shape.unnest.Owner.Route[0].Scope {
 			rendered, renderErr := renderer.renderScopeOperation(operation, indent+"  ")
 			if renderErr != nil {

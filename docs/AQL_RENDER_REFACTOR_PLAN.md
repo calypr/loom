@@ -1,6 +1,6 @@
 # `compiler/render/aql` cleanup plan
 
-Status: Phases 0–2 done. Phases 3–4 pending. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Phases 0–3 done. Phase 4 pending. Original measurements at `bb50db30b` on `internal-cleanup`.
 Relation to other plans: this follows the `render/aql` item under "Proposed: IR, AQL and
 execution receiver ownership" in `docs/INTERNAL_CLEANUP_PLAN.md`. That item asked for
 per-family renderers sharing a `renderContext`. The renderers exist, but they did not separate
@@ -152,7 +152,7 @@ found no moved or merged declaration differences after formatting. The Go build,
 | `lineage_test.go` | `TestComposedRelatedRowLineageReplaysArbitraryChainAndPagesAuthoredStages`, `composedLineageRelatedStage`, `TestComposedReplayRendersRelatedSourceEligibilityAndFieldOperations` |
 | `mapping.go` | `renderPopulationMappingReturn`, `renderConstructionPopulationMappingReturn` |
 | `navigation.go` | `genericPhysicalExecutionLimitBind`, `buildNavigationRenderLayout`, `validateRootPageRelatedSet`, `rootPageFilterUsesReduction`, `rootPageFilterMatchesReduction`, `rootPageExpressionLetRootSafe`, `hasUnusedRootPageSet`, `rootPageKeysetFilter`, `reshapedOutputVariable`, `validateReshapedRowSort`, `validateGenericNavigationTraversal`, `validateGenericNavigationRootSort`, `validateGenericNavigationRootLimit`, `validateGenericNavigationScopeBlock`, `matchesPhysicalEquality`, `sameRenderPhysicalValue`, `validateNavigationReturnScope`, `navigationRenderer`, `renderTraversalSet`, `renderTraversalScan`, `renderUnnestSource`, `renderUnnest`, `renderSet`, `renderPhysicalSetProjection`, `renderPhysicalSetReduction`, `renderPreparedSet`, `renderTraversalTypeFilters`, `renderSharedSubset`, `newInternalVariable`, `renderPhysicalSetOutput`, `physicalPlanVariableNames`, `navigation` |
-| `navigation_external_test.go` | `TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop`, `TestRenderPhysicalPlanPreserveParentUnnestAndOrdinality`, `TestRenderPhysicalPlanErrorUnnestUsesAssertAtOwnerBoundary`, `TestRenderPhysicalPlanRejectsUnnestAfterRootWindow`, `TestRenderPhysicalPlanWithRootPageKeysUsesSortedDocumentLookup`, `genericUnnestPlan` |
+| `unnest_test.go` | `TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop`, `TestRenderPhysicalPlanPreserveParentUnnestAndOrdinality`, `TestRenderPhysicalPlanErrorUnnestUsesAssertAtOwnerBoundary`, `TestRenderPhysicalPlanRejectsUnnestAfterRootWindow`, `TestRenderPhysicalPlanWithRootPageKeysUsesSortedDocumentLookup`, `genericUnnestPlan` |
 | `navigation_test.go` | `TestRootPageRelatedSetSegmentRejectsNonRootCapture`, `TestRootPageRelatedSetSegmentRejectsUnnestBarrier` |
 | `occurrence.go` | `stageOutputColumnID`, `indentLines`, `renderRelatedCodingIdentityGroupRowLineage`, `renderRelatedCodingGroupInputSubquery` |
 | `output.go` | `stageSequenceRendering`, `renderStages`, `renderFinal` |
@@ -198,6 +198,11 @@ found no moved or merged declaration differences after formatting. The Go build,
 - Delete the accessor files and every `core.` hop.
 - Rename only where two methods collide, and record each rename here.
 - Check: `go build ./...`, `make test-go`, snapshot identical.
+
+Phase 3 flattened all four sub-renderers. No method name collided, so the method
+rename list is empty. The Go build, comment lint, and Go suite passed. All 8,308
+render records matched. Three independent call-resolution briefs found no confirmed
+issues in navigation, lineage and trace, or table-shape calls.
 
 ### Phase 4: one entry point with a typed preview
 

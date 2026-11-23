@@ -24,7 +24,7 @@ func indentLines(lines []string, prefix string) []string {
 	return indented
 }
 
-func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
+func (r *physicalPlanRenderer) renderRelatedCodingIdentityGroupRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	terminal ir.PhysicalRowLineageReturn,
@@ -58,9 +58,9 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		return RenderedPhysicalPlan{}, fmt.Errorf("related Group lineage row identity bind %q is missing", terminal.RowIDBindKey)
 	}
 
-	input := r.core.navigation().newInternalVariable("row_lineage_related_input")
-	selected, selectedIdentity, selectedTuple := r.core.navigation().newInternalVariable("row_lineage_related_selected"),
-		r.core.navigation().newInternalVariable("row_lineage_related_identity"), "codingTuple"
+	input := r.newInternalVariable("row_lineage_related_input")
+	selected, selectedIdentity, selectedTuple := r.newInternalVariable("row_lineage_related_selected"),
+		r.newInternalVariable("row_lineage_related_identity"), "codingTuple"
 	keyVars := make([]string, len(group.Keys))
 	keyCollected := make([]string, len(group.Keys))
 	keyAliases := make([]string, len(group.Keys))
@@ -73,10 +73,10 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		if key.InputColumn == "" || key.OutputColumn == "" || key.Kind == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("related Group key %d is incomplete", index)
 		}
-		keyVars[index] = r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_related_group_key_%d", index))
-		keyCollected[index] = r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_related_collected_key_%d", index))
+		keyVars[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_related_group_key_%d", index))
+		keyCollected[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_related_collected_key_%d", index))
 		keyAliases[index] = fmt.Sprintf("key%d", index)
-		columnBind := r.core.newInternalBindKeyWithValue("row_lineage_related_group_input_column", key.InputColumn)
+		columnBind := r.newInternalBindKeyWithValue("row_lineage_related_group_input_column", key.InputColumn)
 		keyLines = append(keyLines, fmt.Sprintf("LET %s = %s[@%s]", keyVars[index], input, columnBind))
 		switch group.MissingKeyPolicy {
 		case ir.PhysicalStageGroupMissingKeyGroup:
@@ -91,13 +91,13 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 		}
-		typeBind := r.core.newInternalBindKeyWithValue("row_lineage_related_group_key_type", typeName)
+		typeBind := r.newInternalBindKeyWithValue("row_lineage_related_group_key_type", typeName)
 		keyLines = append(keyLines, fmt.Sprintf("FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", keyVars[index], keyVars[index], typeBind))
 		outputID := stageOutputColumnID(stage.OutputColumns, key.OutputColumn)
 		if outputID == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key output %q has no stable column ID", key.OutputColumn)
 		}
-		outputBind := r.core.newInternalBindKeyWithValue("row_lineage_related_group_identity_column", outputID)
+		outputBind := r.newInternalBindKeyWithValue("row_lineage_related_group_identity_column", outputID)
 		identityParts = append(identityParts, "[@"+outputBind+", "+keyCollected[index]+"]")
 		collectParts = append(collectParts, keyCollected[index]+" = "+keyVars[index])
 		sortKeys = append(sortKeys, keyCollected[index]+" ASC")
@@ -108,10 +108,10 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 	if codingOutputID == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY output %q has no stable column ID", coding.OutputColumn)
 	}
-	codingOutputBind := r.core.newInternalBindKeyWithValue("row_lineage_related_coding_identity_column", codingOutputID)
-	codingMembershipBind := r.core.newInternalBindKeyWithValue("row_lineage_related_coding_membership_column", coding.MembershipColumn)
-	codingMembership := r.core.navigation().newInternalVariable("row_lineage_related_coding_membership")
-	codingInputTuple := r.core.navigation().newInternalVariable("row_lineage_related_coding_input_tuple")
+	codingOutputBind := r.newInternalBindKeyWithValue("row_lineage_related_coding_identity_column", codingOutputID)
+	codingMembershipBind := r.newInternalBindKeyWithValue("row_lineage_related_coding_membership_column", coding.MembershipColumn)
+	codingMembership := r.newInternalVariable("row_lineage_related_coding_membership")
+	codingInputTuple := r.newInternalVariable("row_lineage_related_coding_input_tuple")
 	identityParts = append(identityParts, "[@"+codingOutputBind+", \"coding_identity\", "+selectedTuple+"]")
 	collectParts = append(collectParts, selectedTuple+" = "+codingInputTuple)
 	sortKeys = append(sortKeys, selectedTuple+" ASC")
@@ -121,7 +121,7 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		return RenderedPhysicalPlan{}, err
 	}
 	identityColumnBinds := strings.Join(identityParts, ", ")
-	collect := "COLLECT " + strings.Join(collectParts, ", ") + " AGGREGATE " + r.core.navigation().newInternalVariable("row_lineage_related_count") + " = SUM(1)"
+	collect := "COLLECT " + strings.Join(collectParts, ", ") + " AGGREGATE " + r.newInternalVariable("row_lineage_related_count") + " = SUM(1)"
 
 	selectedInput, err := r.renderRelatedCodingGroupInputSubquery(sourceQuery, stage, adapter, "selection")
 	if err != nil {
@@ -151,12 +151,12 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		")",
 	)
 
-	contributor := r.core.navigation().newInternalVariable("row_lineage_related_contributor")
-	contributorMembership := r.core.navigation().newInternalVariable("row_lineage_related_contributor_membership")
-	contributorTuple := r.core.navigation().newInternalVariable("row_lineage_related_contributor_tuple")
+	contributor := r.newInternalVariable("row_lineage_related_contributor")
+	contributorMembership := r.newInternalVariable("row_lineage_related_contributor_membership")
+	contributorTuple := r.newInternalVariable("row_lineage_related_contributor_tuple")
 	contributorFilters := make([]string, 0, len(group.Keys)*3+3)
 	for index, key := range group.Keys {
-		columnBind := r.core.newInternalBindKeyWithValue("row_lineage_related_contributor_column", key.InputColumn)
+		columnBind := r.newInternalBindKeyWithValue("row_lineage_related_contributor_column", key.InputColumn)
 		value := fmt.Sprintf("%s[@%s]", contributor, columnBind)
 		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
 			contributorFilters = append(contributorFilters, value+" != null")
@@ -167,21 +167,21 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 		}
-		typeBind := r.core.newInternalBindKeyWithValue("row_lineage_related_contributor_key_type", typeName)
+		typeBind := r.newInternalBindKeyWithValue("row_lineage_related_contributor_key_type", typeName)
 		contributorFilters = append(contributorFilters,
 			fmt.Sprintf("ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", value, value, typeBind),
 			value+" == "+selected+"."+keyAliases[index],
 		)
 	}
-	contributorMembershipBind := r.core.newInternalBindKeyWithValue("row_lineage_related_contributor_membership_column", coding.MembershipColumn)
+	contributorMembershipBind := r.newInternalBindKeyWithValue("row_lineage_related_contributor_membership_column", coding.MembershipColumn)
 	contributorMissingFilter, err := codingIdentityMissingCodeFilter(group.MissingKeyPolicy, contributorTuple)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	resourceIDBind := r.core.newInternalBindKeyWithValue("row_lineage_related_resource_id_column", terminal.ResourceIDColumn)
-	occurrenceBind := r.core.newInternalBindKeyWithValue("row_lineage_related_occurrence_key_column", terminal.OccurrenceKeyColumn)
-	resourceTypeBind := r.core.newInternalBindKeyWithValue("row_lineage_related_resource_type", terminal.ResourceType)
-	page := r.core.navigation().newInternalVariable("row_lineage_related_page")
+	resourceIDBind := r.newInternalBindKeyWithValue("row_lineage_related_resource_id_column", terminal.ResourceIDColumn)
+	occurrenceBind := r.newInternalBindKeyWithValue("row_lineage_related_occurrence_key_column", terminal.OccurrenceKeyColumn)
+	resourceTypeBind := r.newInternalBindKeyWithValue("row_lineage_related_resource_type", terminal.ResourceType)
+	page := r.newInternalVariable("row_lineage_related_page")
 	pageInput, err := r.renderRelatedCodingGroupInputSubquery(sourceQuery, stage, adapter, "contributors")
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
@@ -211,7 +211,7 @@ func (r rowLineageRenderer) renderRelatedCodingIdentityGroupRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r rowLineageRenderer) renderRelatedCodingGroupInputSubquery(
+func (r *physicalPlanRenderer) renderRelatedCodingGroupInputSubquery(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	adapter *ir.PhysicalStageGroupRelatedOccurrenceAdapter,
@@ -222,7 +222,7 @@ func (r rowLineageRenderer) renderRelatedCodingGroupInputSubquery(
 		return "", fmt.Errorf("related Group %s input has no typed parent-row variable", name)
 	}
 	lines := []string{"FOR " + parent + " IN (\n" + indentQuery(sourceQuery, "  ") + "\n)"}
-	prepared, merged, err := r.core.renderConstructionGroupRelatedOccurrenceInput(stage, parent, adapter, false)
+	prepared, merged, err := r.renderConstructionGroupRelatedOccurrenceInput(stage, parent, adapter, false)
 	if err != nil {
 		return "", fmt.Errorf("prepare related Group %s input: %w", name, err)
 	}

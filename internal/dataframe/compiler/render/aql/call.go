@@ -90,9 +90,9 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", fmt.Errorf("distinct_present_one target kind: %w", err)
 		}
 		typeBind := r.newInternalBindKeyWithValue("related_source_row_value_type", typeName)
-		frame := r.navigation().newInternalVariable("related_source_row_value_frame")
-		item := r.navigation().newInternalVariable("related_source_row_value_item")
-		values := r.navigation().newInternalVariable("related_source_row_value_values")
+		frame := r.newInternalVariable("related_source_row_value_frame")
+		item := r.newInternalVariable("related_source_row_value_item")
+		values := r.newInternalVariable("related_source_row_value_values")
 		return fmt.Sprintf(
 			`FIRST(FOR %s IN [true] LET %s = SORTED_UNIQUE((FOR %s IN FLATTEN(%s) FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, "CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH") RETURN %s)) FILTER ASSERT(LENGTH(%s) <= 1, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") RETURN (LENGTH(%s) == 0 ? null : FIRST(%s)))`,
 			frame, values, item, args[0], item, item, typeBind, item, values, values, values,

@@ -334,20 +334,20 @@ func (r *physicalPlanRenderer) renderCohortRootScan(root ir.PhysicalRootScan) ([
 	if source == nil {
 		return nil, fmt.Errorf("cohort root source is required")
 	}
-	revision := r.navigation().newInternalVariable("cohort_source_revision")
-	revisionGuard := r.navigation().newInternalVariable("cohort_source_revision_guard")
-	selection := r.navigation().newInternalVariable("cohort_source_selection")
-	selectionGuard := r.navigation().newInternalVariable("cohort_source_selection_guard")
-	selectionMember := r.navigation().newInternalVariable("cohort_source_selection_member")
-	selectionCandidate := r.navigation().newInternalVariable("cohort_source_selection_candidate")
-	memberships := r.navigation().newInternalVariable("cohort_source_membership")
-	membershipRow := r.navigation().newInternalVariable("cohort_source_membership_row")
-	membershipCandidate := r.navigation().newInternalVariable("cohort_source_membership_candidate")
-	membershipCheck := r.navigation().newInternalVariable("cohort_source_membership_check")
-	unassigned := r.navigation().newInternalVariable("cohort_source_unassigned")
-	policyGuard := r.navigation().newInternalVariable("cohort_source_policy_guard")
-	candidateIDs := r.navigation().newInternalVariable("cohort_source_candidate_ids")
-	candidateID := r.navigation().newInternalVariable("cohort_source_candidate_id")
+	revision := r.newInternalVariable("cohort_source_revision")
+	revisionGuard := r.newInternalVariable("cohort_source_revision_guard")
+	selection := r.newInternalVariable("cohort_source_selection")
+	selectionGuard := r.newInternalVariable("cohort_source_selection_guard")
+	selectionMember := r.newInternalVariable("cohort_source_selection_member")
+	selectionCandidate := r.newInternalVariable("cohort_source_selection_candidate")
+	memberships := r.newInternalVariable("cohort_source_membership")
+	membershipRow := r.newInternalVariable("cohort_source_membership_row")
+	membershipCandidate := r.newInternalVariable("cohort_source_membership_candidate")
+	membershipCheck := r.newInternalVariable("cohort_source_membership_check")
+	unassigned := r.newInternalVariable("cohort_source_unassigned")
+	policyGuard := r.newInternalVariable("cohort_source_policy_guard")
+	candidateIDs := r.newInternalVariable("cohort_source_candidate_ids")
+	candidateID := r.newInternalVariable("cohort_source_candidate_id")
 	lines := []string{
 		fmt.Sprintf("LET %s = DOCUMENT(@@%s, @%s)", revision, source.RevisionCollectionBindKey, source.RevisionIDBindKey),
 		fmt.Sprintf("FOR %s IN [ASSERT(%s != null AND %s.state == \"COMPLETE\" AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s, \"EXPLICIT_GROUP_REVISION_INVALID\")]", revisionGuard, revision, revision, revision, source.ProjectBindKey, revision, source.DatasetGenerationBindKey, revision, source.ResourceTypeBindKey),
@@ -383,7 +383,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 	}
 	rows := cohort.Rows
 	contributorInput := fmt.Sprintf("%s.%s", stage.InputRowVariable, cohort.ContributorInputColumn)
-	contributors := r.navigation().newInternalVariable("cohort_root_contributors")
+	contributors := r.newInternalVariable("cohort_root_contributors")
 	lines := []string{
 		fmt.Sprintf("  LET %s = UNIQUE(FLATTEN((FOR %s IN %s RETURN (IS_ARRAY(%s) ? %s : [%s])), 1))", contributors,
 			stage.InputRowVariable, inputRows, contributorInput, contributorInput, contributorInput),
@@ -407,13 +407,13 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		"    FILTER policy_guard",
 		fmt.Sprintf("  LET definitions = (FOR definition IN @@%s FILTER definition.revisionId == revision._key AND definition.project == @%s SORT definition.ordinal ASC, definition.groupId ASC RETURN definition)", rows.DefinitionsCollectionBindKey, rows.ProjectBindKey),
 	}
-	memberRecords := r.navigation().newInternalVariable("cohort_group_member_records")
-	memberRow := r.navigation().newInternalVariable("cohort_group_member_record")
-	source := r.navigation().newInternalVariable("cohort_group_source")
-	definition := r.navigation().newInternalVariable("cohort_group_definition")
-	groupRows := r.navigation().newInternalVariable("cohort_group_rows")
-	groupContributorKeys := r.navigation().newInternalVariable("cohort_group_contributor_keys")
-	unassignedContributorKeys := r.navigation().newInternalVariable("cohort_unassigned_contributors")
+	memberRecords := r.newInternalVariable("cohort_group_member_records")
+	memberRow := r.newInternalVariable("cohort_group_member_record")
+	source := r.newInternalVariable("cohort_group_source")
+	definition := r.newInternalVariable("cohort_group_definition")
+	groupRows := r.newInternalVariable("cohort_group_rows")
+	groupContributorKeys := r.newInternalVariable("cohort_group_contributor_keys")
+	unassignedContributorKeys := r.newInternalVariable("cohort_unassigned_contributors")
 	lines = append(lines,
 		fmt.Sprintf("  LET %s = (FOR %s IN definitions", groupRows, definition),
 		fmt.Sprintf("    LET %s = (FOR member IN all_memberships", memberRecords),
@@ -450,7 +450,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		lines = append(lines, "  RETURN "+stage.OutputRowVariable)
 		return lines, nil
 	}
-	valueRows := r.navigation().newInternalVariable("cohort_value_rows")
+	valueRows := r.newInternalVariable("cohort_value_rows")
 	projections := make([]string, 0, len(rows.MemberValues))
 	values := make([]ir.PhysicalStageRowValue, 0, len(rows.MemberValues))
 	outputs := make([]string, 0, len(rows.MemberValues)+1)
@@ -459,7 +459,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		if err != nil {
 			return nil, err
 		}
-		variable := r.navigation().newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
+		variable := r.newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
 		projections = append(projections, fmt.Sprintf("%q: %s", value.Output, expression))
 		outputs = append(outputs, fmt.Sprintf("%q: %s", value.Output, variable))
 		values = append(values, ir.PhysicalStageRowValue{InputColumn: value.Output, InputKind: value.Kind, InputMany: value.Expression.Cardinality == ir.PhysicalArrayCardinality, Output: value.Output, Policy: value.Policy, Variable: variable})
@@ -518,10 +518,10 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			return nil, fmt.Errorf("input projection: %w", err)
 		}
 		if input.SourceRowInScope {
-			inputRowVariable = r.navigation().newInternalVariable("construction_group_projected_input")
+			inputRowVariable = r.newInternalVariable("construction_group_projected_input")
 			lines = append(lines, fmt.Sprintf("  LET %s = %s", inputRowVariable, projected))
 		} else {
-			projectedRowsVariable = r.navigation().newInternalVariable("construction_group_input_rows")
+			projectedRowsVariable = r.newInternalVariable("construction_group_input_rows")
 			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s RETURN %s)", projectedRowsVariable, stage.InputRowVariable, input.RowsVariable, projected))
 			rowSource = projectedRowsVariable
 		}
@@ -561,7 +561,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			return nil, err
 		}
 		lines = append(lines, semanticLines...)
-		semanticMembershipVariable = r.navigation().newInternalVariable("construction_group_semantic_membership")
+		semanticMembershipVariable = r.newInternalVariable("construction_group_semantic_membership")
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", semanticMembershipVariable, membershipsVariable))
 	}
 	keys, err := r.renderConstructionGroupKeys(stage, inputRowVariable, semanticMembershipVariable, lines)
@@ -616,15 +616,15 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 		if err != nil {
 			return nil, "", fmt.Errorf("related Group base input projection: %w", err)
 		}
-		baseRow = r.navigation().newInternalVariable("construction_group_related_base_row")
+		baseRow = r.newInternalVariable("construction_group_related_base_row")
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", baseRow, projected))
 	}
 
 	related := adapter.RelatedRecords
 	targetField := "__loom_related_target"
 	indexField := "__loom_related_index"
-	routeResult := r.navigation().newInternalVariable("construction_group_related_route_result")
-	routeRow := r.navigation().newInternalVariable("construction_group_related_route_row")
+	routeResult := r.newInternalVariable("construction_group_related_route_result")
+	routeRow := r.newInternalVariable("construction_group_related_route_row")
 	relatedStage := ir.PhysicalConstructionStage{
 		ID:                stage.ID + "_related_input",
 		InputRowVariable:  parentRow,
@@ -635,15 +635,15 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 		},
 		RelatedExpand: &related,
 	}
-	routeLines, err := r.navigation().renderConstructionRelatedExpandStage(relatedStage, "")
+	routeLines, err := r.renderConstructionRelatedExpandStage(relatedStage, "")
 	if err != nil {
 		return nil, "", fmt.Errorf("render related Group route: %w", err)
 	}
 	lines = append(lines, fmt.Sprintf("  FOR %s IN (", routeResult))
 	lines = append(lines, appendIndented(nil, routeLines)...)
 	lines = append(lines, "  )")
-	targetVariable := r.navigation().newInternalVariable("construction_group_related_target")
-	indexVariable := r.navigation().newInternalVariable("construction_group_related_index")
+	targetVariable := r.newInternalVariable("construction_group_related_target")
+	indexVariable := r.newInternalVariable("construction_group_related_index")
 	lines = append(lines,
 		fmt.Sprintf("  LET %s = %s[@%s]", targetVariable, routeResult, r.newInternalBindKeyWithValue("construction_group_related_target_field", targetField)),
 		fmt.Sprintf("  LET %s = %s[@%s]", indexVariable, routeResult, r.newInternalBindKeyWithValue("construction_group_related_index_field", indexField)),
@@ -652,7 +652,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 
 	itemPresent := ""
 	ordinalVariable := ""
-	terminalVariable := r.navigation().newInternalVariable("construction_group_related_terminal_id")
+	terminalVariable := r.newInternalVariable("construction_group_related_terminal_id")
 	lines = append(lines, fmt.Sprintf("  LET %s = (%s ? %s.terminal_id : null)", terminalVariable, adapter.RouteHasItemVariable, targetVariable))
 	if adapter.CodingUnnest != nil {
 		coding := *adapter.CodingUnnest
@@ -674,14 +674,14 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 		}
 
 		coding.EmptyPolicy = ir.PhysicalUnnestPreserveParent
-		codingLines, unnestErr := r.navigation().renderUnnest(coding, "  ", 0, 0)
+		codingLines, unnestErr := r.renderUnnest(coding, "  ", 0, 0)
 		if unnestErr != nil {
 			return nil, "", fmt.Errorf("render related Group Coding expansion: %w", unnestErr)
 		}
 		lines = append(lines, codingLines...)
-		itemPresent = r.navigation().newInternalVariable("construction_group_related_coding_present")
+		itemPresent = r.newInternalVariable("construction_group_related_coding_present")
 		lines = append(lines, fmt.Sprintf("  LET %s = %s AND %s", itemPresent, adapter.RouteHasItemVariable, coding.HasItemVariable))
-		ordinalVariable = r.navigation().newInternalVariable("construction_group_related_coding_ordinal")
+		ordinalVariable = r.newInternalVariable("construction_group_related_coding_ordinal")
 		lines = append(lines, fmt.Sprintf("  LET %s = (%s ? %s : null)", ordinalVariable, itemPresent, coding.Ordinality))
 		switch adapter.CodingEmptyPolicy {
 		case ir.PhysicalUnnestPreserveParent:
@@ -751,7 +751,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 	if err != nil {
 		return nil, "", fmt.Errorf("render related Group occurrence projection: %w", err)
 	}
-	merged := r.navigation().newInternalVariable("construction_group_related_input")
+	merged := r.newInternalVariable("construction_group_related_input")
 	lines = append(lines, fmt.Sprintf("  LET %s = (%s == null ? null : MERGE(%s, %s))", merged, parentRow, baseRow, relatedProjection))
 	return lines, merged, nil
 }
@@ -785,12 +785,12 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
 	lines := make([]string, 0, len(semantic.PathSegments)+8)
 	if !input.SourceRowInScope {
 		identityColumn := r.newInternalBindKeyWithValue("construction_group_semantic_source_identity", semantic.SourceIdentityColumn)
-		root = r.navigation().newInternalVariable("construction_group_semantic_root")
+		root = r.newInternalVariable("construction_group_semantic_root")
 		lines = append(lines, fmt.Sprintf("  LET %s = DOCUMENT(@@%s, %s[@%s])", root, semantic.RootCollectionBindKey, inputRowVariable, identityColumn))
 	}
-	payload := r.navigation().newInternalVariable("construction_group_semantic_payload")
+	payload := r.newInternalVariable("construction_group_semantic_payload")
 	lines = append(lines, fmt.Sprintf("  LET %s = (%s == null ? {} : %s.payload)", payload, root, root))
-	rawCodings := r.navigation().newInternalVariable("construction_group_semantic_raw_codings")
+	rawCodings := r.newInternalVariable("construction_group_semantic_raw_codings")
 	rawLines := []string{fmt.Sprintf("  LET %s = (", rawCodings)}
 	pathExpression := payload
 	for index, segment := range semantic.PathSegments {
@@ -799,7 +799,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
 			pathExpression = attribute
 			continue
 		}
-		item := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_semantic_path_%d", index))
+		item := r.newInternalVariable(fmt.Sprintf("construction_group_semantic_path_%d", index))
 		rawLines = append(rawLines, fmt.Sprintf("    FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
 		pathExpression = item
 	}
@@ -821,10 +821,10 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembershipFromRaw(
 		return nil, "", fmt.Errorf("semantic group raw Coding projection is incomplete")
 	}
 	lines := make([]string, 0, 8)
-	matched := r.navigation().newInternalVariable("construction_group_semantic_matches")
+	matched := r.newInternalVariable("construction_group_semantic_matches")
 	codeSystemBind := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
 	codeVersionBind := r.newInternalBindKeyWithValue("construction_group_semantic_version", semantic.Version)
-	coding := r.navigation().newInternalVariable("construction_group_semantic_coding")
+	coding := r.newInternalVariable("construction_group_semantic_coding")
 	codingVersion := fmt.Sprintf("(TYPENAME(%s.version) == \"string\" AND TRIM(%s.version) != \"\" ? %s.version : null)", coding, coding, coding)
 	versionPredicate := fmt.Sprintf("%s == @%s", codingVersion, codeVersionBind)
 	if semantic.Version == "" {
@@ -834,10 +834,10 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembershipFromRaw(
 		fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER TYPENAME(%s) == \"object\" FILTER %s.system == @%s FILTER %s RETURN %s)",
 			matched, coding, rawCodings, coding, coding, codeSystemBind, versionPredicate, coding),
 	)
-	local := r.navigation().newInternalVariable("construction_group_semantic_row_memberships")
-	matchedCoding := r.navigation().newInternalVariable("construction_group_semantic_matched_coding")
-	code := r.navigation().newInternalVariable("construction_group_semantic_code")
-	display := r.navigation().newInternalVariable("construction_group_semantic_display")
+	local := r.newInternalVariable("construction_group_semantic_row_memberships")
+	matchedCoding := r.newInternalVariable("construction_group_semantic_matched_coding")
+	code := r.newInternalVariable("construction_group_semantic_code")
+	display := r.newInternalVariable("construction_group_semantic_display")
 	localCode := fmt.Sprintf("(TYPENAME(%s.code) == \"string\" AND TRIM(%s.code) != \"\" ? %s.code : null)", matchedCoding, matchedCoding, matchedCoding)
 	localDisplay := fmt.Sprintf("(TYPENAME(%s.display) == \"string\" AND TRIM(%s.display) != \"\" ? %s.display : null)", matchedCoding, matchedCoding, matchedCoding)
 	matchedVersion := "null"
@@ -864,7 +864,7 @@ func (r *physicalPlanRenderer) renderRootContributorSet(
 	}
 	columnBind := r.newInternalBindKey("root_contributor_column")
 	r.bindVars[columnBind] = inputColumn
-	rowVariable := r.navigation().newInternalVariable("root_contributor_row")
+	rowVariable := r.newInternalVariable("root_contributor_row")
 	value := fmt.Sprintf("%s.%s[@%s]", rowVariable, rowField, columnBind)
 	if !inputMany {
 		value = "[" + value + "]"
@@ -877,7 +877,7 @@ func (r *physicalPlanRenderer) renderRootContributorSet(
 
 func (r *physicalPlanRenderer) renderConstructionGroupAggregate(group *ir.PhysicalStageGroup, aggregate ir.PhysicalStageGroupAggregate, index int) (string, error) {
 	if aggregate.Operation == "COUNT_ROWS" {
-		member := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_count_rows_%d", index))
+		member := r.newInternalVariable(fmt.Sprintf("construction_group_count_rows_%d", index))
 		return fmt.Sprintf("LENGTH((FOR %s IN %s FILTER %s.present RETURN 1))", member, group.GroupRowsVariable, member), nil
 	}
 	columnBind := r.newInternalBindKey(fmt.Sprintf("construction_group_aggregate_column_%d", index))
@@ -888,9 +888,9 @@ func (r *physicalPlanRenderer) renderConstructionGroupAggregate(group *ir.Physic
 	}
 	typeBind := r.newInternalBindKey(fmt.Sprintf("construction_group_aggregate_type_%d", index))
 	r.bindVars[typeBind] = typeName
-	member := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_member_%d", index))
+	member := r.newInternalVariable(fmt.Sprintf("construction_group_member_%d", index))
 	value := fmt.Sprintf("%s.row[@%s]", member, columnBind)
-	valuesVariable := r.navigation().newInternalVariable(fmt.Sprintf("construction_group_values_%d", index))
+	valuesVariable := r.newInternalVariable(fmt.Sprintf("construction_group_values_%d", index))
 	values := fmt.Sprintf("(FOR %s IN %s FILTER %s.present FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_VALUE_TYPE_MISMATCH\") RETURN %s)",
 		member, group.GroupRowsVariable, member, value, value, typeBind, value)
 	if aggregate.Operation == "COUNT_NON_NULL" {
@@ -932,7 +932,7 @@ func (r *physicalPlanRenderer) renderSemanticGroupProjectionRawCodings(root stri
 			return fmt.Sprintf("(IS_ARRAY(%s) ? %s : [])", attribute, attribute), nil
 		}
 		seenRepeated = true
-		item := r.navigation().newInternalVariable(fmt.Sprintf("semantic_group_projection_path_%d", index+1))
+		item := r.newInternalVariable(fmt.Sprintf("semantic_group_projection_path_%d", index+1))
 		lines = append(lines, fmt.Sprintf("FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
 		pathExpression = item
 	}
@@ -955,12 +955,12 @@ func (r *physicalPlanRenderer) renderSemanticGroupProjectionAssessment(
 	if err != nil {
 		return nil, err
 	}
-	sample := r.navigation().newInternalVariable("semantic_group_projection_sample")
-	projection := r.navigation().newInternalVariable("semantic_group_projection_sample_value")
-	distinct := r.navigation().newInternalVariable("semantic_group_projection_distinct")
-	distinctProjection := r.navigation().newInternalVariable("semantic_group_projection_distinct_value")
-	serialized := r.navigation().newInternalVariable("semantic_group_projection_serialized_lengths")
-	serializedCharacters := r.navigation().newInternalVariable("semantic_group_projection_serialized_characters")
+	sample := r.newInternalVariable("semantic_group_projection_sample")
+	projection := r.newInternalVariable("semantic_group_projection_sample_value")
+	distinct := r.newInternalVariable("semantic_group_projection_distinct")
+	distinctProjection := r.newInternalVariable("semantic_group_projection_distinct_value")
+	serialized := r.newInternalVariable("semantic_group_projection_serialized_lengths")
+	serializedCharacters := r.newInternalVariable("semantic_group_projection_serialized_characters")
 	limitBind := r.newInternalBindKey("semantic_group_projection_sample_limit")
 	r.bindVars[limitBind] = semanticGroupProjectionSampleLimit
 	lines := []string{"LET " + sample + " = ("}
@@ -993,12 +993,12 @@ func (r *physicalPlanRenderer) renderSemanticGroupProjectionFactorization(
 	if err != nil {
 		return nil, err
 	}
-	raw := r.navigation().newInternalVariable("semantic_group_projection_raw")
-	projection := r.navigation().newInternalVariable("semantic_group_projection_distinct_raw")
-	weight := r.navigation().newInternalVariable("semantic_group_projection_weight")
-	membership := r.navigation().newInternalVariable("semantic_group_projection_membership")
-	count := r.navigation().newInternalVariable("semantic_group_projection_count_rows")
-	displayMin := r.navigation().newInternalVariable("semantic_group_projection_min_display")
+	raw := r.newInternalVariable("semantic_group_projection_raw")
+	projection := r.newInternalVariable("semantic_group_projection_distinct_raw")
+	weight := r.newInternalVariable("semantic_group_projection_weight")
+	membership := r.newInternalVariable("semantic_group_projection_membership")
+	count := r.newInternalVariable("semantic_group_projection_count_rows")
+	displayMin := r.newInternalVariable("semantic_group_projection_min_display")
 	lines := strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n")
 	lines = append(lines, "LET "+raw+" = "+rawProjection)
 	lines = append(lines, "COLLECT "+projection+" = "+raw+" WITH COUNT INTO "+weight)
@@ -1107,7 +1107,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupKeys(stage ir.PhysicalCons
 		collectKeys = append(collectKeys, fmt.Sprintf("%s = [%s.system, %s.version, %s.code]", semantic.TupleVariable, semanticMembershipVariable, semanticMembershipVariable, semanticMembershipVariable))
 		sortKeys = append(sortKeys, semantic.TupleVariable+" ASC")
 		semanticDisplayVariable = semanticMembershipVariable + ".display"
-		semanticDisplayAggregateVariable = r.navigation().newInternalVariable("construction_group_semantic_min_display")
+		semanticDisplayAggregateVariable = r.newInternalVariable("construction_group_semantic_min_display")
 		familyBinding := r.newInternalBindKeyWithValue("construction_group_semantic_binding", semantic.BindingID)
 		familyRule := r.newInternalBindKeyWithValue("construction_group_semantic_rule", semantic.RuleVersion)
 		familyID := r.newInternalBindKeyWithValue("construction_group_semantic_family", semantic.FamilyID)
@@ -1146,12 +1146,12 @@ func (r *physicalPlanRenderer) renderConstructionGroupKeys(stage ir.PhysicalCons
 		}
 		membershipBind := r.newInternalBindKey("construction_group_coding_membership_column")
 		r.bindVars[membershipBind] = coding.MembershipColumn
-		membership := r.navigation().newInternalVariable("construction_group_coding_membership")
+		membership := r.newInternalVariable("construction_group_coding_membership")
 		lines = append(lines, fmt.Sprintf("  LET %s = %s[@%s]", membership, inputRowVariable, membershipBind))
 		lines = append(lines, codingIdentityMembershipTypeAssertions(membership)...)
 		display := fmt.Sprintf("(TRIM(%s.display) != \"\" ? %s.display : null)", membership, membership)
-		codingDisplayVariable = r.navigation().newInternalVariable("construction_group_coding_display")
-		codingDisplayAggregateVariable = r.navigation().newInternalVariable("construction_group_coding_min_display")
+		codingDisplayVariable = r.newInternalVariable("construction_group_coding_display")
+		codingDisplayAggregateVariable = r.newInternalVariable("construction_group_coding_min_display")
 		lines = append(lines,
 			fmt.Sprintf("  LET %s = %s", coding.InputTupleVariable, codingIdentityTupleExpression(membership)),
 			fmt.Sprintf("  LET %s = %s", codingDisplayVariable, display),
