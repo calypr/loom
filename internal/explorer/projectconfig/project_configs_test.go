@@ -1,10 +1,11 @@
 package projectconfig
 
 import (
-	"github.com/calypr/loom/internal/explorer"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )

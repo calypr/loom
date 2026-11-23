@@ -4,18 +4,201 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 	"github.com/calypr/loom/internal/projectid"
 )
+
+func isExtensionOutputKey(key string) bool {
+	if !strings.HasPrefix(key, "ext-v1:") {
+		return false
+	}
+	digest := strings.TrimPrefix(key, "ext-v1:")
+	if len(digest) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(digest)
+	return err == nil && len(decoded) == 32
+}
+
+func disableExtensionOutput(parameters *authoringv2.ImportedExtensionParameters, key string) (bool, error) {
+	if parameters == nil || !isExtensionOutputKey(key) {
+		return false, fmt.Errorf("extension output key is invalid")
+	}
+	match := -1
+	for index, output := range parameters.Outputs {
+		if output.Key != key {
+			continue
+		}
+		if match >= 0 {
+			return false, fmt.Errorf("extension output key is ambiguous")
+		}
+		match = index
+	}
+	if match >= 0 {
+		if !parameters.Outputs[match].Enabled {
+			return false, fmt.Errorf("extension output is already disabled")
+		}
+		parameters.Outputs[match].Enabled = false
+	} else {
+		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedExtensionOutput{Key: key, Enabled: false})
+	}
+	return true, nil
+}
+
+func disableCatalogOutput(parameters *authoringv2.ImportedCatalogParameters, fieldPath string) (bool, error) {
+	match := -1
+	for index, output := range parameters.Outputs {
+		if output.FieldPath != fieldPath {
+			continue
+		}
+		if match >= 0 {
+			return false, fmt.Errorf("catalog output key is ambiguous")
+		}
+		match = index
+	}
+	if match >= 0 {
+		if !parameters.Outputs[match].Enabled {
+			return false, fmt.Errorf("catalog output is already disabled")
+		}
+		parameters.Outputs[match].Enabled = false
+	} else {
+		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedCatalogOutput{FieldPath: fieldPath, Enabled: false})
+	}
+	return true, nil
+}
+
+func disablePivotOutput(parameters *authoringv2.ImportedPivotParameters, key string) (bool, error) {
+	match := -1
+	for index, output := range parameters.Outputs {
+		if output.Key != key {
+			continue
+		}
+		if match >= 0 {
+			return false, fmt.Errorf("pivot output key is ambiguous")
+		}
+		match = index
+	}
+	if match >= 0 {
+		if !parameters.Outputs[match].Enabled {
+			return false, fmt.Errorf("pivot output is already disabled")
+		}
+		parameters.Outputs[match].Enabled = false
+	} else {
+		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedPivotOutput{Key: key, Enabled: false})
+	}
+	return true, nil
+}
+
+func bindPinnedFieldRemoval(
+	document authoringv2.Document,
+	original recipe.Output,
+	current importedRecipeResolution,
+	plan authoringv2.ImportedSourcePlan,
+	network *authoringv2.AuthoringNetwork,
+) error {
+	if network == nil {
+		return fmt.Errorf("authoring network is required")
+	}
+	var schema []facade.CompiledOutputColumn
+	if requiresPristineProjectionIdentity(original, document.ImportedSource) {
+		schema = current.pinnedSchemas[original.Name]
+	} else {
+		for _, output := range current.resolved.Compiled.Outputs {
+			if output.Name == original.Name {
+				schema = output.OutputSchema
+				break
+			}
+		}
+	}
+	if len(schema) == 0 {
+		return nil
+	}
+	fieldColumnIDs, err := pinnedFieldBindingIDs(original, schema)
+	fieldSlotsExact := err == nil && recipeimport.VerifyPinnedFieldBindings(plan.FieldBindings, fieldColumnIDs) == nil
+	steps := map[string]authoringv2.ImportedSourceStep{}
+	for _, step := range plan.Steps {
+		steps[step.ID] = step
+	}
+	bindings := map[string]authoringv2.NetworkColumnBinding{}
+	bindingCount := map[string]int{}
+	for _, binding := range network.Bindings {
+		bindingCount[binding.ColumnID]++
+		if bindingCount[binding.ColumnID] == 1 {
+			bindings[binding.ColumnID] = binding
+		}
+	}
+	for index := range network.ProjectedFields {
+		field := &network.ProjectedFields[index]
+		if field.Owner != authoringv2.ProjectedFieldOwnerPinned || field.ColumnID == "" {
+			continue
+		}
+		binding, ok := bindings[field.ColumnID]
+		if !ok || bindingCount[field.ColumnID] != 1 || binding.Status != "EXACT" || binding.SourceStepID == "" {
+			continue
+		}
+		field.SourceStepID = binding.SourceStepID
+		if binding.OccurrenceID != "" {
+			field.OccurrenceID = binding.OccurrenceID
+		}
+		step, ok := steps[binding.SourceStepID]
+		if !ok || !step.Editable || step.Parameters == nil {
+			continue
+		}
+		if binding.OutputKey != "" && supportsPinnedOutputRemoval(step, binding.OutputKey) {
+			field.SourceOutputKey = binding.OutputKey
+			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinnedOutput
+			field.Status = authoringv2.ProjectedFieldStatusExact
+			continue
+		}
+		if step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters.FieldGroup == nil || !fieldSlotsExact {
+			continue
+		}
+		matched := ""
+		ambiguous := false
+		for _, sourceField := range step.Parameters.FieldGroup.Fields {
+			if !sourceField.Enabled || fieldColumnIDs[sourceField.FieldID] != field.ColumnID {
+				continue
+			}
+			if matched != "" {
+				ambiguous = true
+				break
+			}
+			matched = sourceField.FieldID
+		}
+		if !ambiguous && matched != "" {
+			field.SourceFieldID = matched
+			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinned
+			field.Status = authoringv2.ProjectedFieldStatusExact
+		}
+	}
+	return nil
+}
+
+func supportsPinnedOutputRemoval(step authoringv2.ImportedSourceStep, outputKey string) bool {
+	if outputKey == "" || step.Parameters == nil {
+		return false
+	}
+	switch step.Kind {
+	case recipeimport.SourcePlanCatalogProjection:
+		return step.Parameters.Catalog != nil
+	case recipeimport.SourcePlanPivot:
+		return step.Parameters.Pivot != nil
+	case recipeimport.SourcePlanDynamicColumn:
+		return step.Parameters.Dynamic != nil
+	case recipeimport.SourcePlanExtensionColumn:
+		return step.Parameters.Extension != nil && isExtensionOutputKey(outputKey)
+	default:
+		return false
+	}
+}
 
 func (r Sources) Network(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
@@ -197,87 +380,6 @@ func (r Sources) RemoveOutput(
 	return authoringv2.Document{}, fmt.Errorf("pinned output source step was not found")
 }
 
-func isExtensionOutputKey(key string) bool {
-	if !strings.HasPrefix(key, "ext-v1:") {
-		return false
-	}
-	digest := strings.TrimPrefix(key, "ext-v1:")
-	if len(digest) != 64 {
-		return false
-	}
-	decoded, err := hex.DecodeString(digest)
-	return err == nil && len(decoded) == 32
-}
-
-func disableExtensionOutput(parameters *authoringv2.ImportedExtensionParameters, key string) (bool, error) {
-	if parameters == nil || !isExtensionOutputKey(key) {
-		return false, fmt.Errorf("extension output key is invalid")
-	}
-	match := -1
-	for index, output := range parameters.Outputs {
-		if output.Key != key {
-			continue
-		}
-		if match >= 0 {
-			return false, fmt.Errorf("extension output key is ambiguous")
-		}
-		match = index
-	}
-	if match >= 0 {
-		if !parameters.Outputs[match].Enabled {
-			return false, fmt.Errorf("extension output is already disabled")
-		}
-		parameters.Outputs[match].Enabled = false
-	} else {
-		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedExtensionOutput{Key: key, Enabled: false})
-	}
-	return true, nil
-}
-
-func disableCatalogOutput(parameters *authoringv2.ImportedCatalogParameters, fieldPath string) (bool, error) {
-	match := -1
-	for index, output := range parameters.Outputs {
-		if output.FieldPath != fieldPath {
-			continue
-		}
-		if match >= 0 {
-			return false, fmt.Errorf("catalog output key is ambiguous")
-		}
-		match = index
-	}
-	if match >= 0 {
-		if !parameters.Outputs[match].Enabled {
-			return false, fmt.Errorf("catalog output is already disabled")
-		}
-		parameters.Outputs[match].Enabled = false
-	} else {
-		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedCatalogOutput{FieldPath: fieldPath, Enabled: false})
-	}
-	return true, nil
-}
-
-func disablePivotOutput(parameters *authoringv2.ImportedPivotParameters, key string) (bool, error) {
-	match := -1
-	for index, output := range parameters.Outputs {
-		if output.Key != key {
-			continue
-		}
-		if match >= 0 {
-			return false, fmt.Errorf("pivot output key is ambiguous")
-		}
-		match = index
-	}
-	if match >= 0 {
-		if !parameters.Outputs[match].Enabled {
-			return false, fmt.Errorf("pivot output is already disabled")
-		}
-		parameters.Outputs[match].Enabled = false
-	} else {
-		parameters.Outputs = append(parameters.Outputs, authoringv2.ImportedPivotOutput{Key: key, Enabled: false})
-	}
-	return true, nil
-}
-
 func (r Sources) RemoveField(
 	ctx context.Context,
 	project string,
@@ -370,107 +472,4 @@ func (r Sources) RemoveField(
 		return authoringv2.Document{}, fmt.Errorf("pinned field source step was not found")
 	}
 	return r.Edit(ctx, project, authorized, document, &updated)
-}
-
-func bindPinnedFieldRemoval(
-	document authoringv2.Document,
-	original recipe.Output,
-	current importedRecipeResolution,
-	plan authoringv2.ImportedSourcePlan,
-	network *authoringv2.AuthoringNetwork,
-) error {
-	if network == nil {
-		return fmt.Errorf("authoring network is required")
-	}
-	var schema []facade.CompiledOutputColumn
-	if requiresPristineProjectionIdentity(original, document.ImportedSource) {
-		schema = current.pinnedSchemas[original.Name]
-	} else {
-		for _, output := range current.resolved.Compiled.Outputs {
-			if output.Name == original.Name {
-				schema = output.OutputSchema
-				break
-			}
-		}
-	}
-	if len(schema) == 0 {
-		return nil
-	}
-	fieldColumnIDs, err := pinnedFieldBindingIDs(original, schema)
-	fieldSlotsExact := err == nil && recipeimport.VerifyPinnedFieldBindings(plan.FieldBindings, fieldColumnIDs) == nil
-	steps := map[string]authoringv2.ImportedSourceStep{}
-	for _, step := range plan.Steps {
-		steps[step.ID] = step
-	}
-	bindings := map[string]authoringv2.NetworkColumnBinding{}
-	bindingCount := map[string]int{}
-	for _, binding := range network.Bindings {
-		bindingCount[binding.ColumnID]++
-		if bindingCount[binding.ColumnID] == 1 {
-			bindings[binding.ColumnID] = binding
-		}
-	}
-	for index := range network.ProjectedFields {
-		field := &network.ProjectedFields[index]
-		if field.Owner != authoringv2.ProjectedFieldOwnerPinned || field.ColumnID == "" {
-			continue
-		}
-		binding, ok := bindings[field.ColumnID]
-		if !ok || bindingCount[field.ColumnID] != 1 || binding.Status != "EXACT" || binding.SourceStepID == "" {
-			continue
-		}
-		field.SourceStepID = binding.SourceStepID
-		if binding.OccurrenceID != "" {
-			field.OccurrenceID = binding.OccurrenceID
-		}
-		step, ok := steps[binding.SourceStepID]
-		if !ok || !step.Editable || step.Parameters == nil {
-			continue
-		}
-		if binding.OutputKey != "" && supportsPinnedOutputRemoval(step, binding.OutputKey) {
-			field.SourceOutputKey = binding.OutputKey
-			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinnedOutput
-			field.Status = authoringv2.ProjectedFieldStatusExact
-			continue
-		}
-		if step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters.FieldGroup == nil || !fieldSlotsExact {
-			continue
-		}
-		matched := ""
-		ambiguous := false
-		for _, sourceField := range step.Parameters.FieldGroup.Fields {
-			if !sourceField.Enabled || fieldColumnIDs[sourceField.FieldID] != field.ColumnID {
-				continue
-			}
-			if matched != "" {
-				ambiguous = true
-				break
-			}
-			matched = sourceField.FieldID
-		}
-		if !ambiguous && matched != "" {
-			field.SourceFieldID = matched
-			field.Removal = authoringv2.ProjectedFieldRemovalDisablePinned
-			field.Status = authoringv2.ProjectedFieldStatusExact
-		}
-	}
-	return nil
-}
-
-func supportsPinnedOutputRemoval(step authoringv2.ImportedSourceStep, outputKey string) bool {
-	if outputKey == "" || step.Parameters == nil {
-		return false
-	}
-	switch step.Kind {
-	case recipeimport.SourcePlanCatalogProjection:
-		return step.Parameters.Catalog != nil
-	case recipeimport.SourcePlanPivot:
-		return step.Parameters.Pivot != nil
-	case recipeimport.SourcePlanDynamicColumn:
-		return step.Parameters.Dynamic != nil
-	case recipeimport.SourcePlanExtensionColumn:
-		return step.Parameters.Extension != nil && isExtensionOutputKey(outputKey)
-	default:
-		return false
-	}
 }

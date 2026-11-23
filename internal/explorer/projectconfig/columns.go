@@ -3,8 +3,9 @@ package projectconfig
 import (
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"

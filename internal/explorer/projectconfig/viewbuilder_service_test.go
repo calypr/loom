@@ -3,11 +3,12 @@ package projectconfig
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/authscope"
 

@@ -3,8 +3,9 @@ package proposal
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func TestSourceProposalWireAcceptsExactlyOneClosedIntent(t *testing.T) {

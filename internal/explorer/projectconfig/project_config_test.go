@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	"github.com/calypr/loom/internal/explorer"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	"github.com/calypr/loom/internal/explorer"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/authscope"
 

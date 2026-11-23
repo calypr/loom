@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
-	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"

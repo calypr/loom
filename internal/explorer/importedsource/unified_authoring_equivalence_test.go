@@ -3,13 +3,14 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
-	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"

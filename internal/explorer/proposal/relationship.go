@@ -30,6 +30,7 @@ type SourceRelationshipProposalRequest struct {
 	IncludePreview       bool                                   `json:"includePreview,omitempty"`
 	PreviewSinkFactory   PreviewSinkFactory                     `json:"-"`
 }
+
 type SourceRelationshipProposal struct {
 	NativePreview            *PreviewResult               `json:"-"`
 	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`

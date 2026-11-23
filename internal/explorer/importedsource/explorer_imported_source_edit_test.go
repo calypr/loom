@@ -3,12 +3,13 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 
 	"github.com/calypr/loom/internal/authscope"
 

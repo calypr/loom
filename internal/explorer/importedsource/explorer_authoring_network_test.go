@@ -3,13 +3,14 @@ package importedsource
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
-	"reflect"
-	"strings"
-	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
 

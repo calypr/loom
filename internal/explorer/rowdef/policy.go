@@ -15,6 +15,62 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
+func rowValuePolicyValidationFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	if userErr, ok := dataframeerrors.AsUserError(err); ok {
+		message := dataframeerrors.PublicMessage(err)
+		if userErr.Code() == string(dataframeerrors.CodeConstructionRowValueMultipleValues) {
+			message = "This cohort has multiple distinct values for this field. Keep All unique values."
+		}
+		if userErr.Retryable() {
+			return support.Unavailable("commands", userErr.Code(), message, err)
+		}
+		return support.Unprocessable("commands", userErr.Code(), message, err)
+	}
+	return support.Unprocessable("commands", "ROW_VALUE_POLICY_VALIDATION_FAILED", "The selected row-value policy could not be validated across all grouped records.", err)
+}
+
+func validateRowValuePolicyReceiptSnapshot(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {
+	if receipt == nil {
+		return fmt.Errorf("compilation receipt is required")
+	}
+	identity := snapshot.Identity
+	if receipt.SnapshotToken != snapshot.Token {
+		return fmt.Errorf("receipt snapshot token changed")
+	}
+	if projectid.Canonical(receipt.Project) != projectid.Canonical(identity.Project) {
+		return fmt.Errorf("receipt project changed")
+	}
+	if receipt.SourceGeneration != identity.Generation {
+		return fmt.Errorf("receipt source generation changed")
+	}
+	if receipt.CapabilitySchemaDigest != identity.SchemaDigest {
+		return fmt.Errorf("receipt capability schema changed")
+	}
+	if receipt.AuthorizationScopeDigest != identity.AuthorizationScopeDigest {
+		return fmt.Errorf("receipt authorization scope changed")
+	}
+	if receipt.ShapeDigest != identity.ShapeDigest {
+		return fmt.Errorf("receipt capability shape changed")
+	}
+	return nil
+}
+
+func validateSameAuthorizedReceiptSnapshot(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
+	if receipt == nil {
+		return fmt.Errorf("compilation receipt is required")
+	}
+	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+		return err
+	}
+	if authorized.Snapshot.Identity.ShapeDigest != receipt.ShapeDigest {
+		return fmt.Errorf("receipt capability shape changed")
+	}
+	return nil
+}
+
 func (s *Service) ValidateRowValuePolicyCandidate(
 	ctx context.Context,
 	project, explorerID string,
@@ -76,62 +132,6 @@ func (s *Service) ValidateRowValuePolicyCandidate(
 	support.ApplyAuthorizedScope(&bindings, executionAuth, false)
 	if err := s.config.ValidateReceiptStream(ctx, receipt, bindings); err != nil {
 		return rowValuePolicyValidationFailure(err)
-	}
-	return nil
-}
-
-func rowValuePolicyValidationFailure(err error) error {
-	if err == nil {
-		return nil
-	}
-	if userErr, ok := dataframeerrors.AsUserError(err); ok {
-		message := dataframeerrors.PublicMessage(err)
-		if userErr.Code() == string(dataframeerrors.CodeConstructionRowValueMultipleValues) {
-			message = "This cohort has multiple distinct values for this field. Keep All unique values."
-		}
-		if userErr.Retryable() {
-			return support.Unavailable("commands", userErr.Code(), message, err)
-		}
-		return support.Unprocessable("commands", userErr.Code(), message, err)
-	}
-	return support.Unprocessable("commands", "ROW_VALUE_POLICY_VALIDATION_FAILED", "The selected row-value policy could not be validated across all grouped records.", err)
-}
-
-func validateRowValuePolicyReceiptSnapshot(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {
-	if receipt == nil {
-		return fmt.Errorf("compilation receipt is required")
-	}
-	identity := snapshot.Identity
-	if receipt.SnapshotToken != snapshot.Token {
-		return fmt.Errorf("receipt snapshot token changed")
-	}
-	if projectid.Canonical(receipt.Project) != projectid.Canonical(identity.Project) {
-		return fmt.Errorf("receipt project changed")
-	}
-	if receipt.SourceGeneration != identity.Generation {
-		return fmt.Errorf("receipt source generation changed")
-	}
-	if receipt.CapabilitySchemaDigest != identity.SchemaDigest {
-		return fmt.Errorf("receipt capability schema changed")
-	}
-	if receipt.AuthorizationScopeDigest != identity.AuthorizationScopeDigest {
-		return fmt.Errorf("receipt authorization scope changed")
-	}
-	if receipt.ShapeDigest != identity.ShapeDigest {
-		return fmt.Errorf("receipt capability shape changed")
-	}
-	return nil
-}
-
-func validateSameAuthorizedReceiptSnapshot(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
-	if receipt == nil {
-		return fmt.Errorf("compilation receipt is required")
-	}
-	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-		return err
-	}
-	if authorized.Snapshot.Identity.ShapeDigest != receipt.ShapeDigest {
-		return fmt.Errorf("receipt capability shape changed")
 	}
 	return nil
 }

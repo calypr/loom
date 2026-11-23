@@ -12,6 +12,13 @@ type MutationAccess struct {
 	StorageError   func(error) error
 }
 
+func (a MutationAccess) storageError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return a.StorageError(err)
+}
+
 func (v *Service) SaveConfig(ctx context.Context, project, id, actor string, read func() (explorer.ViewBuilderSaveRequest, error), access MutationAccess) (explorer.ViewBuilderState, error) {
 	return v.mutate(ctx, project, access, func() error {
 		request, err := read()
@@ -80,11 +87,4 @@ func (v *Service) checkedState(ctx context.Context, project string, access Mutat
 		return state, access.storageError(err)
 	}
 	return access.CheckState(ctx, state)
-}
-
-func (a MutationAccess) storageError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return a.StorageError(err)
 }

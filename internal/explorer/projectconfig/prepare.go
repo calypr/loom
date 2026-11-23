@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"

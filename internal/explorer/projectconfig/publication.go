@@ -2,6 +2,7 @@ package projectconfig
 
 import (
 	"fmt"
+
 	"github.com/calypr/loom/internal/explorer"
 )
 

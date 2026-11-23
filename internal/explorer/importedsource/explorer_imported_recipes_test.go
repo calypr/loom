@@ -2,8 +2,9 @@ package importedsource
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"

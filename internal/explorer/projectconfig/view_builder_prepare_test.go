@@ -3,12 +3,13 @@ package projectconfig
 import (
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	"github.com/calypr/loom/internal/explorer"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	"github.com/calypr/loom/internal/explorer"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
