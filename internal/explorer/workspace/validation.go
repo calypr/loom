@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"math"
 	"reflect"
 	"strings"
 
@@ -1466,16 +1465,17 @@ func validateConstructionDerive(step ConstructionStep, input map[string]StageCol
 	if _, exists := input[derive.OutputColumnID]; exists {
 		return fmt.Errorf("derive outputColumnId %q already exists", derive.OutputColumnID)
 	}
-	if !oneOf(string(derive.Operation), "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE") {
+	operation := recipe.DerivedOperation(derive.Operation)
+	if !operation.Valid() {
 		return fmt.Errorf("unsupported derived operation %q", derive.Operation)
 	}
-	if !oneOf(string(derive.MissingInputPolicy), "PROPAGATE_NULL", "ERROR") {
+	if !recipe.MissingInputPolicy(derive.MissingInputPolicy).Valid() {
 		return fmt.Errorf("missingInputPolicy must be PROPAGATE_NULL or ERROR")
 	}
-	if derive.Operation == ConstructionDerivedDivide && !oneOf(string(derive.DivisionByZeroPolicy), "NULL", "ERROR") {
-		return fmt.Errorf("DIVIDE requires divisionByZeroPolicy")
-	}
-	if derive.Operation != ConstructionDerivedDivide && derive.DivisionByZeroPolicy != "" {
+	if !operation.AcceptsDivisionByZeroPolicy(recipe.DivisionByZeroPolicy(derive.DivisionByZeroPolicy)) {
+		if operation == recipe.DerivedDivide {
+			return fmt.Errorf("DIVIDE requires divisionByZeroPolicy")
+		}
 		return fmt.Errorf("divisionByZeroPolicy is only valid for DIVIDE")
 	}
 	if err := validateConstructionOperand(derive.Left, input); err != nil {
@@ -1492,14 +1492,14 @@ func validateConstructionDerive(step ConstructionStep, input map[string]StageCol
 func validateConstructionOperand(operand ConstructionOperand, input map[string]StageColumn) error {
 	switch operand.Kind {
 	case ConstructionColumnOperand:
-		if !requiredID(operand.ColumnID) || operand.Literal != nil {
+		if !requiredID(operand.ColumnID) || !recipe.DerivedOperandKind(operand.Kind).ValidPayload(operand.ColumnID, operand.Literal != nil) {
 			return fmt.Errorf("COLUMN operand must contain only columnId")
 		}
 		if _, exists := input[operand.ColumnID]; !exists {
 			return missingConstructionColumn("columnId", operand.ColumnID)
 		}
 	case ConstructionLiteralOperand:
-		if operand.ColumnID != "" || operand.Literal == nil {
+		if !recipe.DerivedOperandKind(operand.Kind).ValidPayload(operand.ColumnID, operand.Literal != nil) {
 			return fmt.Errorf("LITERAL operand must contain only literal")
 		}
 		if err := validateConstructionLiteral(*operand.Literal); err != nil {
@@ -1512,23 +1512,19 @@ func validateConstructionOperand(operand ConstructionOperand, input map[string]S
 }
 
 func validateConstructionLiteral(literal ConstructionLiteral) error {
-	payloads := 0
-	if literal.Integer != nil {
-		payloads++
-	}
-	if literal.Decimal != nil {
-		payloads++
+	value := recipe.DerivedLiteral{
+		Kind: recipe.NumericKind(literal.Kind), Integer: literal.Integer, Decimal: literal.Decimal,
 	}
 	switch literal.Kind {
 	case ConstructionNumericInteger:
-		if payloads != 1 || literal.Integer == nil || literal.Decimal != nil {
+		if !value.ValidPayload() {
 			return fmt.Errorf("INTEGER literal must contain exactly one integer")
 		}
 	case ConstructionNumericDecimal:
-		if payloads != 1 || literal.Decimal == nil || literal.Integer != nil {
+		if !value.ValidPayload() {
 			return fmt.Errorf("DECIMAL literal must contain exactly one decimal")
 		}
-		if math.IsNaN(*literal.Decimal) || math.IsInf(*literal.Decimal, 0) {
+		if !value.Valid() {
 			return fmt.Errorf("DECIMAL literal must be finite")
 		}
 	default:

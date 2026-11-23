@@ -2,7 +2,6 @@ package recipe
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -349,11 +348,11 @@ func validateConstructionFilter(filter ConstructionFilter, path string) error {
 func validateConstructionOperand(operand ConstructionOperand, columns map[string]StageColumn, path string) error {
 	switch operand.Kind {
 	case DerivedColumnOperand:
-		if operand.ColumnID == "" || operand.Literal != nil || columns[operand.ColumnID].ID == "" {
+		if !operand.Kind.ValidPayload(operand.ColumnID, operand.Literal != nil) || columns[operand.ColumnID].ID == "" {
 			return fmt.Errorf("%s COLUMN requires a known columnId only", path)
 		}
 	case DerivedLiteralOperand:
-		if operand.ColumnID != "" || operand.Literal == nil {
+		if !operand.Kind.ValidPayload(operand.ColumnID, operand.Literal != nil) {
 			return fmt.Errorf("%s LITERAL requires a literal only", path)
 		}
 		if err := validateDerivedLiteral(*operand.Literal, path+".literal"); err != nil {
@@ -368,11 +367,11 @@ func validateConstructionOperand(operand ConstructionOperand, columns map[string
 func validateDerivedLiteral(literal DerivedLiteral, path string) error {
 	switch literal.Kind {
 	case NumericInteger:
-		if literal.Integer == nil || literal.Decimal != nil {
+		if !literal.Valid() {
 			return fmt.Errorf("%s INTEGER requires only an integer value", path)
 		}
 	case NumericDecimal:
-		if literal.Decimal == nil || literal.Integer != nil || math.IsNaN(*literal.Decimal) || math.IsInf(*literal.Decimal, 0) {
+		if !literal.Valid() {
 			return fmt.Errorf("%s DECIMAL requires one finite decimal value", path)
 		}
 	default:
@@ -384,17 +383,17 @@ func validateDerivedLiteral(literal DerivedLiteral, path string) error {
 func validateConstructionDerivedPolicies(derive ConstructionDerive, path string) error {
 	switch derive.Operation {
 	case DerivedAdd, DerivedSubtract, DerivedMultiply:
-		if derive.DivisionByZeroPolicy != "" {
+		if !derive.Operation.AcceptsDivisionByZeroPolicy(derive.DivisionByZeroPolicy) {
 			return fmt.Errorf("%s divisionByZeroPolicy is only valid for DIVIDE", path)
 		}
 	case DerivedDivide:
-		if derive.DivisionByZeroPolicy != DivisionByZeroNull && derive.DivisionByZeroPolicy != DivisionByZeroError {
+		if !derive.Operation.AcceptsDivisionByZeroPolicy(derive.DivisionByZeroPolicy) {
 			return fmt.Errorf("%s DIVIDE requires NULL or ERROR divisionByZeroPolicy", path)
 		}
 	default:
 		return fmt.Errorf("%s operation must be ADD, SUBTRACT, MULTIPLY, or DIVIDE", path)
 	}
-	if derive.MissingInputPolicy != MissingInputPropagateNull && derive.MissingInputPolicy != MissingInputError {
+	if !derive.MissingInputPolicy.Valid() {
 		return fmt.Errorf("%s missingInputPolicy must be PROPAGATE_NULL or ERROR", path)
 	}
 	return nil

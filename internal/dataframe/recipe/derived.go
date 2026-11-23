@@ -66,6 +66,53 @@ const (
 	NumericDecimal NumericKind = "DECIMAL"
 )
 
+func (operation DerivedOperation) Valid() bool {
+	switch operation {
+	case DerivedAdd, DerivedSubtract, DerivedMultiply, DerivedDivide:
+		return true
+	default:
+		return false
+	}
+}
+
+func (operation DerivedOperation) AcceptsDivisionByZeroPolicy(policy DivisionByZeroPolicy) bool {
+	if operation == DerivedDivide {
+		return policy == DivisionByZeroNull || policy == DivisionByZeroError
+	}
+	return operation.Valid() && policy == ""
+}
+
+func (policy MissingInputPolicy) Valid() bool {
+	return policy == MissingInputPropagateNull || policy == MissingInputError
+}
+
+func (kind DerivedOperandKind) ValidPayload(column string, hasLiteral bool) bool {
+	switch kind {
+	case DerivedColumnOperand:
+		return column != "" && !hasLiteral
+	case DerivedLiteralOperand:
+		return column == "" && hasLiteral
+	default:
+		return false
+	}
+}
+
+func (literal DerivedLiteral) ValidPayload() bool {
+	switch literal.Kind {
+	case NumericInteger:
+		return literal.Integer != nil && literal.Decimal == nil
+	case NumericDecimal:
+		return literal.Decimal != nil && literal.Integer == nil
+	default:
+		return false
+	}
+}
+
+func (literal DerivedLiteral) Valid() bool {
+	return literal.ValidPayload() && (literal.Kind != NumericDecimal ||
+		(!math.IsNaN(*literal.Decimal) && !math.IsInf(*literal.Decimal, 0)))
+}
+
 const maxDerivedColumns = 64
 
 func validateDerivedColumns(columns []DerivedColumn, path string) error {
@@ -95,17 +142,17 @@ func validateDerivedColumns(columns []DerivedColumn, path string) error {
 		}
 		switch column.Operation {
 		case DerivedAdd, DerivedSubtract, DerivedMultiply:
-			if column.DivisionByZeroPolicy != "" {
+			if !column.Operation.AcceptsDivisionByZeroPolicy(column.DivisionByZeroPolicy) {
 				return validationError("invalid_division_by_zero_policy", columnPath+".divisionByZeroPolicy", "is only valid for DIVIDE")
 			}
 		case DerivedDivide:
-			if column.DivisionByZeroPolicy != DivisionByZeroNull && column.DivisionByZeroPolicy != DivisionByZeroError {
+			if !column.Operation.AcceptsDivisionByZeroPolicy(column.DivisionByZeroPolicy) {
 				return validationError("invalid_division_by_zero_policy", columnPath+".divisionByZeroPolicy", "DIVIDE requires NULL or ERROR")
 			}
 		default:
 			return validationError("invalid_derived_operation", columnPath+".operation", "must be ADD, SUBTRACT, MULTIPLY, or DIVIDE")
 		}
-		if column.MissingInputPolicy != MissingInputPropagateNull && column.MissingInputPolicy != MissingInputError {
+		if !column.MissingInputPolicy.Valid() {
 			return validationError("invalid_missing_input_policy", columnPath+".missingInputPolicy", "must be PROPAGATE_NULL or ERROR")
 		}
 		if err := validateDerivedOperand(column.Left, columnPath+".left"); err != nil {
@@ -121,23 +168,23 @@ func validateDerivedColumns(columns []DerivedColumn, path string) error {
 func validateDerivedOperand(operand DerivedOperand, path string) error {
 	switch operand.Kind {
 	case DerivedColumnOperand:
-		if strings.TrimSpace(operand.Column) == "" || operand.Literal != nil {
+		if !operand.Kind.ValidPayload(strings.TrimSpace(operand.Column), operand.Literal != nil) {
 			return validationError("invalid_derived_operand", path, "COLUMN requires only a column name")
 		}
 		if err := validateRecipeName(operand.Column, path+".column"); err != nil {
 			return err
 		}
 	case DerivedLiteralOperand:
-		if operand.Column != "" || operand.Literal == nil {
+		if !operand.Kind.ValidPayload(operand.Column, operand.Literal != nil) {
 			return validationError("invalid_derived_operand", path, "LITERAL requires only a literal payload")
 		}
 		switch operand.Literal.Kind {
 		case NumericInteger:
-			if operand.Literal.Integer == nil || operand.Literal.Decimal != nil {
+			if !operand.Literal.Valid() {
 				return validationError("invalid_derived_literal", path+".literal", "INTEGER requires only an integer payload")
 			}
 		case NumericDecimal:
-			if operand.Literal.Decimal == nil || operand.Literal.Integer != nil || math.IsNaN(*operand.Literal.Decimal) || math.IsInf(*operand.Literal.Decimal, 0) {
+			if !operand.Literal.Valid() {
 				return validationError("invalid_derived_literal", path+".literal", "DECIMAL requires one finite decimal payload")
 			}
 		default:
