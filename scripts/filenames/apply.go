@@ -113,6 +113,9 @@ func runApply(root, ledgerPath, currentPkg string) error {
 	sort.Strings(files)
 	touched := map[string]bool{}
 	for _, file := range files {
+		if strings.HasSuffix(file, ".gen.go") {
+			continue
+		}
 		rowsForFile := byFile[file]
 		sort.Slice(rowsForFile, func(i, j int) bool {
 			return firstStart(rowsForFile[i], file) < firstStart(rowsForFile[j], file)
@@ -183,6 +186,9 @@ func runApply(root, ledgerPath, currentPkg string) error {
 			}
 			var rel []applyRange
 			for _, rg := range r.ranges {
+				if strings.HasSuffix(rg.file, ".gen.go") {
+					continue
+				}
 				if rg.file != "" && rg.file != file {
 					continue
 				}
