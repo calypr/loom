@@ -10,6 +10,7 @@ func usage() {
 
 commands:
   inventory
+  testinventory
   groupcheck <dir> <selector>
   graphcheck <ledger>
   apply <ledger> <current-package>
@@ -31,6 +32,8 @@ func main() {
 	switch cmd {
 	case "inventory":
 		err = runInventory(root)
+	case "testinventory":
+		err = runTestInventory(root)
 	case "groupcheck":
 		if len(os.Args) != 4 {
 			usage()

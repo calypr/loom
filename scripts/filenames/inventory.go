@@ -43,14 +43,15 @@ func (u *unit) symbol() string {
 }
 
 type pkgData struct {
-	list    listedPackage
-	files   []*ast.File
-	fset    *token.FileSet
-	pkg     *types.Package
-	info    *types.Info
-	units   []*unit
-	defUnit map[types.Object]*unit
-	byFile  map[string][]interval
+	list     listedPackage
+	files    []*ast.File
+	fset     *token.FileSet
+	pkg      *types.Package
+	checkErr error
+	info     *types.Info
+	units    []*unit
+	defUnit  map[types.Object]*unit
+	byFile   map[string][]interval
 }
 
 type interval struct {
@@ -291,8 +292,9 @@ func loadPackage(pd *pkgData, imp types.Importer, root string) error {
 		Selections: map[*ast.SelectorExpr]*types.Selection{},
 	}
 	conf := types.Config{Importer: imp, Error: func(error) {}, DisableUnusedImportCheck: true}
-	pkg, _ := conf.Check(pd.list.ImportPath, pd.fset, files, pd.info)
+	pkg, checkErr := conf.Check(pd.list.ImportPath, pd.fset, files, pd.info)
 	pd.pkg = pkg
+	pd.checkErr = checkErr
 	short := shortPath(pd.list.ImportPath, modulePath(root))
 	buildUnits(pd, modulePath(root), short, root)
 	mapDefs(pd)

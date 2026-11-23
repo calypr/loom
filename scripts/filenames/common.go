@@ -22,13 +22,16 @@ import (
 const ledgerHeader = "unit_id\tfile\tpackage\tkind\tname\treceiver\tlines\texported\traw_tokens\tnormalized_tokens\treferenced_decls\treferencing_decls\taffinity\tin_refs\tout_refs\tself_refs\tranges\tevidence\tdest_package\tdest_file\texports_added\treceiver_bound\ttests_affected"
 
 type listedPackage struct {
-	ImportPath string
-	Dir        string
-	Name       string
-	GoFiles    []string
-	Export     string
-	Module     *struct{ Path string }
-	Error      *struct{ Err string }
+	ImportPath   string
+	Dir          string
+	Name         string
+	GoFiles      []string
+	TestGoFiles  []string
+	XTestGoFiles []string
+	ForTest      string
+	Export       string
+	Module       *struct{ Path string }
+	Error        *struct{ Err string }
 }
 
 func repoRoot() (string, error) {
