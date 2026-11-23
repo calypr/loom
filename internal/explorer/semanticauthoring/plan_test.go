@@ -1,11 +1,12 @@
 package semanticauthoring
 
 import (
-	"github.com/calypr/loom/internal/explorer/workspace"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"reflect"
 	"strconv"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/workspace"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -114,5 +115,136 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 	binding := medicationPlan.Source.Lookup.Binding
 	if binding.OwnerPath != medicationDose.OwningScope || binding.KeyPath != "dosageInstruction[].doseAndRate[].type.coding[]" || binding.SystemPath != "system" || binding.CodePath != "code" || binding.ValuePath != medicationDose.Value.Selector || binding.UnitPath != "doseQuantity.unit" || len(binding.ChoiceArms) != 1 || binding.ChoiceArms[0] != "doseQuantity" {
 		t.Fatalf("nested MedicationRequest binding = %#v", binding)
+	}
+}
+
+func TestSemanticCodeableConceptPlanCarriesOrderedValueFallbacks(t *testing.T) {
+	observation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Observation", Path: "code"},
+		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+		Value: semantic.Value{
+			Selector:              "valueCodeableConcept.text",
+			Type:                  "string",
+			FallbackSelectors:     []string{"valueCodeableConcept.coding[].display"},
+			FallbackOnBlankString: true,
+		},
+		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: semantic.CompletenessComplete,
+		Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
+	}
+
+	plan := ResolveSemanticSelectionPlan(observation)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
+		t.Fatalf("semantic selection plan = %#v, want an addable correlated value source", plan)
+	}
+	binding := plan.Source.Lookup.Binding
+	if binding.ValuePath != "valueCodeableConcept.text" ||
+		!reflect.DeepEqual(binding.ValueFallback, []string{"valueCodeableConcept.coding[].display"}) || !binding.FallbackOnBlankString {
+		t.Fatalf("authored correlated binding = %#v, want preferred text, ordered coding-display fallback, and blank-string fallback", binding)
+	}
+
+	genericString := observation
+	genericString.Value = semantic.Value{
+		Selector:          "valueCodeableConcept.text",
+		Type:              "string",
+		FallbackSelectors: []string{"valueCodeableConcept.coding[].display"},
+	}
+	genericPlan := ResolveSemanticSelectionPlan(genericString)
+	if !genericPlan.Readiness.Addable() || genericPlan.Source == nil || genericPlan.Source.Lookup == nil || genericPlan.Source.Lookup.Binding == nil {
+		t.Fatalf("generic string plan = %#v, want addable source with default fallback behavior", genericPlan)
+	}
+	genericBinding := genericPlan.Source.Lookup.Binding
+	if genericBinding.FallbackOnBlankString || genericBinding.ValuePath != "valueCodeableConcept.text" ||
+		!reflect.DeepEqual(genericBinding.ValueFallback, []string{"valueCodeableConcept.coding[].display"}) {
+		t.Fatalf("generic string binding = %#v, want omitted flag to preserve existing empty-string behavior and fallback order", genericBinding)
+	}
+}
+
+func TestSemanticExtensionCodeableConceptPlanCarriesBlankStringFallback(t *testing.T) {
+	observation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Observation", Path: "extension[]"},
+		Key:           semantic.Key{Selector: "extension[].url", Display: "urn:study:stage"},
+		Value: semantic.Value{
+			Selector: "extension[].valueCodeableConcept.text", Type: "string",
+			FallbackSelectors: []string{"extension[].valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
+		},
+		OwningScope: "extension[]", ExtensionURLPath: []string{"urn:study:stage"},
+		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: semantic.CompletenessComplete,
+		Status: "SUPPORTED", RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
+	}
+	plan := ResolveSemanticSelectionPlan(observation)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Extension == nil {
+		t.Fatalf("extension semantic plan = %#v, want an addable Extension source", plan)
+	}
+	binding := plan.Source.Lookup.Extension
+	if binding.ValuePath != "valueCodeableConcept.text" || !binding.FallbackOnBlankString ||
+		!reflect.DeepEqual(binding.ValueFallback, []string{"valueCodeableConcept.coding[].display"}) {
+		t.Fatalf("extension binding = %#v, want relative preferred text and coding display fallback", binding)
+	}
+}
+
+func TestResolveCodedCategoryPlanUsesSystemVersionScopeAndSameCodingFallback(t *testing.T) {
+	for _, version := range []string{"", "v1"} {
+		t.Run("version-"+version, func(t *testing.T) {
+			observation := standaloneCodingCategoryObservation(version)
+			plan := ResolveSemanticSelectionPlan(observation)
+			if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
+				t.Fatalf("category plan = %#v", plan)
+			}
+			binding := plan.Source.Lookup.Binding
+			if binding.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || binding.ValueScope != fhirbinding.CorrelatedValueScopeCoding || binding.VersionPath != "version" || binding.CodePath != "code" || binding.ValuePath != "display" || len(binding.ValueFallback) != 1 || binding.ValueFallback[0] != "code" || !binding.FallbackOnBlankString {
+				t.Fatalf("category binding = %#v", binding)
+			}
+			if plan.Source.Lookup.Key.System != "https://www.ebi.ac.uk/chembl/compound_name" || plan.Source.Lookup.Key.Code != "" || plan.Source.Lookup.Key.Version != version {
+				t.Fatalf("category key = %#v", plan.Source.Lookup.Key)
+			}
+		})
+	}
+}
+
+func TestResolveCodedCategoryRejectsAnExactCodeAndLegacyExactPlanRemainsExact(t *testing.T) {
+	category := standaloneCodingCategoryObservation("")
+	category.Key.Code = "CARBOXYAMIDOTRIAZOLE"
+	if plan := ResolveSemanticSelectionPlan(category); plan.Readiness.Addable() || plan.Readiness.Code != "CODED_CATEGORY_HAS_EXACT_CODE" {
+		t.Fatalf("category with exact code was not rejected: %#v", plan)
+	}
+
+	exact := category
+	exact.RuleHint = semantic.RuleHintCodedConceptV1
+	exact.Key.Code = "CARBOXYAMIDOTRIAZOLE"
+	plan := ResolveSemanticSelectionPlan(exact)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
+		t.Fatalf("legacy exact plan = %#v", plan)
+	}
+	if plan.Source.Lookup.Binding.SelectionScope != "" || plan.Source.Lookup.Key.Code != "CARBOXYAMIDOTRIAZOLE" {
+		t.Fatalf("legacy exact selection semantics changed: %#v", plan.Source.Lookup)
+	}
+}
+
+func standaloneCodingCategoryObservation(version string) semantic.Observation {
+	return semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Medication", Path: "Medication.code.coding[]"},
+		Key: semantic.Key{
+			Selector: "code.coding[]", System: "https://www.ebi.ac.uk/chembl/compound_name", Version: version,
+		},
+		Value: semantic.Value{
+			Selector: "code.coding[].display", Type: "string", FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
+		},
+		LogicalType: "string", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED",
+		RuleHint: semantic.RuleHintCodedCategoryV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
+	}
+}
+
+func TestSemanticCategoryDefaultTitleUsesFieldForGenericSystem(t *testing.T) {
+	if got := SemanticCategoryDefaultTitle("Specimen", "Specimen.type.coding[]", "https://cda.readthedocs.io/"); got != "Specimen type" {
+		t.Fatalf("generic system category title = %q", got)
+	}
+	if got := SemanticCategoryDefaultTitle("Medication", "Medication.code.coding[]", "https://www.ebi.ac.uk/chembl/compound_name"); got != "Compound name" {
+		t.Fatalf("ChEMBL category title = %q", got)
+	}
+	if got := SemanticCategoryDefaultTitle("Specimen", "Specimen.type.coding[]", "https://example.org/my-code-system"); got != "My code system" {
+		t.Fatalf("meaningful system-tail title = %q", got)
 	}
 }
