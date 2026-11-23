@@ -32,6 +32,10 @@ Landed on `internal-cleanup`:
 
 Still pending: lifecycle splits, 3E shapes, 3F interfaces, 3U UI, full acceptance.
 
+Optional-target decisions:
+- `dataframe/compiler/lower/recipe`: skipped. `TARGET_TREE.md` open question 9 still requires operator approval, and the lower package’s parent-to-child helper calls make the split non-move-only without first extracting shared compiled types.
+- `api/dataframe/recipeexec`: implemented.
+
 ## Allowed layers
 
 Rank 0 `projectid`, `authscope`, `fhir/*`, `foundation/*` -> rank 1 `store/*` ->

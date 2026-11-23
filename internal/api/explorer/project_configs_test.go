@@ -7,7 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
-	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
+	recipeexec "github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -134,7 +134,7 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 		{name: "full", principal: &authscope.Principal{Projects: []string{"project-a"}, AuthResourcePaths: []string{"allowed", "denied"}}, resolver: scopes, status: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			reader := dataframeapi.NewRecipeExecutionAuthorizer(recipeExecutionCatalogFixture{execution: execution}, tc.resolver)
+			reader := recipeexec.NewRecipeExecutionAuthorizer(recipeExecutionCatalogFixture{execution: execution}, tc.resolver)
 			handlers.authorizeExecution = reader
 			ctx := authscope.ContextWithPrincipal(context.Background(), tc.principal)
 			_, err := handlers.getExplorer(ctx, "project-a", "files")

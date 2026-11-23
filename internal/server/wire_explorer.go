@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"log/slog"
 
-	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	explorerapi "github.com/calypr/loom/internal/api/explorer"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/published"
@@ -168,7 +168,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, lifecycleConfig lifecycle.Config) *explorerapi.Handlers {
 	materializationReader, publishedRegistry := dataframe.reader, dataframe.registry
 	explorerService := explorerDeps.service
-	readRecipeExecution := dataframeapi.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
+	readRecipeExecution := recipeexec.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
 	var constructionInputsReader constructioninputs.ExactReader
 	if materializationReader != nil {
 		constructionInputsReader = materializationReader

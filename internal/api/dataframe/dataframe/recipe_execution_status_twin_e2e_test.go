@@ -44,7 +44,7 @@ const twinRowCount = int64(7373737)
 const (
 	twinHandlerFile = "openapi_handlers.go"
 	twinAdapterFile = "recipe_execution_reader.go"
-	twinReaderFile  = "recipe_execution.go"
+	twinReaderFile  = "../recipeexec/recipe_execution.go"
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
 
@@ -207,7 +207,7 @@ func twinRequireRepairedGuards(t *testing.T) {
 		t.Fatalf("STEP 0 drift: cannot read %s: %v", twinAdapterFile, err)
 	}
 	adapterSource := string(adapterRaw)
-	if !strings.Contains(adapterSource, "NewAuthorizedRecipeExecutionRecordReader(releases, scopes, resolveScope, true)") {
+	if !strings.Contains(adapterSource, "recipeexec.NewAuthorizedRecipeExecutionRecordReader(releases, scopes, resolveScope, true)") {
 		t.Fatal("REST wiring no longer uses the shared authorized reader")
 	}
 	for _, fact := range twinQuotedFacts {

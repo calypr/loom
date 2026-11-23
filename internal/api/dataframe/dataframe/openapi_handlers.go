@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"net/http"
 
 	httpapi "github.com/calypr/loom/internal/api/http"
@@ -191,7 +192,7 @@ func recipeExecutionResponse(execution publication.BundleExecution) loomapi.Reci
 			RowCount: output.RowCount,
 			Columns:  columns,
 		}
-		mirroredError := RecipeExecutionOutputMessage(execution.Error, output.State)
+		mirroredError := recipeexec.RecipeExecutionOutputMessage(execution.Error, output.State)
 		item.Error, item.ErrorCode, item.ErrorRetryable = PersistedFailure(mirroredError, output.FailureCode, output.FailureRetryable)
 		if output.FailurePhase != "" {
 			item.Phase = &output.FailurePhase
@@ -216,7 +217,7 @@ func recipeExecutionResponse(execution publication.BundleExecution) loomapi.Reci
 }
 
 func recipeExecutionErrorResponse(ctx context.Context, err error) (loomapi.GetRecipeExecutionResponseObject, error) {
-	var failure *RecipeExecutionReadFailure
+	var failure *recipeexec.RecipeExecutionReadFailure
 	if errors.As(err, &failure) {
 		if failure.Authorization {
 			return recipeExecutionAuthorizationResponse(ctx, failure.Err)

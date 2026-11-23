@@ -59,6 +59,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/api/dataframe': 'Own typed dataframe request and publication representations.',
  'internal/api/dataframe/dataframe': 'Resolve and authorize published dataframe rows, aggregates, and export.',
  'internal/api/dataframe/query': 'Resolve and authorize Arango-backed FHIR dataframe and graph requests.',
+ 'internal/api/dataframe/recipeexec': 'Authorize, look up, and classify dataframe recipe-execution responses.',
  'internal/api/explorer': 'Serve strict OpenAPI Explorer, construction, selection, artifact, interpretation, and '
                           'view-builder operations.',
  'internal/api/http': 'Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.',
