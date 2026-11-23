@@ -66,6 +66,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/catalog': 'Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.',
  'internal/catalog/arango': 'Persist and retrieve catalog facts in ArangoDB.',
  'internal/catalog/discoverycache': 'Cache bounded field and relationship discovery results.',
+ 'internal/catalog/fieldcatalog': 'Own field-profile read and write DTOs shared by catalog and discovery.',
  'internal/catalog/fieldprofile': 'Profile FHIR fields, retain shape plans and reconcile semantic evidence.',
  'internal/dataframe/artifactformat': 'Encode published dataframe rows and metadata as downloadable artifacts.',
  'internal/dataframe/columntransform': 'Define closed, backend-neutral transformations over one selected output column '
@@ -133,18 +134,22 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/config': 'Own Explorer project and view configuration DTOs and validation.',
  'internal/explorer/constructioninputs': 'List authorized immutable published table revisions for Explorer '
                                          'construction.',
+ 'internal/explorer/explicitgroup': 'Resolve and list explicit-group revisions against authorized selections.',
  'internal/explorer/importedsource': 'Resolve, edit, and expose imported recipe sources for Explorer authoring.',
  'internal/explorer/lifecycle': 'Coordinate transport-neutral Explorer authoring, preview, publication, query, and '
                                 'policy operations.',
  'internal/explorer/lifecycle/ports': 'Define adapter contracts for Explorer capabilities, receipts, execution, and '
                                       'errors.',
  'internal/explorer/lifecycle/support': 'Share lifecycle errors, request validation, and authorization-scope checks.',
+ 'internal/explorer/population': 'Encode and validate signed population mapping cursors.',
  'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
  'internal/explorer/receipt': 'Compile, validate, preview, reconcile, and materialize Explorer receipts.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',
  'internal/explorer/reconcile': 'Run generic ticker-driven reconciliation loops with bounded sweep deadlines.',
+ 'internal/explorer/rowdef': 'Plan and resolve row-definition choices from authorized capability snapshots.',
  'internal/explorer/selection': 'Own selection intents, revisions, membership digests, and validation.',
+ 'internal/fhir/binding': 'Validate correlated, identifier, quantity, and pivot FHIR bindings.',
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
                          'metadata.',
  'internal/foundation/httpctx': 'Carry request IDs and shared diagnostic logging across transports.',
