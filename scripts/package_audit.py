@@ -42,6 +42,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'cmd/arango-maintenance': 'Run read-only audits and explicit local Arango index, workspace, and source-plan '
                            'migrations.',
  'cmd/check-go-comments': 'Enforce the Go source comment policy locally and in CI.',
+ 'cmd/compiler-reference': 'Run compiler reference-interpreter comparisons.',
  'cmd/dataframe-profile': 'Run and compare developer-facing dataframe profiling workloads.',
  'cmd/dataframe-query': 'Execute a saved REST dataframe request and report response timing and diagnostics.',
  'cmd/generate': 'Generate FHIR models, schema metadata, validation, and edge extraction from source schemas.',
@@ -50,6 +51,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'cmd/loom-repository': 'Preflight a repository checkout and launch Loom against its META and CONFIG data with an '
                         'owned Compose project.',
  'cmd/loom-repository/seed': 'Validate repository metadata and configuration and produce the source manifest.',
+ 'cmd/preview-audit': 'Compare AQL preview fast paths and generic queries on owned workloads.',
  'fhir/model': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
  'fhir/schema': 'Expose generated raw FHIR schema metadata tables.',
  'internal/acceptance': 'Fetch and cache the locked FHIR fixture, drive the real-data acceptance scenario, and verify '
@@ -69,6 +71,8 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/catalog/discoverycache': 'Cache bounded field and relationship discovery results.',
  'internal/catalog/fieldcatalog': 'Own field-profile read and write DTOs shared by catalog and discovery.',
  'internal/catalog/fieldprofile': 'Profile FHIR fields, retain shape plans and reconcile semantic evidence.',
+ 'internal/compilerresearch/differential': 'Compare compiler prototype and reference output rows.',
+ 'internal/compilerresearch/reference': 'Evaluate compiler research recipes with an in-memory reference interpreter.',
  'internal/dataframe/artifactformat': 'Encode published dataframe rows and metadata as downloadable artifacts.',
  'internal/dataframe/columntransform': 'Define closed, backend-neutral transformations over one selected output column '
                                        'value.',
@@ -92,6 +96,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/dataframe/compiler/render/clickhouse': 'Render typed Combine plans and resolved published or private table '
                                                   'inputs as deterministic ClickHouse SQL.',
  'internal/dataframe/compiler/rowlineage': 'Expose row-lineage capability, compile, and error contracts.',
+ 'internal/dataframe/compiler/scan': 'Compile bounded category and column population scans.',
  'internal/dataframe/errors': 'Define and normalize stable structured dataframe errors for transport presentation.',
  'internal/dataframe/errors/authpolicy': 'Classify authorization failures for dataframe and transport callers.',
  'internal/dataframe/execution': 'Prepare, authorize, execute, explain, and post-process compiled dataframe requests.',
@@ -186,6 +191,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/ingest/source': 'Discover source files and preflight source schemas.',
  'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
+ 'internal/research/compilerprobe': 'Exercise compiler redesign prototypes against existing query behavior.',
  'internal/semantic': 'Walk FHIR members, extract coded concepts, and build semantic inventory and coverage.',
  'internal/semantic/arango': 'Persist and retrieve semantic inventory and coverage in ArangoDB.',
  'internal/semantic/backfill': 'Drive semantic inventory backfill over leased builds.',
@@ -198,6 +204,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
                                 'cleanup for integration tests.',
  'internal/testkit/capabilityfixtures': 'Share Explorer capability snapshots, stores, and catalog evidence fixtures.',
+ 'internal/testkit/compilerfixtures': 'Share compiler recipe and physical plan test fixtures.',
  'internal/testkit/constructionfixtures': 'Share authorized Explorer workspaces and construction catalog fixtures.',
  'internal/testkit/explorerfixtures': 'Share in-memory Explorer stores and fixtures for receipt and HTTP composition '
                                       'tests.',
@@ -207,6 +214,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/testkit/recipetest': 'Share receipt construction, workspace, and recipe registry fixtures.',
  'scripts': 'Hold repository developer, verification, migration, and release utilities that are not part of the Go '
             'module runtime packages.',
+ 'scripts/compilercleanup': 'Map compiler test ownership by Git history.',
  'scripts/filenames': 'Inventory underscore filenames, validate package boundaries, apply declaration moves, and verify '
                       'that declarations survive moves.',
  'tests/ci': 'Exercise repository-wide Go formatting and vet gates, including injected fault detection.',

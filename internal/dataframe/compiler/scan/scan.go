@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"crypto/sha256"
@@ -94,7 +94,7 @@ type CompiledCategoryScanQuery struct {
 	OverflowWitness      *CategoryOverflowWitness
 }
 
-func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func compileOutputColumn(output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	columnName = strings.TrimSpace(columnName)
 	column, err := categoryScanColumn(output.OutputSchema, columnName)
 	if err != nil {
@@ -103,7 +103,7 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 	return compileCategoryScan(output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy, false)
 }
 
-func CompileCategoryScanOutputRequiringValue(output lower.CompiledRecipeOutput, columnName, valueColumnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func compileOutputColumnRequiringValue(output lower.CompiledRecipeOutput, columnName, valueColumnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	columnName, valueColumnName = strings.TrimSpace(columnName), strings.TrimSpace(valueColumnName)
 	column, err := categoryScanColumn(output.OutputSchema, columnName)
 	if err != nil {
@@ -242,7 +242,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		} else {
 			physical = withCategoryScanSourceFilterPushdown(physical)
 		}
-		physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+		physical, err = ir.WithGenericPhysicalExecutionWindow(physical, 0)
 		if err != nil {
 			return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 		}
@@ -274,7 +274,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			}
 		}
 	}
-	if categoryIndex != nil && reflect.DeepEqual(categoryIndex.StoredValues, previewQuantityCategoryStoredValues()) {
+	if categoryIndex != nil && reflect.DeepEqual(categoryIndex.StoredValues, model.PreviewQuantityCategoryStoredValues()) {
 
 		previewCoveringIndex = nil
 	}
@@ -422,7 +422,7 @@ func categoryScanPreviewCoveringIndexSpec(plan ir.PhysicalPlan, schema []lower.C
 	if !ok || rootScan.Population != nil {
 		return nil
 	}
-	projectionPaths, ok := previewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
+	projectionPaths, ok := model.PreviewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
 	if !ok {
 		return nil
 	}
@@ -441,7 +441,7 @@ func categoryScanPreviewCoveringIndexSpec(plan ir.PhysicalPlan, schema []lower.C
 		return nil
 	}
 
-	return previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
+	return model.PreviewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
 }
 
 func categoryScanSchemaColumnName(schema []lower.CompiledOutputColumn, id string) (string, bool) {

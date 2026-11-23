@@ -1,6 +1,6 @@
 # `dataframe/compiler` root package cleanup plan
 
-Status: Phases 0 through 2 complete. Phase 3 awaits the fast-path audit.
+Status: Phases 0 through 3 complete.
 Baseline measured after lineage merge `136ba0894`.
 Scope: the root package `internal/dataframe/compiler` only. Its subpackages have their own plans
 (`AQL_RENDER_REFACTOR_PLAN.md`, `AQL_FAST_PATH_AND_LINEAGE_PLAN.md`,
@@ -273,8 +273,8 @@ helpers in Phase 3.
 
 ### Phase 3: extract `compiler/scan` (after the fast-path audit's A4 lands)
 
-The operator resumed the fast-path audit. A1 has a query comparison harness.
-The Phase 3 extraction still depends on A4.
+A4 removed Dynamic Pivot (`858e7b99e`) and the covering-index two-scan
+Pivot path (`0bb0ae0b3`). The generic fallback keeps the covering index hint.
 
 - Move the covering-index naming and spec helpers that scan uses into `compiler/model`.
 - Move category scan and column population into `compiler/scan`.
@@ -287,6 +287,53 @@ The Phase 3 extraction still depends on A4.
   `compiler/model` before and after, then its `--full` mode.
 - Check: `make test-go`, `make test-integration`. The render snapshot from the AQL plan is
   identical for every scan query.
+
+Phase 3 moves the six category and population production files, the scan
+tests, and scan-specific helpers. `scan.Compile` accepts `OutputColumn`
+or `StageColumn`. Column population remains in the same package under
+its own compile function. The Explorer lifecycle test calls the typed
+scan API through the facade. The API Explorer test imports the refusal
+constant from the facade and retains its assertions byte-for-byte.
+
+Measured root counts after A4 and after the extraction:
+
+| Measure | Before Phase 3 | After Phase 3 |
+| --- | ---: | ---: |
+| Production files and lines | 16 files, 4,962 lines | 10 files, 3,051 lines |
+| Test files and lines | 48 files, 21,003 lines | 40 files, 16,967 lines |
+
+The 1,246 Dataframe test names match the A4 source. The seven names
+removed since Phase 2 belong to retired Pivot-shape tests. Phase 3
+deletes no tests. The integration runner requires nine scan witnesses
+in the destination package.
+
+`go list` shows two planned incoming production edges to scan from
+execution and facade. Scan imports IR, lower, model, optimize, AQL
+rendering, expression, and recipe, all prior compiler dependencies.
+Root drops its expression edge. Scan uses root only from tests. The
+pre-move audit passed for compiler and model. Scan had no pre-move row.
+The audit inventory gained the scan row and seven rows for branch
+packages the baseline generator already rejected as missing.
+
+Three same-model adversarial reviewers (`gpt-6.1-sol`, low) checked
+the typed dispatch and refusal order, moved helper equivalence and
+dependency edges, and test coverage and assertion preservation. The
+first full run caught the stale API test import. The test reviewer
+checked the follow-up import-only diff. No other findings were verified.
+
+The 8,307 records from the post-A4 AQL snapshot match byte-for-byte.
+The integration runner passed 42 profiles on disposable Arango and
+ClickHouse, including all nine required scan tests. Six separately
+gated diagnostic cases remain unverified. Integration fingerprint
+`ae154e29ed0dcab97725dd171c88c75fbfe55064e77d056883ae6ac6bb75e6b0`
+identifies the source before the final formatting-only pass on
+`scan/target.go`.
+
+The initial pre-move package audit could not use the sandboxed default
+Go cache. It passed with an isolated cache. The archived Go suite lacked
+Git metadata for the tracked-file formatting check. Build, `make test-go`,
+`make lint-go-comments`, and the focused post-move package audits passed
+from the Git worktree. The full package audit and repository test target passed.
 
 ## Out of scope
 

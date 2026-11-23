@@ -85,7 +85,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			if err != nil {
 				t.Fatalf("lower lifecycle receipt recipe: %v", err)
 			}
-			query, err := facade.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, facade.DefaultPhysicalOptimizationPolicy())
+			query, err := facade.CompileCategoryScan(compiled.Outputs[0], facade.StageCategoryScanTarget{StageID: scan.StageID, ColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID, RequireValue: true}, scan.MaxValues, facade.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile lifecycle category stage: %v", err)
 			}

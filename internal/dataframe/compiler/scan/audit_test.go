@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"fmt"
@@ -53,7 +53,7 @@ func TestPivotPresenceAudit(t *testing.T) {
 				compiled := compilePopulationMappingOutput(t, audited)
 				result := auditCategoryAtStage(compiled, stage, category)
 				if fixture.name == "unpivot" && stage.ID == "unpivot" && (category.Name == "amount" || category.Name == "measure") {
-					scanned, err := CompileCategoryScanStageWithPolicy(compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+					scanned, err := Compile(compiled, StageColumn{StageID: stage.ID, ColumnID: category.ID, ValueColumnID: value.ID}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 					if err == nil {
 						for _, line := range strings.Split(scanned.Query, "\n") {
 							if strings.Contains(line, "__loom_category_scan_presence") {
@@ -100,7 +100,7 @@ func auditCategoryAtStage(output lower.CompiledRecipeOutput, stage lower.Compile
 		if value.ID == category.ID {
 			continue
 		}
-		scanned, err := CompileCategoryScanStageWithPolicy(output, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+		scanned, err := Compile(output, StageColumn{StageID: stage.ID, ColumnID: category.ID, ValueColumnID: value.ID}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			if code, ok := CategoryScanRefusalCodeOf(err); ok {
 				lastCode = string(code)

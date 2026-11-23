@@ -86,7 +86,7 @@ func previewGroupProjectionIndexSpec(plan ir.PhysicalPlan) *model.PreviewGroupPr
 		path += "." + segment.Name
 	}
 	return &model.PreviewGroupProjectionIndexSpec{
-		RequiredFields:       append([]string(nil), previewCoveringIndexPrefixFields...),
+		RequiredFields:       model.PreviewCoveringIndexPrefixFields(),
 		RequiredStoredValues: []string{"auth_resource_path"},
 		ProjectionPath:       path,
 	}

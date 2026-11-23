@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -61,11 +62,11 @@ func TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+	scan, err := Compile(compiled.Outputs[0], StageColumn{StageID: recipe.ConstructionSourceProjectionID, ColumnID: "category_id", ValueColumnID: "value_id"}, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scan.CategoryIndex == nil || !reflect.DeepEqual(scan.CategoryIndex.Fields, previewQuantityCategoryFields()) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, previewQuantityCategoryStoredValues()) {
+	if scan.CategoryIndex == nil || !reflect.DeepEqual(scan.CategoryIndex.Fields, model.PreviewQuantityCategoryFields()) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, model.PreviewQuantityCategoryStoredValues()) {
 		t.Fatalf("root quantity index definition = %+v", scan.CategoryIndex)
 	}
 	assertCategoryScanIndexExplain(t, ctx, client, scan, true)

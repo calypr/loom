@@ -101,3 +101,13 @@ var bindOracleCurrentDerived = compilerfixtures.BindOracleCurrentDerived
 var reshapeOracleInteger = compilerfixtures.ReshapeOracleInteger
 
 var groupedRelatedSummaryOutput = compilerfixtures.GroupedRelatedSummaryOutput
+
+var constructionExpandOutput = compilerfixtures.ConstructionExpandOutput
+
+var constructionExpandGroupOutput = compilerfixtures.ConstructionExpandGroupOutput
+
+var constructionGroupRowValuesOutput = compilerfixtures.ConstructionGroupRowValuesOutput
+
+var constructionPreviewMultiKeyPivotOutput = compilerfixtures.ConstructionPreviewMultiKeyPivotOutput
+
+var reshapeOracleStringFilter = compilerfixtures.ReshapeOracleStringFilter

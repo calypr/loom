@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"strings"
@@ -155,7 +155,7 @@ func relatedCategoryScanShape(
 				field.TargetResourceType != previousExpand.TargetResourceType ||
 				field.OutputColumnID == "" || field.LogicalType == "" ||
 				!field.Nullable || len(field.Path) < 2 || field.Path[0] != "payload" ||
-				!validPreviewIndexPath(field.Path) {
+				!model.ValidPreviewIndexPath(field.Path) {
 				return relatedCategoryPlan{}, false
 			}
 			if _, duplicate := shape.fieldByID[field.OutputColumnID]; duplicate {
@@ -207,7 +207,7 @@ func relatedCategoryScanShape(
 	storedValues := []string{"auth_resource_path", "resourceType"}
 	shape.index = &model.PreviewCoveringIndexSpec{
 		Collection:   collection,
-		Name:         previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
+		Name:         model.PreviewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
 		Fields:       fields,
 		StoredValues: storedValues,
 	}

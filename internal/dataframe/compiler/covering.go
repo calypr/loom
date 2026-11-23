@@ -1,10 +1,8 @@
 package compiler
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,10 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
-
-const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
-
-var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation"}
 
 func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
 	rendered, err := aql.Render(plan, aql.Options{RootIndex: aql.RootIndexHint(indexName)})
@@ -52,14 +46,14 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *model.PreviewCoveringIndexS
 			stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
 			return nil
 		}
-		projectionPaths, ok := previewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
+		projectionPaths, ok := model.PreviewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
 		if !ok || !pivotInputsPassThroughSourceColumns(stage, sourceReturn.Projections) {
 			return nil
 		}
 		if !previewCoveringPivotGroupKeys(stage.GroupedPivot, sourceReturn.Projections, rootScan.Variable) {
 			return nil
 		}
-		return previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
+		return model.PreviewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
 	case ir.PhysicalStageGroupOp:
 		if sequence.PreviewTerminalPivotWindow {
 			return nil
@@ -131,11 +125,11 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *model.Preview
 			presenceOutputs++
 			continue
 		}
-		path, direct := previewCoveringProjectionPath(projection, root.Variable)
+		path, direct := model.PreviewCoveringProjectionPath(projection, root.Variable)
 		if !direct {
 			return nil
 		}
-		if path == "_key" || containsIndexField(previewCoveringIndexPrefixFields, path) {
+		if path == "_key" || slices.Contains(model.PreviewCoveringIndexPrefixFields(), path) {
 			continue
 		}
 		if !strings.HasPrefix(path, "payload.") {
@@ -168,7 +162,7 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *model.Preview
 		storedValues = append(storedValues, path)
 	}
 	sort.Strings(storedValues)
-	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
+	fields := model.PreviewCoveringIndexPrefixFields()
 	fields = append(fields, "_key")
 	fields = append(fields, keyPaths...)
 	if len(fields) > 32 || len(storedValues) > 32 {
@@ -181,18 +175,10 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *model.Preview
 			}
 		}
 	}
-	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
+	name := model.PreviewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
 	return &model.PreviewCoveringIndexSpec{
 		Collection: collection, Name: name, Fields: fields, StoredValues: storedValues,
 	}
-}
-
-func previewQuantityCategoryFields() []string {
-	return []string{"project", "dataset_generation", "_key", "payload.id", "payload.status"}
-}
-
-func previewQuantityCategoryStoredValues() []string {
-	return []string{"auth_resource_path", "payload.valueQuantity", "resourceType"}
 }
 
 func previewCoveringIndexPathsOverlap(left, right string) bool {
@@ -203,7 +189,7 @@ func previewCoveringDirectScalarProjectionPath(projection ir.PhysicalProjection,
 	if projection.Expression == nil {
 		return "", false
 	}
-	return previewCoveringProjectionPath(projection, rootVariable)
+	return model.PreviewCoveringProjectionPath(projection, rootVariable)
 }
 
 func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot ir.PhysicalGroupedPivot, rootVariable string) ([]string, bool) {
@@ -212,7 +198,7 @@ func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot
 	for index := range projections {
 		projection := &projections[index]
 		if projection.Name == pivot.CategoryColumn {
-			path, ok := previewCoveringProjectionPath(*projection, rootVariable)
+			path, ok := model.PreviewCoveringProjectionPath(*projection, rootVariable)
 			if !ok {
 				return nil, false
 			}
@@ -235,7 +221,7 @@ func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot
 		return nil, false
 	}
 	for _, segment := range fullPath {
-		if !validPreviewIndexPath([]string{segment}) {
+		if !model.ValidPreviewIndexPath([]string{segment}) {
 			return nil, false
 		}
 	}
@@ -326,7 +312,7 @@ func previewCoveringGroupProjectionPaths(stage ir.PhysicalConstructionStage, pro
 		if isRowValue {
 			path, pathFound = previewCoveringGroupProjectionPath(sourceProjection, rootVariable)
 		} else {
-			path, pathFound = previewCoveringProjectionPath(sourceProjection, rootVariable)
+			path, pathFound = model.PreviewCoveringProjectionPath(sourceProjection, rootVariable)
 		}
 		if !pathFound {
 			return nil, false
@@ -353,7 +339,7 @@ func groupInputProjectionsByName(stage ir.PhysicalConstructionStage) (map[string
 
 func previewCoveringGroupProjectionPath(projection ir.PhysicalProjection, rootVariable string) (string, bool) {
 	if projection.Expression == nil || projection.Expression.Cardinality == ir.PhysicalScalarCardinality {
-		return previewCoveringProjectionPath(projection, rootVariable)
+		return model.PreviewCoveringProjectionPath(projection, rootVariable)
 	}
 	expression := projection.Expression
 	if expression.Kind != ir.PhysicalExtractExpression || expression.Cardinality != ir.PhysicalArrayCardinality || expression.Extract == nil {
@@ -367,12 +353,12 @@ func previewCoveringGroupProjectionPath(projection ir.PhysicalProjection, rootVa
 	}
 	path := append([]string(nil), extract.Source.Path...)
 	for _, part := range path {
-		if !validPreviewIndexPath([]string{part}) {
+		if !model.ValidPreviewIndexPath([]string{part}) {
 			return "", false
 		}
 	}
 	for _, step := range extract.Selector.Steps {
-		if step.Field == "" || step.Index != nil || !validPreviewIndexPath([]string{step.Field}) {
+		if step.Field == "" || step.Index != nil || !model.ValidPreviewIndexPath([]string{step.Field}) {
 			return "", false
 		}
 		path = append(path, step.Field)
@@ -396,47 +382,12 @@ func previewCoveringPivotGroupKeys(pivot *ir.PhysicalGroupedPivot, projections [
 		if !found {
 			return false
 		}
-		_, ok := previewCoveringProjectionPath(projection, rootVariable)
+		_, ok := model.PreviewCoveringProjectionPath(projection, rootVariable)
 		if !ok {
 			return false
 		}
 	}
 	return true
-}
-
-func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths []string) *model.PreviewCoveringIndexSpec {
-	if strings.TrimSpace(collection) == "" {
-		return nil
-	}
-	pathSet := make(map[string]struct{}, len(projectionPaths)+len(previewCoveringIndexPrefixFields))
-	for _, field := range previewCoveringIndexPrefixFields {
-		pathSet[field] = struct{}{}
-	}
-	for _, path := range projectionPaths {
-		if path == "auth_resource_path" {
-			continue
-		}
-		pathSet[path] = struct{}{}
-	}
-	pathSet["_key"] = struct{}{}
-	paths := make([]string, 0, len(pathSet))
-	for path := range pathSet {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
-	for _, path := range paths {
-		if containsIndexField(fields, path) {
-			continue
-		}
-		fields = append(fields, path)
-	}
-	if len(fields) < 3 || len(fields) > 32 {
-		return nil
-	}
-	storedValues := []string{"auth_resource_path"}
-	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
-	return &model.PreviewCoveringIndexSpec{Collection: collection, Name: name, Fields: fields, StoredValues: storedValues}
 }
 
 func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) *model.PreviewCoveringIndexSpec {
@@ -448,12 +399,12 @@ func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) 
 		if path == "auth_resource_path" {
 			continue
 		}
-		if !validPreviewIndexPath(strings.Split(path, ".")) {
+		if !model.ValidPreviewIndexPath(strings.Split(path, ".")) {
 			return nil
 		}
 		projectionPathSet[path] = struct{}{}
 	}
-	if len(projectionPathSet) == 0 || len(projectionPathSet)+len(previewCoveringIndexPrefixFields) > 32 {
+	if len(projectionPathSet) == 0 || len(projectionPathSet)+len(model.PreviewCoveringIndexPrefixFields()) > 32 {
 		return nil
 	}
 	projectionPaths = make([]string, 0, len(projectionPathSet))
@@ -461,11 +412,11 @@ func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) 
 		projectionPaths = append(projectionPaths, path)
 	}
 	sort.Strings(projectionPaths)
-	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
+	fields := model.PreviewCoveringIndexPrefixFields()
 	fields = append(fields, projectionPaths...)
 	storedValues := []string{"auth_resource_path"}
 	return &model.PreviewCoveringIndexSpec{
-		Collection: collection, Name: previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
+		Collection: collection, Name: model.PreviewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
 		Fields: fields, StoredValues: storedValues,
 	}
 }
@@ -493,78 +444,6 @@ func previewCoveringIndexSource(plan ir.PhysicalPlan) (*ir.PhysicalRootScan, *ir
 	return rootScan, sourceReturn, rootScan != nil && sourceReturn != nil
 }
 
-func previewCoveringProjectionPaths(projections []ir.PhysicalProjection, rootVariable string) ([]string, bool) {
-	if len(projections) == 0 {
-		return nil, false
-	}
-	paths := make([]string, 0, len(projections))
-	seenNames := make(map[string]struct{}, len(projections))
-	for _, projection := range projections {
-		if projection.Name == "" {
-			return nil, false
-		}
-		if _, exists := seenNames[projection.Name]; exists {
-			return nil, false
-		}
-		seenNames[projection.Name] = struct{}{}
-		path, ok := previewCoveringProjectionPath(projection, rootVariable)
-		if !ok {
-			return nil, false
-		}
-		paths = append(paths, path)
-	}
-	return paths, true
-}
-
-func previewCoveringProjectionPath(projection ir.PhysicalProjection, rootVariable string) (string, bool) {
-	if projection.Expression == nil {
-		if projection.Value.Variable != rootVariable || !validPreviewIndexPath(projection.Value.Path) {
-			return "", false
-		}
-		return strings.Join(projection.Value.Path, "."), true
-	}
-	expression := projection.Expression
-	if expression.Kind != ir.PhysicalExtractExpression || expression.Cardinality != ir.PhysicalScalarCardinality || expression.Extract == nil {
-		return "", false
-	}
-	extract := expression.Extract
-	if extract.ExecutionMode != ir.PhysicalSelectorDirectScalar || extract.Source.Variable != rootVariable ||
-		len(extract.Source.Path) != 1 || extract.Source.Path[0] != "payload" || len(extract.Fallbacks) != 0 ||
-		extract.Distinct || extract.Prepared != nil || extract.UnitNormalization != nil || extract.Selector.Filter != nil ||
-		len(extract.Selector.Steps) == 0 {
-		return "", false
-	}
-	path := append([]string(nil), extract.Source.Path...)
-	for _, step := range extract.Selector.Steps {
-		if step.Field == "" || step.Iterate || step.Index != nil {
-			return "", false
-		}
-		path = append(path, step.Field)
-	}
-	if !validPreviewIndexPath(path) {
-		return "", false
-	}
-	return strings.Join(path, "."), true
-}
-
-func validPreviewIndexPath(path []string) bool {
-	if len(path) == 0 {
-		return false
-	}
-	for _, part := range path {
-		if part == "" {
-			return false
-		}
-		for index, char := range part {
-			valid := char == '_' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || index > 0 && char >= '0' && char <= '9'
-			if !valid {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 func pivotInputsPassThroughSourceColumns(stage ir.PhysicalConstructionStage, sourceProjections []ir.PhysicalProjection) bool {
 	if stage.GroupedPivot == nil || len(stage.GroupedPivot.InputProjections) != len(sourceProjections) {
 		return false
@@ -585,31 +464,4 @@ func pivotInputsPassThroughSourceColumns(stage ir.PhysicalConstructionStage, sou
 		seenNames[projection.Name] = struct{}{}
 	}
 	return len(seenNames) == len(sourceNames)
-}
-
-func containsIndexField(fields []string, field string) bool {
-	for _, existing := range fields {
-		if existing == field {
-			return true
-		}
-	}
-	return false
-}
-
-func previewCoveringIndexName(collection string, fields []string) string {
-	canonical := collection + "\x00" + strings.Join(fields, "\x00")
-	digest := sha256.Sum256([]byte(canonical))
-	return fmt.Sprintf("%s%s", previewCoveringIndexNamePrefix, hex.EncodeToString(digest[:8]))
-}
-
-func previewCoveringIndexNameWithStoredValues(collection string, fields, storedValues []string) string {
-	if len(storedValues) == 0 {
-		return previewCoveringIndexName(collection, fields)
-	}
-	canonicalStoredValues := append([]string(nil), storedValues...)
-	sort.Strings(canonicalStoredValues)
-	canonical := collection + "\x00fields\x00" + strings.Join(fields, "\x00") +
-		"\x00storedValues\x00" + strings.Join(canonicalStoredValues, "\x00")
-	digest := sha256.Sum256([]byte(canonical))
-	return fmt.Sprintf("%s%s", previewCoveringIndexNamePrefix, hex.EncodeToString(digest[:8]))
 }

@@ -120,7 +120,7 @@ const previewIndexMigrationPattern = `(${previewIndexMigrationTests.join('|')})`
 
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
-    ['compiler', './internal/dataframe/compiler', 'TestPivotPresenceArangoAudit'],
+    ['compiler', './internal/dataframe/compiler', 'TestCurrentPivotNullMissingPartitionAgainstArango'],
     ['execution', './internal/dataframe/execution', 'TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango'],
     ['explorer', './internal/explorer/arango', 'TestSelectionStorageAgainstArango'],
     ['store', './internal/store/arango', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
@@ -180,18 +180,22 @@ profiles.find(p => p.id === 'explorer').alsoRequired = [
     'TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstArango',
 ];
 profiles.find(p => p.id === 'compiler').alsoRequired = [
-    'TestCategoryPairProjectionPreservesPresenceScopeAndOverflowAgainstArango',
-    'TestColumnPopulationMatchesExactArangoStageRows',
-    'TestCurrentPivotNullMissingPartitionAgainstArango',
     'TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango',
     'TestS04TableReshapeOracleAgainstArango',
     'TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango',
     'TestGroupedPivotReservedPhysicalOutputNameAgainstArango',
-    'TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango',
-    'TestRelatedCategoryScanUsesTypedIndexAgainstArango',
-    'TestRelatedStreamingCategoryScanUsesEdgeIndexesAgainstArango',
 ];
 profiles.find(p => p.id === 'compiler').alsoPackages = [
+    { package: './internal/dataframe/compiler/scan', required: 'TestPivotPresenceArangoAudit', alsoRequired: [
+        'TestCategoryPairProjectionPreservesPresenceScopeAndOverflowAgainstArango',
+        'TestColumnPopulationMatchesExactArangoStageRows',
+        'TestConstructionCategoryScanPreservesMissingAndNullAgainstArango',
+        'TestRelatedCategoryScanUsesTypedIndexAgainstArango',
+        'TestRelatedStreamingCategoryScanUsesEdgeIndexesAgainstArango',
+        'TestRootCategoryScanTracksValueQuantityCodeParentPresenceAndOverflowAgainstArango',
+        'TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango',
+        'TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango'
+    ] },
     { package: './internal/dataframe/compiler/celltrace', required: 'TestFilteredSourceCellTraceMatchesForwardValueAgainstArango' },
     { package: './internal/dataframe/compiler/population', required: 'TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango', alsoRequired: ['TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango'] },
     { package: './internal/dataframe/compiler/rowlineage', required: 'TestGroupRowLineagePartitionsForwardRowsAgainstArango' },

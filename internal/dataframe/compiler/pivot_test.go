@@ -419,44 +419,6 @@ func dynamicConstructionPivotOutput(policy recipe.PivotDuplicatePolicy) recipe.O
 
 func reshapeOracleStringPointer(value string) *string { return &value }
 
-func constructionPreviewMultiKeyPivotOutput() recipe.Output {
-	categoryFemale, categoryMale := "female", "male"
-	return recipe.Output{
-		Name: "two_scan_multi_key_preview", RootResourceType: "Patient", RowGrain: "patient",
-		Fields: []recipe.Field{
-			{Name: "birth_date", ColumnID: "birth_date_id", Expr: recipe.Expression{Select: "root.birthDate"}},
-			{Name: "active", ColumnID: "active_id", Expr: recipe.Expression{Select: "root.active"}},
-			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.gender"}},
-			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.multipleBirthInteger"}},
-		},
-		Construction: &recipe.Construction{
-			Version: 1,
-			SourceColumns: []recipe.StageColumn{
-				{ID: "birth_date_id", Name: "birth_date"}, {ID: "active_id", Name: "active"},
-				{ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
-			},
-			Steps: []recipe.ConstructionStep{{
-				ID:     "pivot_two_scan_multi_key_rows",
-				Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
-					ConstructionID: "two_scan_multi_key_pivot", GroupKeyIDs: []string{"birth_date_id", "active_id"},
-					CategoryColumnID: "category_id", ValueColumnID: "amount_id",
-					Categories: []recipe.ConstructionPivotCategory{
-						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryFemale}, OutputColumnID: "female_amount_id"},
-						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryMale}, OutputColumnID: "male_amount_id"},
-					},
-					DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
-					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
-				}},
-				Outputs: []recipe.StageColumn{
-					{ID: "birth_date_id", Name: "birth_date"}, {ID: "active_id", Name: "active"},
-					{ID: "female_amount_id", Name: "female_amount"}, {ID: "male_amount_id", Name: "male_amount"},
-				},
-			}},
-		},
-	}
-}
-
 func reshapeOracleValue(value *float64) any {
 	if value == nil {
 		return nil
@@ -1073,10 +1035,6 @@ func reshapeOracleColumnNullable(columns []lower.CompiledOutputColumn, name stri
 		}
 	}
 	return false
-}
-
-func reshapeOracleStringFilter(value string) recipe.FilterValue {
-	return recipe.FilterValue{Kind: recipe.FilterString, String: &value}
 }
 
 func queryReshapeOracle(ctx context.Context, client *store.Client, query model.CompiledQuery) ([]map[string]any, error) {

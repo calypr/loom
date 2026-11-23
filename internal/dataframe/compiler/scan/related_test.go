@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"crypto/sha256"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
@@ -21,7 +22,7 @@ import (
 
 func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t *testing.T) {
 	output := compilePopulationMappingOutput(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}))
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "add_amount", ColumnID: "category_id", ValueColumnID: "amount_id"}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +180,7 @@ func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallbac
 	legacy.OptimizedPlan = nil
 	legacy.Plan = ir.ClonePhysicalPlan(legacy.Plan)
 	legacy.Plan.BindVars["dataset_generation"] = nil
-	if _, err := CompileCategoryScanStageWithPolicy(legacy, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+	if _, err := Compile(legacy, StageColumn{StageID: "add_amount", ColumnID: "category_id", ValueColumnID: "amount_id"}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("nil dataset generation bypassed the existing typed related-field source validation")
 	}
 
@@ -187,7 +188,7 @@ func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallbac
 	denied.OptimizedPlan = nil
 	denied.Plan = ir.ClonePhysicalPlan(denied.Plan)
 	denied.Plan.BindVars["scope_allowed"] = false
-	deniedScan, err := CompileCategoryScanStageWithPolicy(denied, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	deniedScan, err := Compile(denied, StageColumn{StageID: "add_amount", ColumnID: "category_id", ValueColumnID: "amount_id"}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,11 +574,11 @@ func compileRelatedCategoryRuntimeScansWithBindings(t *testing.T, definition rec
 		t.Fatal(err)
 	}
 	output := compiled.Outputs[0]
-	full, err := CompileRecipeOutputWithPolicy(output, bindings, 1024, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := compiler.CompileRecipeOutputWithPolicy(output, bindings, 1024, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_amount", "category_id", "amount_id", maxValues, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "add_amount", ColumnID: "category_id", ValueColumnID: "amount_id"}, maxValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,7 +609,7 @@ func TestCompileRelatedCategoryScanFallsBackForUnsafeShapes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			output := compilePopulationMappingOutput(t, relatedCategoryScanOutput(test.options))
-			scanned, err := CompileCategoryScanStageWithPolicy(output, test.options.TerminalIDForTest(), "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+			scanned, err := Compile(output, StageColumn{StageID: test.options.TerminalIDForTest(), ColumnID: "category_id", ValueColumnID: "amount_id"}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -631,7 +632,7 @@ func TestCompileRelatedCategoryScanRejectsMismatchedOrInactiveColumnIDs(t *testi
 		{stage: "add_amount", category: "stale_category", value: "amount_id"},
 		{stage: "add_amount", category: "category_id", value: "stale_value"},
 	} {
-		_, err := CompileCategoryScanStageWithPolicy(output, test.stage, test.category, test.value, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+		_, err := Compile(output, StageColumn{StageID: test.stage, ColumnID: test.category, ValueColumnID: test.value}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 		var refusal *CategoryScanRefusal
 		if !errors.As(err, &refusal) {
 			t.Errorf("scan (%q, %q, %q) error = %v, want typed refusal", test.stage, test.category, test.value, err)
@@ -679,16 +680,6 @@ type relatedCategoryScanOptions struct {
 	unsupportedStage     bool
 	valueFromPatient     bool
 	secondEmptyPolicy    recipe.ExpansionEmptyPolicy
-}
-
-func (options relatedCategoryScanOptions) TerminalIDForTest() string {
-	if options.valueFromPatient {
-		return "add_category"
-	}
-	if options.unsupportedStage {
-		return "unsupported_filter"
-	}
-	return "add_amount"
 }
 
 func relatedCategoryScanOutput(options relatedCategoryScanOptions) recipe.Output {
@@ -800,4 +791,13 @@ func relatedFieldStep(id, inputID, outputID string, columns []recipe.StageColumn
 func relatedTerminalIdentityColumn(stageID string) string {
 	digest := sha256.Sum256([]byte(stageID))
 	return fmt.Sprintf("__loom_related_terminal_id_%x", digest)
+}
+func (options relatedCategoryScanOptions) TerminalIDForTest() string {
+	if options.valueFromPatient {
+		return "add_category"
+	}
+	if options.unsupportedStage {
+		return "unsupported_filter"
+	}
+	return "add_amount"
 }

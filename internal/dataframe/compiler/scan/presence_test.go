@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"context"
@@ -611,10 +611,11 @@ func compileRootValueQuantityCodeCategoryScan(t *testing.T, project, generation 
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan, err := CompileCategoryScanStageWithPolicy(
-		compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id",
-		MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy(),
-	)
+	scan, err := Compile(
+		compiled.Outputs[0], StageColumn{StageID: recipe.ConstructionSourceProjectionID, ColumnID: "category_id", ValueColumnID: "value_id"},
+
+		MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -209,7 +209,7 @@ func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOu
 			presenceOutputs++
 			continue
 		}
-		if _, ok := previewCoveringProjectionPath(projection, root.Variable); !ok {
+		if _, ok := model.PreviewCoveringProjectionPath(projection, root.Variable); !ok {
 			return false
 		}
 	}

@@ -494,34 +494,6 @@ func TestConstructionGroupMissingKeyPoliciesAgainstArango(t *testing.T) {
 	}
 }
 
-func constructionGroupRowValuesOutput() recipe.Output {
-	return recipe.Output{
-		Name: "construction_group_all_row_values", RootResourceType: "Observation", RowGrain: "observation",
-		Fields: []recipe.Field{
-			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
-			{Name: "tags", ColumnID: "tags_id", Expr: recipe.Expression{Select: "root.note[].text"}, ValueMode: recipe.ValueModeAll},
-		},
-		Construction: &recipe.Construction{
-			Version:       1,
-			SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tags_id", Name: "tags"}},
-			Steps: []recipe.ConstructionStep{{
-				ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
-					ConstructionID: "group_status",
-					Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "grouped_status_id"}},
-					Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
-				}},
-				RowValues: []recipe.ConstructionRowValue{{InputColumnID: "tags_id", OutputColumnID: "tag_values_id", Policy: recipe.ConstructionRowValueAll}},
-				Outputs: []recipe.StageColumn{
-					{ID: "grouped_status_id", Name: "status", Type: "string"},
-					{ID: "rows_id", Name: "rows", Type: "integer"},
-					{ID: "tag_values_id", Name: "tag_values", Type: "array"},
-				},
-			}},
-		},
-	}
-}
-
 func constructionGroupOneRowValueOutput() recipe.Output {
 	output := constructionGroupRowValuesOutput()
 	output.Name = "construction_group_one_row_value"
@@ -529,50 +501,6 @@ func constructionGroupOneRowValueOutput() recipe.Output {
 	step.RowValues[0].Policy = recipe.ConstructionRowValueOne
 	step.Outputs[2].Name = "tag_value"
 	step.Outputs[2].Type = "string"
-	return output
-}
-
-func constructionExpandOutput() recipe.Output {
-	return recipe.Output{
-		Name: "construction_expand_oracle", RootResourceType: "Observation", RowGrain: "observation",
-		Fields: []recipe.Field{
-			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
-			{Name: "tags", ColumnID: "tags_id", Expr: recipe.Expression{Select: "root.note[].text"}, ValueMode: recipe.ValueModeAll},
-		},
-		Construction: &recipe.Construction{
-			Version:       1,
-			SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tags_id", Name: "tags"}},
-			Steps: []recipe.ConstructionStep{{
-				ID: "expand_tags", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionExpandOp, Expand: &recipe.ConstructionExpand{
-					ConstructionID: "expand_tag_values", InputColumnID: "tags_id", OutputColumnID: "tag_id",
-					OrdinalColumnID: "ordinal_id", EmptyPolicy: recipe.ExpansionPreserveParent,
-				}},
-				Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tag_id", Name: "tag"}, {ID: "ordinal_id", Name: "ordinal"}},
-			}},
-		},
-	}
-}
-
-func constructionExpandGroupOutput() recipe.Output {
-	output := constructionExpandOutput()
-	output.Name = "construction_expand_group_oracle"
-	output.Construction.Steps = append(output.Construction.Steps, recipe.ConstructionStep{
-		ID: "group_tags", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_tags"}},
-		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
-			ConstructionID: "group_tag_values",
-			Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "tag_id", OutputColumnID: "grouped_tag_id"}},
-			Aggregates: []recipe.ConstructionGroupAggregate{
-				{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"},
-				{Operation: recipe.ConstructionGroupCountNonNull, InputColumnID: "status_id", OutputColumnID: "status_count_id"},
-				{Operation: recipe.ConstructionGroupCountDistinct, InputColumnID: "status_id", OutputColumnID: "status_distinct_id"},
-			},
-		}},
-		Outputs: []recipe.StageColumn{
-			{ID: "grouped_tag_id", Name: "tag"}, {ID: "rows_id", Name: "rows"},
-			{ID: "status_count_id", Name: "status_count"}, {ID: "status_distinct_id", Name: "status_distinct"},
-		},
-	})
 	return output
 }
 

@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func TestCompileCategoryScanWrapsCompleteFinalOutputWithBoundedDistinct(t *testi
 			MissingInputPolicy: recipe.MissingInputError,
 		}},
 	})
-	compiled, err := CompileCategoryScanOutputWithPolicy(output, "doubled", 256, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := Compile(output, OutputColumn{Column: "doubled"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCompileCategoryScanRefusesNonPublicOrNonScalarColumns(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := CompileCategoryScanOutputWithPolicy(base, test.name, 256, ir.DefaultPhysicalOptimizationPolicy())
+			_, err := Compile(base, OutputColumn{Column: test.name}, 256, ir.DefaultPhysicalOptimizationPolicy())
 			var refusal *CategoryScanRefusal
 			if !errors.As(err, &refusal) || refusal.Code != test.code {
 				t.Fatalf("error = %#v, want %s", err, test.code)
@@ -114,14 +114,14 @@ func TestCompileCategoryScanProofChangesWithSchemaAndSelectedColumn(t *testing.T
 		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}, {Name: "gender", Expr: recipe.Expression{Select: "root.gender"}}},
 	})
-	left, err := CompileCategoryScanOutputWithPolicy(output, "gender", 10, ir.DefaultPhysicalOptimizationPolicy())
+	left, err := Compile(output, OutputColumn{Column: "gender"}, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	rightOutput := output
 	rightOutput.OutputSchema = lower.CloneCompiledOutputSchema(output.OutputSchema)
 	rightOutput.OutputSchema[0].SemanticPath += ":changed"
-	right, err := CompileCategoryScanOutputWithPolicy(rightOutput, "gender", 10, ir.DefaultPhysicalOptimizationPolicy())
+	right, err := Compile(rightOutput, OutputColumn{Column: "gender"}, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestCompileCategoryScanProofChangesWithSchemaAndSelectedColumn(t *testing.T
 
 func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "derive_total", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "total_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	if proof.OutputSchemaDigest == "" || proof.PlanFingerprint == "" || proof.QueryFingerprint == "" || proof.Fingerprint == "" {
 		t.Fatalf("incomplete stage scan proof: %#v", proof)
 	}
-	otherPair, err := CompileCategoryScanStageWithPolicy(output, "derive_total", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	otherPair, err := Compile(output, StageColumn{StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "amount_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 		{stage: "derive_total", category: "stale_category", value: "total_id", want: CategoryScanColumnUnknown},
 		{stage: "derive_total", category: "status_id", value: "stale_value", want: CategoryScanColumnUnknown},
 	} {
-		_, err := CompileCategoryScanStageWithPolicy(output, test.stage, test.category, test.value, 256, ir.DefaultPhysicalOptimizationPolicy())
+		_, err := Compile(output, StageColumn{StageID: test.stage, ColumnID: test.category, ValueColumnID: test.value}, 256, ir.DefaultPhysicalOptimizationPolicy())
 		var refusal *CategoryScanRefusal
 		if !errors.As(err, &refusal) || refusal.Code != test.want {
 			t.Errorf("stage scan (%q, %q, %q) error = %v, want refusal %s", test.stage, test.category, test.value, err, test.want)
@@ -222,11 +222,11 @@ func TestCompileColumnPopulationRejectsInvalidBatchesAndNonscalarColumns(t *test
 
 func TestCompileCategoryScanRequiringValueBindsPresencePolicyAndStageSchema(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
-	ordinary, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	ordinary, err := Compile(output, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "amount_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	valueAware, err := CompileCategoryScanStageRequiringValue(output, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	valueAware, err := Compile(output, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "amount_id", RequireValue: true}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestCompileCategoryScanRequiringValueBindsPresencePolicyAndStageSchema(t *t
 		changed.Stages[index].Columns = append([]lower.CompiledOutputColumn(nil), changed.Stages[index].Columns...)
 		changed.Stages[index].Columns[0].SemanticPath += ":changed"
 	}
-	changedScan, err := CompileCategoryScanStageRequiringValue(changed, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	changedScan, err := Compile(changed, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "amount_id", RequireValue: true}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe
 	output.Construction = &construction
 	compiled := compilePopulationMappingOutput(t, output)
 
-	scanned, err := CompileCategoryScanStageWithPolicy(compiled, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(compiled, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "amount_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe
 
 func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategories(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, false))
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "add_status", ColumnID: "category_id", ValueColumnID: "value_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,10 +380,11 @@ func TestCompileCategoryScanUsesLegacyIndexFallbackWhenRootCollectionTypeIsUnpro
 	}
 	output.Plan.BindVars[root.CollectionBindKey] = "ObservationShadow"
 
-	scanned, err := CompileCategoryScanStageWithPolicy(
-		output, recipe.ConstructionSourceProjectionID, "status_id", "amount_id", 256,
-		ir.DefaultPhysicalOptimizationPolicy(),
-	)
+	scanned, err := Compile(
+		output, StageColumn{StageID: recipe.ConstructionSourceProjectionID, ColumnID: "status_id", ValueColumnID: "amount_id"},
+		256,
+		ir.DefaultPhysicalOptimizationPolicy())
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +450,7 @@ func TestCategoryScanRootCategoryFastPathRejectsUnsafePrefixes(t *testing.T) {
 			output := compilePopulationMappingOutput(t, test.output)
 			stageID := "add_status"
 			categoryID := "category_id"
-			scanned, err := CompileCategoryScanStageWithPolicy(output, stageID, categoryID, "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+			scanned, err := Compile(output, StageColumn{StageID: stageID, ColumnID: categoryID, ValueColumnID: "value_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -527,7 +528,7 @@ func categoryScanRelatedRecipeOutput(emptyPolicy recipe.ExpansionEmptyPolicy, wi
 
 func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "total_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +631,7 @@ func categoryScanConstructionRecipeOutput() recipe.Output {
 
 func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanFilterTestOutput(recipe.FilterEquals))
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "keep_active", "birth_date_id", "patient_id", 32, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "keep_active", ColumnID: "birth_date_id", ValueColumnID: "patient_id"}, 32, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +650,7 @@ func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(
 	}
 
 	ineligibleOutput := compilePopulationMappingOutput(t, categoryScanFilterTestOutput(recipe.FilterExists))
-	ineligible, err := CompileCategoryScanStageWithPolicy(ineligibleOutput, "keep_active", "birth_date_id", "patient_id", 32, ir.DefaultPhysicalOptimizationPolicy())
+	ineligible, err := Compile(ineligibleOutput, StageColumn{StageID: "keep_active", ColumnID: "birth_date_id", ValueColumnID: "patient_id"}, 32, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +709,7 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if output.Plan.StageSequence != nil {
 		t.Fatal("source-only output unexpectedly has a construction stage sequence")
 	}
-	scanned, err := CompileCategoryScanStageWithPolicy(output, recipe.ConstructionSourceProjectionID, "category_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: recipe.ConstructionSourceProjectionID, ColumnID: "category_id", ValueColumnID: "amount_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -717,7 +718,7 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 		t.Fatalf("direct source category discovery did not emit an explicit-pair covering-index spec:\n%s", scanned.Query)
 	}
 	wantFields := []string{"project", "dataset_generation", "_key", "payload.gender", "payload.id", "payload.multipleBirthInteger"}
-	if index.Collection != "Patient" || !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) || !reflect.DeepEqual(index.Fields, wantFields) {
+	if index.Collection != "Patient" || !strings.HasPrefix(index.Name, model.PreviewCoveringIndexNamePrefix) || !reflect.DeepEqual(index.Fields, wantFields) {
 		t.Fatalf("category scan covering-index metadata = %+v, want collection Patient fields %#v", index, wantFields)
 	}
 	projectionCount := 0
@@ -761,11 +762,11 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
 		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", scanned.Query)
 	}
-	if !strings.Contains(scanned.Query, `indexHint: "`+previewCoveringIndexNamePrefix) || !strings.Contains(scanned.Query, "forceIndexHint: false") || strings.Contains(scanned.Query, "forceIndexHint: true") {
+	if !strings.Contains(scanned.Query, `indexHint: "`+model.PreviewCoveringIndexNamePrefix) || !strings.Contains(scanned.Query, "forceIndexHint: false") || strings.Contains(scanned.Query, "forceIndexHint: true") {
 		t.Fatalf("category scan should use its optional covering index without requiring it:\n%s", scanned.Query)
 	}
 
-	withoutPair, err := CompileCategoryScanOutputWithPolicy(output, "category", 256, ir.DefaultPhysicalOptimizationPolicy())
+	withoutPair, err := Compile(output, OutputColumn{Column: "category"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -799,7 +800,7 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 	output.Construction = &construction
 	compiled := compilePopulationMappingOutput(t, output)
 
-	scanned, err := CompileCategoryScanStageWithPolicy(compiled, "expand_tags", "status_id", "tag_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(compiled, StageColumn{StageID: "expand_tags", ColumnID: "status_id", ValueColumnID: "tag_id"}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -817,7 +818,7 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 
 func TestCompileCategoryScanRequiringValueFiltersEmptyPivotColumns(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
-	scanned, err := CompileCategoryScanStageRequiringValue(output, "derive_total", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, StageColumn{StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "total_id", RequireValue: true}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -866,7 +867,7 @@ func TestSourceCategoryPairScanProjectsOnlyRequestedValuesAndPresence(t *testing
 		},
 		Construction: &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "id", Name: "id"}, {ID: "category", Name: "category"}, {ID: "value", Name: "value"}, {ID: "unrelated", Name: "unrelated"}}},
 	})
-	scan, err := CompileCategoryScanStageRequiringValue(output, recipe.ConstructionSourceProjectionID, "category", "value", 256, ir.DefaultPhysicalOptimizationPolicy())
+	scan, err := Compile(output, StageColumn{StageID: recipe.ConstructionSourceProjectionID, ColumnID: "category", ValueColumnID: "value", RequireValue: true}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -957,7 +958,7 @@ FOR document IN %s
 				}
 				audited := appendPresenceAuditPivot(fixture.output, stage, category, *value)
 				compiled := compilePresenceAuditOutput(t, audited, project, generation, []string{allowedPath})
-				scanned, err := CompileCategoryScanStageWithPolicy(compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+				scanned, err := Compile(compiled, StageColumn{StageID: stage.ID, ColumnID: category.ID, ValueColumnID: value.ID}, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Logf("%s\t%s\t%s\tCOMPILE_REFUSED\t%v", fixture.name, stage.ID, category.Name, err)
 					continue
@@ -1411,7 +1412,7 @@ func TestCompileCategoryScanOutputRequiringValueFiltersEmptyPivotColumns(t *test
 		},
 	})
 	category, value := "gender", "birth_date"
-	scanned, err := CompileCategoryScanOutputRequiringValue(output, category, value, 256, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := Compile(output, OutputColumn{Column: category, ValueColumn: value, RequireValue: true}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1427,7 +1428,7 @@ func TestCompileCategoryScanOutputRequiringValueFiltersEmptyPivotColumns(t *test
 	if got := scanned.BindVars["__loom_category_value_column"]; got != value {
 		t.Fatalf("requiring-value category scan bound value column to %#v, want %s", got, value)
 	}
-	baseline, err := CompileCategoryScanOutputWithPolicy(output, category, 256, ir.DefaultPhysicalOptimizationPolicy())
+	baseline, err := Compile(output, OutputColumn{Column: category}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

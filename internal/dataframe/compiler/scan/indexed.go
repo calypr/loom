@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"fmt"
@@ -31,7 +31,7 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 		return "", nil, nil, fmt.Errorf("category projection is missing")
 	}
 	value, direct := ir.DirectScalarRootProjectionValue(*projection, root.Variable)
-	if !direct || !categoryScanProjectionPresenceMatches(*projection, root.Variable, value) || !validPreviewIndexPath(value.Path) {
+	if !direct || !categoryScanProjectionPresenceMatches(*projection, root.Variable, value) || !model.ValidPreviewIndexPath(value.Path) {
 		return "", nil, nil, fmt.Errorf("category projection has no exact direct scalar presence proof")
 	}
 
@@ -56,8 +56,8 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 
 func categoryScanUsesStoredQuantityParent(index *model.PreviewCoveringIndexSpec, valuePath []string) bool {
 	if index == nil || index.Collection != "Observation" ||
-		!reflect.DeepEqual(index.Fields, previewQuantityCategoryFields()) ||
-		!reflect.DeepEqual(index.StoredValues, previewQuantityCategoryStoredValues()) || len(index.StoredValues) < 2 {
+		!reflect.DeepEqual(index.Fields, model.PreviewQuantityCategoryFields()) ||
+		!reflect.DeepEqual(index.StoredValues, model.PreviewQuantityCategoryStoredValues()) || len(index.StoredValues) < 2 {
 		return false
 	}
 	parent := strings.Split(index.StoredValues[1], ".")

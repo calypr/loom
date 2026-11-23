@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -13,7 +13,7 @@ func withCategoryScanSourceFilterPushdown(plan ir.PhysicalPlan) ir.PhysicalPlan 
 		plan.Operations[0].RootScan.Population != nil {
 		return plan
 	}
-	insertAt := rootPageInsertionIndex(plan.Operations)
+	insertAt := ir.RootPageInsertionIndex(plan.Operations)
 	if insertAt < 1 || insertAt >= len(plan.Operations) {
 		return plan
 	}

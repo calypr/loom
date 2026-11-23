@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"bytes"
@@ -72,11 +72,11 @@ func TestCategoryPairProjectionPreservesPresenceScopeAndOverflowAgainstArango(t 
 		return result.Rows
 	}
 	for _, limit := range []int{256, 2} {
-		before, err := CompileCategoryScanOutputRequiringValue(output, "category", "value", limit, ir.DefaultPhysicalOptimizationPolicy())
+		before, err := Compile(output, OutputColumn{Column: "category", ValueColumn: "value", RequireValue: true}, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
-		after, err := CompileCategoryScanStageRequiringValue(output, recipe.ConstructionSourceProjectionID, "category", "value", limit, ir.DefaultPhysicalOptimizationPolicy())
+		after, err := Compile(output, StageColumn{StageID: recipe.ConstructionSourceProjectionID, ColumnID: "category", ValueColumnID: "value", RequireValue: true}, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}

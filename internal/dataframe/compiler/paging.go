@@ -421,7 +421,7 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 	if candidateSeed != nil {
 		out.Operations[0].RootScan.PageCandidateSeed = candidateSeed
 	}
-	insertAt := rootPageInsertionIndex(out.Operations)
+	insertAt := ir.RootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageAfterKeyBind] = ""
 	out.BindVars[RootPageSizeBind] = pageSize
 	source := ir.PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType, SemanticField: "_key"}
@@ -869,7 +869,7 @@ func selectedRootsPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {
 	}
 	out := ir.ClonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
-	insertAt := rootPageInsertionIndex(out.Operations)
+	insertAt := ir.RootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageKeysBind] = []string{}
 	if rootPageKeyLookupSafe(out) {
 		return out, true, nil
@@ -941,21 +941,4 @@ func rootPageKeyLookupSafe(plan ir.PhysicalPlan) bool {
 		}
 	}
 	return true
-}
-
-func rootPageInsertionIndex(operations []ir.PhysicalOperation) int {
-	index := 5
-	for index < len(operations) {
-		operation := operations[index]
-		if operation.Kind == ir.PhysicalExpressionLetOp {
-
-			if index+1 >= len(operations) || operations[index+1].Kind != ir.PhysicalFilterOp {
-				break
-			}
-		} else if operation.Kind != ir.PhysicalFilterOp {
-			break
-		}
-		index++
-	}
-	return index
 }

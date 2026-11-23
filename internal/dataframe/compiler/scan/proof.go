@@ -1,4 +1,4 @@
-package compiler
+package scan
 
 import (
 	"strings"
@@ -264,8 +264,8 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	if selected == nil {
 		return nil
 	}
-	path, ok := previewCoveringProjectionPath(*selected, root.Variable)
-	if !ok || !validPreviewIndexPath(strings.Split(path, ".")) {
+	path, ok := model.PreviewCoveringProjectionPath(*selected, root.Variable)
+	if !ok || !model.ValidPreviewIndexPath(strings.Split(path, ".")) {
 		return nil
 	}
 	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
@@ -275,18 +275,18 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	rootType := strings.TrimSpace(plan.Source.ResourceType)
 	if collection == "Observation" && rootType == collection &&
 		path == "payload.valueQuantity.code" && categoryScanHasExactRootPresencePath(*selected, root.Variable, strings.Split(path, ".")) {
-		legacyStoredValues := previewQuantityCategoryStoredValues()
-		fields := previewQuantityCategoryFields()
+		legacyStoredValues := model.PreviewQuantityCategoryStoredValues()
+		fields := model.PreviewQuantityCategoryFields()
 		return &model.PreviewCoveringIndexSpec{
 			Collection:   collection,
-			Name:         previewCoveringIndexNameWithStoredValues(collection, fields, legacyStoredValues),
+			Name:         model.PreviewCoveringIndexNameWithStoredValues(collection, fields, legacyStoredValues),
 			Fields:       fields,
 			StoredValues: legacyStoredValues,
 		}
 	}
 	if rootType == "" || collection != rootType {
 		fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
-		return &model.PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
+		return &model.PreviewCoveringIndexSpec{Collection: collection, Name: model.PreviewCoveringIndexName(collection, fields), Fields: fields}
 	}
 	fields := []string{"project", "dataset_generation", path}
 	seen := make(map[string]struct{}, len(fields))
@@ -301,7 +301,7 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 		storedValues = append(storedValues, "resourceType")
 	}
 	return &model.PreviewCoveringIndexSpec{
-		Collection: collection, Name: previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
+		Collection: collection, Name: model.PreviewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
 		Fields: fields, StoredValues: storedValues,
 	}
 }
