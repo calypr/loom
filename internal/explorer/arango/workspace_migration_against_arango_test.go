@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"reflect"
 	"sort"
 	"strings"
@@ -282,7 +283,7 @@ func workspaceMigrationCapabilitySnapshot(t *testing.T, ctx context.Context, cli
 	if err := capability.ValidateSnapshot(snapshot); err != nil {
 		t.Fatal(err)
 	}
-	storeAdapter, err := NewCapabilitySnapshotStore(client)
+	storeAdapter, err := capabilitydb.NewCapabilitySnapshotStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}

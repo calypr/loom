@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"slices"
 	"strings"
 	"time"
@@ -330,7 +331,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			if token == "" {
 				return plan, fmt.Errorf("%s/%s requires a retained capability token", entry.Collection, entry.Key)
 			}
-			snapshots, err := NewCapabilitySnapshotStore(client)
+			snapshots, err := capabilitydb.NewCapabilitySnapshotStore(client)
 			if err != nil {
 				return plan, err
 			}

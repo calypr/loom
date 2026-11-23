@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"log/slog"
 
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
@@ -37,7 +38,7 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
 		return explorerComponents{}, fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
 	}
-	capabilitySnapshots, err := explorerarango.NewCapabilitySnapshotStore(lifecycleClient)
+	capabilitySnapshots, err := capabilitydb.NewCapabilitySnapshotStore(lifecycleClient)
 	if err != nil {
 		return explorerComponents{}, fmt.Errorf("create Explorer capability snapshot store: %w", err)
 	}

@@ -1,4 +1,4 @@
-package arango
+package capabilitydb
 
 import (
 	"context"
@@ -10,6 +10,11 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	storepkg "github.com/calypr/loom/internal/store/arango"
 )
+
+type queryCall struct {
+	query string
+	binds map[string]any
+}
 
 type capabilitySnapshotClient struct {
 	calls []queryCall

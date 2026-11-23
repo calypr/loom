@@ -1,6 +1,7 @@
 package arango
 
 import (
+	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -59,7 +60,7 @@ func CollectionSpecs() []store.CollectionSpec {
 		{Name: InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
 		{Name: ViewBuilderSettingsCollection, Indexes: [][]string{{"project"}}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
-		CapabilitySnapshotCollectionSpec(),
+		capabilitydb.CapabilitySnapshotCollectionSpec(),
 		workspaceProjectionCollectionSpec(),
 	}
 }
