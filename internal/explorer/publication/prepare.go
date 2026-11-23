@@ -1,4 +1,4 @@
-package lifecycle
+package publication
 
 import (
 	"context"
@@ -19,6 +19,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/projectid"
+)
+
+const (
+	defaultArtifactTTL            = 24 * time.Hour
+	defaultArtifactFilename       = "loom-dataset-artifact-v2.zip"
+	defaultArtifactMaxRows  int64 = 10_000_000
+	defaultArtifactMaxBytes int64 = 2 << 30
 )
 
 func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) (ArtifactResult, error) {
@@ -215,7 +222,7 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	if err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, authoringcore.CapabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
-	if err := validateReceiptCapability(receipt, snapshot); err != nil {
+	if err := authoringcore.ValidateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
 	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {

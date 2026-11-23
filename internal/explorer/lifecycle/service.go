@@ -23,6 +23,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/explorer/proposal"
+	"github.com/calypr/loom/internal/explorer/publication"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/explorer/selection"
@@ -43,6 +44,7 @@ type Service struct {
 	rowSourceService      *rowsource.Service
 	populationService     *population.Service
 	proposalService       *proposal.Service
+	publicationService    *publication.Service
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -154,6 +156,19 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.proposalService = proposalService
+	publicationService, err := publication.NewService(publication.Config{
+		Core: service.core, Store: store, Capability: config.Capability,
+		SelectionMembersCollection: config.SelectionMembersCollection,
+		CompileReceipt:             config.CompileReceipt, MaterializeReceipt: config.MaterializeReceipt,
+		ArtifactStore: config.ArtifactStore, PublishedReader: config.PublishedReader,
+		ArtifactTTL: config.ArtifactTTL, ArtifactMaxRows: config.ArtifactMaxRows, ArtifactMaxBytes: config.ArtifactMaxBytes,
+		ValidateReleaseGeneration: config.ValidateReleaseGeneration, ActivateRelease: config.ActivateRelease,
+		PrepareRelease: config.PrepareRelease, PersistPublishedWorkspace: config.PersistPublishedWorkspace, Now: now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	service.publicationService = publicationService
 	return service, nil
 }
 
@@ -164,7 +179,7 @@ func (s *Service) populationConfig() population.Config {
 		Store:                        s.store,
 		SelectionMembersCollection:   s.config.SelectionMembersCollection,
 		CreateSelection:              s.selectionService.CreateSelection,
-		ClassifyMaterializationError: classifyMaterializationError,
+		ClassifyMaterializationError: support.ClassifyMaterializationError,
 		PopulationMapping:            s.config.PopulationMapping,
 		PopulationMappingCursorCodec: s.config.PopulationMappingCursorCodec,
 	}

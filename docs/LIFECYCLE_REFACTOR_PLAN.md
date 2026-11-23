@@ -87,7 +87,7 @@ construction     rowdef         population        proposal     semanticbrowse   
 | --- | --- | --- |
 | `explorer/authoringcore` | `getOwner`, `currentWorkspace`, `resolveCompilationCapability`, `compile`/`compileAuthorized`/`validateCompiledReceipt` plus binding clone/compare helpers, `lookupReceipt`, `validateExecutableReceiptRoute`, `verifyProposalReceipt`, `catalog`, `Preview`, interpretation/population input resolution | `authoring.go` (≈ lines 392–560, 680–710), `policy.go`, `proof.go`, `dataframe.go`, `preview.go`, `interpretation.go`, `population.go`, `construction/search.go` `currentWorkspace` |
 | `explorer/semanticbrowse` | Semantic inventory browse, field presentation, schema field search, column source, frame-source browse and `reauthorizeFrameSourceChoice` | `inventory.go`, `presentation.go`, `frame.go`, `schema.go`, `column.go`, `browse.go` |
-| `explorer/publication` (new, name open) | Publish, repository publish, artifact prepare/open/download, artifact descriptors, `DelayArtifactRows` | `publish.go`, `repository.go`, `artifact.go`, `download.go`, `prepare.go`, `descriptor.go`, `limits.go` |
+| `explorer/publication` | Publish, repository publish, artifact prepare/open/download, artifact descriptors, `DelayArtifactRows` | `publish.go`, `repository.go`, `artifact.go`, `download.go`, `prepare.go`, `descriptor.go`, `limits.go` |
 | `explorer/lifecycle` | Authoring command application (`ApplyCommands*`, policy/relationship/imported-source proposals, authoring network, reconcile, revision restore), explorer CRUD and list, cell trace, and composition (`New`) | remainder |
 
 Rules for the end state:
@@ -240,7 +240,20 @@ actual symbol moves, behavior checks, and audit registration remain Phase 3 work
   (Go diff and new-file fingerprint `ee9e753f265638067feb486595f15f706611e543081ac1aa2ee77b102d365f83`).
   Their focused compile and receipt, preview and owner, and service wiring checks found
   no proven behavioral regressions.
-- Phases 4–6 — pending.
+- Phase 4 — worktree verification in progress.
+- Phase 5 — done. Publish, repository publish, and artifact preparation, download,
+  descriptors, identity, and row delay now belong to `explorer/publication`. The name
+  identifies Explorer publication and artifacts. `server/sourcepublication` remains
+  the source-commit adapter. No `publicationcontract` name collision exists.
+  Lifecycle went from 7,377 to 6,173 source lines and from 29,504 to 28,516
+  test lines. Its dependency closure adds only `internal/explorer/publication`.
+  Build, vet, comments, focused and full audit, integration, and the isolated
+  real-data acceptance flow with headless Chrome passed. The first acceptance run
+  passed data and API checks and failed to load Playwright. Installing it in the
+  worktree resolved browser smoke. Three same-model reviewers found no proven regressions.
+  The artifact tests moved. Lifecycle retained its facade tests and the population
+  mapping limits. Shared materialization error classification moved to support.
+- Phase 6 — pending.
 
 ## Verification and review
 

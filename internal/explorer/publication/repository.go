@@ -1,4 +1,4 @@
-package lifecycle
+package publication
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func classifyRepositoryCompilationError(err error) error {
 	if errors.Is(err, capability.ErrSnapshotUnavailable) {
 		return support.Unavailable("repository_publish", "CAPABILITY_UNAVAILABLE", "repository V2 compilation capability is unavailable", err)
 	}
-	if classified := classifyMaterializationError("repository_publish", err); classified != nil {
+	if classified := support.ClassifyMaterializationError("repository_publish", err); classified != nil {
 		return classified
 	}
 	return support.Unavailable("repository_publish", "COMPILATION_UNAVAILABLE", "the repository V2 workspace could not be compiled", err)
@@ -113,7 +113,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		if errors.As(err, &typed) {
 			return RepositoryPublishResult{}, typed
 		}
-		if classifiedErr := classifyMaterializationError("repository_publish", err); classifiedErr != nil {
+		if classifiedErr := support.ClassifyMaterializationError("repository_publish", err); classifiedErr != nil {
 			return RepositoryPublishResult{}, classifiedErr
 		}
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "MATERIALIZATION_FAILED", "repository V2 materialization is unavailable", err)

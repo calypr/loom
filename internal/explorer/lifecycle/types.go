@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/explorer/authoringcore"
+	"github.com/calypr/loom/internal/explorer/publication"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
@@ -21,7 +22,6 @@ import (
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -43,9 +43,9 @@ type CellTraceExecutor func(context.Context, *receiptmodel.CompilationReceipt, r
 
 type RowLineageExecutor func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
-type GenerationValidator func(context.Context, string, string) error
-type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
-type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
+type GenerationValidator = publication.GenerationValidator
+type ReleaseActivator = publication.ReleaseActivator
+type ReleasePreparer = publication.ReleasePreparer
 
 type Config struct {
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, ws.CatalogSnapshot) (ws.Workspace, error)
@@ -192,35 +192,12 @@ type CellTraceFeature struct {
 	LossReasons        []string `json:"lossReasons"`
 }
 
-type PublishRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	Actor      string
-}
-
-type PublishResult struct {
-	Receipt   *receiptmodel.CompilationReceipt
-	Revision  *explorer.Revision
-	Execution ports.Execution
-}
-
-type RepositoryPublishRequest struct {
-	Project    string
-	Generation string
-	Workspace  ws.Workspace
-	Commit     string
-	Actor      string
-}
-
-type RepositoryPublishResult struct {
-	Receipt          *receiptmodel.CompilationReceipt
-	Owner            *explorer.Explorer
-	Revision         *explorer.Revision
-	Execution        ports.Execution
-	Materializations []viewer.Materialization
-	Dataset          viewer.DatasetMetadata
-	Publication      viewer.PublicationMetadata
-}
+type PublishRequest = publication.PublishRequest
+type PublishResult = publication.PublishResult
+type RepositoryPublishRequest = publication.RepositoryPublishRequest
+type RepositoryPublishResult = publication.RepositoryPublishResult
+type ArtifactRequest = publication.ArtifactRequest
+type ArtifactResult = publication.ArtifactResult
+type ArtifactOpenRequest = publication.ArtifactOpenRequest
 
 type PreviewRequest = authoringcore.PreviewRequest

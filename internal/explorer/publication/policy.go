@@ -1,17 +1,14 @@
-package lifecycle
+package publication
 
 import (
 	"fmt"
-	"strings"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	"strings"
 )
 
 func selectorsForBundle(bundle recipe.Bundle) []dataset.DataframeSelector {
@@ -79,20 +76,4 @@ func datasetMetadataFromExecution(bundle recipe.Bundle, generation, schemaDigest
 		outputs = append(outputs, viewer.DatasetOutput{Name: output.Name, State: state, Queryable: state == "PUBLISHED" || state == "READY" || state == "ACTIVE", Selector: &selector, Columns: output.Columns})
 	}
 	return viewer.DatasetMetadata{Generation: generation, SchemaDigest: schemaDigest, Outputs: outputs}
-}
-
-func validateReceiptCapability(receipt *receiptmodel.CompilationReceipt, snapshot capability.Snapshot) error {
-	if receipt == nil {
-		return fmt.Errorf("compilation receipt is required")
-	}
-	if snapshot.Identity.Project != receipt.Project || snapshot.Identity.Generation != receipt.SourceGeneration {
-		return fmt.Errorf("receipt capability project or generation changed")
-	}
-	if snapshot.Identity.AuthorizationScopeDigest != receipt.AuthorizationScopeDigest {
-		return fmt.Errorf("receipt authorization scope changed")
-	}
-	if snapshot.Identity.SchemaDigest != receipt.CapabilitySchemaDigest {
-		return fmt.Errorf("receipt capability schema changed")
-	}
-	return nil
 }

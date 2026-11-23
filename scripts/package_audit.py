@@ -159,6 +159,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/lifecycle/support': 'Share lifecycle errors, request validation, and authorization-scope checks.',
  'internal/explorer/population': 'Encode and validate signed population mapping cursors.',
  'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
+ 'internal/explorer/publication': 'Publish Explorer revisions and prepare, open, and download immutable training artifacts.',
  'internal/explorer/proposal': 'Own proposal preview options, results, and execution errors.',
  'internal/explorer/receipt': 'Compile, validate, preview, and materialize Explorer receipts.',
  'internal/explorer/receipt/output': 'Reconcile authored output columns and lineage with compiled receipt metadata.',

@@ -1,4 +1,4 @@
-package lifecycle
+package publication
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	if err != nil {
 		return nil, record, authoringcore.CapabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
-	if err := validateReceiptCapability(receipt, snapshot); err != nil {
+	if err := authoringcore.ValidateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, record, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
 	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {

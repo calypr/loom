@@ -1,4 +1,4 @@
-package lifecycle
+package publication
 
 import (
 	"archive/zip"
@@ -12,28 +12,36 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/artifactformat"
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 type artifactBackend struct {
-	*fakeStore
+	explorer.ExplorerStore
+	explorer.RevisionStore
+	receipt  *receiptmodel.CompilationReceipt
 	revision *explorer.Revision
+}
+
+func (s *artifactBackend) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error) {
+	return s.receipt, nil
 }
 
 func (s *artifactBackend) GetRevision(context.Context, string) (*explorer.Revision, error) {
@@ -151,7 +159,7 @@ func artifactTestFixture(t *testing.T) (*artifactBackend, *memoryArtifactStore, 
 	receipt.SnapshotToken = snapshot.Token
 	report := publication.QualityReport{ID: "quality-patients", ReceiptID: receipt.ID, Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, ScopeDigest: receipt.AuthorizationScopeDigest, Output: "patients", PolicyVersion: publication.DefaultQualityPolicyVersion, Completeness: publication.QualityComplete, Verdict: publication.QualityPassed}
 	revision := &explorer.Revision{ID: "revision-a", Project: receipt.Project, ExplorerID: receipt.ExplorerID, CompilationReceiptID: receipt.ID, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Publication: viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: "execution-a"}, QualityReports: []publication.QualityReport{report}, Status: explorer.RevisionReady}
-	backend := &artifactBackend{fakeStore: &fakeStore{receipt: receipt}, revision: revision}
+	backend := &artifactBackend{receipt: receipt, revision: revision}
 	materialization := dataframepublished.Materialization{Revision: "execution-a", ReceiptID: receipt.ID, SchemaDigest: "schema-a", Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, Name: "Patient", State: dataframepublished.StateReady, ScopeUnrestricted: true, Columns: []dataframepublished.Column{{Name: "patient_id", LogicalType: "string"}, {Name: "project_id", LogicalType: "string", LoomOwned: true}, {Name: "auth_resource_path", LogicalType: "string", LoomOwned: true}}, SourceRow: &publication.SourceRowMetadata{ResourceType: "Patient", IDColumn: "patient_id"}}
 	reader := &fakeArtifactReader{materialization: materialization, rows: []map[string]any{{"patient_id": "p1", "project_id": receipt.Project, "auth_resource_path": "private"}}}
 	artifactStore := newMemoryArtifactStore()
@@ -164,7 +172,7 @@ func TestPrepareArtifactCommitsExactOutputAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -210,7 +218,7 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -461,7 +469,7 @@ func TestPrepareArtifactRejectsMaterializationFromBroaderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -480,7 +488,7 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -518,7 +526,7 @@ func TestOpenArtifactReauthorizesCurrentToken(t *testing.T) {
 	}
 	wrongSnapshot := snapshot
 	wrongSnapshot.Token = "wrong-token"
-	service, err := New(domain, Config{ArtifactStore: artifacts, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: wrongSnapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -599,7 +607,7 @@ func TestOpenArtifactStoreGetFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store})
+	service, err := NewForTest(domain, Config{ArtifactStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,7 +627,7 @@ func TestOpenArtifactStoreGetNotFoundIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store})
+	service, err := NewForTest(domain, Config{ArtifactStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -640,7 +648,7 @@ func TestOpenArtifactStoreGetMissingFileIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store})
+	service, err := NewForTest(domain, Config{ArtifactStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +669,7 @@ func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -684,7 +692,7 @@ func TestPrepareArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader})
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +717,7 @@ func TestOpenArtifactStoreOpenFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -736,7 +744,7 @@ func TestOpenArtifactIncompleteOpenResultIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -799,12 +807,7 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	previewCalled := false
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader,
-		PreviewReceipt: func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			previewCalled = true
-			return dataframeexecution.PreviewSummary{}, nil
-		},
+	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader,
 		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}},
@@ -864,11 +867,6 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("artifact omitted manifest")
-	}
-	_, err = service.Preview(context.Background(), PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 1})
-	var failure *ports.Error
-	if !errors.As(err, &failure) || failure.Code != "RECEIPT_RECOMPILE_REQUIRED" || previewCalled {
-		t.Fatalf("retired execution outcome=%v callback=%v", err, previewCalled)
 	}
 	afterReceipt, _ := json.Marshal(receipt)
 	afterRevision, _ := json.Marshal(backend.revision)
@@ -939,12 +937,9 @@ func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{
+	service, err := NewForTest(domain, Config{
 		ArtifactStore:   store,
 		PublishedReader: reader,
-		PreviewReceipt: func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			return dataframeexecution.PreviewSummary{}, nil
-		},
 		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}},
@@ -994,4 +989,68 @@ func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testi
 		return
 	}
 	t.Fatal("authorized archived-recipe download omitted its manifest")
+}
+
+func readySnapshot(project, generation, token string, scope authscope.ReadScope) capability.Snapshot {
+	paths := append([]string(nil), scope.AuthResourcePaths...)
+	sort.Strings(paths)
+	sum := sha256.Sum256([]byte(string(scope.Mode) + "\x00" + strings.Join(paths, "\x00")))
+	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema", ShapeDigest: "shape"}, Status: capability.StatusReady, Complete: true, Token: token}
+}
+
+func nativeReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "native-test",
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
+	}
+	emitted := []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
+	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
+	bundleDigest, _ := bundle.Digest()
+	workspace := ws.NewWorkspace("Patients")
+	workspace.Documents = []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
+	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	normalized, err := workspace.CanonicalJSON()
+	if err != nil {
+		panic(err)
+	}
+	intentDigest, err := workspace.Digest()
+	if err != nil {
+		panic(err)
+	}
+	receipt := &receiptmodel.CompilationReceipt{
+		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
+		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
+		Project:                  snapshot.Identity.Project,
+		ExplorerID:               "patients",
+		IntentDigest:             intentDigest,
+		NormalizedBundle:         normalized,
+		SnapshotToken:            snapshot.Token,
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		CapabilitySchemaDigest:   snapshot.Identity.SchemaDigest,
+		ShapeDigest:              snapshot.Identity.ShapeDigest,
+		SourceGeneration:         snapshot.Identity.Generation,
+		RecipeDigest:             bundleDigest,
+		ResolvedRecipeDigest:     bundleDigest,
+		ResolvedSchemaDigest:     "resolved-schema",
+		CompiledConfig:           json.RawMessage(`{}`),
+		PublicOutputContract:     contract,
+		Bundle:                   bundle,
+		EmittedColumns:           emitted,
+		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
+	}
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
+	return receipt
+}
+
+func NewForTest(domain *explorer.Service, config Config) (*Service, error) {
+	config.Core = authoringcore.New(domain, authoringcore.Config{
+		Capability:     config.Capability,
+		NativeReceipts: true,
+	})
+	config.Store = domain
+	return NewService(config)
 }
