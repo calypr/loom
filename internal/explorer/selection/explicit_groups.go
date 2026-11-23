@@ -1,4 +1,4 @@
-package explorer
+package selection
 
 import (
 	"crypto/sha256"
@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"sort"
 	"strings"
 	"time"
@@ -59,8 +58,8 @@ func (g ExplicitGroupDefinition) Canonical() ExplicitGroupDefinition {
 }
 
 type ExplicitGroupMembership struct {
-	GroupID ExplicitGroupID               `json:"groupId"`
-	Ref     explorerselection.ResourceRef `json:"ref"`
+	GroupID ExplicitGroupID `json:"groupId"`
+	Ref     ResourceRef     `json:"ref"`
 }
 
 func (m ExplicitGroupMembership) Canonical() ExplicitGroupMembership {
@@ -129,7 +128,7 @@ func (r ExplicitGroupRevision) Validate() error {
 	return nil
 }
 
-func (r ExplicitGroupRevision) ValidateSource(selection explorerselection.SelectionRevision) error {
+func (r ExplicitGroupRevision) ValidateSource(selection SelectionRevision) error {
 	r = r.Canonical()
 	if err := r.Validate(); err != nil {
 		return fmt.Errorf("explicit group revision is invalid: %w", err)
@@ -140,7 +139,7 @@ func (r ExplicitGroupRevision) ValidateSource(selection explorerselection.Select
 	return r.ValidateSourceSelection(selection)
 }
 
-func (r ExplicitGroupRevision) ValidateSourceSelection(selection explorerselection.SelectionRevision) error {
+func (r ExplicitGroupRevision) ValidateSourceSelection(selection SelectionRevision) error {
 	r = r.Canonical()
 	if err := r.Validate(); err != nil {
 		return fmt.Errorf("explicit group revision is invalid: %w", err)
@@ -279,7 +278,7 @@ func explicitGroupMembershipKey(membership ExplicitGroupMembership) string {
 	return identity.String()
 }
 
-func resourceRefLess(left, right explorerselection.ResourceRef) bool {
+func resourceRefLess(left, right ResourceRef) bool {
 	left, right = left.Canonical(), right.Canonical()
 	if left.Project != right.Project {
 		return left.Project < right.Project
