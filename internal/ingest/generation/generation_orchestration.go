@@ -21,6 +21,7 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -54,24 +55,22 @@ func generationCleanupError(parent context.Context, timeout time.Duration, origi
 	return errors.Join(original, fmt.Errorf("%s: %w", label, cleanupErr))
 }
 
-func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary, err error) {
-	opts = normalizeLoadOptions(opts)
-
-	start := time.Now()
-	files, err := source.DiscoverNDJSON(opts.MetaDir)
+func prepareGenerationLoad(opts LoadOptions, summary *LoadSummary) (files []string, schema *source.RuntimeFHIRSchema, plan *generationLoadPlan, err error) {
+	files, err = source.DiscoverNDJSON(opts.MetaDir)
 	if err != nil {
-		return LoadSummary{}, err
+		return nil, nil, nil, err
 	}
-	summary = LoadSummary{
+	*summary = LoadSummary{
 		Files:        len(files),
 		Resources:    map[string]int{},
 		BatchCounts:  map[string]int{},
 		StageSeconds: map[string]float64{},
 	}
 
-	schemaIdentity, schema, err := source.LoadSchema()
+	var schemaIdentity publication.SchemaSnapshot
+	schemaIdentity, schema, err = source.LoadSchema()
 	if err != nil {
-		return summary, err
+		return nil, nil, nil, err
 	}
 	summary.SchemaIdentity = &schemaIdentity
 	preflightSampleRows := opts.PreflightSampleRows
@@ -95,27 +94,25 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"seconds":   summary.StageSeconds["preflight"],
 	})
 	if err != nil {
-		return summary, err
+		return nil, nil, nil, err
 	}
 
-	plan, err := newGenerationLoadPlan(opts, files, schemaIdentity)
+	plan, err = newGenerationLoadPlan(opts, files, schemaIdentity)
 	if err != nil {
-		return summary, err
+		return nil, nil, nil, err
 	}
 
-	if plan == nil {
-		return summary, fmt.Errorf("dataset generation plan is required")
-	}
-	datasetRef := plan.Dataset
-	opts.IdentityFormat = plan.Manifest.IdentityFormat
-	summary.Dataset = &datasetRef
-	if err := ctx.Err(); err != nil {
-		return summary, err
-	}
+	return files, schema, plan, nil
+}
 
-	writeStats := &generationWriteStats{samples: make(map[string][]generationWriteSample)}
-	ctx = context.WithValue(ctx, generationWriteStatsKey{}, writeStats)
+type generationStores struct {
+	client    *arangostore.Client
+	catalog   *catalogarango.Store
+	semantic  *semanticarango.Store
+	lifecycle *publicationarango.Store
+}
 
+func connectGenerationStores(ctx context.Context, opts LoadOptions, preflight source.PreflightReport, summary *LoadSummary) (generationStores, error) {
 	resourceTypes := make([]string, 0, len(preflight.Resources))
 	for _, resource := range preflight.Resources {
 		resourceTypes = append(resourceTypes, resource.ResourceType)
@@ -129,18 +126,18 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	connectStart := time.Now()
 	client, err := bootstrap.OpenBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
-		return summary, err
+		return generationStores{}, err
 	}
 	defer func() {
 		err = generationCleanupError(ctx, generationCleanupTimeout, err, "close generation backend", client.Close)
 	}()
 	catalogStore, err := catalogarango.New(client)
 	if err != nil {
-		return summary, err
+		return generationStores{}, err
 	}
 	semanticStore, err := semanticarango.New(client)
 	if err != nil {
-		return summary, err
+		return generationStores{}, err
 	}
 	ingestevent.EmitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":  "arango",
@@ -158,7 +155,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"collections": "dataset_lifecycle",
 	})
 	if err = client.Bootstrap(ctx, bootstrap.LifecycleBootstrapSpecWithReporter(opts.EventSink)); err != nil {
-		return summary, err
+		return generationStores{}, err
 	}
 	ingestevent.EmitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
 		"database":  opts.Database,
@@ -166,14 +163,47 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"truncate":  false,
 	})
 	if err = client.Bootstrap(ctx, bootstrap.BootstrapSpecWithReporter(resourceTypes, false, opts.EventSink)); err != nil {
-		return summary, err
+		return generationStores{}, err
 	}
 	summary.StageSeconds["bootstrap"] = time.Since(bootstrapStart).Seconds()
 
 	lifecycleStore, err := publicationarango.New(client)
 	if err != nil {
+		return generationStores{}, err
+	}
+
+	return generationStores{client: client, catalog: catalogStore, semantic: semanticStore, lifecycle: lifecycleStore}, nil
+}
+
+func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary, err error) {
+	opts = normalizeLoadOptions(opts)
+
+	start := time.Now()
+	files, schema, plan, err := prepareGenerationLoad(opts, &summary)
+	if err != nil {
 		return summary, err
 	}
+	if plan == nil {
+		return summary, fmt.Errorf("dataset generation plan is required")
+	}
+	datasetRef := plan.Dataset
+	opts.IdentityFormat = plan.Manifest.IdentityFormat
+	summary.Dataset = &datasetRef
+	if err := ctx.Err(); err != nil {
+		return summary, err
+	}
+
+	writeStats := &generationWriteStats{samples: make(map[string][]generationWriteSample)}
+	ctx = context.WithValue(ctx, generationWriteStatsKey{}, writeStats)
+
+	stores, err := connectGenerationStores(ctx, opts, summary.Preflight, &summary)
+	if err != nil {
+		return summary, err
+	}
+	client, catalogStore, semanticStore, lifecycleStore := stores.client, stores.catalog, stores.semantic, stores.lifecycle
+	defer func() {
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "close generation backend", client.Close)
+	}()
 	manifest, err := lifecycleStore.CreateManifest(ctx, plan.Manifest)
 	if err != nil {
 		return summary, err
@@ -384,7 +414,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	recordFinalization("catalog_writes")
 	resourceInventorySummary, inventoryErr := catalogStore.RebuildResourceInventory(ctx, catalog.ResourceInventoryRebuildOptions{
 		Project: opts.Project, DatasetGeneration: plan.Dataset.Generation,
-		ResourceTypes: schemaIdentity.GeneratedResourceTypes, BatchSize: opts.BatchSize, WriteAPI: opts.WriteAPI,
+		ResourceTypes: summary.SchemaIdentity.GeneratedResourceTypes, BatchSize: opts.BatchSize, WriteAPI: opts.WriteAPI,
 	})
 	if inventoryErr != nil {
 		return summary, fmt.Errorf("build resource inventory for dataset generation %s/%s: %w", plan.Dataset.Project, plan.Dataset.Generation, inventoryErr)
