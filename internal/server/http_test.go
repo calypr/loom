@@ -24,6 +24,13 @@ type dataframeRouteCatalog struct {
 	execution publication.BundleExecution
 }
 
+func (c dataframeRouteCatalog) GetExecution(_ context.Context, id string) (publication.BundleExecution, error) {
+	if c.execution.ID != id {
+		return publication.BundleExecution{}, publication.ErrBundleNotFound
+	}
+	return c.execution, nil
+}
+
 func (c dataframeRouteCatalog) ListExecutions(context.Context, publication.BundleState, time.Time) ([]publication.BundleExecution, error) {
 	return []publication.BundleExecution{c.execution}, nil
 }
@@ -40,10 +47,11 @@ func (c dataframeRouteCatalog) FindExecutionBySelector(_ context.Context, projec
 	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
 }
 
-type dataframeRouteQueryer struct{}
+type dataframeRouteQueryer struct{ aggregateStatements int }
 
-func (dataframeRouteQueryer) QueryRowsArgs(_ context.Context, sql string, _ []string, args ...any) ([]map[string]any, error) {
+func (q *dataframeRouteQueryer) QueryRowsArgs(_ context.Context, sql string, _ []string, args ...any) ([]map[string]any, error) {
 	if strings.Contains(sql, "__loom_0_missing_count") {
+		q.aggregateStatements++
 		return []map[string]any{{"__loom_0_missing_count": int64(1)}}, nil
 	}
 	rowA := map[string]any{"name": "Alice", "__loom_row_id": "a", "__loom_total": int64(2)}
@@ -54,7 +62,7 @@ func (dataframeRouteQueryer) QueryRowsArgs(_ context.Context, sql string, _ []st
 	return []map[string]any{rowA, rowB}, nil
 }
 
-func (q dataframeRouteQueryer) QueryRowsArgsVisit(ctx context.Context, sql string, columns []string, visit func(map[string]any) error, args ...any) error {
+func (q *dataframeRouteQueryer) QueryRowsArgsVisit(ctx context.Context, sql string, columns []string, visit func(map[string]any) error, args ...any) error {
 	rows, err := q.QueryRowsArgs(ctx, sql, columns, args...)
 	if err != nil {
 		return err
@@ -69,7 +77,8 @@ func (q dataframeRouteQueryer) QueryRowsArgsVisit(ctx context.Context, sql strin
 
 func TestPublishedDataframeREST(t *testing.T) {
 	now := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
-	reader := &published.Reader{ClickHouse: dataframeRouteQueryer{}, Catalog: dataframeRouteCatalog{
+	queryer := &dataframeRouteQueryer{}
+	reader := &published.Reader{ClickHouse: queryer, Catalog: dataframeRouteCatalog{
 		execution: publication.BundleExecution{
 			ID: "execution", BundleIdentity: publication.BundleIdentity{
 				Name: "recipe", TranslationVersion: "v1", Project: "P1", DatasetGeneration: "generation",
@@ -98,7 +107,7 @@ func TestPublishedDataframeREST(t *testing.T) {
 		t.Fatal(err)
 	}
 	readRoutes := dataframeReadRoutes{published: dataframeapi.NewService(dataframeapi.Config{Reader: reader})}
-	if err := registerRoutes(server, load, authorizer, &explorerHandlers{}, readRoutes); err != nil {
+	if err := registerRoutes(server, load, authorizer, &explorerHandlers{}, routeDependencies{dataframes: readRoutes}); err != nil {
 		t.Fatal(err)
 	}
 	post := func(path string, input any, status int) map[string]any {
@@ -131,7 +140,10 @@ func TestPublishedDataframeREST(t *testing.T) {
 	}
 	aggregations := map[string]any{
 		"projectId": "P1", "selector": selector, "filters": rows["filters"],
-		"specs": []map[string]string{{"name": "missing_name", "kind": "MISSING", "column": "name"}},
+		"specs": []map[string]string{
+			{"name": "second_missing_name", "kind": "MISSING", "column": "name"},
+			{"name": "first_missing_name", "kind": "missing", "column": "name"},
+		},
 	}
 	const rowsPath = "/api/v1/projects/P1/dataframes/rows"
 	const aggregationsPath = "/api/v1/projects/P1/dataframes/aggregations"
@@ -149,8 +161,15 @@ func TestPublishedDataframeREST(t *testing.T) {
 		t.Fatalf("unexpected second page: %#v", result)
 	}
 	facets := post(aggregationsPath, aggregations, http.StatusOK)
-	if results, ok := facets["aggregations"].([]any); !ok || len(results) != 1 {
-		t.Fatalf("expected one aggregation: %#v", facets)
+	var names []string
+	if results, ok := facets["aggregations"].([]any); ok {
+		for _, result := range results {
+			value := result.(map[string]any)
+			names = append(names, value["name"].(string))
+		}
+	}
+	if !reflect.DeepEqual(names, []string{"first_missing_name", "second_missing_name"}) || queryer.aggregateStatements != 1 {
+		t.Fatalf("expected two named facets sorted by name from one statement: %#v, statements=%d", facets, queryer.aggregateStatements)
 	}
 	assertError := func(path string, status int, code string) {
 		t.Helper()

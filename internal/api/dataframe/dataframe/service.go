@@ -105,19 +105,6 @@ func (s *Service) currentProjectDataset(ctx context.Context, project string, sel
 	if err != nil {
 		return dfmaterialization.Materialization{}, projectAccess{}, err
 	}
-	return s.currentProjectDatasetForPrincipal(ctx, principal, project, selector)
-}
-
-func (s *Service) currentProjectDatasetForPrincipal(ctx context.Context, principal *authscope.Principal, project string, selector dfmaterialization.DataframeSelector) (dfmaterialization.Materialization, projectAccess, error) {
-	if state := aggregateStateFromContext(ctx); state != nil && state.service == s {
-		return state.projectDataset(ctx, project, selector, func() (dfmaterialization.Materialization, projectAccess, error) {
-			return s.resolveCurrentProjectDatasetForPrincipal(ctx, principal, project, selector)
-		})
-	}
-	return s.resolveCurrentProjectDatasetForPrincipal(ctx, principal, project, selector)
-}
-
-func (s *Service) resolveCurrentProjectDatasetForPrincipal(ctx context.Context, principal *authscope.Principal, project string, selector dfmaterialization.DataframeSelector) (dfmaterialization.Materialization, projectAccess, error) {
 	project = canonicalProjectID(project)
 	if _, err := s.authorizeProject(ctx, principal, project); err != nil {
 		return dfmaterialization.Materialization{}, projectAccess{}, err

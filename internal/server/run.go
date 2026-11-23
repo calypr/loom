@@ -105,7 +105,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		return err
 	}
 	explorerHandlers := wireExplorerHandlers(authorizer, scopeResolver, dataframe, explorerDeps, lifecycleConfig)
-	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, routeDependencies{
+		releases: publishedRegistry, scopes: scopeResolver, sourceLoader: sourceLoader,
+		sourceLimits: sourceLoadLimits, dataframes: dataframeReads,
+	}); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	privateClickHouseArtifacts, artifactStore := dataframe.artifacts, explorerDeps.artifacts

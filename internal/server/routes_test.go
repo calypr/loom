@@ -15,14 +15,9 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"github.com/calypr/loom/internal/ingest/generation"
-	"github.com/gofiber/fiber/v3"
 )
 
 func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
-	app := fiber.New()
-	handler := loomapi.NewStrictHandler(&HTTPRoutes{}, nil)
-	loomapi.RegisterHandlersWithOptions(app, handler, loomapi.FiberServerOptions{})
-
 	want := map[string]bool{}
 	spec, err := loomapi.GetSwagger()
 	if err != nil {
@@ -37,26 +32,42 @@ func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
 		}
 	}
 
-	got := map[string]bool{}
-	for _, route := range app.GetRoutes(true) {
-		path := route.Path
-		for _, parameter := range route.Params {
-			path = strings.ReplaceAll(path, ":"+parameter, "{"+parameter+"}")
-		}
-		got[route.Method+" "+path] = true
-	}
-	for route := range want {
-		if !got[route] {
-			t.Errorf("OpenAPI operation is not registered: %s", route)
-		}
-	}
-	for route := range got {
-		if !want[route] {
-			t.Errorf("registered route is absent from OpenAPI: %s", route)
-		}
-	}
-	if len(got) != len(want) {
-		t.Errorf("route count got=%d spec=%d", len(got), len(want))
+	for _, clickHouseEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("clickhouse=%t", clickHouseEnabled), func(t *testing.T) {
+			authorizer := authscope.AllowAllAuthorizer{}
+			server, err := api.NewHTTPServer(api.HTTPConfig{Authorizer: authorizer, ClickHouseEnabled: clickHouseEnabled})
+			if err != nil {
+				t.Fatal(err)
+			}
+			load, err := loadapi.NewService(loadapi.ServiceConfig{LoadGeneration: routeRunner{}.RunGeneration})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := registerRoutes(server, load, authorizer, &explorerHandlers{}, routeDependencies{}); err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]bool{}
+			for _, route := range server.App().GetRoutes(true) {
+				path := route.Path
+				for _, parameter := range route.Params {
+					path = strings.ReplaceAll(path, ":"+parameter, "{"+parameter+"}")
+				}
+				got[route.Method+" "+path] = true
+			}
+			for route := range want {
+				if !got[route] {
+					t.Errorf("OpenAPI operation is not registered: %s", route)
+				}
+			}
+			for route := range got {
+				if !want[route] {
+					t.Errorf("registered route is absent from OpenAPI: %s", route)
+				}
+			}
+			if len(got) != len(want) {
+				t.Errorf("route count got=%d spec=%d", len(got), len(want))
+			}
+		})
 	}
 }
 
@@ -140,8 +151,6 @@ func TestOpenAPIDocumentsOperationSpecificFailureStatuses(t *testing.T) {
 
 }
 
-type HTTPRoutes = routes
-
 type routeRunner struct{}
 
 func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingestevent.EventSink) (generation.LoadSummary, error) {
@@ -160,7 +169,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &explorerHandlers{}); err != nil {
+	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &explorerHandlers{}, routeDependencies{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -222,7 +231,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 }
 
 func TestRegisterRoutesRequiresExplorerHandlers(t *testing.T) {
-	if err := registerRoutes(nil, nil, nil, nil); err == nil || err.Error() != "create Explorer HTTP routes: Explorer handlers are required" {
+	if err := registerRoutes(nil, nil, nil, nil, routeDependencies{}); err == nil || err.Error() != "create Explorer HTTP routes: Explorer handlers are required" {
 		t.Fatalf("registerRoutes() error = %v, want missing Explorer handlers", err)
 	}
 }
