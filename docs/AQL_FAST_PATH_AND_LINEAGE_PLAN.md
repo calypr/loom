@@ -1,6 +1,6 @@
 # AQL fast-path audit and lineage agreement plan
 
-Status: proposed 2026-11-23. Measured at `bb50db30b` on `internal-cleanup`.
+Status: Track A paused after inventory and the isolated CDA load. Harness, timing, and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
 
 Precondition: `docs/AQL_RENDER_REFACTOR_PLAN.md` Phases 1 to 4 and
 `docs/EXECUTION_REFACTOR_PLAN.md` are merged. This plan assumes:
@@ -85,6 +85,27 @@ Excluded: root-page keys and the related-expand preview limit (`compiler/paging.
 result size, so they are a correctness and memory feature, not only speed. Category scan
 terminals are also excluded, because they are distinct queries. If Phase A0 shows a listed path
 also bounds memory, reclassify it the same way.
+
+### Preparation results
+
+| Path | Selection and bound |
+| --- | --- |
+| Streaming missing-category Pivot | `canRenderStreamingMissingCategoryPivotPreview` selects a terminal presence-aware Pivot. The preview output limit leaves the source scan unbounded. |
+| Two-scan Pivot | `CompileRecipeOutputWithPolicy` chooses this path for a compatible covering index and group-key source paths. Both scans examine the scoped source. |
+| Dynamic category Pivot | `canRenderDynamicCategoryPivotPreview` selects the eligible terminal Pivot when earlier index paths do not apply. The output limit leaves the source scan unbounded. |
+| Semantic Group projection | `chooseGroupPreviewScan` selects factorization after assessment. Assessment caps include a 256 MiB query limit, a 64 MiB dictionary threshold, and a 512-row sample. |
+| Root-index choice | `chooseGroupPreviewScan` chooses hinted or sequential rendering based on the available index and query assessment. |
+| Related Group | `relatedGroupPreviewShapeFor` limits selected groups after constructing their contributor frontier. |
+| Group row-value window | `terminalGroupRowValuePreviewWindowFor` limits selected groups while retaining all their contributor keys. |
+| Source Group window | `terminalSourceGroupPreviewWindowFor` windows expansion to selected groups after scanning the source. |
+| Related eligibility | `renderRelatedEligibilityCountRows` has no explicit frontier memory cap. Category discovery has a separate 257-value sentinel and belongs with bounded category discovery. |
+
+The isolated CDA generation `loom_dev_cda_fhir/cda-fhir-v1` became reusable
+in 503 seconds from the start of upload. It was loaded from 11 NDJSON files with
+2,055,968 input rows and named-stream SHA-256
+`437d308493840f42ae6d48afa82dad62a59f8c8e4a4c39a18fa7d1845cca6d07`.
+Workload drafts still need data-shape, index, and trigger confirmation before timing.
+No fast path has a keep or delete verdict.
 
 ### Decision rule (fixed before measuring)
 
@@ -205,6 +226,12 @@ own and in one composed chain.
 - For a kind where a property fails, reproduce it, record the reproducer in `docs/BACKLOG.md`,
   and do not commit a skipped or expected-failure test.
 - Report each disagreement as a bug. This plan does not fix lineage.
+
+The separate Track B branch has commits `5740f94bd` and `6dd3ba96c`.
+Owned-Arango tests passed for Group and Pivot lineage completeness, membership and
+partitioning, Pivot SUM reconstruction, Pivot–Derive–Filter trace, Unpivot trace,
+and source Filter trace. The runner requires the new tests. No disagreement was
+reproduced. Other supported operation shapes retain the existing spot checks.
 
 ## Deferred: deriving lineage from the forward query
 
