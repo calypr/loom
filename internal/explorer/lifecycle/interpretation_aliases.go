@@ -9,3 +9,19 @@ type InterpretationLibraryView = interpretation.InterpretationLibraryView
 type ListInterpretationLibrariesResult = interpretation.ListInterpretationLibrariesResult
 type GetInterpretationRevisionRequest = interpretation.GetInterpretationRevisionRequest
 type CreateInterpretationRevisionRequest = interpretation.CreateInterpretationRevisionRequest
+type PreviewInterpretationCandidateRequest = interpretation.PreviewInterpretationCandidateRequest
+type CandidatePreviewCompleteness = interpretation.CandidatePreviewCompleteness
+type CandidatePreviewState = interpretation.CandidatePreviewState
+type InterpretationCandidatePreviewSample = interpretation.InterpretationCandidatePreviewSample
+type CandidatePreviewCounts = interpretation.CandidatePreviewCounts
+type PreviewInterpretationCandidateResult = interpretation.PreviewInterpretationCandidateResult
+
+const (
+	CandidatePreviewComplete   = interpretation.CandidatePreviewComplete
+	CandidatePreviewIncomplete = interpretation.CandidatePreviewIncomplete
+
+	CandidatePreviewUnchanged  = interpretation.CandidatePreviewUnchanged
+	CandidatePreviewChanged    = interpretation.CandidatePreviewChanged
+	CandidatePreviewResolved   = interpretation.CandidatePreviewResolved
+	CandidatePreviewUnresolved = interpretation.CandidatePreviewUnresolved
+)

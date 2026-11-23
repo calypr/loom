@@ -194,59 +194,6 @@ type ApplyCommandsWithConstructionPreviewResponse struct {
 	Accepted *AcceptedConstruction
 }
 
-type PreviewInterpretationCandidateRequest struct {
-	Project              string
-	ExplorerID           string
-	SnapshotToken        string
-	ExpectedDraftVersion int64
-	ExpectedDraftDigest  string
-	OutputID             string
-	Column               string
-	RevisionID           string
-	Limit                int
-}
-
-type CandidatePreviewCompleteness string
-
-const (
-	CandidatePreviewComplete   CandidatePreviewCompleteness = "COMPLETE"
-	CandidatePreviewIncomplete CandidatePreviewCompleteness = "INCOMPLETE"
-)
-
-type CandidatePreviewState string
-
-const (
-	CandidatePreviewUnchanged  CandidatePreviewState = "UNCHANGED"
-	CandidatePreviewChanged    CandidatePreviewState = "CHANGED"
-	CandidatePreviewResolved   CandidatePreviewState = "RESOLVED"
-	CandidatePreviewUnresolved CandidatePreviewState = "UNRESOLVED"
-)
-
-type InterpretationCandidatePreviewSample struct {
-	RowID  string                `json:"rowId"`
-	Before map[string]any        `json:"before"`
-	After  map[string]any        `json:"after"`
-	State  CandidatePreviewState `json:"state"`
-}
-
-type CandidatePreviewCounts struct {
-	Compared   int `json:"compared"`
-	Changed    int `json:"changed"`
-	Resolved   int `json:"resolved"`
-	Unresolved int `json:"unresolved"`
-}
-
-type PreviewInterpretationCandidateResult struct {
-	BaseReceiptID      string                                 `json:"baseReceiptId"`
-	CandidateReceiptID string                                 `json:"candidateReceiptId"`
-	OutputID           string                                 `json:"outputId"`
-	Column             string                                 `json:"column"`
-	RevisionID         string                                 `json:"revisionId"`
-	Completeness       CandidatePreviewCompleteness           `json:"completeness"`
-	Samples            []InterpretationCandidatePreviewSample `json:"samples"`
-	Counts             CandidatePreviewCounts                 `json:"counts"`
-}
-
 type PopulationMappingRequest struct {
 	Project    string
 	ExplorerID string

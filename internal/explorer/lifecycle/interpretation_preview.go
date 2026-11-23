@@ -2,21 +2,19 @@ package lifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"slices"
-	"sort"
 	"strings"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/projectid"
 )
 
 func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request PreviewInterpretationCandidateRequest) (PreviewInterpretationCandidateResult, error) {
-	if err := validateInterpretationCandidatePreviewRequest(request); err != nil {
+	if err := interpretation.ValidateCandidatePreviewRequest(request); err != nil {
 		return PreviewInterpretationCandidateResult{}, malformed("interpretation-preview", err.Error(), err)
 	}
 	limit := request.Limit
@@ -95,8 +93,8 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
 
-	baseEmissions := authoredInterpretationEmissions(baseReceipt, request.OutputID, request.Column)
-	candidateEmissions := authoredInterpretationEmissions(candidateReceipt, request.OutputID, request.Column)
+	baseEmissions := interpretation.AuthoredEmissions(baseReceipt.EmittedColumns, request.OutputID, request.Column)
+	candidateEmissions := interpretation.AuthoredEmissions(candidateReceipt.EmittedColumns, request.OutputID, request.Column)
 	if len(baseEmissions) == 0 || len(candidateEmissions) == 0 {
 		return PreviewInterpretationCandidateResult{}, unprocessable("interpretation-preview", "INTERPRETATION_OUTPUT_MISSING", "the target authored feature has no physical receipt emissions", nil)
 	}
@@ -115,28 +113,11 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 		return PreviewInterpretationCandidateResult{}, err
 	}
 
-	result := compareInterpretationCandidateRows(baseRows, candidateRows, baseEmissions, candidateEmissions, request, limit)
-	if !previewSummaryComplete(baseSummary) || !previewSummaryComplete(candidateSummary) {
+	result := interpretation.CompareCandidateRows(baseRows, candidateRows, baseEmissions, candidateEmissions, request, limit)
+	if !interpretation.PreviewSummaryComplete(baseSummary) || !interpretation.PreviewSummaryComplete(candidateSummary) {
 		result.Completeness = CandidatePreviewIncomplete
 	}
 	return result, nil
-}
-
-func validateInterpretationCandidatePreviewRequest(request PreviewInterpretationCandidateRequest) error {
-	values := map[string]string{
-		"project": request.Project, "explorerId": request.ExplorerID, "snapshotToken": request.SnapshotToken,
-		"expectedDraftDigest": request.ExpectedDraftDigest, "outputId": request.OutputID, "column": request.Column,
-		"revisionId": request.RevisionID,
-	}
-	for name, value := range values {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%s is required", name)
-		}
-	}
-	if request.ExpectedDraftVersion < 0 {
-		return fmt.Errorf("expectedDraftVersion must not be negative")
-	}
-	return nil
 }
 
 func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explorer.Explorer) (authoringv2.Workspace, error) {
@@ -156,13 +137,8 @@ func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explo
 	return authoringv2.NewWorkspace(owner.Title), nil
 }
 
-type interpretationPreviewRows struct {
-	ReceiptID string
-	Rows      map[string]map[string]any
-}
-
-func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (interpretationPreviewRows, dataframeexecution.PreviewSummary, error) {
-	rows := interpretationPreviewRows{ReceiptID: receipt.ID, Rows: make(map[string]map[string]any)}
+func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (interpretation.PreviewRows, dataframeexecution.PreviewSummary, error) {
+	rows := interpretation.PreviewRows{ReceiptID: receipt.ID, Rows: make(map[string]map[string]any)}
 	summary, err := s.config.PreviewReceipt(ctx, receipt, bindings, func(row map[string]any) error {
 		value, ok := row["__loom_row_id"]
 		if !ok || value == nil || strings.TrimSpace(fmt.Sprint(value)) == "" {
@@ -181,151 +157,9 @@ func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *exp
 		return nil
 	})
 	if err != nil {
-		return interpretationPreviewRows{}, summary, err
+		return interpretation.PreviewRows{}, summary, err
 	}
 	return rows, summary, nil
-}
-
-func authoredInterpretationEmissions(receipt *explorer.CompilationReceipt, outputID, column string) []explorer.EmittedColumn {
-	if receipt == nil {
-		return nil
-	}
-	emissions := make([]explorer.EmittedColumn, 0)
-	for _, emission := range receipt.EmittedColumns {
-
-		if emission.OutputID != outputID || emission.PublicColumn == "" || !slices.Contains(emission.AuthoredColumns, column) {
-			continue
-		}
-		emissions = append(emissions, emission)
-	}
-	sort.SliceStable(emissions, func(i, j int) bool {
-		if emissions[i].EmissionID != emissions[j].EmissionID {
-			return emissions[i].EmissionID < emissions[j].EmissionID
-		}
-		return emissions[i].PublicColumn < emissions[j].PublicColumn
-	})
-	return emissions
-}
-
-func compareInterpretationCandidateRows(base, candidate interpretationPreviewRows, baseEmissions, candidateEmissions []explorer.EmittedColumn, request PreviewInterpretationCandidateRequest, limit int) PreviewInterpretationCandidateResult {
-	emissions := make(map[string]struct{})
-	for _, emission := range append(append([]explorer.EmittedColumn(nil), baseEmissions...), candidateEmissions...) {
-		emissions[emission.PublicColumn] = struct{}{}
-	}
-	emissionKeys := make([]string, 0, len(emissions))
-	for key := range emissions {
-		emissionKeys = append(emissionKeys, key)
-	}
-	sort.Strings(emissionKeys)
-	baseByID := emissionByID(baseEmissions)
-	candidateByID := emissionByID(candidateEmissions)
-	rowIDs := make(map[string]struct{}, len(base.Rows)+len(candidate.Rows))
-	for rowID := range base.Rows {
-		rowIDs[rowID] = struct{}{}
-	}
-	for rowID := range candidate.Rows {
-		rowIDs[rowID] = struct{}{}
-	}
-	orderedRows := make([]string, 0, len(rowIDs))
-	for rowID := range rowIDs {
-		orderedRows = append(orderedRows, rowID)
-	}
-	sort.Strings(orderedRows)
-	rowsTruncated := len(orderedRows) > limit
-	if len(orderedRows) > limit {
-		orderedRows = orderedRows[:limit]
-	}
-
-	result := PreviewInterpretationCandidateResult{
-		BaseReceiptID: base.ReceiptID, CandidateReceiptID: candidate.ReceiptID,
-		OutputID: request.OutputID, Column: request.Column, RevisionID: request.RevisionID,
-		Completeness: CandidatePreviewComplete, Samples: make([]InterpretationCandidatePreviewSample, 0, len(orderedRows)),
-	}
-	if rowsTruncated {
-		result.Completeness = CandidatePreviewIncomplete
-	}
-	for _, rowID := range orderedRows {
-		beforeRow, beforeOK := base.Rows[rowID]
-		afterRow, afterOK := candidate.Rows[rowID]
-		before := make(map[string]any, len(emissionKeys))
-		after := make(map[string]any, len(emissionKeys))
-		state := CandidatePreviewUnchanged
-		rowUnresolved, rowResolved, rowChanged, rowDifferent := false, false, false, false
-		for _, key := range emissionKeys {
-			beforeEmission := baseByID[key]
-			afterEmission := candidateByID[key]
-			beforeValue, beforeValueOK := previewEmissionValue(beforeRow, beforeOK, beforeEmission)
-			afterValue, afterValueOK := previewEmissionValue(afterRow, afterOK, afterEmission)
-			if beforeValueOK {
-				before[key] = beforeValue
-			}
-			if afterValueOK {
-				after[key] = afterValue
-			}
-			beforeUnresolved := !beforeValueOK || beforeValue == nil
-			afterUnresolved := !afterValueOK || afterValue == nil
-			if beforeUnresolved != afterUnresolved || (!beforeUnresolved && !afterUnresolved && !previewValuesEqual(beforeValue, afterValue)) {
-				rowDifferent = true
-			}
-			if afterUnresolved {
-				rowUnresolved = true
-			} else if beforeUnresolved {
-				rowResolved = true
-			} else if !previewValuesEqual(beforeValue, afterValue) {
-				rowChanged = true
-			}
-		}
-		switch {
-		case rowUnresolved:
-			state = CandidatePreviewUnresolved
-		case rowResolved:
-			state = CandidatePreviewResolved
-		case rowChanged:
-			state = CandidatePreviewChanged
-		}
-		result.Samples = append(result.Samples, InterpretationCandidatePreviewSample{RowID: rowID, Before: before, After: after, State: state})
-		result.Counts.Compared++
-		if rowDifferent {
-			result.Counts.Changed++
-		}
-		switch state {
-		case CandidatePreviewResolved:
-			result.Counts.Resolved++
-		case CandidatePreviewUnresolved:
-			result.Counts.Unresolved++
-		}
-	}
-	return result
-}
-
-func emissionByID(values []explorer.EmittedColumn) map[string]explorer.EmittedColumn {
-	result := make(map[string]explorer.EmittedColumn, len(values))
-	for _, value := range values {
-		if value.PublicColumn != "" {
-			result[value.PublicColumn] = value
-		}
-	}
-	return result
-}
-
-func previewEmissionValue(row map[string]any, rowOK bool, emission explorer.EmittedColumn) (any, bool) {
-	if !rowOK {
-		return nil, false
-	}
-	if value, ok := row[emission.PublicColumn]; ok {
-		return value, true
-	}
-	return nil, false
-}
-
-func previewValuesEqual(left, right any) bool {
-	leftRaw, leftErr := json.Marshal(left)
-	rightRaw, rightErr := json.Marshal(right)
-	return leftErr == nil && rightErr == nil && string(leftRaw) == string(rightRaw)
-}
-
-func previewSummaryComplete(summary dataframeexecution.PreviewSummary) bool {
-	return summary.Complete && !summary.Truncated
 }
 
 func verifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) error {
