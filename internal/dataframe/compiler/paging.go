@@ -110,7 +110,10 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	}
 	var rowsPlanDigest string
 	if previewLimit == 0 {
-		rowsPlanDigest = ir.PhysicalPlanFingerprint(rowsPlan)
+		rowsPlanDigest = ir.ArtifactAQLPlanDigest(
+			ir.ArtifactAQLQuery{Query: keys.Query, BindVars: keys.BindVars},
+			ir.ArtifactAQLQuery{Query: rows.Query, BindVars: rows.BindVars},
+		)
 	}
 	return CompiledOutputPage{
 		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,

@@ -136,7 +136,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	}
 	var artifactPlanDigest string
 	if limit == 0 {
-		artifactPlanDigest = ir.PhysicalPlanFingerprint(physical)
+		artifactPlanDigest = ir.ArtifactAQLPlanDigest(ir.ArtifactAQLQuery{Query: rendered.Query, BindVars: rendered.BindVars})
 	}
 	return model.CompiledQuery{
 		ArtifactPlanDigest: artifactPlanDigest,

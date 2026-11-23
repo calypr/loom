@@ -95,7 +95,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		physicalPlan: physicalPlan,
 	}
 	if limit == 0 {
-		stream.planFingerprint = clickHouseCombineFingerprint(combine)
+		stream.planFingerprint = ir.ClickHouseCombinePlanDigest(combine)
 	}
 	if hasWorkspaceInputs {
 		if e.privateClickHouseArtifacts == nil {
@@ -310,15 +310,6 @@ func chartifactIdentityFromIR(identity ir.ClickHouseArtifactIdentity) chartifact
 		AuthScopeMode: authscope.ReadScopeMode(identity.AuthScopeMode), AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...),
 		ScopeMode: identity.ScopeMode, ScopeEvidenceDigest: identity.ScopeEvidenceDigest,
 	}
-}
-
-func clickHouseCombineFingerprint(plan ir.PhysicalClickHouseCombine) string {
-	payload, err := json.Marshal(plan)
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(payload)
-	return hex.EncodeToString(digest[:])
 }
 
 func clonePhysicalClickHouseCombine(plan ir.PhysicalClickHouseCombine) ir.PhysicalClickHouseCombine {
