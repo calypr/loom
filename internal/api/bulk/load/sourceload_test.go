@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/ingest/row"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/ingest/row"
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"

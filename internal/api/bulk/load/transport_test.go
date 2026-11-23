@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/row"
 	"io"
 	"mime/multipart"
 	"net"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/ingest/row"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
