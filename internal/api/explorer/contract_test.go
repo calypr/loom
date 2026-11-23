@@ -1,35 +1,34 @@
 package explorerapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/testkit/explorerfixtures"
-
-	"github.com/calypr/loom/internal/testkit/constructionfixtures"
-
+	loomapi "github.com/calypr/loom/api/loomapi"
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
-
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -234,5 +233,51 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 	}
 	if clone.DraftVersion != 1 || clonedWorkspace.Explorer.Title != "Cloned Explorer" || len(clonedWorkspace.Documents) != len(workspace.Documents) || clonedWorkspace.Documents[0].Output.ID != workspace.Documents[0].Output.ID {
 		t.Fatalf("cloned Explorer=%#v workspace=%#v", clone, clonedWorkspace)
+	}
+}
+
+func TestAcceptedConstructionSharedContractFixture(t *testing.T) {
+	fixture, err := os.ReadFile(testkit.FixturePath(t, "openapi/accepted-construction-response.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response loomapi.ApplyCommandsResponse
+	if err := httpapi.DecodeStrict(fixture, &response); err != nil {
+		t.Fatalf("strictly decode accepted construction fixture: %v", err)
+	}
+	accepted := response.AcceptedConstruction
+	if accepted == nil {
+		t.Fatal("fixture omitted acceptedConstruction")
+	}
+	if accepted.Receipt.IntentDigest != response.DraftDigest || accepted.Preview.ReceiptId != accepted.Receipt.ReceiptId {
+		t.Fatalf("accepted identities do not match the saved draft: accepted=%#v draftDigest=%q", accepted, response.DraftDigest)
+	}
+	if accepted.PreviewLimit < 1 || accepted.PreviewLimit > 1000 || len(accepted.Preview.Rows) != 1 || accepted.Preview.Rows[0]["patient_id"] != "p1" {
+		t.Fatalf("accepted preview shape is invalid: %#v", accepted)
+	}
+	if len(accepted.Preview.RowSources) != len(accepted.Preview.Rows) || accepted.Preview.RowLineageCapability.Status != loomapi.RowLineageCapabilityStatusAVAILABLE {
+		t.Fatalf("accepted preview row metadata is incomplete: %#v", accepted.Preview)
+	}
+	receiptJSON, err := json.Marshal(accepted.Receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(receiptJSON, []byte(`"builder"`)) || bytes.Contains(receiptJSON, []byte(`"constructionProposal"`)) {
+		t.Fatalf("public accepted receipt exposed duplicated workspace or private binding: %s", receiptJSON)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(fixture, &raw); err != nil {
+		t.Fatal(err)
+	}
+	acceptedObject := raw["acceptedConstruction"].(map[string]any)
+	receiptObject := acceptedObject["receipt"].(map[string]any)
+	receiptObject["constructionProposal"] = map[string]any{"baseDraftDigest": "private"}
+	withPrivateBinding, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := httpapi.DecodeStrict(withPrivateBinding, &loomapi.ApplyCommandsResponse{}); err == nil {
+		t.Fatal("strict accepted-construction contract accepted a private proposal binding")
 	}
 }

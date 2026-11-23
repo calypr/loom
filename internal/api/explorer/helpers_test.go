@@ -50,3 +50,16 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead func
 	}
 	return NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Lifecycle: config})
 }
+
+type uncalledStrictRoutes struct {
+	loomapi.StrictServerInterface
+}
+
+type strictExplorerTestServer struct {
+	*Handlers
+	uncalledStrictRoutes
+}
+
+func strictExplorerHandlers(handlers *Handlers) loomapi.StrictServerInterface {
+	return strictExplorerTestServer{Handlers: handlers}
+}

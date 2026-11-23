@@ -7,17 +7,31 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
+	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/capability"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	storearango "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 )
 
 type faultInjectionAuthPathStore struct {
@@ -503,4 +517,538 @@ func TestCreateExplorerLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T) {
 			t.Fatalf("legacy denial status=%d code=%q message=%q; want byte-identical 403 FORBIDDEN forbidden", legacy.status, legacy.code, legacy.message)
 		}
 	})
+}
+
+const restrictedStartingCollectionTestDatabasePrefix = "loom_test_restricted_starting_collection_"
+
+func TestRestrictedStartingCollectionRejectsDeniedReferences(t *testing.T) {
+	arangoURL := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	database := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_DATABASE"))
+	if arangoURL == "" && database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and a randomized LOOM_TEST_ARANGO_DATABASE")
+	}
+	if arangoURL == "" || database == "" {
+		t.Fatal("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must be set together")
+	}
+	suffix := strings.TrimPrefix(database, restrictedStartingCollectionTestDatabasePrefix)
+	if suffix == database {
+		t.Fatalf("refusing non-disposable Arango database %q; require %s<uuid>", database, restrictedStartingCollectionTestDatabasePrefix)
+	}
+	if _, err := uuid.Parse(suffix); err != nil {
+		t.Fatalf("Arango database %q does not have the required randomized UUID suffix: %v", database, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := storearango.Open(ctx, arangoURL, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{
+		{Name: "Patient"},
+		{Name: "fhir_field_catalog"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		project      = "project-a"
+		resourceType = "Patient"
+		allowedPath  = "programs/collection-repair/allowed"
+		deniedPath   = "programs/collection-repair/denied"
+	)
+	generation := "restricted-starting-collection-" + suffix
+	fixtureID := strings.ReplaceAll(uuid.NewString(), "-", "")
+	allowedOne := "starting-allowed-one-" + fixtureID
+	allowedTwo := "starting-allowed-two-" + fixtureID
+	allowedThree := "starting-allowed-three-" + fixtureID
+	deniedWitness := "starting-denied-witness-" + fixtureID
+	resourceKeys := []string{"starting-" + fixtureID + "-1", "starting-" + fixtureID + "-2", "starting-" + fixtureID + "-3", "starting-" + fixtureID + "-4"}
+	catalogKeys := []string{"starting-catalog-" + fixtureID + "-1", "starting-catalog-" + fixtureID + "-2"}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		for _, item := range []struct {
+			collection string
+			keys       []string
+		}{{"Patient", resourceKeys}, {"fhir_field_catalog", catalogKeys}} {
+			if err := client.ExecuteAQL(cleanupCtx, `
+FOR d IN @@collection
+  FILTER d._key IN @keys
+  REMOVE d IN @@collection`, map[string]any{"@collection": item.collection, "keys": item.keys}); err != nil {
+				t.Errorf("remove owned %s fixture rows: %v", item.collection, err)
+			}
+		}
+	})
+
+	resourceIDs := []string{allowedOne, allowedTwo, allowedThree, deniedWitness}
+	resourcePaths := []string{allowedPath, allowedPath, allowedPath, deniedPath}
+	resourceDocs := make([]json.RawMessage, 0, len(resourceIDs))
+	for index, id := range resourceIDs {
+		doc, err := json.Marshal(map[string]any{
+			"_key": resourceKeys[index], "id": id, "project": project,
+			"dataset_generation": generation, "auth_resource_path": resourcePaths[index],
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resourceDocs = append(resourceDocs, doc)
+	}
+	catalogDocs := make([]json.RawMessage, 0, 2)
+	for index, path := range []string{allowedPath, deniedPath} {
+		doc, err := json.Marshal(map[string]any{
+			"_key": catalogKeys[index], "project": project,
+			"dataset_generation": generation, "auth_resource_path": path,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalogDocs = append(catalogDocs, doc)
+	}
+	if err := client.InsertBatchRaw(ctx, "Patient", resourceDocs, false, "import"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertBatchRaw(ctx, "fhir_field_catalog", catalogDocs, false, "import"); err != nil {
+		t.Fatal(err)
+	}
+
+	readIDs := func(path string) []string {
+		t.Helper()
+		ids := make([]string, 0, 4)
+		err := client.QueryRows(ctx, `
+FOR d IN Patient
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @generation
+  FILTER d.auth_resource_path == @path
+  SORT d.id
+  RETURN {id: d.id}`, 100, map[string]any{"project": project, "generation": generation, "path": path}, func(row map[string]any) error {
+			id, ok := row["id"].(string)
+			if !ok {
+				return fmt.Errorf("source oracle returned non-string id %T", row["id"])
+			}
+			ids = append(ids, id)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	wantAllowedIDs := sortedIDs([]string{allowedOne, allowedTwo, allowedThree})
+	if got, want := readIDs(allowedPath), wantAllowedIDs; !reflect.DeepEqual(got, want) {
+		t.Fatalf("independent allowed-path fixture=%v; want %v", got, want)
+	}
+	if got := readIDs(deniedPath); !reflect.DeepEqual(got, []string{deniedWitness}) {
+		t.Fatalf("independent denied-path fixture=%v; want [%s]", got, deniedWitness)
+	}
+
+	catalogStore, err := catalogarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explorerStore, err := explorerarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ListExistingAuthResourcePaths: catalogStore.DiscoverExistingAuthResourcePaths,
+	})
+	principal, err := (authscope.StaticAuthenticator{Principal: authscope.Principal{
+		Subject: "restricted-starting-collection-test",
+
+		AuthResourcePaths: []string{project, allowedPath},
+	}}).Authenticate(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestCtx := authscope.ContextWithPrincipal(ctx, principal)
+	scope, err := resolver.ResolveReadScopeForGeneration(requestCtx, principal, project, generation, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.Mode != authscope.ReadScopeRestricted || !reflect.DeepEqual(scope.AuthResourcePaths, []string{allowedPath}) {
+		t.Fatalf("actual ScopeResolver returned %#v; want restricted scope [%s]", scope, allowedPath)
+	}
+
+	baseSnapshot := testAuthoringV2CapabilitySnapshot()
+	identity := baseSnapshot.Identity
+	identity.Project = project
+	identity.Generation = generation
+	identity.AuthorizationScopeDigest = capabilityresolver.ScopeDigest(scope)
+	snapshot := capability.NewSnapshot(identity, baseSnapshot.Policy, baseSnapshot.Status, baseSnapshot.Complete, baseSnapshot.Truncated,
+		baseSnapshot.Nodes, baseSnapshot.Edges, baseSnapshot.Candidates, baseSnapshot.Diagnostics)
+	resolveCapability := func(ctx context.Context, requestedProject, token string) (ports.AuthorizedCapability, error) {
+		currentPrincipal, _ := authscope.PrincipalFromContext(ctx)
+		currentScope, err := resolver.ResolveReadScopeForGeneration(ctx, currentPrincipal, requestedProject, generation, nil)
+		if err != nil {
+			return ports.AuthorizedCapability{}, err
+		}
+		if token != snapshot.Token || capabilityresolver.ScopeDigest(currentScope) != snapshot.Identity.AuthorizationScopeDigest {
+			return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
+		}
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
+	}
+
+	proposalStore := &explorerfixtures.SelectionStore{
+		Store:      newTestExplorerStore(),
+		Selections: map[string]explorerselection.SelectionRevision{},
+		Members:    map[string][]explorerselection.SelectionMember{},
+	}
+	domain, err := explorer.NewService(proposalStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := lifecycle.Config{
+		SelectionMembersCollection: "loom_explorer_selection_members",
+		Capability: ports.CapabilityResolver{
+			Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
+				return snapshot, nil
+			},
+			ForCompilation: resolveCapability,
+			ForExecution:   resolveCapability,
+		},
+		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
+	}
+	handlers := NewHandlers(Config{Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject, Explorers: domain, Lifecycle: config})
+
+	toWireRef := func(id string) loomapi.SelectionResourceRef {
+		return loomapi.SelectionResourceRef{Project: project, Generation: generation, ResourceType: resourceType, Id: id}
+	}
+	selectionRequest := func(key string, ids ...string) loomapi.CreateExplorerSelectionRequestObject {
+		refs := make([]loomapi.SelectionResourceRef, 0, len(ids))
+		for _, id := range ids {
+			refs = append(refs, toWireRef(id))
+		}
+		path := loomapi.AuthResourcePath(allowedPath)
+		resourceTypeValue := resourceType
+		return loomapi.CreateExplorerSelectionRequestObject{
+			Project: loomapi.Project(project), ExplorerId: loomapi.ExplorerId("restricted-starting-collection"),
+			Params: loomapi.CreateExplorerSelectionParams{AuthResourcePath: &path},
+			Body: &loomapi.SelectionCreateRequest{
+				IdempotencyKey: key, SnapshotToken: snapshot.Token,
+				Source: loomapi.SelectionRequestSource{
+					Kind:      loomapi.SelectionRequestSourceKindResources,
+					Resources: &loomapi.SelectionExplicitResources{ResourceType: &resourceTypeValue, Refs: refs},
+				},
+			},
+		}
+	}
+
+	deniedWrite := selectionRequest("denied-write-path", allowedOne)
+	deniedPathParam := loomapi.AuthResourcePath(deniedPath)
+	deniedWrite.Params.AuthResourcePath = &deniedPathParam
+	response, err := handlers.CreateExplorerSelection(requestCtx, deniedWrite)
+	if _, ok := response.(loomapi.CreateExplorerSelection403JSONResponse); !ok || err != nil {
+		t.Fatalf("write under denied auth_resource_path err=%v; want actual ScopeAuthorizer denial", err)
+	}
+
+	deniedRefRequest := selectionRequest("denied-reference-witness", allowedOne, deniedWitness)
+	response, err = handlers.CreateExplorerSelection(requestCtx, deniedRefRequest)
+	conflict, ok := response.(loomapi.CreateExplorerSelection409JSONResponse)
+	if !ok || err != nil || conflict.Error.Code != "SELECTION_STALE_SCOPE" ||
+		conflict.Error.Message != "selection references are outside the authorized snapshot" {
+		t.Fatalf("allowed-path create containing denied witness response=%#v err=%v; want real Arango scope-reference rejection", response, err)
+	}
+	proposalStore.SelectionMu.Lock()
+	partialSelectionCount := len(proposalStore.Selections)
+	proposalStore.SelectionMu.Unlock()
+	if partialSelectionCount != 0 {
+		t.Fatalf("denied create persisted %d selection headers before rejection", partialSelectionCount)
+	}
+
+	createdResponse, err := handlers.CreateExplorerSelection(requestCtx, selectionRequest("allowed-starting-collection", allowedOne, allowedTwo, allowedThree))
+	created, ok := createdResponse.(loomapi.CreateExplorerSelection201JSONResponse)
+	if !ok {
+		t.Fatalf("create selection response = %T, want 201", createdResponse)
+	}
+	if err != nil {
+		t.Fatalf("create allowed-only starting collection: %v", err)
+	}
+	if created.MemberCount != int64(len(wantAllowedIDs)) || created.ScopeDigest != snapshot.Identity.AuthorizationScopeDigest {
+		t.Fatalf("allowed selection header lost exact count/scope: %#v", created)
+	}
+	selectionPageResponse, err := handlers.GetExplorerSelection(requestCtx, loomapi.GetExplorerSelectionRequestObject{
+		Project: loomapi.Project(project), ExplorerId: loomapi.ExplorerId("restricted-starting-collection"), SelectionRevision: created.Id,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectionPage, ok := selectionPageResponse.(loomapi.GetExplorerSelection200JSONResponse)
+	if !ok {
+		t.Fatalf("get selection response = %T, want 200", selectionPageResponse)
+	}
+	visibleIDs := sortedIDs(selectionMemberIDs(selectionPage.Members))
+	if !reflect.DeepEqual(visibleIDs, wantAllowedIDs) {
+		t.Fatalf("visible starting collection=%v; want exact allowed rows %v", visibleIDs, wantAllowedIDs)
+	}
+	assertNoDeniedID(t, deniedWitness, visibleIDs)
+}
+
+func sortedIDs(ids []string) []string {
+	result := append([]string(nil), ids...)
+	sort.Strings(result)
+	return result
+}
+
+func selectionMemberIDs(members []loomapi.SelectionMember) []string {
+	ids := make([]string, 0, len(members))
+	for _, member := range members {
+		ids = append(ids, member.Ref.Id)
+	}
+	return ids
+}
+
+func assertNoDeniedID(t *testing.T, denied string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if value == denied {
+			t.Fatalf("denied witness %s leaked into %v", denied, values)
+		}
+	}
+}
+
+type viewBuilderHTTPStore struct {
+	*testExplorerStore
+	explorer.ViewBuilderRepository
+	settings viewer.ViewBuilderSettings
+	fault    error
+	writes   int
+}
+
+func (s *viewBuilderHTTPStore) GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error) {
+	return s.settings, s.fault
+}
+
+func (s *viewBuilderHTTPStore) AdoptViewBuilderCatalogs(context.Context, string) error {
+	s.writes++
+	return nil
+}
+
+func (s *viewBuilderHTTPStore) SaveViewBuilderDefaults(context.Context, string, viewer.ViewBuilderDefaultsRequest) error {
+	s.writes++
+	return nil
+}
+
+type viewBuilderTestAuthorizer struct{ fault error }
+
+func (a viewBuilderTestAuthorizer) AuthorizeWrite(context.Context, *authscope.Principal, string, string) error {
+	return a.fault
+}
+
+func viewBuilderTestApp(t *testing.T, store *viewBuilderHTTPStore, writeFault, readFault error) *fiber.App {
+	t.Helper()
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers := newExplorerHTTPHandlers(viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service)
+	app := fiber.New()
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
+	return app
+}
+
+func TestViewBuilderHTTPReadOnlyAndWriteAuthorization(t *testing.T) {
+	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
+	app := viewBuilderTestApp(t, store, authscope.ErrForbidden, nil)
+	result := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/view-builder", "")
+	if result.StatusCode != http.StatusOK || !viewBuilderCanEditFalse(t, result.Body) {
+		t.Fatalf("read=%d %s", result.StatusCode, result.Body)
+	}
+	for _, path := range []string{"/view-builder/adopt", "/view-builder/defaults", "/view-builder/configs/files"} {
+		method := http.MethodPut
+		if path == "/view-builder/adopt" {
+			method = http.MethodPost
+		}
+		result = requestJSON(t, app, method, "/api/v1/projects/project-a"+path, `{}`)
+		if result.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s=%d %s", path, result.StatusCode, result.Body)
+		}
+	}
+	if store.writes != 0 {
+		t.Fatalf("denied writes reached store: %d", store.writes)
+	}
+}
+
+func TestViewBuilderHTTPStorageFailuresAndMalformedRequests(t *testing.T) {
+	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
+	app := viewBuilderTestApp(t, store, nil, nil)
+	store.fault = errors.New("private database failure with credentials")
+	result := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/view-builder", "")
+	if result.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("storagefault=%d %s", result.StatusCode, result.Body)
+	}
+	if strings.Contains(result.Body, "credentials") {
+		t.Fatalf("storage failure leaked: %s", result.Body)
+	}
+	store.fault = nil
+	result = requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/view-builder/defaults", `{"expectedVersion":0,"defaultConfigId":"files","defaultFrameId":"recipe/Files","unknown":true}`)
+	if result.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknownfield=%d %s", result.StatusCode, result.Body)
+	}
+	if store.writes != 0 {
+		t.Fatalf("malformed request reached store: %d", store.writes)
+	}
+}
+
+func viewBuilderCanEditFalse(t *testing.T, body string) bool {
+	t.Helper()
+	var value struct {
+		CanEdit *bool `json:"canEdit"`
+	}
+	if err := json.Unmarshal([]byte(body), &value); err != nil {
+		t.Fatal(err)
+	}
+	return value.CanEdit != nil && !*value.CanEdit
+}
+
+func TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		failure error
+		status  int
+	}{
+		{"allowed", nil, 0},
+		{"concealed", dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, ""), http.StatusNotFound},
+		{"backend", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, ""), http.StatusServiceUnavailable},
+		{"unexpected", errors.New("private database detail"), http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handlers := &Handlers{authorizeExecution: func(context.Context, string) error { return test.failure }}
+			err := handlers.authorizeViewBuilderExecution(context.Background(), "execution-a")
+			if test.status == 0 {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			status, _ := explorerErrorResponse(err)
+			if status != test.status {
+				t.Fatalf("status=%d err=%v", status, err)
+			}
+		})
+	}
+}
+
+func TestViewBuilderScopedEditorCapability(t *testing.T) {
+	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
+		return []string{"project-a"}, nil
+	}})
+	principal := &authscope.Principal{Projects: []string{"project-a"}, AuthResourcePaths: []string{"project-a"}}
+	ctx := authscope.ContextWithPrincipal(context.Background(), principal)
+	if err := resolver.AuthorizeWrite(ctx, principal, "project-a", "project-a"); err != nil {
+		t.Fatalf("editor grant invalid: %v", err)
+	}
+	handlers := newExplorerHTTPHandlers(authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service)
+	state, err := handlers.authorizedViewBuilderState(ctx, "project-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.CanEdit {
+		t.Fatal("scoped editor with valid project write grant receives canEdit=false on GET")
+	}
+	if err := handlers.authorizeViewBuilder(ctx, "project-a", "", true); err != nil {
+		t.Fatalf("scoped mutation without override: %v", err)
+	}
+	if err := handlers.authorizeViewBuilder(ctx, "project-a", "foreign-project", true); err == nil {
+		t.Fatal("foreign scope override was accepted")
+	}
+}
+
+func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
+	const project = "HTAN_INT/BForePC"
+	const authResourcePath = "/programs/HTAN_INT/projects/BForePC"
+
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
+			return []string{authResourcePath}, nil
+		},
+	})
+	principal := &authscope.Principal{
+		Subject:           "editor",
+		Projects:          []string{project},
+		AuthResourcePaths: []string{authResourcePath},
+	}
+	store := &viewBuilderHTTPStore{
+		testExplorerStore: explorerfixtures.NewStore(),
+		settings:          viewer.ViewBuilderSettings{Catalogs: map[string]string{}},
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers := newExplorerHTTPHandlers(
+		authscope.ScopeAuthorizer{Resolver: resolver},
+		func(context.Context, *authscope.Principal, string) error { return nil },
+		service,
+	)
+	app := fiber.New()
+	app.Use(func(c fiber.Ctx) error {
+		c.SetContext(authscope.ContextWithPrincipal(c.Context(), principal))
+		return c.Next()
+	})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
+
+	get := func(query string) (int, bool) {
+		t.Helper()
+		path := "/api/v1/projects/HTAN_INT%252FBForePC/view-builder"
+		if query != "" {
+			path += "?" + query
+		}
+		result := requestJSON(t, app, http.MethodGet, path, "")
+		var body struct {
+			CanEdit bool `json:"canEdit"`
+		}
+		if err := json.Unmarshal([]byte(result.Body), &body); err != nil {
+			t.Fatalf("decode GET response %q: %v", result.Body, err)
+		}
+		return result.StatusCode, body.CanEdit
+	}
+
+	status, canEdit := get(url.Values{"auth_resource_path": {authResourcePath}}.Encode())
+	if status != http.StatusOK || !canEdit {
+		t.Fatalf("scoped editor GET status=%d canEdit=%v; want HTTP 200 and canEdit=true", status, canEdit)
+	}
+	status, canEdit = get("")
+	if status != http.StatusOK || !canEdit {
+		t.Fatalf("scoped GET without auth_resource_path status=%d canEdit=%v; want legacy project fallback to remain editable", status, canEdit)
+	}
+	status, canEdit = get(url.Values{"auth_resource_path": {"/programs/OTHER/projects/foreign"}}.Encode())
+	if status != http.StatusOK || canEdit {
+		t.Fatalf("GET with foreign auth_resource_path status=%d canEdit=%v; want HTTP 200 and canEdit=false", status, canEdit)
+	}
+
+	unscopedStore := &viewBuilderHTTPStore{
+		testExplorerStore: explorerfixtures.NewStore(),
+		settings:          viewer.ViewBuilderSettings{Catalogs: map[string]string{}},
+	}
+	unscopedApp := viewBuilderTestApp(t, unscopedStore, nil, nil)
+	status, canEdit = func() (int, bool) {
+		result := requestJSON(t, unscopedApp, http.MethodGet, "/api/v1/projects/project-a/view-builder", "")
+		var body struct {
+			CanEdit bool `json:"canEdit"`
+		}
+		if err := json.Unmarshal([]byte(result.Body), &body); err != nil {
+			t.Fatalf("decode unscoped GET response %q: %v", result.Body, err)
+		}
+		return result.StatusCode, body.CanEdit
+	}()
+	if status != http.StatusOK || !canEdit {
+		t.Fatalf("unscoped GET status=%d canEdit=%v; want HTTP 200 and canEdit=true", status, canEdit)
+	}
+}
+
+func TestExplorerOperationKeepsUnavailableStatusWithoutApplication(t *testing.T) {
+	handlers := &Handlers{}
+	response, err := handlers.CreateExplorerSelection(context.Background(), loomapi.CreateExplorerSelectionRequestObject{})
+	if err != nil {
+		t.Fatalf("CreateExplorerSelection() error = %v", err)
+	}
+	if _, ok := response.(loomapi.CreateExplorerSelection503JSONResponse); !ok {
+		t.Fatalf("CreateExplorerSelection() response = %T, want 503", response)
+	}
 }

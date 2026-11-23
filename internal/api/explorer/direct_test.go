@@ -2,19 +2,22 @@ package explorerapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/viewer"
-
-	"github.com/calypr/loom/internal/testkit/explorerfixtures"
-
+	loomapi "github.com/calypr/loom/api/loomapi"
 	recipeexec "github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type recipeExecutionCatalogFixture struct {
@@ -151,5 +154,125 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 				t.Fatalf("err=%v failure=%#v expected=%d", err, failure, tc.status)
 			}
 		})
+	}
+}
+
+func TestExplorerErrorResponsePreservesLifecycleDetails(t *testing.T) {
+	status, response := explorerErrorResponse(legacyOperationFailureDetails(http.StatusConflict, "COMPILATION_FAILED", "catalog field is unavailable", map[string]any{"retryable": false}, nil))
+	if status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", status)
+	}
+	if response.Error.Code != "COMPILATION_FAILED" || response.Error.Message != "catalog field is unavailable" {
+		t.Fatalf("error = %#v", response.Error)
+	}
+	if response.Error.Details == nil || (*response.Error.Details)["retryable"] != false {
+		t.Fatalf("details = %#v, want explicit retryable=false", response.Error.Details)
+	}
+}
+
+func TestExplorerLegacyResponseUnknownErrorIsDescriptive(t *testing.T) {
+	private := errors.New("private socket detail")
+	status, response := explorerErrorResponse(private)
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
+	}
+	if response.Error.Code != "INTERNAL_ERROR" {
+		t.Fatalf("code = %q, want INTERNAL_ERROR", response.Error.Code)
+	}
+	if !strings.Contains(response.Error.Message, "unexpected internal error") || !strings.Contains(response.Error.Message, "request ID") {
+		t.Fatalf("message = %q, want descriptive internal-error guidance", response.Error.Message)
+	}
+	if strings.Contains(response.Error.Message, private.Error()) {
+		t.Fatalf("response leaked private cause: %q", response.Error.Message)
+	}
+}
+
+func TestExplorerLegacyResponseFillsEmptyInternalMessage(t *testing.T) {
+	status, response := explorerErrorResponse(legacyOperationFailure(http.StatusInternalServerError, "", "", nil))
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
+	}
+	if response.Error.Code != "INTERNAL_ERROR" || !strings.Contains(response.Error.Message, "unexpected internal error") {
+		t.Fatalf("body = %#v, want descriptive INTERNAL_ERROR", response.Error)
+	}
+}
+
+func TestAuthoringErrorMapsPublicationInProgressToConflict(t *testing.T) {
+	status, response := authoringErrorForOpenAPI(context.Background(), "publish", &ports.Error{
+		Class:   ports.ClassConflict,
+		Stage:   "materialize",
+		Code:    "PUBLICATION_IN_PROGRESS",
+		Message: "Explorer publication is already in progress; retry after it completes",
+		Details: map[string]any{"executionId": "execution-a", "retryable": true},
+	})
+	if status != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", status, http.StatusConflict)
+	}
+	if response.Error.Code != "PUBLICATION_IN_PROGRESS" || response.Error.Diagnostic == nil {
+		t.Fatalf("error response = %#v", response)
+	}
+	if response.Error.Details == nil {
+		t.Fatal("error omitted publication details")
+	}
+	if got := (*response.Error.Details)["executionId"]; got != "execution-a" {
+		t.Fatalf("executionId = %v, want execution-a", got)
+	}
+	if got := (*response.Error.Diagnostic.Details)["retryable"]; got != true {
+		t.Fatalf("retryable = %v, want true", got)
+	}
+}
+
+func marshalExplorerErrorBody(t *testing.T, err error) (map[string]any, int) {
+	t.Helper()
+	status, response := explorerErrorResponse(err)
+
+	raw, merr := json.Marshal(response)
+	if merr != nil {
+		t.Fatalf("marshal Explorer envelope: %v", merr)
+	}
+	var envelope map[string]any
+	if uerr := json.Unmarshal(raw, &envelope); uerr != nil {
+		t.Fatalf("unmarshal Explorer envelope: %v", uerr)
+	}
+	body, ok := envelope["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("Explorer error envelope is not a structured object (client cannot read explicit retryability): %s", raw)
+	}
+	return body, status
+}
+
+func TestLegacyFailureCarriesExplicitRetryabilityForActivationMiss(t *testing.T) {
+
+	miss := &ports.Error{Class: ports.ClassConflict, Stage: "repository_publish", Code: "RELEASE_ACTIVATION_FAILED", Message: "activate published ExplorerConfigV2: requirements unmet", Details: map[string]any{"retryable": false}, Cause: errors.New("release requirements unmet")}
+	body, status := marshalExplorerErrorBody(t, lifecycleLegacyFailure(miss))
+	if status != http.StatusConflict {
+		t.Fatalf("activation miss status = %d, want 409", status)
+	}
+	if body["code"] != "RELEASE_ACTIVATION_FAILED" {
+		t.Fatalf("Explorer body lost the lifecycle code: %v", body)
+	}
+	if retryBlock, ok := body["details"].(map[string]any); !ok || retryBlock["retryable"] != false {
+		t.Fatalf("F-B28 RED: explicit retryable=false from the lifecycle error details never reached the client body: %v", body)
+	}
+}
+
+func TestLegacyFailureKeepsUnrelatedErrorsUnwidened(t *testing.T) {
+
+	body, status := marshalExplorerErrorBody(t, lifecycleLegacyFailure(errors.New("store exploded")))
+	if status != http.StatusInternalServerError {
+		t.Fatalf("plain error status = %d, want 500", status)
+	}
+	if body["code"] != "INTERNAL_ERROR" {
+		t.Fatalf("plain error code = %v, want INTERNAL_ERROR", body["code"])
+	}
+	if _, present := body["retryable"]; present {
+		t.Fatalf("encoder invented retryability for an error that never declared one: %v", body)
+	}
+	if _, present := body["details"]; present {
+		t.Fatalf("encoder invented a details block for an error that never declared one: %v", body)
+	}
+	var typed loomapi.LegacyErrorBody
+	if err := json.Unmarshal([]byte(`{"code":"X","retryable":true}`), &typed); err != nil || typed.Code != "X" || typed.AdditionalProperties["retryable"] != true {
+		t.Fatalf("generated AdditionalProperties contract drifted: %#v err=%v", typed, err)
 	}
 }
