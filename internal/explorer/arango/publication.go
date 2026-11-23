@@ -2,6 +2,7 @@ package arango
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
@@ -14,11 +15,11 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 	if err := validateReceipt(receipt); err != nil {
 		return nil, err
 	}
-	receiptDoc, err := document(receipt, receipt.ID)
+	receiptDoc, err := db.Document(receipt, receipt.ID)
 	if err != nil {
 		return nil, err
 	}
-	revisionDoc, err := document(revision, revision.ID)
+	revisionDoc, err := db.Document(revision, revision.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +34,7 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 		}
 		var stored *explorer.CompilationReceipt
 		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, 1, map[string]any{"@c": CompilationReceiptsCollection, "key": receipt.ID, "project": receipt.Project, "explorerId": receipt.ExplorerID}, func(row map[string]any) error {
-			value, err := decode[explorer.CompilationReceipt](row)
+			value, err := db.Decode[explorer.CompilationReceipt](row)
 			if err != nil {
 				return err
 			}
@@ -74,7 +75,11 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explore
 		if err := registerAuthoringViewCatalog(txCtx, tx, revision); err != nil {
 			return err
 		}
-		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
+		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
+			value, err := db.Decode[explorer.Revision](row)
+			out = &value
+			return err
+		})
 	})
 	return out, err
 }

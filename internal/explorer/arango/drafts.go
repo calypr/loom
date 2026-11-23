@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strconv"
 	"strings"
 	"time"
@@ -82,7 +83,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 				return err
 			}
 		}
-		revisionDoc, err := document(revision, revision.ID)
+		revisionDoc, err := db.Document(revision, revision.ID)
 		if migration != nil {
 			revisionDoc, err = migrationDocument(revision, revision.ID)
 		}
@@ -200,7 +201,7 @@ func draftRevisionFromExplorer(value explorer.Explorer) explorer.DraftRevision {
 }
 
 func draftRevisionKey(project, explorerID string, version int64) string {
-	return "draft_revision_" + key(project, explorerID, strconv.FormatInt(version, 10))
+	return "draft_revision_" + db.Key(project, explorerID, strconv.FormatInt(version, 10))
 }
 
 func draftPatchDocument(value explorer.Explorer) (map[string]any, error) {

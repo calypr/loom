@@ -1,10 +1,11 @@
-package arango
+package selectiondb
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"time"
@@ -13,13 +14,13 @@ import (
 )
 
 const (
-	selectionStagingState = "STAGING"
-	selectionWriterLease  = 10 * time.Minute
+	SelectionStagingState = "STAGING"
+	SelectionWriterLease  = 10 * time.Minute
 	selectionCleanupLimit = 100
 )
 
-func selectionMemberKey(selectionID string, ref explorerselection.ResourceRef) string {
-	return selectionID + "_" + key(ref.Project, ref.Generation, ref.ResourceType, ref.ID)
+func SelectionMemberKey(selectionID string, ref explorerselection.ResourceRef) string {
+	return selectionID + "_" + db.Key(ref.Project, ref.Generation, ref.ResourceType, ref.ID)
 }
 
 func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorerselection.SelectionRevision, writerToken string) (*explorerselection.SelectionRevision, error) {
@@ -38,15 +39,15 @@ func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorers
 	if err := s.CleanupSelectionStaging(ctx, time.Now().UTC(), selectionCleanupLimit); err != nil {
 		return nil, err
 	}
-	doc, err := document(selection, selection.ID)
+	doc, err := db.Document(selection, selection.ID)
 	if err != nil {
 		return nil, err
 	}
-	doc["state"] = selectionStagingState
+	doc["state"] = SelectionStagingState
 	doc["writerToken"] = writerToken
-	doc["writerExpiresAt"] = time.Now().UTC().Add(selectionWriterLease).UnixMilli()
+	doc["writerExpiresAt"] = time.Now().UTC().Add(SelectionWriterLease).UnixMilli()
 	var existingID string
-	if err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.idempotencyKey == @idempotencyKey LIMIT 1 RETURN {_key: d._key}`, 1, map[string]any{"@c": SelectionsCollection, "project": selection.Project, "idempotencyKey": selection.IdempotencyKey}, func(row map[string]any) error {
+	if err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.idempotencyKey == @idempotencyKey LIMIT 1 RETURN {_key: d._key}`, 1, map[string]any{"@c": db.SelectionsCollection, "project": selection.Project, "idempotencyKey": selection.IdempotencyKey}, func(row map[string]any) error {
 		existingID, _ = row["_key"].(string)
 		return nil
 	}); err != nil {
@@ -55,10 +56,10 @@ func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorers
 	if existingID != "" && existingID != selection.ID {
 		return nil, explorerselection.ErrSelectionConflict
 	}
-	if err := s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": SelectionsCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
+	if err := s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": db.SelectionsCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		return nil, err
 	}
-	stored, err := s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, map[string]any{"@c": SelectionsCollection, "key": selection.ID})
+	stored, err := s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, map[string]any{"@c": db.SelectionsCollection, "key": selection.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorers
 	}
 	if !stored.Complete {
 		storedWriterToken := ""
-		if err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {writerToken: d.writerToken}`, 1, map[string]any{"@c": SelectionsCollection, "key": selection.ID}, func(row map[string]any) error {
+		if err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {writerToken: d.writerToken}`, 1, map[string]any{"@c": db.SelectionsCollection, "key": selection.ID}, func(row map[string]any) error {
 			storedWriterToken, _ = row["writerToken"].(string)
 			return nil
 		}); err != nil {
@@ -94,12 +95,12 @@ func (s *SelectionStore) AppendSelectionMembers(ctx context.Context, selectionID
 	}
 
 	inserted := make([]explorerselection.SelectionMember, 0, len(members))
-	err := s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{SelectionsCollection, SelectionMembersCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
+	err := s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{db.SelectionsCollection, db.SelectionMembersCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
 		var header *explorerselection.SelectionRevision
 		storedWriterToken := ""
 		state := ""
-		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
-			value, err := decode[explorerselection.SelectionRevision](row)
+		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": db.SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
+			value, err := db.Decode[explorerselection.SelectionRevision](row)
 			if err != nil {
 				return err
 			}
@@ -116,14 +117,14 @@ func (s *SelectionStore) AppendSelectionMembers(ctx context.Context, selectionID
 		if strings.TrimSpace(storedWriterToken) != writerToken {
 			return explorerselection.ErrSelectionConflict
 		}
-		if header.Complete || (state != "" && state != selectionStagingState) {
+		if header.Complete || (state != "" && state != SelectionStagingState) {
 			return explorerselection.ErrSelectionConflict
 		}
 		docs := make([]map[string]any, 0, len(members))
 		byKey := make(map[string]explorerselection.SelectionMember, len(members))
 		for _, raw := range members {
 			member := raw.Canonical()
-			expectedMemberKey := selectionMemberKey(selectionID, member.Ref)
+			expectedMemberKey := SelectionMemberKey(selectionID, member.Ref)
 			if member.MemberKey != "" && member.MemberKey != expectedMemberKey {
 				return explorerselection.ErrSelectionConflict
 			}
@@ -131,7 +132,7 @@ func (s *SelectionStore) AppendSelectionMembers(ctx context.Context, selectionID
 			if err := member.Ref.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
 				return err
 			}
-			doc, err := document(member, member.MemberKey)
+			doc, err := db.Document(member, member.MemberKey)
 			if err != nil {
 				return err
 			}
@@ -149,7 +150,7 @@ UPSERT {_key: doc._key}
 INSERT doc
 UPDATE {}
 IN @@c
-RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": SelectionMembersCollection, "docs": docs}, func(row map[string]any) error {
+RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": db.SelectionMembersCollection, "docs": docs}, func(row map[string]any) error {
 			key, _ := row["key"].(string)
 			value, _ := row["inserted"].(bool)
 
@@ -158,7 +159,7 @@ RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": 
 		}); err != nil {
 			return err
 		}
-		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.writerToken == @writerToken UPDATE d WITH {writerExpiresAt: @writerExpiresAt} IN @@c RETURN {renewed: true}`, 1, map[string]any{"@c": SelectionsCollection, "key": selectionID, "writerToken": writerToken, "writerExpiresAt": time.Now().UTC().Add(selectionWriterLease).UnixMilli()}, func(map[string]any) error { return nil }); err != nil {
+		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.writerToken == @writerToken UPDATE d WITH {writerExpiresAt: @writerExpiresAt} IN @@c RETURN {renewed: true}`, 1, map[string]any{"@c": db.SelectionsCollection, "key": selectionID, "writerToken": writerToken, "writerExpiresAt": time.Now().UTC().Add(SelectionWriterLease).UnixMilli()}, func(map[string]any) error { return nil }); err != nil {
 			return err
 		}
 		for key, member := range byKey {
@@ -194,8 +195,8 @@ func (s *SelectionStore) DigestSelectionMembers(ctx context.Context, project, se
 	AND m.generation == @generation AND m.resourceType == @resourceType AND m.id > @afterID
 	SORT m.id ASC
 	LIMIT @limit
-	RETURN m`, 1000, map[string]any{"@c": SelectionMembersCollection, "selectionId": selectionID, "project": project, "generation": header.Generation, "resourceType": header.ResourceType, "afterID": afterID, "limit": 1000}, func(row map[string]any) error {
-			member, decodeErr := decode[explorerselection.SelectionMember](row)
+	RETURN m`, 1000, map[string]any{"@c": db.SelectionMembersCollection, "selectionId": selectionID, "project": project, "generation": header.Generation, "resourceType": header.ResourceType, "afterID": afterID, "limit": 1000}, func(row map[string]any) error {
+			member, decodeErr := db.Decode[explorerselection.SelectionMember](row)
 			if decodeErr != nil {
 				return decodeErr
 			}
@@ -233,7 +234,7 @@ func (s *SelectionStore) CompleteSelection(ctx context.Context, selectionID, wri
 	}
 	var changed bool
 	ownerFilter := `FILTER d._key == @key AND d.state == @state AND d.complete != true AND d.writerToken == @writerToken`
-	binds := map[string]any{"@c": SelectionsCollection, "key": selectionID, "state": selectionStagingState, "writerToken": writerToken, "digest": digest, "count": count, "bytes": bytes, "completedAt": completedAt}
+	binds := map[string]any{"@c": db.SelectionsCollection, "key": selectionID, "state": SelectionStagingState, "writerToken": writerToken, "digest": digest, "count": count, "bytes": bytes, "completedAt": completedAt}
 	query := `FOR d IN @@c
 ` + ownerFilter + `
 UPDATE d WITH {complete: true, state: "COMPLETE", membershipDigest: @digest, memberCount: @count, memberBytes: @bytes, completedAt: @completedAt} IN @@c
@@ -245,7 +246,7 @@ UPDATE d WITH {complete: true, state: "COMPLETE", membershipDigest: @digest, mem
 	if err != nil {
 		return nil, err
 	}
-	stored, err := s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, map[string]any{"@c": SelectionsCollection, "key": selectionID})
+	stored, err := s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, map[string]any{"@c": db.SelectionsCollection, "key": selectionID})
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +258,7 @@ UPDATE d WITH {complete: true, state: "COMPLETE", membershipDigest: @digest, mem
 	}
 	if !changed {
 		storedWriterToken := ""
-		if err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {writerToken: d.writerToken}`, 1, map[string]any{"@c": SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
+		if err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {writerToken: d.writerToken}`, 1, map[string]any{"@c": db.SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
 			storedWriterToken, _ = row["writerToken"].(string)
 			return nil
 		}); err != nil {
@@ -281,7 +282,7 @@ func (s *SelectionStore) AbortSelection(ctx context.Context, selectionID, writer
 		return explorerselection.ErrSelectionConflict
 	}
 	ownerExpr := `header != null AND header.complete != true AND header.writerToken == @writerToken`
-	binds := map[string]any{"@members": SelectionMembersCollection, "@headers": SelectionsCollection, "selectionId": selectionID, "writerToken": writerToken}
+	binds := map[string]any{"@members": db.SelectionMembersCollection, "@headers": db.SelectionsCollection, "selectionId": selectionID, "writerToken": writerToken}
 	query := `LET header = DOCUMENT(@@headers, @selectionId)
 LET owned = ` + ownerExpr + `
 LET removedMembers = (
@@ -301,7 +302,7 @@ RETURN {removed: LENGTH(removedHeaders) > 0}`
 }
 
 func (s *SelectionStore) GetSelection(ctx context.Context, project, selectionID string) (*explorerselection.SelectionRevision, error) {
-	return s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, map[string]any{"@c": SelectionsCollection, "key": strings.TrimSpace(selectionID), "project": strings.TrimSpace(project)})
+	return s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, map[string]any{"@c": db.SelectionsCollection, "key": strings.TrimSpace(selectionID), "project": strings.TrimSpace(project)})
 }
 
 func (s *SelectionStore) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorerselection.SelectionMember) error) (string, error) {
@@ -324,8 +325,8 @@ func (s *SelectionStore) VisitSelectionMembers(ctx context.Context, project, sel
 FILTER m.selectionId == @selectionId AND m.project == @project AND m._key > @after
 SORT m._key ASC
 LIMIT @limit
-RETURN m`, pageSize, map[string]any{"@c": SelectionMembersCollection, "selectionId": selectionID, "project": strings.TrimSpace(project), "after": last, "limit": pageSize}, func(row map[string]any) error {
-		member, decodeErr := decode[explorerselection.SelectionMember](row)
+RETURN m`, pageSize, map[string]any{"@c": db.SelectionMembersCollection, "selectionId": selectionID, "project": strings.TrimSpace(project), "after": last, "limit": pageSize}, func(row map[string]any) error {
+		member, decodeErr := db.Decode[explorerselection.SelectionMember](row)
 		if decodeErr != nil {
 			return decodeErr
 		}
@@ -350,7 +351,7 @@ RETURN m`, pageSize, map[string]any{"@c": SelectionMembersCollection, "selection
 func (s *SelectionStore) readSelection(ctx context.Context, query string, binds map[string]any) (*explorerselection.SelectionRevision, error) {
 	var result *explorerselection.SelectionRevision
 	err := s.client.QueryRows(ctx, query, 1, binds, func(row map[string]any) error {
-		value, err := decode[explorerselection.SelectionRevision](row)
+		value, err := db.Decode[explorerselection.SelectionRevision](row)
 		if err != nil {
 			return err
 		}
@@ -387,5 +388,5 @@ func (s *SelectionStore) CleanupSelectionStaging(ctx context.Context, before tim
       RETURN 1
   )
   REMOVE d IN @@c
-  RETURN {removed: true}`, limit, map[string]any{"@c": SelectionsCollection, "@members": SelectionMembersCollection, "state": selectionStagingState, "before": before, "now": time.Now().UTC().UnixMilli(), "limit": limit}, func(map[string]any) error { return nil })
+  RETURN {removed: true}`, limit, map[string]any{"@c": db.SelectionsCollection, "@members": db.SelectionMembersCollection, "state": SelectionStagingState, "before": before, "now": time.Now().UTC().UnixMilli(), "limit": limit}, func(map[string]any) error { return nil })
 }

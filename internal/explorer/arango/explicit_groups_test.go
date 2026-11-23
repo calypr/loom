@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestPutExplicitGroupDefinitionsUsesObjectRows(t *testing.T) {
 		SourceSelectionRevisionID: "selection-a", SourceMembershipDigest: "source-membership-a",
 		State: explorer.ExplicitGroupRevisionStaging, IdempotencyKey: "groups-a", CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}
-	header, err := document(revision, string(revision.ID))
+	header, err := db.Document(revision, string(revision.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestPutExplicitGroupDefinitionsUsesObjectRows(t *testing.T) {
 	completed.GroupCount = 1
 	completedAt := time.Date(2026, time.January, 1, 0, 1, 0, 0, time.UTC)
 	completed.CompletedAt = &completedAt
-	client.header, err = document(completed, string(completed.ID))
+	client.header, err = db.Document(completed, string(completed.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

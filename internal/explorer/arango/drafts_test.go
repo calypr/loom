@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -119,7 +120,7 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 		DraftSourceGeneration: "generation-old", DraftAuthorizationScopeDigest: "scope-old",
 		ActiveRevisionID: "published-revision-9", UpdatedBy: "alice", UpdatedAt: time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC),
 	}
-	owner, err := document(previous, explorerKey(previous.Project, previous.ExplorerID))
+	owner, err := db.Document(previous, explorerKey(previous.Project, previous.ExplorerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 
 func TestSaveDraftCASConflictDoesNotPersistHistory(t *testing.T) {
 	previous := explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftVersion: 4, DraftDigest: "sha256:current"}
-	owner, err := document(previous, explorerKey(previous.Project, previous.ExplorerID))
+	owner, err := db.Document(previous, explorerKey(previous.Project, previous.ExplorerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +201,7 @@ func TestSaveDraftCASConflictDoesNotPersistHistory(t *testing.T) {
 
 func TestSaveDraftRollsBackHistoryIfOwnerCASFailsAfterSnapshotInsert(t *testing.T) {
 	previous := explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftVersion: 4, DraftDigest: "sha256:current"}
-	owner, err := document(previous, explorerKey(previous.Project, previous.ExplorerID))
+	owner, err := db.Document(previous, explorerKey(previous.Project, previous.ExplorerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestGetDraftRevisionScopesOpaqueIDsToExplorer(t *testing.T) {
 		ID: "draft_revision_one", Project: "project-a", ExplorerID: "patients", DraftVersion: 3,
 		DraftDigest: "sha256:draft", DraftConfig: json.RawMessage(`{"documents":[{"outputId":"patients"}]}`),
 	}
-	doc, err := document(revision, revision.ID)
+	doc, err := db.Document(revision, revision.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

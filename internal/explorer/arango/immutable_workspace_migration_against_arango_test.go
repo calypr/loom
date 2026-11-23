@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 	history := draftRevisionFromExplorer(historyOwner)
 	history.ID = draftRevisionKey(historyOwner.Project, historyOwner.ExplorerID, historyOwner.DraftVersion)
 	historyKey := history.ID
-	historyDoc, err := document(history, historyKey)
+	historyDoc, err := db.Document(history, historyKey)
 	if err != nil {
 		t.Fatal(err)
 	}

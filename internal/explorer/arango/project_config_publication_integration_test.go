@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"net/http"
 	"net/url"
@@ -426,7 +427,7 @@ func projectConfigSeedExecution(t *testing.T, ctx context.Context, client *proje
 			State:    publicationdata.BundlePublished, VerifiedAt: &verifiedAt,
 		}},
 	}
-	doc, err := document(execution, execution.ID)
+	doc, err := db.Document(execution, execution.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"sync"
 	"testing"
@@ -187,7 +188,7 @@ func TestInsertCompilationReceiptRejectsDifferentReceiptAtExistingKey(t *testing
 		t.Run(name, func(t *testing.T) {
 			receipt := testCompilationReceipt(t, "requested-intent")
 			other := testCompilationReceipt(t, "stored-different-intent")
-			storedDoc, err := document(other, receipt.ID)
+			storedDoc, err := db.Document(other, receipt.ID)
 			if err != nil {
 				t.Fatal(err)
 			}

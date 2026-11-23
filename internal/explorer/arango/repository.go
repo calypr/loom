@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ type legacyRepositoryConfig struct {
 func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 	legacy := []legacyRepositoryConfig{}
 	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.activeRevisionId != null AND d.activeRevisionId != "" RETURN d`, 1000, map[string]any{"@c": LegacyRepositoryConfigsCollection}, func(row map[string]any) error {
-		value, decodeErr := decode[legacyRepositoryConfig](row)
+		value, decodeErr := db.Decode[legacyRepositoryConfig](row)
 		if decodeErr == nil {
 			legacy = append(legacy, value)
 		}

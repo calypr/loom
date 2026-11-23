@@ -1,17 +1,20 @@
-package arango
+package db
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+
 	"encoding/json"
 	"time"
 
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func decode[T any](value any) (T, error) {
-	return arangostore.DecodeValue[T](normalizeUpdatedAt(value))
+func Decode[T any](value any) (T, error) {
+	return arangostore.DecodeValue[T](NormalizeUpdatedAt(value))
 }
 
-func normalizeUpdatedAt(value any) any {
+func NormalizeUpdatedAt(value any) any {
 	row, ok := value.(map[string]any)
 	if !ok {
 		return value
@@ -20,13 +23,13 @@ func normalizeUpdatedAt(value any) any {
 	for key, item := range row {
 		normalized[key] = item
 	}
-	if timestamp, ok := numericTimestamp(row["updatedAt"]); ok {
+	if timestamp, ok := NumericTimestamp(row["updatedAt"]); ok {
 		normalized["updatedAt"] = timestamp
 	}
 	return normalized
 }
 
-func numericTimestamp(value any) (string, bool) {
+func NumericTimestamp(value any) (string, bool) {
 	var millis int64
 	switch number := value.(type) {
 	case float64:
@@ -44,7 +47,7 @@ func numericTimestamp(value any) (string, bool) {
 	}
 	return time.UnixMilli(millis).UTC().Format(time.RFC3339Nano), true
 }
-func document(value any, k string) (map[string]any, error) {
+func Document(value any, k string) (map[string]any, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
@@ -55,4 +58,13 @@ func document(value any, k string) (map[string]any, error) {
 	}
 	doc["_key"] = k
 	return doc, nil
+}
+
+func Key(parts ...string) string {
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(part))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"io"
 	"os"
 	"reflect"
@@ -187,7 +188,7 @@ func draftTransactionJSON(value any) string { raw, _ := json.Marshal(value); ret
 func runDraftTransactionCase(t *testing.T, input draftTransactionCase) draftTransactionObservation {
 	t.Helper()
 	old := draftTransactionFixture()
-	oldDoc, err := document(old, draftTransactionExplorerKey)
+	oldDoc, err := db.Document(old, draftTransactionExplorerKey)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 )
 
@@ -44,7 +45,7 @@ func decodeMigrationJSON[T any](value any) (T, error) {
 	if json.Unmarshal([]byte(raw), &fields) == nil && fields != nil {
 		var numeric float64
 		if timestampRaw, present := fields["updatedAt"]; present && json.Unmarshal(timestampRaw, &numeric) == nil && string(timestampRaw) != "null" {
-			if timestamp, ok := numericTimestamp(numeric); ok {
+			if timestamp, ok := db.NumericTimestamp(numeric); ok {
 				fields["updatedAt"], _ = json.Marshal(timestamp)
 				normalized, err := json.Marshal(fields)
 				if err != nil {
@@ -61,5 +62,5 @@ func decodeDraftRow[T any](row map[string]any, migration bool) (T, error) {
 	if migration {
 		return decodeMigrationJSON[T](row["migrationJSON"])
 	}
-	return decode[T](row)
+	return db.Decode[T](row)
 }

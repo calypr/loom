@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	storepkg "github.com/calypr/loom/internal/store/arango"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func TestReceiptVerifiedAddressComparisonPreservesIntegrity(t *testing.T) {
 					receipt.ID = "old-receipt-key"
 				}
 			}
-			doc, err := document(receipt, receipt.ID)
+			doc, err := db.Document(receipt, receipt.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +92,7 @@ func TestReceiptStoreReturnsAuthenticatedWinnerMetadata(t *testing.T) {
 	winner := receipt
 	winner.RequestID = "winning-request"
 	winner.CreatedAt = time.Unix(1, 0).UTC()
-	doc, err := document(winner, winner.ID)
+	doc, err := db.Document(winner, winner.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestReceiptStoreLegacyCollisionIsCorrupt(t *testing.T) {
 	receipt := explorer.CompilationReceipt{ID: "old-key", Project: "project-a", ExplorerID: "explorer-a", IntentDigest: "original", Bundle: testReceiptBundle()}
 	other := receipt
 	other.IntentDigest = "different"
-	doc, err := document(other, receipt.ID)
+	doc, err := db.Document(other, receipt.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

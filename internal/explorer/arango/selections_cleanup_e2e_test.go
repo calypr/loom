@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"net/url"
@@ -82,7 +84,7 @@ func selectionCleanupInspect(t *testing.T, ctx context.Context, client *store.Cl
 	t.Helper()
 	info := selectionCleanupDocument{}
 	if err := client.QueryRows(ctx, `LET d = DOCUMENT(@@headers, @key)
-RETURN {missing: d == null, state: d == null ? null : d.state, complete: d != null AND d.complete == true, hasWriterExpiresAt: d != null && HAS(d, "writerExpiresAt"), writerExpiresAt: d == null ? null : d.writerExpiresAt, createdAt: d == null ? null : d.createdAt}`, 1, map[string]any{"@headers": SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
+RETURN {missing: d == null, state: d == null ? null : d.state, complete: d != null AND d.complete == true, hasWriterExpiresAt: d != null && HAS(d, "writerExpiresAt"), writerExpiresAt: d == null ? null : d.writerExpiresAt, createdAt: d == null ? null : d.createdAt}`, 1, map[string]any{"@headers": db.SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
 		missing, _ := row["missing"].(bool)
 		info.exists = !missing
 		info.state, _ = row["state"].(string)
@@ -102,7 +104,7 @@ RETURN {missing: d == null, state: d == null ? null : d.state, complete: d != nu
 	if !info.exists {
 		return info
 	}
-	if err := client.QueryRows(ctx, `RETURN {count: LENGTH(FOR m IN @@members FILTER m.selectionId == @key RETURN 1)}`, 1, map[string]any{"@members": SelectionMembersCollection, "key": selectionID}, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, `RETURN {count: LENGTH(FOR m IN @@members FILTER m.selectionId == @key RETURN 1)}`, 1, map[string]any{"@members": db.SelectionMembersCollection, "key": selectionID}, func(row map[string]any) error {
 		switch number := row["count"].(type) {
 		case float64:
 			info.memberCount = int64(number)
@@ -118,11 +120,11 @@ RETURN {missing: d == null, state: d == null ? null : d.state, complete: d != nu
 
 func selectionCleanupExpireLease(t *testing.T, ctx context.Context, client *store.Client, selectionID string, lapsedFor time.Duration) int64 {
 	t.Helper()
-	expired := time.Now().UTC().Add(-selectionWriterLease - lapsedFor).UnixMilli()
-	if err := client.ExecuteAQL(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {writerExpiresAt: @writerExpiresAt} IN @@c RETURN NEW._key`, map[string]any{"@c": SelectionsCollection, "key": selectionID, "writerExpiresAt": expired}); err != nil {
+	expired := time.Now().UTC().Add(-selectiondb.SelectionWriterLease - lapsedFor).UnixMilli()
+	if err := client.ExecuteAQL(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {writerExpiresAt: @writerExpiresAt} IN @@c RETURN NEW._key`, map[string]any{"@c": db.SelectionsCollection, "key": selectionID, "writerExpiresAt": expired}); err != nil {
 		t.Fatalf("rewind writerExpiresAt for %s: %v", selectionID, err)
 	}
-	t.Logf("SELECTION_CLEANUP_LEASE_REWOUND selection=%s writerExpiresAtMillis=%d (= now - %s - %s) lease=%s", selectionID, expired, selectionWriterLease, lapsedFor, selectionWriterLease)
+	t.Logf("SELECTION_CLEANUP_LEASE_REWOUND selection=%s writerExpiresAtMillis=%d (= now - %s - %s) lease=%s", selectionID, expired, selectiondb.SelectionWriterLease, lapsedFor, selectiondb.SelectionWriterLease)
 	return expired
 }
 
@@ -130,7 +132,7 @@ func selectionCleanupAssertNoOrphans(t *testing.T, ctx context.Context, client *
 	t.Helper()
 	var orphans int64
 	if err := client.QueryRows(ctx, `LET ids = (FOR m IN @@members RETURN DISTINCT m.selectionId)
-RETURN {count: LENGTH(FOR id IN ids FILTER DOCUMENT(@@headers, id) == null RETURN id)}`, 1, map[string]any{"@members": SelectionMembersCollection, "@headers": SelectionsCollection}, func(row map[string]any) error {
+RETURN {count: LENGTH(FOR id IN ids FILTER DOCUMENT(@@headers, id) == null RETURN id)}`, 1, map[string]any{"@members": db.SelectionMembersCollection, "@headers": db.SelectionsCollection}, func(row map[string]any) error {
 		switch number := row["count"].(type) {
 		case float64:
 			orphans = int64(number)
@@ -214,7 +216,7 @@ func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	afterForeign := selectionCleanupInspect(t, ctx, client, liveID)
 	t.Logf("SELECTION_CLEANUP_LIVE_WRITER afterForeign exists=%t state=%q complete=%t hasWriterExpiresAt=%t writerExpiresAtMillis=%d memberCount=%d",
 		afterForeign.exists, afterForeign.state, afterForeign.complete, afterForeign.hasWriterExpiresAt, afterForeign.writerExpiresAtMillis, afterForeign.memberCount)
-	if !afterForeign.exists || afterForeign.state != selectionStagingState || afterForeign.memberCount != 3 {
+	if !afterForeign.exists || afterForeign.state != selectiondb.SelectionStagingState || afterForeign.memberCount != 3 {
 		t.Fatalf("active writer inside the lease was touched: %#v", afterForeign)
 	}
 	liveCompleted, err := persistence.CompleteSelection(ctx, liveID, liveToken, liveDigest, liveCount, 0, time.Now().UTC())
@@ -300,7 +302,7 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 		t.Fatalf("full lifecycle complete: %v", err)
 	}
 	var stagingComplete int64
-	if err := client.QueryRows(ctx, `RETURN {count: LENGTH(FOR d IN @@c FILTER d.state == @state AND d.complete == true RETURN d._key)}`, 1, map[string]any{"@c": SelectionsCollection, "state": selectionStagingState}, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, `RETURN {count: LENGTH(FOR d IN @@c FILTER d.state == @state AND d.complete == true RETURN d._key)}`, 1, map[string]any{"@c": db.SelectionsCollection, "state": selectiondb.SelectionStagingState}, func(row map[string]any) error {
 		switch number := row["count"].(type) {
 		case float64:
 			stagingComplete = int64(number)
@@ -346,13 +348,13 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 		"idempotencyKey":   "cleanup-guarded",
 		"createdAt":        time.Now().UTC().Add(-4 * time.Hour).Format(time.RFC3339Nano),
 		"completedAt":      completedAt.Format(time.RFC3339Nano),
-		"state":            selectionStagingState,
+		"state":            selectiondb.SelectionStagingState,
 		"writerToken":      guardedToken,
 		"writerExpiresAt":  time.Now().UTC().Add(-2 * time.Hour).UnixMilli(),
 	}
 	memberDocs := make([]map[string]any, 0, 2)
 	for _, member := range selectionCleanupMembers(project, "generation-a", "DocumentReference", "guarded", 2) {
-		memberKey := selectionMemberKey(guardedID, member.Ref)
+		memberKey := selectiondb.SelectionMemberKey(guardedID, member.Ref)
 		memberDocs = append(memberDocs, map[string]any{
 			"_key": memberKey, "selectionId": guardedID,
 			"ref":       map[string]any{"project": member.Ref.Project, "generation": member.Ref.Generation, "resourceType": member.Ref.ResourceType, "id": member.Ref.ID},
@@ -360,15 +362,15 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 			"project":   member.Ref.Project, "generation": member.Ref.Generation, "resourceType": member.Ref.ResourceType, "id": member.Ref.ID,
 		})
 	}
-	if err := client.ExecuteAQL(ctx, `INSERT @doc INTO @@headers`, map[string]any{"@headers": SelectionsCollection, "doc": guardedDoc}); err != nil {
+	if err := client.ExecuteAQL(ctx, `INSERT @doc INTO @@headers`, map[string]any{"@headers": db.SelectionsCollection, "doc": guardedDoc}); err != nil {
 		t.Fatalf("seed guarded header: %v", err)
 	}
-	if err := client.ExecuteAQL(ctx, `FOR doc IN @docs INSERT doc INTO @@members`, map[string]any{"@members": SelectionMembersCollection, "docs": memberDocs}); err != nil {
+	if err := client.ExecuteAQL(ctx, `FOR doc IN @docs INSERT doc INTO @@members`, map[string]any{"@members": db.SelectionMembersCollection, "docs": memberDocs}); err != nil {
 		t.Fatalf("seed guarded members: %v", err)
 	}
 	seeded := selectionCleanupInspect(t, ctx, client, guardedID)
 	t.Logf("SELECTION_CLEANUP_H3B_SEEDED exists=%t state=%q complete=%t memberCount=%d", seeded.exists, seeded.state, seeded.complete, seeded.memberCount)
-	if !seeded.exists || !seeded.complete || seeded.state != selectionStagingState || seeded.memberCount != 2 {
+	if !seeded.exists || !seeded.complete || seeded.state != selectiondb.SelectionStagingState || seeded.memberCount != 2 {
 		t.Fatalf("guarded fixture not seeded: %#v", seeded)
 	}
 
@@ -457,8 +459,8 @@ func selectionCleanupScaleRun(t *testing.T, ctx context.Context, persistence *St
 	}
 	unrenewedElapsed := time.Since(unrenewedStart)
 	t.Logf("SELECTION_CLEANUP_SCALE rows=%d batches=%d appendElapsed=%s digestElapsed=%s unRenewedGapToComplete=%s lease=%s lifecycleSelectionBudget=%s lifecycleMaxRows=%d",
-		size, batches, appendElapsed.Round(time.Millisecond), digestElapsed.Round(time.Millisecond), unrenewedElapsed.Round(time.Millisecond), selectionWriterLease, lifecycle.DefaultSelectionMaxDuration, lifecycle.DefaultSelectionMaxRows)
-	if unrenewedElapsed >= selectionWriterLease {
-		t.Errorf("un-renewed digest+complete gap %s reached the %s writer lease", unrenewedElapsed, selectionWriterLease)
+		size, batches, appendElapsed.Round(time.Millisecond), digestElapsed.Round(time.Millisecond), unrenewedElapsed.Round(time.Millisecond), selectiondb.SelectionWriterLease, lifecycle.DefaultSelectionMaxDuration, lifecycle.DefaultSelectionMaxRows)
+	if unrenewedElapsed >= selectiondb.SelectionWriterLease {
+		t.Errorf("un-renewed digest+complete gap %s reached the %s writer lease", unrenewedElapsed, selectiondb.SelectionWriterLease)
 	}
 }

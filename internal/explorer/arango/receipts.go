@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt exp
 	if err := validateReceipt(receipt); err != nil {
 		return nil, err
 	}
-	doc, err := document(receipt, receipt.ID)
+	doc, err := db.Document(receipt, receipt.ID)
 	if err != nil {
 		return nil, err
 	}

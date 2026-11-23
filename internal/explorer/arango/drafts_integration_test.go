@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"net/http"
 	"net/url"
 	"os"
@@ -125,7 +126,7 @@ func draftCASHistory(t *testing.T, ctx context.Context, c *store.Client, e explo
 	t.Helper()
 	rows := []explorer.DraftRevision{}
 	err := c.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorer RETURN d`, 10, map[string]any{"@c": DraftRevisionsCollection, "project": e.Project, "explorer": e.ExplorerID}, func(row map[string]any) error {
-		v, err := decode[explorer.DraftRevision](row)
+		v, err := db.Decode[explorer.DraftRevision](row)
 		rows = append(rows, v)
 		return err
 	})

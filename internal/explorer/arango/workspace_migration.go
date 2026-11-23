@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"slices"
 	"strings"
 	"time"
@@ -200,7 +201,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		}
 		document := documents[entry.Collection+"/"+entry.Key]
 		if entry.Collection == RevisionsCollection && entry.Path == "$.config" {
-			revision, err := decode[explorer.Revision](document.raw)
+			revision, err := db.Decode[explorer.Revision](document.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -222,13 +223,13 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		if slices.Contains(names, workspaceProjectionCollection) && (entry.Collection == DraftRevisionsCollection || entry.Collection == RevisionsCollection) {
 			var source explorer.WorkspaceArtifact
 			if entry.Collection == DraftRevisionsCollection {
-				history, err := decode[explorer.DraftRevision](document.raw)
+				history, err := db.Decode[explorer.DraftRevision](document.raw)
 				if err != nil {
 					return plan, err
 				}
 				source = explorer.DraftWorkspaceArtifact(history)
 			} else {
-				revision, err := decode[explorer.Revision](document.raw)
+				revision, err := db.Decode[explorer.Revision](document.raw)
 				if err != nil {
 					return plan, err
 				}
@@ -253,7 +254,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			}
 		}
 		if entry.Collection == CompilationReceiptsCollection {
-			receipt, err := decode[explorer.CompilationReceipt](document.raw)
+			receipt, err := db.Decode[explorer.CompilationReceipt](document.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -280,13 +281,13 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		generation, scope := "", ""
 		switch entry.Collection {
 		case ExplorersCollection:
-			owner, err := decode[explorer.Explorer](document.raw)
+			owner, err := db.Decode[explorer.Explorer](document.raw)
 			if err != nil {
 				return plan, err
 			}
 			generation, scope = owner.DraftSourceGeneration, owner.DraftAuthorizationScopeDigest
 		case DraftRevisionsCollection:
-			history, err := decode[explorer.DraftRevision](document.raw)
+			history, err := db.Decode[explorer.DraftRevision](document.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -300,7 +301,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			if !found {
 				return plan, explorer.ErrNotFound
 			}
-			revision, err := decode[explorer.Revision](revisionDocument.raw)
+			revision, err := db.Decode[explorer.Revision](revisionDocument.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -308,7 +309,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			if !found {
 				return plan, explorer.ErrNotFound
 			}
-			receipt, err := decode[explorer.CompilationReceipt](receiptDocument.raw)
+			receipt, err := db.Decode[explorer.CompilationReceipt](receiptDocument.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -356,7 +357,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		}
 		switch entry.Collection {
 		case ExplorersCollection:
-			owner, err := decode[explorer.Explorer](document.raw)
+			owner, err := db.Decode[explorer.Explorer](document.raw)
 			if err != nil {
 				return plan, err
 			}
@@ -365,14 +366,14 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			plan.report.HistoryRows++
 			plan.report.Projections++
 		case DraftRevisionsCollection:
-			history, err := decode[explorer.DraftRevision](document.raw)
+			history, err := db.Decode[explorer.DraftRevision](document.raw)
 			if err != nil {
 				return plan, err
 			}
 			plan.projections = append(plan.projections, newWorkspaceProjection(explorer.DraftWorkspaceArtifact(history), migrated))
 			plan.report.Projections++
 		case RevisionsCollection:
-			revision, err := decode[explorer.Revision](document.raw)
+			revision, err := db.Decode[explorer.Revision](document.raw)
 			if err != nil {
 				return plan, err
 			}

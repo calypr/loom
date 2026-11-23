@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"time"
 
@@ -14,7 +15,7 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 	if revision.ID == "" {
 		return nil, fmt.Errorf("revision ID is required")
 	}
-	doc, err := document(revision, revision.ID)
+	doc, err := db.Document(revision, revision.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -24,14 +25,14 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 	)
 	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN {new: NEW, old: OLD}`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID, "doc": doc}, func(row map[string]any) error {
 		if value, ok := row["new"]; ok && value != nil {
-			decoded, err := decode[explorer.Revision](value)
+			decoded, err := db.Decode[explorer.Revision](value)
 			if err != nil {
 				return err
 			}
 			out = &decoded
 		}
 		if value, ok := row["old"]; ok && value != nil {
-			decoded, err := decode[explorer.Revision](value)
+			decoded, err := db.Decode[explorer.Revision](value)
 			if err != nil {
 				return err
 			}
@@ -110,7 +111,11 @@ func (s *Store) FailRevision(ctx context.Context, id string, diagnostics []explo
 	now := time.Now().UTC()
 	patch := map[string]any{"status": explorer.RevisionFailed, "diagnostics": diagnostics, "failedAt": now}
 	var out *explorer.Revision
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH @patch IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": id, "patch": patch}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
+	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH @patch IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": id, "patch": patch}, func(row map[string]any) error {
+		value, err := db.Decode[explorer.Revision](row)
+		out = &value
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

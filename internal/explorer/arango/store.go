@@ -2,9 +2,9 @@ package arango
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
 
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -25,16 +25,14 @@ type PublicationStore struct{ client client }
 
 type DraftStore struct{ client client }
 
-type SelectionStore struct{ client client }
-
 type ExplicitGroupStore struct {
 	client     client
-	selections SelectionStore
+	selections selectiondb.SelectionStore
 }
 
 type Store struct {
 	DraftStore
-	SelectionStore
+	selectiondb.SelectionStore
 	ExplicitGroupStore
 	ReceiptStore
 	InterpretationStore
@@ -47,7 +45,7 @@ func New(client client) (*Store, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Explorer Arango client is required")
 	}
-	selections := SelectionStore{client: client}
+	selections := selectiondb.NewSelectionStore(client)
 	return &Store{
 		DraftStore:          DraftStore{client: client},
 		SelectionStore:      selections,
@@ -60,16 +58,7 @@ func New(client client) (*Store, error) {
 	}, nil
 }
 
-func key(parts ...string) string {
-	h := sha256.New()
-	for _, part := range parts {
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(part))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func explorerKey(project, id string) string { return "explorer_" + key(project, id) }
+func explorerKey(project, id string) string { return "explorer_" + db.Key(project, id) }
 
 var _ explorer.Store = (*Store)(nil)
 var _ explorer.DraftRevisionReader = (*Store)(nil)

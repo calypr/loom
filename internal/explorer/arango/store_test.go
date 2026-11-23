@@ -2,6 +2,7 @@ package arango
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 
 func TestDecodeNormalizesNumericUpdatedAt(t *testing.T) {
 	timestamp := float64(1776620000000)
-	value, err := decode[struct {
+	value, err := db.Decode[struct {
 		UpdatedAt time.Time `json:"updatedAt"`
 	}](map[string]any{"updatedAt": timestamp})
 	if err != nil {

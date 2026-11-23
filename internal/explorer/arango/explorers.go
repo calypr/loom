@@ -2,6 +2,7 @@ package arango
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
 )
@@ -33,12 +34,12 @@ func (s *Store) Get(ctx context.Context, project, id string) (*explorer.Explorer
 	return out, nil
 }
 func (s *Store) Create(ctx context.Context, e explorer.Explorer) (*explorer.Explorer, error) {
-	raw, err := document(e, explorerKey(e.Project, e.ExplorerID))
+	raw, err := db.Document(e, explorerKey(e.Project, e.ExplorerID))
 	if err != nil {
 		return nil, err
 	}
 	var out *explorer.Explorer
-	err = s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": ExplorersCollection, "doc": raw}, func(row map[string]any) error { v, err := decode[explorer.Explorer](row); out = &v; return err })
+	err = s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": ExplorersCollection, "doc": raw}, func(row map[string]any) error { v, err := db.Decode[explorer.Explorer](row); out = &v; return err })
 	if err != nil {
 		return nil, err
 	}

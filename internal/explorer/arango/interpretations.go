@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -11,7 +12,7 @@ import (
 var _ explorer.InterpretationRepository = (*Store)(nil)
 
 func interpretationLibraryKey(project string, id explorer.InterpretationLibraryID) string {
-	return "interpretation_library_" + key(project, string(id))
+	return "interpretation_library_" + db.Key(project, string(id))
 }
 
 func interpretationRevisionKey(id explorer.InterpretationRevisionID) string {
@@ -27,7 +28,7 @@ func (s *InterpretationStore) ListInterpretationLibraries(ctx context.Context, r
 	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project SORT d.id ASC RETURN d`, 1000, map[string]any{
 		"@c": InterpretationLibrariesCollection, "project": project,
 	}, func(row map[string]any) error {
-		value, err := decode[explorer.InterpretationLibrary](row)
+		value, err := db.Decode[explorer.InterpretationLibrary](row)
 		if err != nil {
 			return fmt.Errorf("decode interpretation library: %w", err)
 		}
@@ -55,7 +56,7 @@ func (s *InterpretationStore) GetInterpretationRevision(ctx context.Context, raw
 	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.id == @id AND d.project == @project RETURN d`, 1, map[string]any{
 		"@c": InterpretationRevisionsCollection, "key": interpretationRevisionKey(id), "id": string(id), "project": project,
 	}, func(row map[string]any) error {
-		value, err := decode[explorer.InterpretationRevision](row)
+		value, err := db.Decode[explorer.InterpretationRevision](row)
 		if err != nil {
 			return fmt.Errorf("decode interpretation revision: %w", err)
 		}
@@ -92,7 +93,7 @@ func (s *InterpretationStore) CreateInterpretationRevision(ctx context.Context, 
 		return nil, explorer.ErrInterpretationParentConflict
 	}
 
-	doc, err := document(revision, interpretationRevisionKey(revision.ID))
+	doc, err := db.Document(revision, interpretationRevisionKey(revision.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +160,7 @@ func (s *InterpretationStore) CreateInterpretationRevision(ctx context.Context, 
 	if value == nil {
 		return nil, fmt.Errorf("interpretation create returned no revision")
 	}
-	stored, err := decode[explorer.InterpretationRevision](value)
+	stored, err := db.Decode[explorer.InterpretationRevision](value)
 	if err != nil {
 		return nil, fmt.Errorf("decode created interpretation revision: %w", err)
 	}

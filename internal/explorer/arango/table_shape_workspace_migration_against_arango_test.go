@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"reflect"
 	"sort"
@@ -60,7 +61,7 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 		UpdatedBy: "wp17-test", UpdatedAt: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)}
 	priorHistory := draftRevisionFromExplorer(priorHistoryOwner)
 	priorHistory.ID = draftRevisionKey(priorHistory.Project, priorHistory.ExplorerID, priorHistory.DraftVersion)
-	priorHistoryDoc, err := document(priorHistory, priorHistory.ID)
+	priorHistoryDoc, err := db.Document(priorHistory, priorHistory.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +314,7 @@ func wp17ReadProjection(t *testing.T, ctx context.Context, client *store.Client,
 	t.Helper()
 	var result *explorer.WorkspaceProjection
 	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceProjectionCollection, "key": key}, func(row map[string]any) error {
-		value, err := decode[explorer.WorkspaceProjection](row)
+		value, err := db.Decode[explorer.WorkspaceProjection](row)
 		result = &value
 		return err
 	}); err != nil {
@@ -470,7 +471,7 @@ func TestTableShapeProjectionLookupFailsClosedAgainstArango(t *testing.T) {
 	}
 	priorHistory := draftRevisionFromExplorer(owner)
 	priorHistory.ID = draftRevisionKey(owner.Project, owner.ExplorerID, owner.DraftVersion)
-	priorHistoryDoc, err := document(priorHistory, priorHistory.ID)
+	priorHistoryDoc, err := db.Document(priorHistory, priorHistory.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,7 +499,7 @@ func TestTableShapeProjectionLookupFailsClosedAgainstArango(t *testing.T) {
 
 	corrupt := base
 	corrupt.ID = corrupt.ContentID()
-	corruptDoc, err := document(corrupt, modernKey)
+	corruptDoc, err := db.Document(corrupt, modernKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +615,7 @@ func TestTableShapeMigrationRejectsConflictingImmutableHistoryAgainstArango(t *t
 	history := draftRevisionFromExplorer(owner)
 	history.ID = draftRevisionKey(owner.Project, owner.ExplorerID, owner.DraftVersion)
 	history.Title = "different immutable preimage"
-	doc, err := document(history, history.ID)
+	doc, err := db.Document(history, history.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

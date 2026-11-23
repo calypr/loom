@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"sort"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ type viewBuilderSettingsRow struct {
 }
 
 func viewBuilderSettingsKey(project string) string {
-	return "view_builder_" + key(project)
+	return "view_builder_" + db.Key(project)
 }
 
 func emptyViewBuilderSettings(project string) explorer.ViewBuilderSettings {
@@ -73,7 +74,7 @@ func readViewBuilderSettings(ctx context.Context, tx store.RowQueryer, project s
 		if found != nil {
 			return fmt.Errorf("duplicate view builder settings for project %q", project)
 		}
-		value, err := decode[explorer.ViewBuilderSettings](doc)
+		value, err := db.Decode[explorer.ViewBuilderSettings](doc)
 		if err != nil {
 			return err
 		}
@@ -109,7 +110,7 @@ func writeViewBuilderSettings(ctx context.Context, tx store.RowQueryer, current 
 		value.Catalogs = map[string]string{}
 	}
 	key := viewBuilderSettingsKey(value.Project)
-	doc, err := document(value, key)
+	doc, err := db.Document(value, key)
 	if err != nil {
 		return fmt.Errorf("encode view builder settings: %w", err)
 	}
@@ -301,7 +302,7 @@ func readProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project, i
 	err := tx.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, 1, map[string]any{
 		"@c": ExplorersCollection, "key": explorerKey(project, id), "project": project,
 	}, func(row map[string]any) error {
-		value, err := decode[explorer.Explorer](row)
+		value, err := db.Decode[explorer.Explorer](row)
 		if err != nil {
 			return err
 		}
@@ -356,7 +357,7 @@ func writeViewBuilderConfigOwner(ctx context.Context, tx store.RowQueryer, proje
 		DraftVersion: 1, DraftDigest: digest, UpdatedBy: revision.CreatedBy, UpdatedAt: updatedAt.UTC(),
 	}
 	if previous == nil {
-		doc, err := document(owner, explorerKey(project, owner.ExplorerID))
+		doc, err := db.Document(owner, explorerKey(project, owner.ExplorerID))
 		if err != nil {
 			return err
 		}
@@ -611,7 +612,7 @@ func parseViewBuilderFrameID(frameID string) (string, string, bool) {
 }
 
 func adoptedCatalogSnapshot(source explorer.Revision, recipeName string) explorer.Revision {
-	id := "catalog_" + key(source.Project, recipeName, source.Publication.ExecutionID, source.RecipeDigest, source.Dataset.SchemaDigest, string(source.PublicOutputContract))
+	id := "catalog_" + db.Key(source.Project, recipeName, source.Publication.ExecutionID, source.RecipeDigest, source.Dataset.SchemaDigest, string(source.PublicOutputContract))
 	snapshot := source
 	snapshot.ID = id
 	snapshot.ExplorerID = ""

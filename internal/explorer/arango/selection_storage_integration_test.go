@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"testing"
@@ -27,7 +28,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	expireStaging := func(selectionID string) {
-		err := client.ExecuteAQL(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {writerExpiresAt: 0} IN @@c`, map[string]any{"@c": SelectionsCollection, "key": selectionID})
+		err := client.ExecuteAQL(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {writerExpiresAt: 0} IN @@c`, map[string]any{"@c": db.SelectionsCollection, "key": selectionID})
 		if err != nil {
 			t.Fatal(err)
 		}

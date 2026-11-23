@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"time"
@@ -219,11 +220,11 @@ func canonicalProjectConfigPublications(configs []explorer.ProjectConfigPublicat
 		if revision.ID == "" {
 			return nil, fmt.Errorf("project config revision %d has no ID", index)
 		}
-		doc, err := document(revision, revision.ID)
+		doc, err := db.Document(revision, revision.ID)
 		if err != nil {
 			return nil, fmt.Errorf("encode project config revision %q: %w", revision.ID, err)
 		}
-		normalized, err := decode[explorer.Revision](doc)
+		normalized, err := db.Decode[explorer.Revision](doc)
 		if err != nil {
 			return nil, fmt.Errorf("normalize project config revision %q: %w", revision.ID, err)
 		}
@@ -236,11 +237,11 @@ func canonicalProjectConfigRevision(revision explorer.Revision) (explorer.Revisi
 	if revision.ID == "" {
 		return explorer.Revision{}, fmt.Errorf("catalog snapshot revision has no ID")
 	}
-	doc, err := document(revision, revision.ID)
+	doc, err := db.Document(revision, revision.ID)
 	if err != nil {
 		return explorer.Revision{}, fmt.Errorf("encode catalog snapshot revision %q: %w", revision.ID, err)
 	}
-	canonical, err := decode[explorer.Revision](doc)
+	canonical, err := db.Decode[explorer.Revision](doc)
 	if err != nil {
 		return explorer.Revision{}, fmt.Errorf("normalize catalog snapshot revision %q: %w", revision.ID, err)
 	}
@@ -325,7 +326,7 @@ func readProjectConfigExecution(ctx context.Context, tx store.RowQueryer, id str
 		if execution != nil {
 			return fmt.Errorf("execution lookup returned more than one row")
 		}
-		value, err := decode[publicationdata.BundleExecution](row)
+		value, err := db.Decode[publicationdata.BundleExecution](row)
 		if err != nil {
 			return err
 		}
@@ -508,7 +509,7 @@ func readProjectConfigOwners(ctx context.Context, tx store.RowQueryer, project s
 	err := tx.QueryRows(ctx, projectConfigOwnersAQL, 256, map[string]any{
 		"@c": ExplorersCollection, "project": project,
 	}, func(row map[string]any) error {
-		owner, err := decode[explorer.Explorer](row)
+		owner, err := db.Decode[explorer.Explorer](row)
 		if err != nil {
 			return err
 		}
@@ -604,7 +605,7 @@ func readProjectConfigRevisions(ctx context.Context, tx store.RowQueryer, ids []
 	err := tx.QueryRows(ctx, projectConfigRevisionsAQL, 256, map[string]any{
 		"@c": RevisionsCollection, "keys": ids,
 	}, func(row map[string]any) error {
-		revision, err := decode[explorer.Revision](row)
+		revision, err := db.Decode[explorer.Revision](row)
 		if err != nil {
 			return err
 		}
@@ -671,7 +672,7 @@ func insertProjectConfigRevision(ctx context.Context, tx store.RowQueryer, revis
 		}
 		return nil
 	}
-	doc, err := document(revision, revision.ID)
+	doc, err := db.Document(revision, revision.ID)
 	if err != nil {
 		return err
 	}
@@ -700,7 +701,7 @@ func writeProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project s
 		UpdatedBy: plan.publication.Revision.CreatedBy, UpdatedAt: plan.updatedAt,
 	}
 	if plan.owner == nil {
-		doc, err := document(owner, explorerKey(project, owner.ExplorerID))
+		doc, err := db.Document(owner, explorerKey(project, owner.ExplorerID))
 		if err != nil {
 			return err
 		}

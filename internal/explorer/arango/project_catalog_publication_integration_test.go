@@ -1,6 +1,7 @@
 package arango
 
 import (
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -50,7 +51,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 func projectConfigCatalogSnapshotForTest(t *testing.T, publication explorer.ProjectConfigPublication) *explorer.Revision {
 	t.Helper()
 	source := publication.Revision
-	id := "catalog_" + key(source.Project, publication.Definition.RecipeRef.Name, source.Publication.ExecutionID, source.RecipeDigest, source.Dataset.SchemaDigest, string(source.PublicOutputContract))
+	id := "catalog_" + db.Key(source.Project, publication.Definition.RecipeRef.Name, source.Publication.ExecutionID, source.RecipeDigest, source.Dataset.SchemaDigest, string(source.PublicOutputContract))
 	snapshot := source
 	snapshot.ID = id
 	snapshot.ExplorerID = ""
