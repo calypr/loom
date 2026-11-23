@@ -36,7 +36,7 @@ Landed on `internal-cleanup`:
 
 3B: construction internals tests moved with the implementation and the production test-export scaffolding removed; remaining lifecycle proposal/source-lane tests drive public delegates and construction flows instead of private bridges.
 
-Still pending: proposal-preview composition remains lifecycle API glue; 3U UI and full acceptance remain.
+Goal-scope cleanup is complete. Proposal-preview composition stays in lifecycle as API glue: moving it below construction/population would create an import cycle. Browser E2E and integration acceptance remain environment-blocked (Docker unavailable; Arango/ClickHouse URLs unset).
 
 Optional-target decisions:
 - `dataframe/compiler/lower/recipe`: skipped. `TARGET_TREE.md` open question 9 still requires operator approval, and the lower package’s parent-to-child helper calls make the split non-move-only without first extracting shared compiled types.
