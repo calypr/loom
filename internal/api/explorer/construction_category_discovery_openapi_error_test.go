@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"strings"
 	"sync"
 	"testing"
+
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"

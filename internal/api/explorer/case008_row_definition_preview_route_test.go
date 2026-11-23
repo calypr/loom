@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -229,12 +231,12 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 
 type case008ExplicitGroupResolver struct{}
 
-func (case008ExplicitGroupResolver) ListExplicitGroupRevisions(context.Context, lifecycle.ExplicitGroupRevisionListRequest) ([]lifecycle.ExplicitGroupRevisionChoice, error) {
+func (case008ExplicitGroupResolver) ListExplicitGroupRevisions(context.Context, explicitgroup.ExplicitGroupRevisionListRequest) ([]explicitgroup.ExplicitGroupRevisionChoice, error) {
 	return nil, nil
 }
 
-func (case008ExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Context, request lifecycle.ExplicitGroupRevisionResolveRequest) (lifecycle.ExplicitGroupRevisionProof, error) {
-	return lifecycle.ExplicitGroupRevisionProof{
+func (case008ExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Context, request explicitgroup.ExplicitGroupRevisionResolveRequest) (explicitgroup.ExplicitGroupRevisionProof, error) {
+	return explicitgroup.ExplicitGroupRevisionProof{
 		RevisionID: request.RevisionID, Project: request.Project, SourceGeneration: request.Snapshot.Identity.Generation,
 		AuthorizationScopeDigest: request.Snapshot.Identity.AuthorizationScopeDigest, RootResourceType: request.RootResourceType,
 		SelectionRevisionID: "selection_case008", SelectionMembershipDigest: "sha256:case008-selection-membership",
@@ -242,7 +244,7 @@ func (case008ExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Conte
 	}, nil
 }
 
-func (case008ExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof lifecycle.ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+func (case008ExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof explicitgroup.ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
 	workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		return err

@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
+
 	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
-	"log/slog"
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+	"github.com/calypr/loom/internal/explorer/population"
 
 	explorerapi "github.com/calypr/loom/internal/api/explorer"
 	"github.com/calypr/loom/internal/authscope"
@@ -84,7 +87,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure local workspace writeback: %w", err)
 	}
-	populationMappingCursorCodec, err := lifecycle.NewHMACPopulationMappingCursorCodec(serverConfig.Server.PopulationMappingCursorSecret)
+	populationMappingCursorCodec, err := population.NewHMACPopulationMappingCursorCodec(serverConfig.Server.PopulationMappingCursorSecret)
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure population mapping cursor signing: %w", err)
 	}
@@ -103,7 +106,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure row-choice schema resolver: %w", err)
 	}
-	explicitGroupResolver, err := lifecycle.NewRepositoryExplicitGroupRevisionResolver(explorerStore)
+	explicitGroupResolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(explorerStore)
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}

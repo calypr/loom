@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	proposalpkg "github.com/calypr/loom/internal/explorer/proposal"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -198,7 +200,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if proposed.StatusCode != http.StatusOK {
 		t.Fatalf("proposal HTTP %d: %s", proposed.StatusCode, proposed.Body)
 	}
-	var proposal lifecycle.SourceRelationshipProposal
+	var proposal proposalpkg.SourceRelationshipProposal
 	if err := json.Unmarshal([]byte(proposed.Body), &proposal); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +344,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if stepResponse.StatusCode != http.StatusOK {
 		t.Fatalf("source-step preview HTTP %d: %s", stepResponse.StatusCode, stepResponse.Body)
 	}
-	var stepProposal lifecycle.SourceRelationshipProposal
+	var stepProposal proposalpkg.SourceRelationshipProposal
 	if err := json.Unmarshal([]byte(stepResponse.Body), &stepProposal); err != nil {
 		t.Fatal(err)
 	}

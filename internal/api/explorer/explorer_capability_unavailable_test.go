@@ -2,11 +2,12 @@ package explorerapi
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 

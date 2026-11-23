@@ -7,8 +7,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -21,7 +22,7 @@ func TestConstructionCapabilitiesHTTPPreservesOptionalNodeOccurrences(t *testing
 		{name: "optional mapping omitted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			converted, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](lifecycle.ConstructionCapabilitiesResponse{NodeOccurrences: test.occurrences})
+			converted, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](construction.ConstructionCapabilitiesResponse{NodeOccurrences: test.occurrences})
 			if err != nil {
 				t.Fatal(err)
 			}

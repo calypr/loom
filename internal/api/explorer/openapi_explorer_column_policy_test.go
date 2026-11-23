@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/proposal"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -89,7 +91,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("policy proposal HTTP %d: %s", response.StatusCode, response.Body)
 	}
-	var proposal lifecycle.ColumnPolicyProposal
+	var proposal proposal.ColumnPolicyProposal
 	if err := json.Unmarshal([]byte(response.Body), &proposal); err != nil {
 		t.Fatal(err)
 	}

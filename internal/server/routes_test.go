@@ -2,11 +2,12 @@ package server
 
 import (
 	"context"
-	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	api "github.com/calypr/loom/internal/api/http"

@@ -1,6 +1,10 @@
 package explorerapi
 
 import (
+	"time"
+
+	"github.com/calypr/loom/internal/explorer/proposal"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,7 +13,10 @@ import (
 	"net/http"
 	"strconv"
 
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -311,4 +318,63 @@ func (b *cappedPreviewBuffer) Write(p []byte) (int, error) {
 		return 0, &previewResponseTooLargeError{Limit: b.limit}
 	}
 	return b.Buffer.Write(p)
+}
+
+func PreserveConfiguredQueryError(err error) error {
+	err = executionarango.ClassifyDataframeQueryError(err)
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, context.Canceled) {
+		return previewRouteError(err)
+	}
+	if userErr, ok := dataframeerrors.AsUserError(err); ok {
+		switch userErr.Code() {
+		case string(dataframeerrors.CodeUnauthenticated):
+			return &explorer.AuthoringError{Status: http.StatusUnauthorized, Diagnostic: explorer.AuthoringDiagnostic{
+				Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err),
+			}, Cause: err}
+		case string(dataframeerrors.CodeForbidden), string(dataframeerrors.CodeUnauthorizedProject):
+			return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{
+				Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err),
+			}, Cause: err}
+		}
+		return previewRouteError(err)
+	}
+	return err
+}
+
+type proposalPreviewEncoder struct {
+	encoder *previewResponseEncoder
+}
+
+func (e *proposalPreviewEncoder) response(value proposal.ProposalPreview) (loomapi.PreviewResponse, error) {
+	if e.encoder == nil {
+		return loomapi.PreviewResponse{}, previewRouteError(errors.New("native preview response sink was not configured"))
+	}
+	return previewResponseFromEncoder(e.encoder, value.Result.Summary)
+}
+
+func proposalPreviewFailure(err error) error {
+	var execution *proposal.ProposalPreviewExecutionError
+	if errors.As(err, &execution) {
+		return previewRouteError(execution.Cause)
+	}
+	return err
+}
+
+func (h *Handlers) proposalPreviewOptions(project, outputID string, limit *int, timeout time.Duration, sampled bool) (proposal.ProposalPreviewOptions, *proposalPreviewEncoder) {
+	output := &proposalPreviewEncoder{}
+	return proposal.ProposalPreviewOptions{
+		Limit: limit, Timeout: timeout, AllowSampledAggregate: sampled,
+		Authorize: func(ctx context.Context) error { return h.authorizeAuthoringRead(ctx, project) },
+		Sink: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			var err error
+			output.encoder, err = newPreviewResponseEncoder(receipt, outputID, columns, maxExplorerPreviewResponseBytes)
+			if err != nil {
+				return nil, err
+			}
+			return output.encoder.Visit, nil
+		},
+	}, output
 }

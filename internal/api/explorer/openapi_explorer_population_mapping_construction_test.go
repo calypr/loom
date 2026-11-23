@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/population"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
@@ -124,7 +127,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 		t.Fatal(err)
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	cursorCodec, err := lifecycle.NewHMACPopulationMappingCursorCodec("population-mapping-boundary-test-secret")
+	cursorCodec, err := population.NewHMACPopulationMappingCursorCodec("population-mapping-boundary-test-secret")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,6 +20,8 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/construction"
+	constructionpkg "github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
@@ -53,9 +55,9 @@ func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T
 			CodingPath: "includedStructure[].structure.coding[]", Label: "BodyStructure · includedStructure[] › structure › coding[]",
 		}},
 	}
-	response, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](lifecycle.ConstructionCapabilitiesResponse{
+	response, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](constructionpkg.ConstructionCapabilitiesResponse{
 		Stages: []explorer.ReceiptConstructionStage{stage}, SelectedStage: stage,
-		SourceProjectionAvailability: &lifecycle.ConstructionSourceProjectionAvailability{
+		SourceProjectionAvailability: &constructionpkg.ConstructionSourceProjectionAvailability{
 			Supported: true, StageID: recipe.ConstructionSourceProjectionID,
 		},
 	})
@@ -70,8 +72,8 @@ func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T
 		response.SourceProjectionAvailability.StageId != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("OpenAPI response conversion dropped stage-bound source projection availability: %#v", response.SourceProjectionAvailability)
 	}
-	unsupported, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](lifecycle.ConstructionCapabilitiesResponse{
-		SourceProjectionAvailability: &lifecycle.ConstructionSourceProjectionAvailability{
+	unsupported, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](constructionpkg.ConstructionCapabilitiesResponse{
+		SourceProjectionAvailability: &constructionpkg.ConstructionSourceProjectionAvailability{
 			StageID: "group_stage", ReasonCode: "ROOT_SOURCE_PROJECTION_UNAVAILABLE", Reason: "root fields are not carried to this stage",
 		},
 	})
@@ -2560,10 +2562,10 @@ func TestRelatedExpandContributorTypedWireSourcesPreserveRepeatedBoundaries(t *t
 	}
 
 	response, err := directAuthoringJSON[loomapi.RelatedExpandContributorChoiceSearchResponse](
-		lifecycle.RelatedExpandContributorChoiceSearchResponse{
+		construction.RelatedExpandContributorChoiceSearchResponse{
 			SnapshotToken: "snapshot", DraftVersion: 2, DraftDigest: "draft-digest", OutputID: "output",
 			StageID: "stage", RouteChoiceID: "route-choice", Complete: true,
-			Choices: []lifecycle.RelatedExpandContributorChoice{{
+			Choices: []construction.RelatedExpandContributorChoice{{
 				ChoiceID: "field-choice", Source: source, Label: "Observation.category[].coding[].code",
 				Operators: []string{"EXISTS", "EQUALS"}, SuggestedValues: []string{"d"},
 				SuggestionsComplete: true, SuggestionsSource: "catalog",

@@ -3,10 +3,11 @@ package explorerapi
 import (
 	"context"
 	"encoding/json"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"net/http"
 	"strings"
 	"testing"
+
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 

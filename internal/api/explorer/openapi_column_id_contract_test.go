@@ -2,8 +2,9 @@ package explorerapi
 
 import (
 	"encoding/json"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"testing"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/authoringv2"

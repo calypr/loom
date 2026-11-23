@@ -11,10 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	reconcile "github.com/calypr/loom/internal/explorer/reconcile"
+
 	"github.com/calypr/loom/internal/catalog/discoverycache"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer/artifactfs"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -110,7 +111,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	privateClickHouseArtifacts, artifactStore := dataframe.artifacts, explorerDeps.artifacts
 	if privateClickHouseArtifacts != nil {
 		reconcileCtx, cancelReconciler := context.WithCancel(ctx)
-		reconcilerDone := artifactfs.StartPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
+		reconcilerDone := reconcile.StartPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
 		defer func() {
 			cancelReconciler()
 			timer := time.NewTimer(cleanupTimeout)
@@ -124,7 +125,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	if artifactStore != nil {
 		artifactReconcileCtx, cancelArtifactReconciler := context.WithCancel(ctx)
-		artifactReconcilerDone := artifactfs.StartArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
+		artifactReconcilerDone := reconcile.StartArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
 		defer func() {
 			cancelArtifactReconciler()
 			timer := time.NewTimer(cleanupTimeout)

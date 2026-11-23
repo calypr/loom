@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"reflect"
 	"testing"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"

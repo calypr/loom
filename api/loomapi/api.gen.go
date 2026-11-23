@@ -23,6 +23,7 @@ import (
 	recipe "github.com/calypr/loom/internal/dataframe/recipe"
 	authoringv2 "github.com/calypr/loom/internal/explorer/authoringv2"
 	lifecycle "github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/oapi-codegen/runtime"
@@ -5238,7 +5239,7 @@ type Column struct {
 type ColumnPolicyProposal = SourceRelationshipProposal
 
 // ColumnPolicyProposalRequest defines model for ColumnPolicyProposalRequest.
-type ColumnPolicyProposalRequest = lifecycle.ColumnPolicyProposalRequest
+type ColumnPolicyProposalRequest = proposal.ColumnPolicyProposalRequest
 
 // ColumnPopulationSummary defines model for ColumnPopulationSummary.
 type ColumnPopulationSummary struct {
@@ -9286,7 +9287,7 @@ type SourceRelationshipProposal struct {
 type SourceRelationshipProposalPreviewStatus string
 
 // SourceRelationshipProposalRequest defines model for SourceRelationshipProposalRequest.
-type SourceRelationshipProposalRequest = lifecycle.SourceRelationshipProposalRequest
+type SourceRelationshipProposalRequest = proposal.SourceRelationshipProposalRequest
 
 // SourceRuleCreate defines model for SourceRuleCreate.
 type SourceRuleCreate = authoringv2.SourceRuleCreate

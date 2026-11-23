@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -95,8 +97,8 @@ func TestConfiguredColumnContextResponseEncodesEmptyReadyListsAsArrays(t *testin
 		SnapshotToken:   "snapshot",
 		DraftVersion:    1,
 		DraftDigest:     "digest",
-		Libraries:       []lifecycle.InterpretationLibrarySummary{},
-		PinnedRevisions: []lifecycle.InterpretationRevisionSummary{},
+		Libraries:       []interpretation.InterpretationLibrarySummary{},
+		PinnedRevisions: []interpretation.InterpretationRevisionSummary{},
 		Columns: []lifecycle.ConfiguredColumnContext{{
 			OutputID:     "patients",
 			Column:       "patient_id",

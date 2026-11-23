@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"

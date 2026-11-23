@@ -7,7 +7,7 @@ import (
 )
 
 func TestRegisteredRecipeExecutionUsesAuthorizedReader(t *testing.T) {
-	source, err := os.ReadFile("wire_http.go")
+	source, err := os.ReadFile("http.go")
 	if err != nil {
 		t.Fatal(err)
 	}

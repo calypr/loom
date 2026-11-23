@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
@@ -116,11 +118,11 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if list.StatusCode != http.StatusOK {
 		t.Fatalf("choice list status=%d body=%s", list.StatusCode, list.Body)
 	}
-	var listed lifecycle.RowDefinitionChoicesResponse
+	var listed rowdef.RowDefinitionChoicesResponse
 	if err := json.Unmarshal([]byte(list.Body), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Choices) != 1 || listed.Choices[0].Kind != lifecycle.RowChoiceExpanded || listed.Choices[0].Label != "Values" || listed.Choices[0].FieldPath != "values[]" || listed.Choices[0].ValueType != "ARRAY" || listed.Choices[0].RouteSummary != "Root" || listed.ExplicitGroups == nil || len(listed.ExplicitGroups) != 0 {
+	if len(listed.Choices) != 1 || listed.Choices[0].Kind != rowdef.RowChoiceExpanded || listed.Choices[0].Label != "Values" || listed.Choices[0].FieldPath != "values[]" || listed.Choices[0].ValueType != "ARRAY" || listed.Choices[0].RouteSummary != "Root" || listed.ExplicitGroups == nil || len(listed.ExplicitGroups) != 0 {
 		t.Fatalf("listed row-definition choices = %#v", listed)
 	}
 	for _, forbidden := range []string{"resourceType", "FHIRType", "schemaPath"} {
@@ -140,11 +142,11 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if proposed.StatusCode != http.StatusOK {
 		t.Fatalf("proposal status=%d body=%s", proposed.StatusCode, proposed.Body)
 	}
-	var proposal lifecycle.RowDefinitionProposal
+	var proposal rowdef.RowDefinitionProposal
 	if err := json.Unmarshal([]byte(proposed.Body), &proposal); err != nil {
 		t.Fatal(err)
 	}
-	if proposal.ProposalID == "" || proposal.Comparison.Status != lifecycle.RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || proposal.Comparison.Base.Sampled || proposal.Comparison.Candidate.Sampled || len(proposal.Comparison.AffectedColumns) != 1 || proposal.Comparison.AffectedColumns[0] != "value" || previews != 2 {
+	if proposal.ProposalID == "" || proposal.Comparison.Status != rowdef.RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || proposal.Comparison.Base.Sampled || proposal.Comparison.Candidate.Sampled || len(proposal.Comparison.AffectedColumns) != 1 || proposal.Comparison.AffectedColumns[0] != "value" || previews != 2 {
 		t.Fatalf("proposal comparison=%#v preview calls=%d", proposal.Comparison, previews)
 	}
 	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.Rows.Kind != authoringv2.RowDefinitionExpanded || proposal.CandidateDocument.Rows.Expanded == nil || proposal.CandidateDocument.Rows.Expanded.ScopePath != "values[]" || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.SourceRows.Kind != authoringv2.RowDefinitionExpanded || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "SOURCE_ITEM" || proposal.CandidateRowIdentity.Stages[0].Identity.MissingPolicy != "PRESERVE_PARENT" {

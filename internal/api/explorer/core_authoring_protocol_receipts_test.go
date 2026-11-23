@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
