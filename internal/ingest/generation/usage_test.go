@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
-	"github.com/calypr/loom/internal/ingest/bootstrap"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/ingest/bootstrap"
 
 	"github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"

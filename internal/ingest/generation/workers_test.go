@@ -5,17 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/row"
-	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
+	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -475,4 +479,379 @@ func loadGenerationSchemaIdentity(t *testing.T) publication.SchemaSnapshot {
 		t.Fatalf("load schema identity: %v", err)
 	}
 	return identity
+}
+
+func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
+	schema := source.LoadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
+
+	result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}}.load(context.Background(), file, time.Now(), 0, 0)
+	if err != nil {
+		t.Fatalf("loadFile(): %v", err)
+	}
+	if result.ResourceType != "Patient" || result.Rows != 0 || result.Catalog == nil {
+		t.Fatalf("loadFile() = %+v", result)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}}.load(ctx, file, time.Now(), 0, 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("loadFile(canceled) error = %v, want context.Canceled", err)
+	}
+}
+
+func TestLoadFilePreservesGenerationWrites(t *testing.T) {
+	schema := source.LoadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	if err := os.WriteFile(file, []byte("{\"resourceType\":\"Patient\",\"id\":\"patient-1\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
+
+	for _, test := range []struct {
+		name, generation string
+	}{
+		{name: "generation", generation: "generation-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var documents []json.RawMessage
+			var collections []string
+			var overwrites []bool
+			insert := func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
+				mu.Lock()
+				defer mu.Unlock()
+				collections = append(collections, collection)
+				overwrites = append(overwrites, overwrite)
+				documents = append(documents, docs...)
+				return nil
+			}
+			result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: test.generation, overwrite: false, insert: insert}.load(context.Background(), file, time.Now(), 0, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Rows != 1 || result.VerticesInserted != 1 || result.ValidationErrors != 0 || len(result.Catalog.Documents()) == 0 {
+				t.Fatalf("result = %+v", result)
+			}
+			if len(collections) != 1 || collections[0] != "Patient" || len(overwrites) != 1 || overwrites[0] || len(documents) != 1 {
+				t.Fatalf("writes collections=%v overwrite=%v documents=%d", collections, overwrites, len(documents))
+			}
+			var vertex map[string]any
+			if err := json.Unmarshal(documents[0], &vertex); err != nil {
+				t.Fatal(err)
+			}
+			if vertex["id"] != "patient-1" {
+				t.Fatalf("logical id = %#v", vertex["id"])
+			}
+			if vertex["dataset_generation"] != test.generation {
+				t.Fatalf("dataset_generation = %#v, want %q", vertex["dataset_generation"], test.generation)
+			}
+		})
+	}
+}
+
+func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
+	schema := source.LoadRuntimeFHIRSchema()
+	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
+	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+
+	t.Run("fail fast physical line", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "Patient.ndjson")
+		if err := os.WriteFile(file, []byte("\n \n\t\n{\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		failFastOpts := opts
+		failFastOpts.FailFast = true
+		_, err := fileLoader{options: failFastOpts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: insert}.load(context.Background(), file, time.Now(), 0, 0)
+		if err == nil || !strings.Contains(err.Error(), "Patient.ndjson Patient row 4:") {
+			t.Fatalf("error = %v, want physical row 4", err)
+		}
+	})
+
+	t.Run("earliest ten errors", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "Patient.ndjson")
+		var input strings.Builder
+		input.WriteString("\n")
+		for i := 0; i < 12; i++ {
+			if i == 1 {
+				input.WriteString("\n")
+			}
+			input.WriteString("{\n")
+		}
+		if err := os.WriteFile(file, []byte(input.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: insert}.load(context.Background(), file, time.Now(), 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantLines := []int{2, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+		if result.ValidationErrors != 12 || len(result.RowErrors) != len(wantLines) {
+			t.Fatalf("validation errors=%d samples=%d", result.ValidationErrors, len(result.RowErrors))
+		}
+		for i, sample := range result.RowErrors {
+			if sample.File != "Patient.ndjson" || sample.ResourceType != "Patient" || sample.Category != "validation" || sample.Message == "" || sample.Line != wantLines[i] {
+				t.Fatalf("sample[%d] = %+v, want line %d validation error", i, sample, wantLines[i])
+			}
+		}
+	})
+}
+
+func TestLoadFilePreservesRowErrorsAcrossLineBatches(t *testing.T) {
+	schema := source.LoadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	data := "{\"resourceType\":\"Patient\",\"id\":\"one\"}\n{\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"three\"}\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"four\"}\n"
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", LineQueueSize: 2, WorkerCount: 2})
+	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: insert}.load(context.Background(), file, time.Now(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Rows != 3 || result.VerticesInserted != 3 || result.ValidationErrors != 1 || len(result.RowErrors) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.RowErrors[0].Line != 2 {
+		t.Fatalf("error line = %d, want physical line 2", result.RowErrors[0].Line)
+	}
+}
+
+func TestLoadFileStopsAtCancellationBetweenLinesInABatch(t *testing.T) {
+	schema := source.LoadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	data := "{\"resourceType\":\"Patient\",\"id\":\"one\"}\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"two\"}\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"three\"}\n"
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	progressEvents := 0
+	opts := normalizeLoadOptions(LoadOptions{
+		Project:       "project",
+		LineQueueSize: 8,
+		WorkerCount:   1,
+		ProgressEvery: 1,
+		EventSink: func(event string, fields map[string]any) {
+			if event == "go_load_progress" {
+				progressEvents++
+				if progressEvents == 1 {
+					cancel()
+				}
+			}
+		},
+	})
+	workerBudget := make(chan struct{}, 1)
+	opts.fileWorkerBudget = workerBudget
+	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	_, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: insert}.load(ctx, file, time.Now(), 0, 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("loadFile error = %v, want context.Canceled", err)
+	}
+	if progressEvents != 1 {
+		t.Fatalf("progress events = %d, want only the completed first row", progressEvents)
+	}
+	if len(workerBudget) != 0 {
+		t.Fatalf("worker permit leaked after cancellation: %d", len(workerBudget))
+	}
+}
+
+func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
+	schema := source.LoadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	data := []byte("{\"resourceType\":\"Patient\",\"id\":\"patient-1\"}\n{\"resourceType\":\"Patient\",\"id\":\"patient-2\"}\n{\"resourceType\":\"Patient\",\"id\":\"patient-3\"}\n")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", BatchSize: 1, WriterCount: 2})
+	var inserted int64
+	result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
+		atomic.AddInt64(&inserted, int64(len(docs)))
+		return nil
+	}}.load(context.Background(), file, time.Now(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.VerticesInserted != 3 || result.VertexBatches != 3 || atomic.LoadInt64(&inserted) != 3 {
+		t.Fatalf("result=%+v inserted=%d", result, inserted)
+	}
+
+	writeErr := errors.New("writer failed")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	writerBudget := make(chan struct{}, 1)
+	budgetedOpts := opts
+	budgetedOpts.fileWriterBudget = writerBudget
+	_, err = fileLoader{options: budgetedOpts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+		return writeErr
+	}}.load(ctx, file, time.Now(), 0, 0)
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("error = %v, want %v", err, writeErr)
+	}
+	if len(writerBudget) != 0 {
+		t.Fatalf("writer permit leaked after insert error: %d permits held", len(writerBudget))
+	}
+}
+
+func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Observation.ndjson")
+	data := []byte(`{"resourceType":"Observation","id":"obs-1","status":"final","code":{"coding":[{"system":"urn:inventory","version":"v1","code":"panel"}]},"component":[{"code":{"coding":[{"system":"urn:inventory","version":"v1","code":"glucose","display":"Glucose"}]},"valueQuantity":{"value":1,"unit":"mg"}}]}` + "\n")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	schema := source.LoadRuntimeFHIRSchema()
+	opts := normalizeLoadOptions(LoadOptions{
+		Project:     "project",
+		MetaDir:     root,
+		BatchSize:   1,
+		WorkerCount: 1,
+		WriterCount: 1,
+	})
+	var inventoryCollectionWrites []string
+	result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
+		if collection == semanticarango.SemanticCoverageCollection {
+			t.Fatalf("normal generation load wrote optional semantic coverage collection %q", collection)
+		}
+		if collection == semantic.Collection || collection == semantic.EntryCollection {
+			inventoryCollectionWrites = append(inventoryCollectionWrites, collection)
+		}
+		return nil
+	}}.load(context.Background(), file, time.Now(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventoryCollectionWrites) != 0 || result.SemanticInventoryBatches != 0 || len(result.SemanticInventoryEntryRuns) == 0 {
+		message := "no row error sample"
+		if len(result.RowErrors) > 0 {
+			message = result.RowErrors[0].Message
+		}
+		t.Fatalf("inventory writes=%v batches=%d runs=%d rows=%d validation=%d sample=%s", inventoryCollectionWrites, result.SemanticInventoryBatches, len(result.SemanticInventoryEntryRuns), result.Rows, result.ValidationErrors, message)
+	}
+	var inventoryDocs []json.RawMessage
+	err = mergeSemanticInventoryEntryRuns(context.Background(), result.SemanticInventoryEntryRuns, func(partial semantic.EntryPartial) error {
+		document := semantic.EntryDocument(partial, "project", "generation-1", semantic.BuildID("project", "generation-1"), semantic.SourceFile)
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			return err
+		}
+		inventoryDocs = append(inventoryDocs, encoded)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventoryDocs) != 2 {
+		t.Fatalf("materialized entries = %d, want two", len(inventoryDocs))
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(inventoryDocs[0], &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["resource_type"] != "Observation" || entry["auth_resource_path"] != "" {
+		t.Fatalf("inventory resource/scope = %q/%q", entry["resource_type"], entry["auth_resource_path"])
+	}
+	if entry["concept_id"] == "" || entry["binding_id"] == "" {
+		t.Fatalf("inventory identity = %+v", entry)
+	}
+	ownerOptions := opts
+	ownerOptions.SourceFileOwner = "Observation"
+	var uploadedEntries []json.RawMessage
+	result, err = fileLoader{options: ownerOptions, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
+		if collection == semantic.Collection {
+			t.Fatal("single-file upload wrote raw inventory contributions")
+		}
+		if collection == semantic.EntryCollection {
+			if !overwrite {
+				t.Fatal("single-file inventory entry write must replace prior rows")
+			}
+			uploadedEntries = append(uploadedEntries, docs...)
+		}
+		return nil
+	}}.load(context.Background(), file, time.Now(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uploadedEntries) != 2 || len(result.SemanticInventoryEntryRuns) != 0 {
+		t.Fatalf("single-file entry writes=%d remaining runs=%d", len(uploadedEntries), len(result.SemanticInventoryEntryRuns))
+	}
+}
+
+func TestLoadFileWaitsForInventorySpillOwnershipAfterWriterFailure(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Observation.ndjson")
+	data := []byte(`{"resourceType":"Observation","id":"obs-1","status":"final","code":{"coding":[{"system":"urn:inventory","code":"panel"}]},"component":[{"code":{"coding":[{"system":"urn:inventory","code":"glucose","display":"Glucose"}]},"valueQuantity":{"value":1,"unit":"mg"}}]}` + "\n")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := filepath.Glob(filepath.Join(os.TempDir(), "loom-semantic-entry-*.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1, FailFast: true})
+	_, err = fileLoader{options: opts, client: nil, schema: source.LoadRuntimeFHIRSchema(), datasetGeneration: "generation-1", overwrite: false, insert: func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+		return errors.New("forced writer failure")
+	}}.load(context.Background(), file, time.Now(), 0, 0)
+	if err == nil || !strings.Contains(err.Error(), "forced writer failure") {
+		t.Fatalf("load error = %v, want writer failure", err)
+	}
+	after, err := filepath.Glob(filepath.Join(os.TempDir(), "loom-semantic-entry-*.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := make(map[string]struct{}, len(before))
+	for _, path := range before {
+		known[path] = struct{}{}
+	}
+	for _, path := range after {
+		if _, existed := known[path]; !existed {
+			t.Errorf("failed file load leaked inventory spill %q", path)
+		}
+	}
+}
+
+func TestSemanticInventorySourceLocatorIncludesRelativeDirectory(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "a", "Observation.ndjson")
+	second := filepath.Join(root, "b", "Observation.ndjson")
+	firstID := semanticInventorySourceRecordID(semanticInventorySourceFileID(root, first), 7)
+	secondID := semanticInventorySourceRecordID(semanticInventorySourceFileID(root, second), 7)
+	if firstID == secondID {
+		t.Fatalf("same-basename source files collided at %q", firstID)
+	}
+	if firstID != "a/Observation.ndjson#7" || secondID != "b/Observation.ndjson#7" {
+		t.Fatalf("relative source IDs = %q and %q", firstID, secondID)
+	}
+}
+
+func TestGenerationWriteStatsSummarizesRequestsByClass(t *testing.T) {
+	stats := &generationWriteStats{samples: make(map[string][]generationWriteSample)}
+	for i := 20; i > 0; i-- {
+		stats.record("edge", generationWriteSample{bytes: 10, permitWait: time.Second, duration: time.Duration(i) * time.Second})
+	}
+	stats.record("vertex", generationWriteSample{bytes: 3, duration: time.Second})
+	summary := stats.summary()
+	edges := summary["edge"]
+	if edges["requests"] != 20 || edges["request_bytes"] != int64(200) ||
+		edges["writer_permit_wait_seconds"] != 20.0 || edges["request_seconds"] != 210.0 ||
+		edges["p95_request_seconds"] != 19.0 {
+		t.Fatalf("unexpected edge write statistics: %v", edges)
+	}
+	if vertices := summary["vertex"]; vertices["requests"] != 1 || vertices["request_bytes"] != int64(3) {
+		t.Fatalf("unexpected vertex write statistics: %v", vertices)
+	}
 }
