@@ -7,21 +7,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
-type ProposalPreviewOptions struct {
-	Limit                 *int
-	Budget                func(context.Context) (context.Context, time.Duration)
-	Timeout               time.Duration
-	AllowSampledAggregate bool
-	Authorize             func(context.Context) error
-	Sink                  PreviewSinkFactory
-}
-
-type ProposalPreview struct {
-	Result    PreviewResult
-	Started   time.Time
-	Completed bool
-}
-
 func (s *Service) ProposeConstructionAndPreview(ctx context.Context, request ConstructionProposalRequest, options ProposalPreviewOptions, prepare func(ConstructionProposalResponse) error) (ProposalPreview, error) {
 	proposal, err := s.ProposeConstruction(ctx, request)
 	if err != nil {
@@ -57,11 +42,6 @@ func (s *Service) ProposePopulationMemberRemovalAndPreview(ctx context.Context, 
 	}
 	return s.previewProposal(ctx, request.Project, request.ExplorerID, proposal.ProposalID, request.OutputID, options)
 }
-
-type ProposalPreviewExecutionError struct{ Cause error }
-
-func (e *ProposalPreviewExecutionError) Error() string { return e.Cause.Error() }
-func (e *ProposalPreviewExecutionError) Unwrap() error { return e.Cause }
 
 func (s *Service) previewProposal(ctx context.Context, project, explorerID, receiptID, outputID string, options ProposalPreviewOptions) (ProposalPreview, error) {
 	timeout := options.Timeout

@@ -12,28 +12,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-type ConstructionDeriveSourceCapability struct {
-	Supported  bool                             `json:"supported"`
-	StageID    string                           `json:"stageId"`
-	ReasonCode string                           `json:"reasonCode,omitempty"`
-	Reason     string                           `json:"reason,omitempty"`
-	Choices    []ConstructionDeriveSourceChoice `json:"choices"`
-}
-
-type ConstructionDeriveSourceChoice struct {
-	ChoiceID    string `json:"choiceId"`
-	FieldPath   string `json:"fieldPath"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	IsPopulated bool   `json:"isPopulated"`
-	ColumnID    string `json:"columnId"`
-}
-
-type ConstructionDeriveSourceSelection struct {
-	ChoiceID string `json:"choiceId"`
-	ColumnID string `json:"columnId"`
-}
-
 const maxDeriveSourceSelections = 2
 
 func validateConstructionDeriveSourceSelections(selections []ConstructionDeriveSourceSelection) error {

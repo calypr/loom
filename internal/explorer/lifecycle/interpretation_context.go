@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -18,31 +17,6 @@ const (
 	maxInterpretationContextColumns   = 512
 	maxInterpretationContextLibraries = 256
 )
-
-type ConfiguredColumnContextRequest struct {
-	Project              string
-	ExplorerID           string
-	SnapshotToken        string
-	ExpectedDraftVersion int64
-	ExpectedDraftDigest  string
-}
-
-type InterpretationRevisionSummary struct {
-	ID            string    `json:"id"`
-	LibraryID     string    `json:"libraryId"`
-	ContentDigest string    `json:"contentDigest"`
-	Author        string    `json:"author"`
-	Explanation   string    `json:"explanation"`
-	CreatedAt     time.Time `json:"createdAt"`
-}
-
-type InterpretationLibrarySummary struct {
-	ID             string                         `json:"id"`
-	HeadRevisionID string                         `json:"headRevisionId,omitempty"`
-	HeadDigest     string                         `json:"headDigest,omitempty"`
-	Head           *InterpretationRevisionSummary `json:"head,omitempty"`
-	UpdatedAt      time.Time                      `json:"updatedAt"`
-}
 
 type ConfiguredColumnResolution interface {
 	State() explorercompilation.InterpretationCandidateResolutionState

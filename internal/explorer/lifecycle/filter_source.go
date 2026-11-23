@@ -12,28 +12,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-type ConstructionFilterSourceCapability struct {
-	Supported  bool                             `json:"supported"`
-	StageID    string                           `json:"stageId"`
-	ReasonCode string                           `json:"reasonCode,omitempty"`
-	Reason     string                           `json:"reason,omitempty"`
-	Choices    []ConstructionFilterSourceChoice `json:"choices"`
-}
-
-type ConstructionFilterSourceChoice struct {
-	ChoiceID    string `json:"choiceId"`
-	FieldPath   string `json:"fieldPath"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	IsPopulated bool   `json:"isPopulated"`
-	ColumnID    string `json:"columnId"`
-}
-
-type ConstructionFilterSourceSelection struct {
-	ChoiceID string `json:"choiceId"`
-	ColumnID string `json:"columnId"`
-}
-
 func validateConstructionFilterSourceSelections(selections []ConstructionFilterSourceSelection) error {
 	seenChoices := make(map[string]bool, len(selections))
 	seenColumns := make(map[string]bool, len(selections))

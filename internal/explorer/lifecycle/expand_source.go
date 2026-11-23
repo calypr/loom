@@ -13,28 +13,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-type ConstructionExpandSourceCapability struct {
-	Supported  bool                             `json:"supported"`
-	StageID    string                           `json:"stageId"`
-	ReasonCode string                           `json:"reasonCode,omitempty"`
-	Reason     string                           `json:"reason,omitempty"`
-	Choices    []ConstructionExpandSourceChoice `json:"choices"`
-}
-
-type ConstructionExpandSourceChoice struct {
-	ChoiceID    string `json:"choiceId"`
-	FieldPath   string `json:"fieldPath"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	IsPopulated bool   `json:"isPopulated"`
-	ColumnID    string `json:"columnId"`
-}
-
-type ConstructionExpandSourceSelection struct {
-	ChoiceID string `json:"choiceId"`
-	ColumnID string `json:"columnId"`
-}
-
 func validateConstructionExpandSourceSelections(selections []ConstructionExpandSourceSelection) error {
 	seenChoices := make(map[string]bool, len(selections))
 	seenColumns := make(map[string]bool, len(selections))

@@ -186,14 +186,6 @@ type PreviewRequest struct {
 	SinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
 }
 
-type PreviewResult struct {
-	Receipt *explorer.CompilationReceipt
-	Columns []explorer.EmittedColumn
-	Summary dataframeexecution.PreviewSummary
-}
-
-type PreviewSinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
-
 type AcceptedConstruction struct {
 	Preview      PreviewResult
 	PreviewLimit int

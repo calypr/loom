@@ -11,3 +11,9 @@ type HMACPopulationMappingCursorCodec = population.HMACPopulationMappingCursorCo
 func NewHMACPopulationMappingCursorCodec(secret string) (*HMACPopulationMappingCursorCodec, error) {
 	return population.NewHMACPopulationMappingCursorCodec(secret)
 }
+
+type PopulationRoutesRequest = population.PopulationRoutesRequest
+type PopulationRouteChoice = population.PopulationRouteChoice
+type PopulationRoutesResponse = population.PopulationRoutesResponse
+type PopulationMemberRemovalProposalRequest = population.PopulationMemberRemovalProposalRequest
+type PopulationMemberRemovalProposalResponse = population.PopulationMemberRemovalProposalResponse
