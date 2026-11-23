@@ -20,12 +20,14 @@ var (
 	ErrCorruptReceipt = errors.New("corrupt compilation receipt")
 )
 
-type Store interface {
+type ExplorerStore interface {
 	List(context.Context, string) ([]Explorer, error)
 	Get(context.Context, string, string) (*Explorer, error)
 	Create(context.Context, Explorer) (*Explorer, error)
-
 	SaveDraft(context.Context, Explorer, int64, ...string) (*Explorer, error)
+}
+
+type RevisionStore interface {
 	InsertCompilationReceipt(context.Context, CompilationReceipt) (*CompilationReceipt, error)
 	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*CompilationReceipt, error)
 	PublishAuthoring(context.Context, CompilationReceipt, Revision, dataset.ProjectRelease, int64) (*Revision, error)
@@ -33,6 +35,9 @@ type Store interface {
 	GetRevision(context.Context, string) (*Revision, error)
 	FailRevision(context.Context, string, []Diagnostic) (*Revision, error)
 	ActivateRepositoryGeneration(context.Context, string, string, string) error
+}
+
+type SelectionStore interface {
 	BeginSelection(context.Context, explorerselection.SelectionRevision, string) (*explorerselection.SelectionRevision, error)
 	AppendSelectionMembers(context.Context, string, string, []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error)
 	DigestSelectionMembers(context.Context, string, string) (string, int64, int64, error)
@@ -41,6 +46,12 @@ type Store interface {
 	CleanupSelectionStaging(context.Context, time.Time, int) error
 	GetSelection(context.Context, string, string) (*explorerselection.SelectionRevision, error)
 	VisitSelectionMembers(context.Context, string, string, string, int, func(explorerselection.SelectionMember) error) (string, error)
+}
+
+type Store interface {
+	ExplorerStore
+	RevisionStore
+	SelectionStore
 }
 
 type DraftRevisionReader interface {
