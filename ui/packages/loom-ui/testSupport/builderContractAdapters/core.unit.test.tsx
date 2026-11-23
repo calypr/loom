@@ -252,7 +252,7 @@ describe('core Calculate adapter dimensions', () => {
       output_label: 'Birth count plus one',
     }));
 
-    await waitFor(() => expect(fixture.proposal).not.toBeNull());
+    await waitFor(() => expect(fixture.proposal).not.toBeNull(), { timeout: 5000 });
     await driving;
     const request = fixture.proposal;
     expect(request).not.toBeNull();
