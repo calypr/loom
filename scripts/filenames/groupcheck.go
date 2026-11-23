@@ -114,7 +114,6 @@ func runGroupcheck(root, dir, selectorText string) error {
 				objSet[o] = true
 			}
 		}
-		// Selecting a type selects its methods too.
 		var typeNames []string
 		for o := range objSet {
 			if _, ok := o.(*types.TypeName); ok {
@@ -135,7 +134,6 @@ func runGroupcheck(root, dir, selectorText string) error {
 		}
 	}
 
-	// Source declaration intervals for name/list membership.
 	declsByFile := map[string][]gcDecl{}
 	for _, f := range files {
 		tf := fset.File(f.Pos())

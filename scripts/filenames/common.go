@@ -115,9 +115,8 @@ func exportMap(pkgs []listedPackage) map[string]string {
 	return exports
 }
 
-// newExportImporter gives the gc importer the export files reported by
-// go list. A nil gc lookup only resolves GOROOT/GOPATH packages, so module
-// packages would otherwise be missing from cross-package reference edges.
+// Essential: a nil gc lookup resolves only GOROOT/GOPATH packages, so module
+// export data must be supplied for cross-package reference edges.
 func newExportImporter(fset *token.FileSet, exports map[string]string) types.Importer {
 	lookup := func(path string) (io.ReadCloser, error) {
 		f, ok := exports[path]
@@ -161,8 +160,8 @@ func unescapeField(s string) string {
 	return s
 }
 
-// writeTSV emits real TSV; encoding/csv quotes any field that contains a tab
-// or newline. Free-text fields such as evidence therefore survive round trips.
+// Essential: encoding/csv quotes tabs and newlines, so free-text evidence
+// survives TSV round trips.
 func writeTSV(path string, header []string, rows [][]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

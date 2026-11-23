@@ -158,7 +158,6 @@ func runApply(root, ledgerPath, currentPkg string) error {
 				continue
 			}
 			if _, statErr := os.Stat(target); statErr == nil {
-				// A merge target already exists: append this unit below instead.
 			} else {
 				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 					return err

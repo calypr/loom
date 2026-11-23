@@ -66,7 +66,6 @@ func (s *selector) matchesName(name string) bool {
 		if s.list[name] {
 			return true
 		}
-		// list items may name a method as Recv.Method or just Method.
 		if i := strings.LastIndex(name, "."); i >= 0 && s.list[name[i+1:]] {
 			return true
 		}

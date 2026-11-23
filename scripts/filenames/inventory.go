@@ -12,10 +12,10 @@ import (
 	"strings"
 )
 
-// A part is one source declaration owned by a unit. start/end are byte
-// offsets, so apply can cut the declaration and its doc comment verbatim.
+// Essential: start/end are byte offsets so apply can cut a declaration and
+// its doc comment verbatim.
 type part struct {
-	file      string // repo-relative
+	file      string
 	abs       string
 	start     int
 	end       int
@@ -26,8 +26,8 @@ type part struct {
 
 type unit struct {
 	ID        string
-	Pkg       string // repo-relative package path, e.g. internal/dataframe/compiler/ir
-	PkgPath   string // full import path
+	Pkg       string
+	PkgPath   string
 	Kind      string
 	Name      string
 	Receiver  string

@@ -140,8 +140,6 @@ func extractDecls(files []mvFile) ([]mvDecl, error) {
 		hash    string
 		methods []string
 	}
-	// Grouping is per directory so methods attach to the receiver type in the
-	// same package before cross-package matching by key.
 	byDir := map[string][]mvFile{}
 	for _, f := range files {
 		dir := filepath.Dir(f.path)
@@ -306,7 +304,6 @@ func compareDecls(base, head []mvDecl) (missing, added []mvDecl, changed []struc
 	for _, k := range keys {
 		bs := append([]mvDecl{}, baseMap[k]...)
 		hs := append([]mvDecl{}, headMap[k]...)
-		// Exact body matches first, so duplicates pair deterministically.
 		for i := 0; i < len(bs); {
 			matched := -1
 			for j := 0; j < len(hs); j++ {
