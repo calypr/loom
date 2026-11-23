@@ -1,4 +1,4 @@
-package explorer
+package receiptmodel
 
 import (
 	"crypto/sha256"
@@ -10,6 +10,9 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/explorer/viewer"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -62,7 +65,7 @@ type CompilationReceipt struct {
 	ExplorerID                      string                                  `json:"explorerId"`
 	IntentDigest                    string                                  `json:"intentDigest"`
 	ResolvedInputsDigest            string                                  `json:"resolvedInputsDigest,omitempty"`
-	ResolvedInterpretations         []ResolvedInterpretation                `json:"resolvedInterpretations,omitempty"`
+	ResolvedInterpretations         []interpretation.ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
 	SnapshotToken                   string                                  `json:"snapshotToken"`
 	AuthorizationScopeDigest        string                                  `json:"authorizationScopeDigest,omitempty"`
 	CapabilitySchemaDigest          string                                  `json:"capabilitySchemaDigest,omitempty"`
@@ -78,7 +81,7 @@ type CompilationReceipt struct {
 	CompiledConfig                  json.RawMessage                         `json:"compiledConfig,omitempty"`
 	PublicOutputContract            json.RawMessage                         `json:"publicOutputContract,omitempty"`
 	IdentityMappings                []IdentityMapping                       `json:"identityMappings"`
-	EmittedColumns                  []EmittedColumn                         `json:"emittedColumns"`
+	EmittedColumns                  []viewer.EmittedColumn                  `json:"emittedColumns"`
 	OutputFingerprints              map[string]string                       `json:"outputFingerprints,omitempty"`
 	ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
 
@@ -591,7 +594,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		ExplorerID                      string                                  `json:"explorerId"`
 		IntentDigest                    string                                  `json:"intentDigest"`
 		ResolvedInputsDigest            string                                  `json:"resolvedInputsDigest,omitempty"`
-		ResolvedInterpretations         []ResolvedInterpretation                `json:"resolvedInterpretations,omitempty"`
+		ResolvedInterpretations         []interpretation.ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
 		NormalizedBundle                []byte                                  `json:"normalizedBundle,omitempty"`
 		SnapshotToken                   string                                  `json:"snapshotToken"`
 		AuthorizationScope              string                                  `json:"authorizationScopeDigest,omitempty"`
@@ -617,7 +620,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		ExplorerID                      string                                  `json:"explorerId"`
 		IntentDigest                    string                                  `json:"intentDigest"`
 		ResolvedInputsDigest            string                                  `json:"resolvedInputsDigest,omitempty"`
-		ResolvedInterpretations         []ResolvedInterpretation                `json:"resolvedInterpretations,omitempty"`
+		ResolvedInterpretations         []interpretation.ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
 		NormalizedBundle                []byte                                  `json:"normalizedBundle,omitempty"`
 		SnapshotToken                   string                                  `json:"snapshotToken"`
 		AuthorizationScope              string                                  `json:"authorizationScopeDigest,omitempty"`
@@ -667,10 +670,10 @@ func receiptIDWithCompilationKey(r CompilationReceipt, key string) (string, erro
 		CompiledConfig                  []byte                                   `json:"compiledConfig,omitempty"`
 		PublicOutputContract            []byte                                   `json:"publicOutputContract,omitempty"`
 		Mappings                        []IdentityMapping                        `json:"identityMappings"`
-		Emissions                       []EmittedColumn                          `json:"emittedColumns"`
+		Emissions                       []viewer.EmittedColumn                   `json:"emittedColumns"`
 		Fingerprints                    map[string]string                        `json:"outputFingerprints,omitempty"`
 		ColumnProvenance                map[string]map[string]string             `json:"outputColumnProvenance,omitempty"`
-		ResolvedInterpretations         []ResolvedInterpretation                 `json:"resolvedInterpretations,omitempty"`
+		ResolvedInterpretations         []interpretation.ResolvedInterpretation  `json:"resolvedInterpretations,omitempty"`
 		Warnings                        []CompilationWarning                     `json:"warnings,omitempty"`
 		ColumnPolicyProposal            *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
 		SourceRelationshipProposal      *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
@@ -695,7 +698,7 @@ func digestIdentity(prefix string, identity any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	canonical, err := canonicalJSONBytes(raw)
+	canonical, err := explorerconfig.CanonicalJSONBytes(raw)
 	if err != nil {
 		return "", err
 	}
@@ -710,7 +713,7 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 	if strings.TrimSpace(string(raw)) == "null" {
 		return nil, nil
 	}
-	return canonicalJSONBytes(raw)
+	return explorerconfig.CanonicalJSONBytes(raw)
 }
 
 func (r CompilationReceipt) Validate() error { return r.ValidateArchive() }
@@ -895,7 +898,7 @@ func validateOutputColumnProvenance(values map[string]map[string]string) error {
 	return nil
 }
 
-func validateResolvedInterpretations(project string, values []ResolvedInterpretation) error {
+func validateResolvedInterpretations(project string, values []interpretation.ResolvedInterpretation) error {
 	seen := make(map[string]struct{}, len(values))
 	for index, value := range values {
 		if strings.TrimSpace(value.OutputID) == "" || strings.TrimSpace(value.Column) == "" || strings.TrimSpace(value.OccurrenceID) == "" {
@@ -963,6 +966,18 @@ func validateReceiptRawJSON(raw []byte) error {
 	if json.Valid(raw) {
 		return nil
 	}
-	_, err := canonicalJSONBytes(raw)
+	_, err := explorerconfig.CanonicalJSONBytes(raw)
 	return err
+}
+
+func ValidateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage, bundle recipe.Bundle) error {
+	return validateReceiptConstructionStages(stagesByOutput, bundle)
+}
+
+func ValidateReceiptCompiledOutputSchemas(schemas map[string][]ReceiptCompiledOutputColumn, bundle recipe.Bundle) error {
+	return validateReceiptCompiledOutputSchemas(schemas, bundle)
+}
+
+func ValidateReceiptRawJSON(raw []byte) error {
+	return validateReceiptRawJSON(raw)
 }
