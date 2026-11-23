@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -94,6 +94,16 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		}},
 	}
 	service := &Service{config: Config{
+		ReauthorizeFrameSourceChoice: func(_ context.Context, _ Base, _, _, rowRoot, outputID, _ string, _ ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+			expected := semanticFrameCompatibilityFamily(t, anchor)
+			proven, ok := semanticCandidateWithFallback(snapshot, anchor.Observation, candidate)
+			source, sourceOK := identity.Source.(capability.SemanticFrameChoiceSource)
+			if !ok || !sourceOK || outputID == "" || rowRoot != "Observation" || !reflect.DeepEqual(source.Family, expected) ||
+				source.CandidateID != proven.ID || source.NodeID != proven.NodeID || source.FieldPath != proven.FieldPath {
+				return FrameSourceFamilyCandidate{}, nil, unprocessable("catalog", "INVALID_FRAME_SOURCE", "the coded source metadata or compiler candidate changed", nil)
+			}
+			return FrameSourceFamilyCandidate{Family: expected, Entry: anchor, Candidate: proven}, []capability.ConstructionRouteStep{}, nil
+		},
 		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted ||
 			len(options.References) != 1 || options.References[0].BindingID != "stage-binding" {
@@ -118,7 +128,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
 		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
 	}
-	resolved, verified, err := service.syncConstructionService().ResolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", candidateConstruction)
+	resolved, verified, err := service.resolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", candidateConstruction)
 	if err != nil {
 		t.Fatalf("reauthorize saved coded Pivot source and editable categories: %v", err)
 	}
@@ -155,7 +165,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
 		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
 	}
-	_, _, err = service.syncConstructionService().ResolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", tampered)
+	_, _, err = service.resolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", tampered)
 	assertLifecycleError(t, err, ports.ClassUnprocessable, "INVALID_FRAME_SOURCE")
 }
 

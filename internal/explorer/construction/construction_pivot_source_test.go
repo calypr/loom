@@ -95,7 +95,7 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		PivotSources: []ConstructionPivotSourceSelection{{ChoiceID: selection.ChoiceID, ColumnID: "pivot-input"}},
 	}
 	service := &Service{}
-	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(t.Context(), base, request, candidate)
+	prepared, _, err := service.constructionSources().constructionCandidateWithPivotSources(t.Context(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("prepare related Pivot sources: %v", err)
 	}

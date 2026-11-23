@@ -201,12 +201,3 @@ func constructionSourceStage(stages []explorer.ReceiptConstructionStage) *explor
 	return nil
 }
 
-// Essential: lifecycle composes coded Pivot proposal verification.
-func (s *Service) ResolveConstructionCodedPivotChoices(
-	ctx context.Context,
-	base Base,
-	outputID string,
-	candidate authoringv2.Construction,
-) (authoringv2.Construction, map[string]bool, error) {
-	return s.resolveConstructionCodedPivotChoices(ctx, base, outputID, candidate)
-}

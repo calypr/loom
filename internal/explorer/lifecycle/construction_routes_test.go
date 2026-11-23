@@ -12,7 +12,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/population"
 )
@@ -253,23 +252,6 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 
 }
 
-func TestSavedRelatedExpandPagesRespectLimitAndScope(t *testing.T) {
-	routes := [][]capability.ConstructionRouteStep{{{EdgeID: "first"}}, {{EdgeID: "second"}}}
-	scope := construction.SavedRelatedExpandCursor{Snapshot: "snapshot", Draft: "draft", Output: "patients", Stage: "source", Anchor: "_key", Target: "Observation"}
-	first, cursor, err := construction.PageSavedRelatedExpandRoutes(routes, scope, "", 1)
-	if err != nil || len(first) != 1 || first[0][0].EdgeID != "first" || cursor == "" {
-		t.Fatalf("first saved page = %#v, %q, %v", first, cursor, err)
-	}
-	second, cursorAfter, err := construction.PageSavedRelatedExpandRoutes(routes, scope, cursor, 1)
-	if err != nil || len(second) != 1 || second[0][0].EdgeID != "second" || cursorAfter != "" {
-		t.Fatalf("second saved page = %#v, %q, %v", second, cursorAfter, err)
-	}
-	scope.Draft = "new-draft"
-	if _, _, err := construction.PageSavedRelatedExpandRoutes(routes, scope, cursor, 1); err == nil {
-		t.Fatal("saved graph cursor admitted a different draft")
-	}
-}
-
 func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *testing.T) {
 	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
 	candidate.Observed = true
@@ -434,26 +416,6 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	if !ok || !reflect.DeepEqual(signedRepeatedSource.RepeatedBoundaries, repeatedChoice.Source.RepeatedBoundaries) ||
 		!reflect.DeepEqual(repeatedIdentity.Route, rootRoute.Route) {
 		t.Fatalf("repeated contributor choice did not sign exact boundaries and route: source=%#v route=%#v", repeatedIdentity.Source, repeatedIdentity.Route)
-	}
-	contributorValue := "d"
-	repeatedRelated := authoringv2.ConstructionRelatedExpand{
-		ChoiceID: rootRoute.ChoiceID, TargetNodeID: rootRoute.TargetNodeID, TargetResourceType: rootRoute.TargetResourceType,
-		Route: rootRoute.Route, ContributorChoiceID: repeatedChoice.ChoiceID, ContributorSource: &repeatedChoice.Source,
-		ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches, Predicate: &authoringv2.ContributorPredicate{
-			CandidateID: repeatedCode.ID, Operator: authoringv2.ContributorEquals, Quantifier: authoringv2.ContributorAny,
-			Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &contributorValue},
-		}},
-	}
-	base := constructionBase{Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, Catalog: catalog}
-	if err := construction.ReauthorizeRelatedExpandContributor(context.Background(), base, "Patient", repeatedRelated); err != nil {
-		t.Fatalf("repeated contributor signed choice reauthorization: %v", err)
-	}
-	tamperedSource := repeatedChoice.Source
-	tamperedSource.RepeatedBoundaries = append([]capability.RepeatedBoundary(nil), repeatedChoice.Source.RepeatedBoundaries...)
-	tamperedSource.RepeatedBoundaries[1].MaxItems++
-	repeatedRelated.ContributorSource = &tamperedSource
-	if err := construction.ReauthorizeRelatedExpandContributor(context.Background(), base, "Patient", repeatedRelated); err == nil || lifecycleErrorCode(err) != "INVALID_CONSTRUCTION_CHOICE" {
-		t.Fatalf("tampered repeated boundaries were not rejected as an invalid signed choice: %v", err)
 	}
 	rootIdentity, err := capability.DecodeConstructionChoiceID(rootChoice.ChoiceID)
 	if err != nil || !reflect.DeepEqual(rootIdentity.Route, rootRoute.Route) {

@@ -225,5 +225,4 @@ func constructionGroupFieldLabel(path string) string {
 	return strings.Join(parts, " / ")
 }
 
-// Essential: lifecycle composes the construction source lanes from its own package.
-func (s *Service) ConstructionSources() constructionRowSources { return s.constructionSources() }
+

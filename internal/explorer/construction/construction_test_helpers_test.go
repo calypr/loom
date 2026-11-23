@@ -251,3 +251,56 @@ func schemaFieldsTestSnapshot(scope authscope.ReadScope, candidates []capability
 		{ID: "observation-node", ResourceType: "Observation", Populated: true},
 	}, nil, candidates, nil)
 }
+
+func filterSourceIdentityColumns() []authoringv2.StageColumn {
+	return []authoringv2.StageColumn{{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"}}
+}
+
+func filterSourceProjectionColumn() authoringv2.StageColumn {
+	return authoringv2.StageColumn{
+		ID: filterSourceColumn, Name: authoringv2.ConstructionSourceProjectionName(filterSourceColumn),
+		Label: "BodyStructure.active", Type: "boolean",
+	}
+}
+
+func filterSourceFilterStep(columnID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
+	return authoringv2.ConstructionStep{
+		ID:     "filter-active",
+		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
+			ColumnID: columnID, Operator: authoringv2.ConstructionFilterEquals,
+			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		}},
+		Outputs: outputs,
+	}
+}
+
+func filterSourceBool(value bool) *bool { return &value }
+
+func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path string) capability.RowChoice {
+	t.Helper()
+	choices, err := filterSourceResolver(t).ListRowChoices(context.Background(), snapshot, filterSourceDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range choices {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+			return choice
+		}
+	}
+	t.Fatalf("planner omitted the %s root field choice: %#v", path, choices)
+	return capability.RowChoice{}
+}
+
+func filterSourceSelection(t *testing.T, snapshot capability.Snapshot, path, columnID string) ConstructionFilterSourceSelection {
+	t.Helper()
+	return ConstructionFilterSourceSelection{ChoiceID: filterSourceRowChoice(t, snapshot, path).ChoiceID, ColumnID: columnID}
+}
+
+func filterSourceProposalRequest(changedStepID string, sources []ConstructionFilterSourceSelection) ConstructionProposalRequest {
+	return ConstructionProposalRequest{
+		Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "filter-source-token",
+		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:filter-source-draft", OutputID: filterSourceOutput,
+		ChangedStepID: changedStepID, FilterSources: sources,
+	}
+}

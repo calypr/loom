@@ -232,7 +232,7 @@ func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, st
 	return unchanged(stepID)
 }
 
-// Essential: lifecycle composes proposal verification across its construction source lanes.
+// Essential: lifecycle verifies proposal Pivot categories across its construction source lanes.
 func (s *Service) VerifyConstructionProposalPivotCategoriesExcept(
 	ctx context.Context,
 	request ConstructionProposalRequest,
