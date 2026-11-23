@@ -3,14 +3,11 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
-	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 type gcEdge struct {
@@ -34,64 +31,74 @@ func runGroupcheck(root, dir, selectorText string) error {
 	if !filepath.IsAbs(absDir) {
 		absDir = filepath.Join(root, dir)
 	}
-	ents, err := os.ReadDir(absDir)
+	packages, err := goList(absDir, "-export", "-deps", "-compiled", "-json", ".")
 	if err != nil {
 		return err
 	}
+	if len(packages) == 0 {
+		return fmt.Errorf("no Go package in %s", absDir)
+	}
+	listed := packages[len(packages)-1]
+	fileBases := append(listed.GoFiles, listed.CgoFiles...)
+	if len(fileBases) == 0 {
+		return fmt.Errorf("no active production Go files in %s", absDir)
+	}
 	fset := token.NewFileSet()
 	var files []*ast.File
-	var fileBases []string
-	for _, e := range ents {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
+	for _, name := range listed.CompiledGoFiles {
+		if !filepath.IsAbs(name) {
+			name = filepath.Join(listed.Dir, name)
 		}
-		path := filepath.Join(absDir, name)
-		f, err := parser.ParseFile(fset, path, nil, 0)
+		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
-			continue
+			return err
 		}
 		files = append(files, f)
-		fileBases = append(fileBases, name)
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no production Go files in %s", absDir)
 	}
 	info := &types.Info{
 		Defs:       map[*ast.Ident]types.Object{},
 		Uses:       map[*ast.Ident]types.Object{},
 		Selections: map[*ast.SelectorExpr]*types.Selection{},
 	}
-	pkgPath := absDir
-	if rel := relPath(root, absDir); !strings.HasPrefix(rel, "../") && rel != "." {
-		if module := modulePath(root); module != "" {
-			pkgPath = module + "/" + rel
-		}
+	conf := types.Config{Importer: newExportImporter(fset, exportMap(packages))}
+	pkg, err := conf.Check(listed.ImportPath, fset, files, info)
+	if err != nil {
+		return err
 	}
-	conf := types.Config{Importer: importer.ForCompiler(fset, "gc", nil), Error: func(error) {}}
-	pkg, _ := conf.Check(pkgPath, fset, files, info)
 
 	declFile := map[types.Object]string{}
 	declName := map[types.Object]string{}
+	sourceNames := make(map[string]bool, len(fileBases))
+	for _, name := range fileBases {
+		sourceNames[name] = true
+	}
+	sourceNameAt := func(pos token.Pos) string {
+		name := filepath.Base(fset.PositionFor(pos, false).Filename)
+		if sourceNames[name] {
+			return name
+		}
+		name = filepath.Base(fset.PositionFor(pos, true).Filename)
+		if sourceNames[name] {
+			return name
+		}
+		return ""
+	}
 	declFileByObj := func(obj types.Object) string {
 		if obj == nil || !obj.Pos().IsValid() {
 			return ""
 		}
-		f := fset.File(obj.Pos())
-		if f == nil {
-			return ""
-		}
-		return filepath.Base(f.Name())
+		return sourceNameAt(obj.Pos())
 	}
 	for obj := range info.Defs {
 		o := info.Defs[obj]
 		if o == nil {
 			continue
 		}
-		declFile[o] = declFileByObj(o)
-		declName[o] = o.Name()
+		if file := declFileByObj(o); file != "" {
+			declFile[o] = file
+			declName[o] = o.Name()
+		}
 	}
-	_ = pkg
 
 	fileSet := map[string]bool{}
 	objSet := map[types.Object]bool{}
@@ -194,15 +201,9 @@ func runGroupcheck(root, dir, selectorText string) error {
 		if obj.Parent() != nil && obj.Parent() != pkg.Scope() {
 			return
 		}
-		srcFile := ""
-		if f := fset.File(from); f != nil {
-			srcFile = filepath.Base(f.Name())
-		}
-		tgtFile := ""
-		if f := fset.File(obj.Pos()); f != nil {
-			tgtFile = filepath.Base(f.Name())
-		}
-		if srcFile == tgtFile {
+		srcFile := sourceNameAt(from)
+		tgtFile := declFileByObj(obj)
+		if srcFile == "" || tgtFile == "" || srcFile == tgtFile {
 			return
 		}
 		edges[gcEdge{srcFile: srcFile, srcObj: srcObj, target: obj}] = true

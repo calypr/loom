@@ -1,4 +1,4 @@
-//go:generate go run generate_children.go . children.gen.go
+//go:generate go run generatechildren.go . children.gen.go
 package ir
 
 import "fmt"
