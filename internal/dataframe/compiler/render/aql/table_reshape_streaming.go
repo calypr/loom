@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql/internal/aqlsyntax"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -165,7 +166,7 @@ func rebaseStreamingPivotValueToStoredParent(
 	parentPath []string,
 	parentVariable string,
 ) (ir.PhysicalValue, bool) {
-	if value.Variable != rootVariable || value.BindKey != "" || !aqlPathHasPrefix(value.Path, parentPath) {
+	if value.Variable != rootVariable || value.BindKey != "" || !aqlsyntax.PathHasPrefix(value.Path, parentPath) {
 		return value, false
 	}
 	value.Variable = parentVariable
@@ -188,7 +189,7 @@ func rebaseStreamingPivotPresenceToStoredParent(
 	}
 	source := presence.Source
 	if source.Variable != rootVariable || source.BindKey != "" || len(source.Path) >= len(parentPath) ||
-		len(presence.Paths) == 0 || !aqlPathHasPrefix(parentPath, source.Path) {
+		len(presence.Paths) == 0 || !aqlsyntax.PathHasPrefix(parentPath, source.Path) {
 		return false
 	}
 	parentRemainder := parentPath[len(source.Path):]
@@ -224,12 +225,12 @@ func rebaseStreamingPivotExtractToStoredParent(
 	}
 	stepOffset := 0
 	if len(extract.Source.Path) >= len(parentPath) {
-		if !aqlPathHasPrefix(extract.Source.Path, parentPath) {
+		if !aqlsyntax.PathHasPrefix(extract.Source.Path, parentPath) {
 			return false
 		}
 		extract.Source.Path = append([]string(nil), extract.Source.Path[len(parentPath):]...)
 	} else {
-		if !aqlPathHasPrefix(parentPath, extract.Source.Path) {
+		if !aqlsyntax.PathHasPrefix(parentPath, extract.Source.Path) {
 			return false
 		}
 		stepOffset = len(parentPath) - len(extract.Source.Path)

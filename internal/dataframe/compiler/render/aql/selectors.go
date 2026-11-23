@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql/internal/aqlsyntax"
 	"strconv"
 	"strings"
 
@@ -126,11 +127,11 @@ func (r *physicalPlanRenderer) renderDirectScalarFromStoredParent(extract *ir.Ph
 		}
 		path = append(path, step.Field)
 	}
-	if !aqlPathHasPrefix(path, r.storedPresenceParentPath) {
+	if !aqlsyntax.PathHasPrefix(path, r.storedPresenceParentPath) {
 		return "", false
 	}
-	parent := renderAQLPropertyPath(r.rootVariable, r.storedPresenceParentPath)
-	return renderAQLPropertyPath("FIRST(["+parent+"])", path[len(r.storedPresenceParentPath):]), true
+	parent := aqlsyntax.RenderPropertyPath(r.rootVariable, r.storedPresenceParentPath)
+	return aqlsyntax.RenderPropertyPath("FIRST(["+parent+"])", path[len(r.storedPresenceParentPath):]), true
 }
 
 func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
@@ -460,65 +461,9 @@ func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, erro
 	if len(value.Path) == 0 {
 		return value.Variable, nil
 	}
-	if value.Variable == r.rootVariable && aqlPathHasPrefix(value.Path, r.storedPresenceParentPath) {
-		parent := renderAQLPropertyPath(value.Variable, r.storedPresenceParentPath)
-		return renderAQLPropertyPath("FIRST(["+parent+"])", value.Path[len(r.storedPresenceParentPath):]), nil
+	if value.Variable == r.rootVariable && aqlsyntax.PathHasPrefix(value.Path, r.storedPresenceParentPath) {
+		parent := aqlsyntax.RenderPropertyPath(value.Variable, r.storedPresenceParentPath)
+		return aqlsyntax.RenderPropertyPath("FIRST(["+parent+"])", value.Path[len(r.storedPresenceParentPath):]), nil
 	}
-	return renderAQLPropertyPath(value.Variable, value.Path), nil
-}
-
-func aqlPathHasPrefix(path, prefix []string) bool {
-	if len(prefix) == 0 || len(path) < len(prefix) {
-		return false
-	}
-	for index := range prefix {
-		if path[index] != prefix[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func renderAQLPropertyPath(base string, path []string) string {
-	var expression strings.Builder
-	expression.WriteString(base)
-	for _, segment := range path {
-		if isSafeAQLPropertyIdentifier(segment) {
-			expression.WriteByte('.')
-			expression.WriteString(segment)
-			continue
-		}
-		expression.WriteByte('[')
-		expression.WriteString(strconv.Quote(segment))
-		expression.WriteByte(']')
-	}
-	return expression.String()
-}
-
-func isSafeAQLPropertyIdentifier(segment string) bool {
-	if len(segment) == 0 || !isAQLIdentifierStart(segment[0]) {
-		return false
-	}
-	for index := 1; index < len(segment); index++ {
-		char := segment[index]
-		if !isAQLIdentifierStart(char) && (char < '0' || char > '9') {
-			return false
-		}
-	}
-	_, reserved := aqlReservedWords[strings.ToUpper(segment)]
-	return !reserved
-}
-
-func isAQLIdentifierStart(char byte) bool {
-	return char == '_' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'
-}
-
-var aqlReservedWords = map[string]struct{}{
-	"AGGREGATE": {}, "ALL": {}, "ALL_SHORTEST_PATHS": {}, "AND": {}, "ANY": {}, "ASC": {},
-	"COLLECT": {}, "DESC": {}, "DISTINCT": {}, "FALSE": {}, "FILTER": {}, "FOR": {},
-	"GRAPH": {}, "IN": {}, "INBOUND": {}, "INSERT": {}, "INTO": {}, "K_PATHS": {},
-	"K_SHORTEST_PATHS": {}, "LET": {}, "LIKE": {}, "LIMIT": {}, "NONE": {}, "NOT": {},
-	"NULL": {}, "OR": {}, "OUTBOUND": {}, "REMOVE": {}, "REPLACE": {}, "RETURN": {},
-	"SHORTEST_PATH": {}, "SORT": {}, "TRUE": {}, "UPDATE": {}, "UPSERT": {}, "WINDOW": {},
-	"WITH": {}, "CURRENT": {}, "NEW": {}, "OLD": {},
+	return aqlsyntax.RenderPropertyPath(value.Variable, value.Path), nil
 }

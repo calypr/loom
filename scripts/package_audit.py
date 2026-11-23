@@ -75,15 +75,25 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                                 'queries, and typed category-scan eligibility/proofs.',
  'internal/dataframe/compiler/capability': 'Probe which dataframe language capabilities the compiler can prove and '
                                            'support.',
+ 'internal/dataframe/compiler/categoryscan': 'Expose category-scan proof and refusal types and entry points.',
  'internal/dataframe/compiler/facade': 'Present one compiler surface to Explorer consumers.',
  'internal/dataframe/compiler/ir': 'Define typed physical operations, category-scan terminals/source hints, values, '
                                    'scope proofs, policies, and validation.',
+ 'internal/dataframe/compiler/ir/physical': 'Expose physical plan and stage types to second-wave consumers.',
+ 'internal/dataframe/compiler/ir/scope': 'Expose whole-relation scope evidence and validation.',
+ 'internal/dataframe/compiler/ir/validate': 'Expose physical-plan validation entry points.',
+ 'internal/dataframe/compiler/lineage': 'Expose row-lineage capability and compiled query types.',
  'internal/dataframe/compiler/lower': 'Lower logical FHIR dataframe plans into storage-aware physical IR.',
+ 'internal/dataframe/compiler/model': 'Expose compiled query and paging result models.',
  'internal/dataframe/compiler/optimize': 'Apply explainable semantics-preserving rewrites to validated physical IR.',
+ 'internal/dataframe/compiler/population': 'Expose compiler population limit contracts.',
+ 'internal/dataframe/compiler/preview': 'Expose compiler preview limit contracts.',
  'internal/dataframe/compiler/render/aql': 'Render validated physical IR and category-scan terminals as deterministic '
                                            'parameterized AQL.',
+ 'internal/dataframe/compiler/render/aql/internal/aqlsyntax': 'Provide pure AQL path and identifier syntax helpers.',
  'internal/dataframe/compiler/render/clickhouse': 'Render typed Combine plans and resolved published or private table '
                                                   'inputs as deterministic ClickHouse SQL.',
+ 'internal/dataframe/compiler/rowlineage': 'Expose row-lineage capability, compile, and error contracts.',
  'internal/dataframe/errors': 'Define and normalize stable structured dataframe errors for transport presentation.',
  'internal/dataframe/errors/authpolicy': 'Classify authorization failures for dataframe and transport callers.',
  'internal/dataframe/execution': 'Prepare, authorize, execute, explain, and post-process compiled dataframe requests.',
@@ -122,7 +132,11 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                       'core service operations, and immutable project-publication catalogs.',
  'internal/explorer/arango': 'Persist Explorer drafts, revisions, receipts, publications, capabilities, repository '
                              'state, and atomic project catalog anchors in ArangoDB.',
+ 'internal/explorer/arango/capabilitydb': 'Expose the Explorer capability snapshot Arango boundary.',
  'internal/explorer/arango/db': 'Own Explorer Arango collection names shared by aggregate stores.',
+ 'internal/explorer/arango/publicationdb': 'Expose the Explorer publication Arango boundary.',
+ 'internal/explorer/arango/selectiondb': 'Expose the Explorer selection Arango boundary.',
+ 'internal/explorer/arango/workspacedb': 'Expose the Explorer workspace/revision Arango boundary.',
  'internal/explorer/artifactfs': 'Persist and serve immutable Explorer training artifacts from a dedicated filesystem '
                                  'root.',
  'internal/explorer/authoringv2': 'Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring '
@@ -148,6 +162,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
  'internal/explorer/proposal': 'Own proposal preview options, results, and execution errors.',
  'internal/explorer/receipt': 'Compile, validate, preview, reconcile, and materialize Explorer receipts.',
+ 'internal/explorer/receiptmodel': 'Expose compilation receipt and output-contract models.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',
  'internal/explorer/reconcile': 'Run generic ticker-driven reconciliation loops with bounded sweep deadlines.',
@@ -156,6 +171,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/selection': 'Own selection intents, revisions, membership digests, and validation.',
  'internal/explorer/semanticbrowse': 'Own semantic inventory browse and field-presentation DTOs.',
  'internal/explorer/viewer': 'Own Explorer viewer state, runtime DTOs, and shared presentation types.',
+ 'internal/explorer/workspace': 'Expose the versioned authoring workspace model and codecs.',
  'internal/fhir/binding': 'Validate correlated, identifier, quantity, and pivot FHIR bindings.',
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
                          'metadata.',
@@ -169,6 +185,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
  'internal/semantic': 'Walk FHIR members, extract coded concepts, and build semantic inventory and coverage.',
+ 'internal/semantic/arango': 'Expose semantic inventory and coverage persistence contracts.',
  'internal/semantic/backfill': 'Drive semantic inventory backfill over leased builds.',
  'internal/server': 'Compose storage, domain services, generated OpenAPI handlers and HTTP routes.',
  'internal/server/sourcepublication': 'Adapt published source loads into the server composition root.',
