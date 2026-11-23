@@ -292,7 +292,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	proof := CategoryScanProof{
 		Version: 1, Output: output.Name, Column: column.Name, Kind: column.Kind,
 		Cardinality: column.Cardinality, MaxValues: maxValues,
-		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
+		OutputSchemaDigest: schemaDigest, PlanFingerprint: ir.PhysicalPlanFingerprint(physical),
 		QueryFingerprint: queryDigest, PresenceTracked: presenceTracked,
 	}
 	if overflowWitness != nil {

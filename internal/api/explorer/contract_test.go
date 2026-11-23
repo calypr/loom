@@ -69,7 +69,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
-			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe", PlanFingerprint: "test", TraversalCount: 0}, nil
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe", TraversalCount: 0}, nil
 		},
 	}
 	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())

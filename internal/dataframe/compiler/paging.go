@@ -35,6 +35,7 @@ type CompiledOutputPage struct {
 	RowsBindVars     map[string]any
 	RowsPartitions   []CompiledOutputPagePartition
 	RowsDiagnostics  ir.CompilerPlanDiagnostics
+	RowsPlanDigest   string
 }
 
 type CompiledOutputPagePartition struct {
@@ -107,10 +108,14 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 			return CompiledOutputPage{}, fmt.Errorf("render selected-root projection partitions: %w", err)
 		}
 	}
+	var rowsPlanDigest string
+	if previewLimit == 0 {
+		rowsPlanDigest = ir.PhysicalPlanFingerprint(rowsPlan)
+	}
 	return CompiledOutputPage{
 		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
 		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsPartitions: partitions,
-		RowsDiagnostics: PhysicalPlanDiagnostics(rowsPlan),
+		RowsDiagnostics: PhysicalPlanDiagnostics(rowsPlan), RowsPlanDigest: rowsPlanDigest,
 	}, nil
 }
 

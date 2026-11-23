@@ -134,7 +134,12 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			publicColumns = append(publicColumns, column)
 		}
 	}
+	var artifactPlanDigest string
+	if limit == 0 {
+		artifactPlanDigest = ir.PhysicalPlanFingerprint(physical)
+	}
 	return model.CompiledQuery{
+		ArtifactPlanDigest: artifactPlanDigest,
 		PhysicalPlan:       ir.ClonePhysicalPlan(physical),
 		Project:            bindings.Project,
 		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),

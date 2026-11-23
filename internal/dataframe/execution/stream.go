@@ -106,7 +106,7 @@ func (e streamExecutor) buildCompiledOutputStream(resolved Resolved, output lowe
 	stream := OutputStream{
 		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
 		DynamicChecks: dynamicChecks(output.DynamicColumns), source: source,
-		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
+		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest,
 		bindings: bindings,
 		stageID:  compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
 		physicalPlan: query.PhysicalPlan,
@@ -152,7 +152,9 @@ func (e streamExecutor) buildCompiledOutputStream(resolved Resolved, output lowe
 		}
 		source.page = &page
 		query.PlanDiagnostics = page.RowsDiagnostics
-		stream.planFingerprint = query.PlanDiagnostics.Fingerprint
+		stream.planFingerprint = page.RowsPlanDigest
+	} else if limit == 0 {
+		stream.planFingerprint = query.ArtifactPlanDigest
 	}
 	return stream, query, nil
 }

@@ -40,6 +40,7 @@ type PreviewGroupProjectionIndexSpec struct {
 }
 
 type CompiledQuery struct {
+	ArtifactPlanDigest string
 	PhysicalPlan       ir.PhysicalPlan
 	Project            string
 	DatasetGeneration  string

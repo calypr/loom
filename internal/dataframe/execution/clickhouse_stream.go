@@ -79,7 +79,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", RowIdentity: output.RowIdentity.Clone(),
 		Columns: append([]string(nil), output.Columns...), PublicColumns: append([]string(nil), output.Columns...),
 		OutputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), Limit: limit,
-		PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: clickHouseCombineFingerprint(combine)},
+		PhysicalPlan: physicalPlan,
 	}
 	source := &clickHouseSource{
 		clickHouseCombine: &combine, project: bindings.Project,
@@ -90,9 +90,12 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		Name: output.Name, Columns: append([]string(nil), output.Columns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
 		DynamicChecks: map[string]map[string]DynamicColumnCheck{},
 		source:        source, bindings: bindings, queryLimit: limit,
-		recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
-		stageID: compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
+		recipeDigest: resolved.StoredRecipeDigest,
+		stageID:      compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
 		physicalPlan: physicalPlan,
+	}
+	if limit == 0 {
+		stream.planFingerprint = clickHouseCombineFingerprint(combine)
 	}
 	if hasWorkspaceInputs {
 		if e.privateClickHouseArtifacts == nil {

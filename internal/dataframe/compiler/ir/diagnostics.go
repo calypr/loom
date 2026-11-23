@@ -13,7 +13,6 @@ func valueString(value any) string {
 }
 
 type CompilerPlanDiagnostics struct {
-	Fingerprint                       string
 	TraversalSets                     int
 	EndpointTraversalCount            int
 	NativeTraversalCount              int
@@ -68,7 +67,6 @@ func (r RichSourceReuse) TotalConsumers() int {
 
 func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 	diagnostics := CompilerPlanDiagnostics{
-		Fingerprint:             PhysicalPlanFingerprint(plan),
 		SharedTraversalCount:    plan.SharedTraversalCount,
 		RequiredMatchReuseCount: plan.RequiredMatchReuseCount,
 		OptimizationPolicy:      clonePhysicalOptimizationReport(plan.OptimizationPolicy),
