@@ -2,15 +2,17 @@ package authoringv2
 
 import (
 	"encoding/json"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
+	semanticauthoring "github.com/calypr/loom/internal/explorer/semanticauthoring"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -420,7 +422,7 @@ func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *
 		OwningScope:   "identifier[]", LogicalType: "string", Completeness: semantic.CompletenessComplete,
 		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
 	}
-	plan := ResolveSemanticSelectionPlan(observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-identifier", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &semantic.Entry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -456,7 +458,7 @@ func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
 		{ConceptID: "valid", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("valid", "binding", "urn:system", "valid", "")},
 		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
 	}
-	versionedPlan := ResolveSemanticSelectionPlan(selections[1].ResolvedObservation.Observation)
+	versionedPlan := semanticauthoring.ResolveSemanticSelectionPlan(selections[1].ResolvedObservation.Observation)
 	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: selections}}}); err == nil || !strings.Contains(err.Error(), versionedPlan.Readiness.Code) || !strings.Contains(err.Error(), versionedPlan.Readiness.Message) {
 		t.Fatalf("versioned last selection error = %v", err)
 	}

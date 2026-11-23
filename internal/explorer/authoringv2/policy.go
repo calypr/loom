@@ -2,23 +2,9 @@ package authoringv2
 
 import (
 	"fmt"
-	"strings"
 )
 
 type resolvedColumnPolicy struct{ columnID, projectionMode string }
-
-func (c *Command) ResolveColumnPolicyProposal(columnID, projectionMode string) error {
-	if c == nil || c.Type != CommandApplyColumnPolicyProposal || strings.TrimSpace(columnID) == "" || strings.TrimSpace(columnID) != columnID {
-		return fmt.Errorf("column policy requires an exact resolved column identity")
-	}
-	switch projectionMode {
-	case "VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT":
-	default:
-		return fmt.Errorf("column policy mode is unsupported")
-	}
-	c.resolvedColumnPolicy = &resolvedColumnPolicy{columnID: columnID, projectionMode: projectionMode}
-	return nil
-}
 
 func applyColumnPolicyProposal(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}

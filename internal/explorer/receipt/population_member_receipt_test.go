@@ -2,9 +2,10 @@ package receipt
 
 import (
 	"context"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"testing"
+
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"

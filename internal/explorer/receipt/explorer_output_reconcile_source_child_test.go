@@ -1,9 +1,10 @@
 package receipt
 
 import (
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"

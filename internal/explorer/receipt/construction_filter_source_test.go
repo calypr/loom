@@ -2,9 +2,10 @@ package receipt
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 

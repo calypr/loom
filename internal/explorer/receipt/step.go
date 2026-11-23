@@ -3,11 +3,13 @@ package receipt
 import (
 	"errors"
 	"fmt"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+
+	"strings"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"strings"
 )
 
 type constructionOutputStep struct {

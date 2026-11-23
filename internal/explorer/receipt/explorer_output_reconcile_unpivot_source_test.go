@@ -1,9 +1,10 @@
 package receipt
 
 import (
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"

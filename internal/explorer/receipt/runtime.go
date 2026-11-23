@@ -3,9 +3,10 @@ package receipt
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"log/slog"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
 

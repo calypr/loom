@@ -48,44 +48,6 @@ func (c ImportedSourceStepChange) Validate() error {
 	return nil
 }
 
-func (c *Command) ResolveImportedDocument(document Document) error {
-	if c == nil || !IsImportedSourceCommand(c.Type) || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
-		return fmt.Errorf("source change requires a matching imported document")
-	}
-	if err := document.Validate(); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(document)
-	if err != nil {
-		return err
-	}
-	var cloned Document
-	if err := json.Unmarshal(raw, &cloned); err != nil {
-		return err
-	}
-	c.resolvedImportedDocument = &cloned
-	return nil
-}
-
-func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error {
-	if c == nil || c.Type != CommandRemoveProjectedField || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
-		return fmt.Errorf("projected field removal requires a matching imported document")
-	}
-	if err := document.Validate(); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(document)
-	if err != nil {
-		return err
-	}
-	var cloned Document
-	if err := json.Unmarshal(raw, &cloned); err != nil {
-		return err
-	}
-	c.resolvedImportedDocument = &cloned
-	return nil
-}
-
 func IsImportedSourceCommand(kind string) bool {
 	return kind == CommandUpdateImportedSourceStep || kind == CommandRefreshImportedSource || kind == CommandApplyImportedRelationshipProposal
 }
@@ -131,6 +93,7 @@ func (c ImportedRelationshipChange) Validate() error {
 	}
 	return nil
 }
+
 func (c *ImportedRelationshipChange) UnmarshalJSON(raw []byte) error {
 	type wire ImportedRelationshipChange
 	var decoded wire
@@ -155,5 +118,43 @@ func ValidateImportedSourceStepBatch(changes []ImportedSourceStepChange) error {
 		}
 		seen[change.StepID] = true
 	}
+	return nil
+}
+
+func (c *Command) ResolveImportedDocument(document Document) error {
+	if c == nil || !IsImportedSourceCommand(c.Type) || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
+		return fmt.Errorf("source change requires a matching imported document")
+	}
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		return err
+	}
+	var cloned Document
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return err
+	}
+	c.resolvedImportedDocument = &cloned
+	return nil
+}
+
+func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error {
+	if c == nil || c.Type != CommandRemoveProjectedField || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
+		return fmt.Errorf("projected field removal requires a matching imported document")
+	}
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		return err
+	}
+	var cloned Document
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return err
+	}
+	c.resolvedImportedDocument = &cloned
 	return nil
 }

@@ -8,19 +8,6 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 )
 
-func (s SemanticSelection) validate() error {
-	if strings.TrimSpace(s.ConceptID) == "" || strings.TrimSpace(s.BindingID) == "" {
-		return fmt.Errorf("conceptId and bindingId are required")
-	}
-	if s.RouteEdgeIDs == nil {
-		return fmt.Errorf("routeEdgeIds must be explicit, including an empty root route")
-	}
-	if !contains([]string{"VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT"}, strings.ToUpper(strings.TrimSpace(s.ProjectionMode))) {
-		return fmt.Errorf("projectionMode must be an explicit supported value policy")
-	}
-	return nil
-}
-
 func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapshot, commandID string, commandIndex int, command Command) (CommandResult, error) {
 	documentIndex := documentIndex(workspace, command.OutputID)
 	if documentIndex < 0 {

@@ -121,34 +121,3 @@ func applyRemoveRoute(workspace *Workspace, catalog CatalogSnapshot, commandID s
 	cleanupWorkspaceBindings(workspace)
 	return result, nil
 }
-
-func (c Command) validateAddRoute() error {
-	if !commandFieldsPresent(c.OutputID, c.ParentOccurrenceID(), c.EdgeID()) {
-		return fmt.Errorf("ADD_ROUTE requires outputId, parentOccurrenceId, and edgeId")
-	}
-	return nil
-}
-
-func (c Command) validateUpdateRouteEdge() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), c.EdgeID()) || c.OccurrenceID() == RootOccurrenceID {
-		return fmt.Errorf("UPDATE_ROUTE_EDGE requires a non-root occurrenceId and edgeId")
-	}
-	return nil
-}
-
-func (c Command) validateSetRouteMatchMode() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID(), string(c.MatchMode())) || c.OccurrenceID() == RootOccurrenceID {
-		return fmt.Errorf("SET_ROUTE_MATCH_MODE requires a non-root occurrenceId and matchMode")
-	}
-	if c.MatchMode() != RouteMatchOptional && c.MatchMode() != RouteMatchRequired {
-		return fmt.Errorf("SET_ROUTE_MATCH_MODE matchMode must be OPTIONAL or REQUIRED")
-	}
-	return nil
-}
-
-func (c Command) validateRemoveRoute() error {
-	if !commandFieldsPresent(c.OutputID, c.OccurrenceID()) || c.OccurrenceID() == RootOccurrenceID {
-		return fmt.Errorf("REMOVE_ROUTE requires a non-root occurrenceId")
-	}
-	return nil
-}
