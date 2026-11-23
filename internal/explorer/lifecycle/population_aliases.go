@@ -17,3 +17,12 @@ type PopulationRouteChoice = population.PopulationRouteChoice
 type PopulationRoutesResponse = population.PopulationRoutesResponse
 type PopulationMemberRemovalProposalRequest = population.PopulationMemberRemovalProposalRequest
 type PopulationMemberRemovalProposalResponse = population.PopulationMemberRemovalProposalResponse
+
+type PopulationMappingExecutor = population.PopulationMappingExecutor
+
+type PopulationMappingRequest = population.PopulationMappingRequest
+type PopulationMappingBinding = population.PopulationMappingBinding
+type PopulationMappingCounts = population.PopulationMappingCounts
+type PopulationMappingDiagnostic = population.PopulationMappingDiagnostic
+type PopulationMappingReport = population.PopulationMappingReport
+type PopulationMappingResult = population.PopulationMappingResult

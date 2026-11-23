@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"context"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"time"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -24,8 +23,6 @@ type ReceiptStreamValidator func(context.Context, *explorer.CompilationReceipt, 
 type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
 type ColumnPopulationScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
-
-type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
 
 type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
 
@@ -163,52 +160,6 @@ type PreviewRequest struct {
 type ApplyCommandsWithConstructionPreviewResponse struct {
 	Commands *authoringv2.ApplyCommandsResponse
 	Accepted *AcceptedConstruction
-}
-
-type PopulationMappingRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	Cursor     string
-	Limit      int
-}
-
-type PopulationMappingBinding struct {
-	ReceiptID           string
-	OutputID            string
-	Project             string
-	ExplorerID          string
-	Generation          string
-	ScopeDigest         string
-	SelectionRevisionID string
-	MembershipDigest    string
-	ResourceType        string
-}
-
-type PopulationMappingCounts struct {
-	Selected    int64
-	Mapped      int64
-	Unmapped    int64
-	EmittedRows int64
-}
-
-type PopulationMappingDiagnostic struct {
-	Code    string
-	Message string
-}
-
-type PopulationMappingReport struct {
-	Binding     PopulationMappingBinding
-	Status      dataframeexecution.PopulationMappingStatus
-	Counts      *PopulationMappingCounts
-	Unmapped    []explorerselection.ResourceRef
-	NextCursor  string
-	Diagnostics []PopulationMappingDiagnostic
-}
-
-type PopulationMappingResult struct {
-	Report PopulationMappingReport
 }
 
 type CellTraceRequest struct {

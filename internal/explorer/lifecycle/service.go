@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+	"github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/selection"
@@ -28,6 +29,7 @@ type Service struct {
 	selectionService      *selection.Service
 	explicitGroupService  *explicitgroup.Service
 	rowDefService         *rowdef.Service
+	populationService     *population.Service
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -113,7 +115,51 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.constructionService = constructionService
+	populationService, err := population.NewService(service.populationConfig())
+	if err != nil {
+		return nil, err
+	}
+	service.populationService = populationService
 	return service, nil
+}
+
+func (s *Service) populationConfig() population.Config {
+	return population.Config{
+		Capability:                     func() ports.CapabilityResolver { return s.config.Capability },
+		Store:                          s.store,
+		SelectionMembersCollection:     s.config.SelectionMembersCollection,
+		LookupReceipt:                  s.lookupReceipt,
+		ValidateExecutableReceiptRoute: s.validateExecutableReceiptRoute,
+		Compile: func(ctx context.Context, request population.CompileRequest) (*explorer.CompilationReceipt, error) {
+			return s.compile(ctx, compileRequest{
+				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
+				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID,
+				PopulationMemberRemovalProposal: request.PopulationMemberRemovalProposal,
+			})
+		},
+		VerifyProposalReceipt: s.verifyProposalReceipt,
+		GetOwner:              s.getOwner,
+		CurrentWorkspace:      s.currentWorkspace,
+		CreateSelection:       s.CreateSelection,
+		Catalog:               s.catalog,
+		PreviewMemberRemoval: func(ctx context.Context, receipt *explorer.CompilationReceipt, project, explorerID string) error {
+			binding := receipt.PopulationMemberRemovalProposal
+			_, err := s.Preview(ctx, PreviewRequest{
+				Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: binding.OutputID,
+				Limit: binding.PreviewLimit,
+				SinkFactory: func(_ *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+					return func(map[string]any) error { return nil }, nil
+				},
+			})
+			return err
+		},
+		DocumentDigest:               documentDigest,
+		ConstructionDocumentIndex:    constructionDocumentIndex,
+		ConstructionCompilerScope:    constructionCompilerScope,
+		ClassifyMaterializationError: classifyMaterializationError,
+		PopulationMapping:            s.config.PopulationMapping,
+		PopulationMappingCursorCodec: s.config.PopulationMappingCursorCodec,
+	}
 }
 
 func (s *Service) constructionConfig() construction.Config {
