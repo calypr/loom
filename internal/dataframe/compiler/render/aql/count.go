@@ -360,7 +360,7 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, true, nil
 }
 
-func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, columnName, markerColumn string, sampleSize int) (RenderedPhysicalPlan, bool, error) {
+func renderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, columnName, markerColumn string, sampleSize int) (RenderedPhysicalPlan, bool, error) {
 	if sampleSize < 1 {
 		return RenderedPhysicalPlan{}, false, fmt.Errorf("category overflow sample size must be positive")
 	}

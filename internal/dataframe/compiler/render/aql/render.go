@@ -151,23 +151,6 @@ func RenderPhysicalPlanWithRootPageKeys(plan ir.PhysicalPlan, bindKey string, re
 	})
 }
 
-func RenderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
-	return renderPhysicalPlanWithTerminalProjection(plan, columnName, false)
-}
-
-func renderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string, omitTerminalRowSort bool) (RenderedPhysicalPlan, error) {
-	sequence := plan.StageSequence
-	if sequence == nil || columnName == "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection requires a construction stage and column")
-	}
-	for _, column := range sequence.FinalColumns {
-		if column.Name == columnName && !column.Internal {
-			return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{terminalProjectionColumn: columnName, omitTerminalRowSort: omitTerminalRowSort})
-		}
-	}
-	return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection column %q is not public in the final stage", columnName)
-}
-
 func terminalProjectionPresenceNames(sequence *ir.PhysicalStageSequence, columnID string) map[string]struct{} {
 	names := make(map[string]struct{})
 	for index := len(sequence.Stages) - 1; index >= 0; index-- {
@@ -785,21 +768,4 @@ type physicalNavigationTraversal struct {
 
 func (r *physicalPlanRenderer) cellTraces() cellTraceRenderer {
 	return cellTraceRenderer{renderContext: &r.renderContext, core: r}
-}
-
-func RenderClickHousePrefix(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
-	if plan.Engine != ir.PhysicalEngineClickHouse || plan.ClickHousePrefix == nil || plan.ClickHouseCombine == nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("typed composite ClickHouse plan is required")
-	}
-	if err := plan.Validate(); err != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("validate composite ClickHouse prefix: %w", err)
-	}
-	prefix := ir.ClonePhysicalPlan(plan)
-	prefix.Engine = ir.PhysicalEngineAQL
-	prefix.ClickHouseCombine = nil
-	prefix.ClickHousePrefix = nil
-	if prefix.StageSequence == nil || prefix.StageSequence.PreviewLimitBindKey != "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("private ClickHouse prefix must be an unbounded typed AQL stage sequence")
-	}
-	return RenderPhysicalPlan(prefix)
 }

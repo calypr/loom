@@ -26,9 +26,16 @@ func TestComposeClickHouseCombineRendersExactUnboundedAQLPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ComposeClickHouseCombine() error = %v", err)
 	}
-	rendered, err := aql.RenderClickHousePrefix(composite)
+	if err := composite.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	aqlPlan := ir.ClonePhysicalPlan(composite)
+	aqlPlan.Engine = ir.PhysicalEngineAQL
+	aqlPlan.ClickHouseCombine = nil
+	aqlPlan.ClickHousePrefix = nil
+	rendered, err := aql.RenderPhysicalPlan(aqlPlan)
 	if err != nil {
-		t.Fatalf("RenderClickHousePrefix() error = %v", err)
+		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
 	for _, expected := range []string{"TABLE_UNPIVOT", "@construction_private_auth_resource_path"} {
 		if !strings.Contains(rendered.Query, expected) {
@@ -44,12 +51,12 @@ func TestComposeClickHouseCombineRendersExactUnboundedAQLPrefix(t *testing.T) {
 
 	mismatchedScope := ir.ClonePhysicalPlan(composite)
 	mismatchedScope.ClickHousePrefix.AuthResourcePaths = []string{"/programs/p2"}
-	if _, err := aql.RenderClickHousePrefix(mismatchedScope); err == nil || !strings.Contains(err.Error(), "scope differs from the AQL authorization bindings") {
+	if err := mismatchedScope.Validate(); err == nil || !strings.Contains(err.Error(), "scope differs from the AQL authorization bindings") {
 		t.Fatalf("mismatched composite scope error = %v", err)
 	}
 	mismatchedStage := ir.ClonePhysicalPlan(composite)
 	mismatchedStage.ClickHouseCombine.Inputs[0].PrivateStageID = "different_stage"
-	if _, err := aql.RenderClickHousePrefix(mismatchedStage); err == nil || !strings.Contains(err.Error(), "does not match the exact AQL prefix stage") {
+	if err := mismatchedStage.Validate(); err == nil || !strings.Contains(err.Error(), "does not match the exact AQL prefix stage") {
 		t.Fatalf("mismatched composite stage error = %v", err)
 	}
 }
