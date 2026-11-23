@@ -7,6 +7,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -110,11 +111,11 @@ func validateResolvedRowChoice(route authoringv2.RouteNode, resolved ResolvedRow
 }
 
 func proposalDocument(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
-	return rowdef.ProposalDocument(workspace, outputID)
+	return proposal.ProposalDocument(workspace, outputID)
 }
 
 func documentDigest(document authoringv2.Document) (string, error) {
-	return rowdef.DocumentDigest(document)
+	return proposal.DocumentDigest(document)
 }
 
 func rowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {

@@ -7,6 +7,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -81,24 +82,5 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 }
 
 func rowIdentityForNetwork(document authoringv2.Document, network authoringv2.AuthoringNetwork) authoringv2.RowIdentityPlan {
-	effective := document
-	effective.Rows = network.SourceRows
-	var route func(string) authoringv2.RouteNode
-	route = func(id string) authoringv2.RouteNode {
-		var result authoringv2.RouteNode
-		for _, occurrence := range network.Occurrences {
-			if occurrence.OccurrenceID == id {
-				result = authoringv2.RouteNode{OccurrenceID: id, ResourceType: occurrence.ResourceType, CatalogEdgeID: occurrence.CatalogEdgeID, Relationship: occurrence.Relationship, MatchMode: occurrence.MatchMode}
-				break
-			}
-		}
-		for _, occurrence := range network.Occurrences {
-			if occurrence.ParentOccurrenceID == id && occurrence.Enabled {
-				result.Children = append(result.Children, route(occurrence.OccurrenceID))
-			}
-		}
-		return result
-	}
-	effective.Route = route(authoringv2.RootOccurrenceID)
-	return authoringv2.DescribeRowIdentity(effective)
+	return proposal.RowIdentityForNetwork(document, network)
 }

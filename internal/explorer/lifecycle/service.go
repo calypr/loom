@@ -30,6 +30,7 @@ type Service struct {
 	explicitGroupService  *explicitgroup.Service
 	rowDefService         *rowdef.Service
 	populationService     *population.Service
+	proposalService       *proposal.Service
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -120,6 +121,11 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.populationService = populationService
+	proposalService, err := proposal.NewService(service.proposalConfig())
+	if err != nil {
+		return nil, err
+	}
+	service.proposalService = proposalService
 	return service, nil
 }
 

@@ -1,4 +1,4 @@
-package lifecycle
+package proposal
 
 import (
 	"encoding/json"
