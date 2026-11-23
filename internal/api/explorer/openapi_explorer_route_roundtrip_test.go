@@ -31,6 +31,11 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
+type routeRoundtripStore interface {
+	explorer.Store
+	explorer.RevisionStore
+}
+
 func TestSavedRelatedRouteProposalApplyRestoreAndFreshRead(t *testing.T) {
 	savedRelatedRouteRoundtrip(t, nil)
 }
@@ -93,7 +98,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var store explorer.Store = explorerfixtures.NewStore()
+	var store routeRoundtripStore = explorerfixtures.NewStore()
 	if rowClient != nil {
 		if err := rowClient.Bootstrap(context.Background(), explorerarango.BootstrapSpec()); err != nil {
 			t.Fatal(err)

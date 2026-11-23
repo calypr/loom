@@ -11,6 +11,7 @@ import (
 
 type Store struct {
 	explorer.Store
+	explorer.RevisionStore
 	Mu             sync.Mutex
 	Explorers      map[string]explorer.Explorer
 	Receipts       map[string]explorer.CompilationReceipt

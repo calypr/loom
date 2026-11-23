@@ -21,6 +21,7 @@ import (
 
 type viewBuilderServiceStore struct {
 	explorer.Store
+	explorer.RevisionStore
 	explorer.ViewBuilderRepository
 	settings    explorer.ViewBuilderSettings
 	owners      []explorer.Explorer

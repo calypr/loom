@@ -50,8 +50,6 @@ type SelectionStore interface {
 
 type Store interface {
 	ExplorerStore
-	RevisionStore
-	SelectionStore
 }
 
 type DraftRevisionReader interface {

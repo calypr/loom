@@ -21,6 +21,8 @@ import (
 
 type selectionLifecycleStore struct {
 	explorer.Store
+	fakeRevisionStore
+	fakeSelectionStore
 	header   explorerselection.SelectionRevision
 	members  map[string]explorerselection.SelectionMember
 	revision *explorer.Revision
@@ -31,6 +33,8 @@ type selectionLifecycleStore struct {
 
 type selectionVariantStore struct {
 	explorer.Store
+	fakeRevisionStore
+	fakeSelectionStore
 	base           explorerselection.SelectionRevision
 	baseMembers    []explorerselection.SelectionMember
 	created        explorerselection.SelectionRevision

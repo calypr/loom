@@ -12,6 +12,7 @@ import (
 
 type SelectionStore struct {
 	*Store
+	explorer.SelectionStore
 	SelectionMu sync.Mutex
 	Selections  map[string]explorerselection.SelectionRevision
 	Members     map[string][]explorerselection.SelectionMember

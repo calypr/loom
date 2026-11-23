@@ -17,6 +17,8 @@ import (
 
 type dataframeDefaultStore struct {
 	explorer.Store
+	fakeRevisionStore
+	fakeSelectionStore
 	mu      sync.Mutex
 	owners  map[string]explorer.Explorer
 	creates int

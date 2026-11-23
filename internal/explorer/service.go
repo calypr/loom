@@ -19,15 +19,19 @@ import (
 )
 
 type Service struct {
-	store Store
-	now   func() time.Time
+	store          Store
+	revisionStore  RevisionStore
+	selectionStore SelectionStore
+	now            func() time.Time
 }
 
 func NewService(store Store) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("Explorer store is required")
 	}
-	return &Service{store: store, now: func() time.Time { return time.Now().UTC() }}, nil
+	revisionStore, _ := store.(RevisionStore)
+	selectionStore, _ := store.(SelectionStore)
+	return &Service{store: store, revisionStore: revisionStore, selectionStore: selectionStore, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 func (s *Service) ViewBuilderStorage() ViewBuilderRepository {
 	if s == nil {
@@ -71,7 +75,7 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 		markNotPublished(&state)
 		return state, nil
 	}
-	revision, err := s.store.GetRevision(ctx, owner.ActiveRevisionID)
+	revision, err := s.revisionStore.GetRevision(ctx, owner.ActiveRevisionID)
 	if err != nil {
 		return ExplorerStateV1{}, fmt.Errorf("load active Explorer revision %q: %w", owner.ActiveRevisionID, err)
 	}
@@ -156,7 +160,7 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	}
 	raw := source.DraftConfig
 	if len(raw) == 0 && source.ActiveRevisionID != "" {
-		revision, revisionErr := s.store.GetRevision(ctx, source.ActiveRevisionID)
+		revision, revisionErr := s.revisionStore.GetRevision(ctx, source.ActiveRevisionID)
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
@@ -256,7 +260,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 		workspace, err = authoringv2.DecodeWorkspace(owner.DraftConfig)
 	} else if owner.ActiveRevisionID != "" {
 		var revision *Revision
-		revision, err = s.store.GetRevision(ctx, owner.ActiveRevisionID)
+		revision, err = s.revisionStore.GetRevision(ctx, owner.ActiveRevisionID)
 		if err == nil {
 			workspace, err = s.RevisionWorkspace(ctx, *revision)
 		}
@@ -339,50 +343,50 @@ func (s *Service) ActiveRevision(ctx context.Context, project, id string) (*Revi
 	if e.ActiveRevisionID == "" {
 		return nil, ErrNotFound
 	}
-	return s.store.GetRevision(ctx, e.ActiveRevisionID)
+	return s.revisionStore.GetRevision(ctx, e.ActiveRevisionID)
 }
 func (s *Service) FailRevision(ctx context.Context, id string, diagnostics []Diagnostic) (*Revision, error) {
-	return s.store.FailRevision(ctx, id, diagnostics)
+	return s.revisionStore.FailRevision(ctx, id, diagnostics)
 }
 
 func (s *Service) CompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*CompilationReceipt, error) {
-	return s.store.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, id)
+	return s.revisionStore.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, id)
 }
 
 func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt CompilationReceipt) (*CompilationReceipt, error) {
-	return s.store.InsertCompilationReceipt(ctx, receipt)
+	return s.revisionStore.InsertCompilationReceipt(ctx, receipt)
 }
 
 func (s *Service) BeginSelection(ctx context.Context, selection explorerselection.SelectionRevision, writerToken string) (*explorerselection.SelectionRevision, error) {
-	return s.store.BeginSelection(ctx, selection, writerToken)
+	return s.selectionStore.BeginSelection(ctx, selection, writerToken)
 }
 
 func (s *Service) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
-	return s.store.AppendSelectionMembers(ctx, selectionID, writerToken, members)
+	return s.selectionStore.AppendSelectionMembers(ctx, selectionID, writerToken, members)
 }
 
 func (s *Service) DigestSelectionMembers(ctx context.Context, project, selectionID string) (string, int64, int64, error) {
-	return s.store.DigestSelectionMembers(ctx, projectid.Canonical(project), selectionID)
+	return s.selectionStore.DigestSelectionMembers(ctx, projectid.Canonical(project), selectionID)
 }
 
 func (s *Service) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*explorerselection.SelectionRevision, error) {
-	return s.store.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, completedAt)
+	return s.selectionStore.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, completedAt)
 }
 
 func (s *Service) AbortSelection(ctx context.Context, selectionID, writerToken string) error {
-	return s.store.AbortSelection(ctx, selectionID, writerToken)
+	return s.selectionStore.AbortSelection(ctx, selectionID, writerToken)
 }
 
 func (s *Service) CleanupSelectionStaging(ctx context.Context, before time.Time, limit int) error {
-	return s.store.CleanupSelectionStaging(ctx, before, limit)
+	return s.selectionStore.CleanupSelectionStaging(ctx, before, limit)
 }
 
 func (s *Service) GetSelection(ctx context.Context, project, selectionID string) (*explorerselection.SelectionRevision, error) {
-	return s.store.GetSelection(ctx, projectid.Canonical(project), selectionID)
+	return s.selectionStore.GetSelection(ctx, projectid.Canonical(project), selectionID)
 }
 
 func (s *Service) GetRevision(ctx context.Context, revisionID string) (*Revision, error) {
-	return s.store.GetRevision(ctx, strings.TrimSpace(revisionID))
+	return s.revisionStore.GetRevision(ctx, strings.TrimSpace(revisionID))
 }
 
 func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*DraftRevision, error) {
@@ -394,7 +398,7 @@ func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, rev
 }
 
 func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorerselection.SelectionMember) error) (string, error) {
-	return s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
+	return s.selectionStore.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
 }
 
 func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationReceipt, revision Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*Revision, error) {
@@ -403,7 +407,7 @@ func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationRecei
 	}
 	receipt.Project = projectid.Canonical(receipt.Project)
 	revision.Project = projectid.Legacy(revision.Project)
-	return s.store.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
+	return s.revisionStore.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
 }
 
 func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationReceipt, sourceCommit, actor string, materializations []Materialization, dataset DatasetMetadata, qualityReports []publication.QualityReport, publicationMetadata PublicationMetadata) (*Explorer, *Revision, error) {
@@ -439,14 +443,14 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationRec
 	}
 	revisionID := RepositoryRevisionID(project, sourceCommit, receipt.IntentDigest, receipt.SourceGeneration, receipt.ID)
 	now := s.now()
-	revision, err := s.store.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, QualityReports: publication.CloneQualityReports(qualityReports), Publication: publicationMetadata, Materializations: append([]Materialization(nil), materializations...), EmittedColumns: append([]EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
+	revision, err := s.revisionStore.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, QualityReports: publication.CloneQualityReports(qualityReports), Publication: publicationMetadata, Materializations: append([]Materialization(nil), materializations...), EmittedColumns: append([]EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
 	if err != nil {
 		return nil, nil, err
 	}
 	return owner, revision, nil
 }
 func (s *Service) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
-	return s.store.ActivateRepositoryGeneration(ctx, projectid.Legacy(project), generation, revisionID)
+	return s.revisionStore.ActivateRepositoryGeneration(ctx, projectid.Legacy(project), generation, revisionID)
 }
 
 func RepositoryRevisionID(project, sourceCommit, definitionDigest, sourceGeneration string, receiptIdentity ...string) string {

@@ -16,6 +16,8 @@ import (
 
 type explicitGroupSelectionFixture struct {
 	explorer.Store
+	fakeRevisionStore
+	fakeSelectionStore
 	header  explorerselection.SelectionRevision
 	members []explorerselection.SelectionMember
 }

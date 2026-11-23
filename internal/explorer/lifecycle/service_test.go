@@ -46,8 +46,66 @@ func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
 	}
 }
 
+type fakeRevisionStore struct{}
+
+func (fakeRevisionStore) InsertCompilationReceipt(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+	return nil, errors.New("revision store is not configured")
+}
+
+func (fakeRevisionStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
+	return nil, errors.New("revision store is not configured")
+}
+
+func (fakeRevisionStore) PublishAuthoring(context.Context, explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease, int64) (*explorer.Revision, error) {
+	return nil, errors.New("revision store is not configured")
+}
+
+func (fakeRevisionStore) InsertRevision(context.Context, explorer.Revision) (*explorer.Revision, error) {
+	return nil, errors.New("revision store is not configured")
+}
+
+func (fakeRevisionStore) GetRevision(context.Context, string) (*explorer.Revision, error) {
+	return nil, errors.New("revision store is not configured")
+}
+
+func (fakeRevisionStore) FailRevision(context.Context, string, []explorer.Diagnostic) (*explorer.Revision, error) {
+	return nil, errors.New("revision store is not configured")
+}
+
+func (fakeRevisionStore) ActivateRepositoryGeneration(context.Context, string, string, string) error {
+	return errors.New("revision store is not configured")
+}
+
+type fakeSelectionStore struct{}
+
+func (fakeSelectionStore) BeginSelection(context.Context, explorerselection.SelectionRevision, string) (*explorerselection.SelectionRevision, error) {
+	return nil, errors.New("selection staging is not configured")
+}
+
+func (fakeSelectionStore) AppendSelectionMembers(context.Context, string, string, []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
+	return nil, errors.New("selection staging is not configured")
+}
+
+func (fakeSelectionStore) DigestSelectionMembers(context.Context, string, string) (string, int64, int64, error) {
+	return "", 0, 0, errors.New("selection staging is not configured")
+}
+
+func (fakeSelectionStore) CompleteSelection(context.Context, string, string, string, int64, int64, time.Time) (*explorerselection.SelectionRevision, error) {
+	return nil, errors.New("selection staging is not configured")
+}
+
+func (fakeSelectionStore) AbortSelection(context.Context, string, string) error {
+	return errors.New("selection staging is not configured")
+}
+
+func (fakeSelectionStore) CleanupSelectionStaging(context.Context, time.Time, int) error {
+	return errors.New("selection staging is not configured")
+}
+
 type fakeStore struct {
 	explorer.Store
+	fakeRevisionStore
+	fakeSelectionStore
 	listValues         []explorer.Explorer
 	state              explorer.ExplorerStateV1
 	created            *explorer.Explorer
