@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -90,7 +91,7 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 	insertEdge("missing_target", "Observation", missingTargetObservation, "Patient", key("patient_missing"), "Observation", "Patient")
 
 	_, _, scanned := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), project, generation, MaxCategoryScanValues)
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
 	got := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		present, ok := row[scanned.PresentColumn].(bool)

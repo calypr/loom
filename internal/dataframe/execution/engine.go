@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -13,13 +14,17 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	rowlineage "github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
+
 	clickhousecombine "github.com/calypr/loom/internal/dataframe/compiler/render/clickhouse"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/projectid"
@@ -66,7 +71,7 @@ type PreviewSummary struct {
 	Truncated bool
 
 	PartialValidation    bool
-	RowLineageCapability compiler.RowLineageCapability
+	RowLineageCapability rowlineage.RowLineageCapability
 }
 
 type Config struct {
@@ -76,7 +81,7 @@ type Config struct {
 	QueryRows                  QueryRows
 	PreviewQueryRows           QueryRows
 	WithPreviewReadSnapshot    WithPreviewReadSnapshot
-	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	PreparePreviewIndex        func(context.Context, model.PreviewCoveringIndexSpec) error
 	PreviewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	PreviewCollectionRevision  func(context.Context, string) (string, error)
 	PreviewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
@@ -98,7 +103,7 @@ type Engine struct {
 	queryRows                  QueryRows
 	previewQueryRows           QueryRows
 	withPreviewReadSnapshot    WithPreviewReadSnapshot
-	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	preparePreviewIndex        func(context.Context, model.PreviewCoveringIndexSpec) error
 	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
 	previewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
@@ -169,8 +174,8 @@ type OutputStream struct {
 	compiledOutput           bool
 	artifactScopeMode        string
 	artifactScopeEvidence    string
-	scopeEvidence            *ir.WholeRelationScopeEvidence
-	scopeEvidenceIdentity    *ir.WholeRelationScopeIdentity
+	scopeEvidence            *irscope.WholeRelationScopeEvidence
+	scopeEvidenceIdentity    *irscope.WholeRelationScopeIdentity
 	workspaceArtifactManager *chartifact.Manager
 	workspaceArtifactSources []PrivateClickHouseArtifactSource
 	captureExecutionID       string
@@ -183,16 +188,16 @@ type preparedClickHouseQuery struct {
 	Args          []any
 	Identity      chartifact.Identity
 	PhysicalPlan  ir.PhysicalPlan
-	ScopeIdentity ir.WholeRelationScopeIdentity
-	ScopeEvidence ir.WholeRelationScopeEvidence
+	ScopeIdentity irscope.WholeRelationScopeIdentity
+	ScopeEvidence irscope.WholeRelationScopeEvidence
 }
 
 type materializedClickHouseCapture struct {
 	Artifact      *chartifact.Artifact
 	Identity      ir.ClickHouseArtifactIdentity
 	PhysicalPlan  ir.PhysicalPlan
-	ScopeIdentity ir.WholeRelationScopeIdentity
-	ScopeEvidence ir.WholeRelationScopeEvidence
+	ScopeIdentity irscope.WholeRelationScopeIdentity
+	ScopeEvidence irscope.WholeRelationScopeEvidence
 }
 
 type DynamicColumnCheck struct {
@@ -457,7 +462,7 @@ func (e *Engine) MaterializeVersion(ctx context.Context, name, translationVersio
 	return resolved, nil
 }
 
-func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, compiler.CompiledQuery, error) {
+func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, model.CompiledQuery, error) {
 	physicalPlan := output.Plan
 	if output.OptimizedPlan != nil {
 		physicalPlan = ir.ClonePhysicalPlan(*output.OptimizedPlan)
@@ -465,7 +470,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		physicalPlan = ir.ClonePhysicalPlan(output.Plan)
 	}
 	if physicalPlan.ClickHouseCombine == nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has no typed ClickHouse combine", output.Name)
+		return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q has no typed ClickHouse combine", output.Name)
 	}
 	hasWorkspaceInputs := false
 	for _, input := range physicalPlan.ClickHouseCombine.Inputs {
@@ -476,16 +481,16 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 	}
 	if hasWorkspaceInputs {
 		if err := physicalPlan.ClickHouseCombine.ValidateWithWorkspaceArtifacts(); err != nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q workspace ClickHouse plan: %w", output.Name, err)
+			return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q workspace ClickHouse plan: %w", output.Name, err)
 		}
 	} else if err := physicalPlan.Validate(); err != nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse plan: %w", output.Name, err)
+		return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q ClickHouse plan: %w", output.Name, err)
 	}
 	if len(output.DynamicColumns) != 0 {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse combine does not support dynamic columns", output.Name)
+		return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q ClickHouse combine does not support dynamic columns", output.Name)
 	}
 	combine := clonePhysicalClickHouseCombine(*physicalPlan.ClickHouseCombine)
-	query := compiler.CompiledQuery{
+	query := model.CompiledQuery{
 		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
 		TranslationVersion: output.TranslationVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
 		PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", RowIdentity: output.RowIdentity.Clone(),
@@ -505,7 +510,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 	}
 	if hasWorkspaceInputs {
 		if e.privateClickHouseArtifacts == nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q requires the private workspace artifact manager", output.Name)
+			return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q requires the private workspace artifact manager", output.Name)
 		}
 		dependencies := make(map[string]lower.CompiledRecipeOutput, len(resolved.Compiled.Outputs)+len(resolved.Compiled.WorkspaceDependencies))
 		for _, dependency := range resolved.Compiled.Outputs {
@@ -521,15 +526,15 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 			}
 			dependency, ok := dependencies[input.WorkspaceOutputID]
 			if !ok {
-				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q is missing compiled workspace dependency %q", output.Name, input.WorkspaceOutputID)
+				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q is missing compiled workspace dependency %q", output.Name, input.WorkspaceOutputID)
 			}
 			dependencyStream, _, err := e.outputStreams().buildCompiledOutputStream(resolved, dependency, 0, building, true)
 			if err != nil {
-				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q dependency %q: %w", output.Name, input.WorkspaceOutputID, err)
+				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q dependency %q: %w", output.Name, input.WorkspaceOutputID, err)
 			}
 			columns, err := chartifact.ColumnsFromCompiledOutput(dependency.OutputSchema)
 			if err != nil {
-				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q dependency %q schema: %w", output.Name, input.WorkspaceOutputID, err)
+				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q dependency %q schema: %w", output.Name, input.WorkspaceOutputID, err)
 			}
 			stream.workspaceArtifactSources = append(stream.workspaceArtifactSources, PrivateClickHouseArtifactSource{
 				OutputID: input.WorkspaceOutputID, Stream: dependencyStream, Columns: columns,
@@ -550,7 +555,7 @@ func requiresRestrictedRowAuthPathCapture(output lower.CompiledRecipeOutput, bin
 	return ok && !unrestricted
 }
 
-func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, actualPlan ir.PhysicalPlan) (string, *ir.WholeRelationScopeEvidence, *ir.WholeRelationScopeIdentity, error) {
+func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, actualPlan ir.PhysicalPlan) (string, *irscope.WholeRelationScopeEvidence, *irscope.WholeRelationScopeIdentity, error) {
 	if output.ScopeEvidence == nil {
 		if output.ScopeEvidenceIdentity != nil {
 			return "", nil, nil, fmt.Errorf("scope evidence identity exists without opaque compiler evidence")
@@ -577,7 +582,7 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 
 		return mode, nil, nil, nil
 	}
-	optimizedEvidence, err := ir.NewWholeRelationScopeEvidence(actualPlan, identity)
+	optimizedEvidence, err := irscope.NewWholeRelationScopeEvidence(actualPlan, identity)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("issue evidence for the actual captured physical plan: %w", err)
 	}
@@ -946,7 +951,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		if err != nil {
 			return err
 		}
-		operands := make([]ir.WorkspaceCombineScopeOperand, len(plan.Inputs))
+		operands := make([]irscope.WorkspaceCombineScopeOperand, len(plan.Inputs))
 		capturedByOutput := make(map[string]PrivateClickHouseArtifactInput, len(captured))
 		for _, input := range captured {
 			if _, exists := capturedByOutput[input.OutputID]; exists {
@@ -963,7 +968,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 				if !ok {
 					return fmt.Errorf("workspace output %q was not captured", ref.WorkspaceOutputID)
 				}
-				operand, err := ir.NewWorkspaceOutputScopeOperand(inputIndex, ref, input.SourcePlan, input.ScopeIdentity, input.ScopeEvidence)
+				operand, err := irscope.NewWorkspaceOutputScopeOperand(inputIndex, ref, input.SourcePlan, input.ScopeIdentity, input.ScopeEvidence)
 				if err != nil {
 					return fmt.Errorf("workspace output %q scope provenance: %w", ref.WorkspaceOutputID, err)
 				}
@@ -994,7 +999,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 			}
 			resolved := published[publishedIndex]
 			publishedIndex++
-			operand, err := ir.NewPublishedWorkspaceScopeOperand(inputIndex, ref, resolved, scopeIdentity)
+			operand, err := irscope.NewPublishedWorkspaceScopeOperand(inputIndex, ref, resolved, scopeIdentity)
 			if err != nil {
 				return fmt.Errorf("published output %q scope provenance: %w", ref.OutputID, err)
 			}
@@ -1010,7 +1015,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		if actualPlan.Engine != ir.PhysicalEngineClickHouse || actualPlan.ClickHouseCombine == nil {
 			actualPlan = ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineClickHouse, ClickHouseCombine: &plan}
 		}
-		evidence, err := ir.NewWorkspaceCombineScopeEvidence(actualPlan, scopeIdentity, operands)
+		evidence, err := irscope.NewWorkspaceCombineScopeEvidence(actualPlan, scopeIdentity, operands)
 		if err != nil {
 			return fmt.Errorf("workspace Combine scope evidence: %w", err)
 		}
@@ -1084,21 +1089,21 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 	})
 }
 
-func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHouseArtifactInput, published []ir.ResolvedClickHouseTable) (ir.WholeRelationScopeIdentity, error) {
+func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHouseArtifactInput, published []ir.ResolvedClickHouseTable) (irscope.WholeRelationScopeIdentity, error) {
 	if s.scopeEvidenceIdentity != nil || s.bindings.AuthScopeMode != "" || len(s.bindings.AuthResourcePaths) != 0 {
 		return s.workspaceScopeIdentity()
 	}
 	if _, ok := s.physicalPlan.BindVars["auth_resource_paths_unrestricted"].(bool); ok {
 		return s.workspaceScopeIdentity()
 	} else if _, exists := s.physicalPlan.BindVars["auth_resource_paths_unrestricted"]; exists {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has an invalid typed authorization mode")
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has an invalid typed authorization mode")
 	}
 	var sourceProject, sourceGeneration, sourceMode string
 	var sourcePaths []string
 	if len(captured) > 0 {
 		source := captured[0]
 		if !source.ScopeEvidence.Matches(source.SourcePlan, source.ScopeIdentity) {
-			return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input %q has no exact compiler scope evidence", source.OutputID)
+			return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input %q has no exact compiler scope evidence", source.OutputID)
 		}
 		sourceProject, sourceGeneration, sourceMode = source.ScopeIdentity.Project, source.ScopeIdentity.DatasetGeneration, source.ScopeIdentity.AuthScopeMode
 		sourcePaths = append([]string(nil), source.ScopeIdentity.AuthResourcePaths...)
@@ -1112,46 +1117,46 @@ func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHou
 			sourceMode = string(authscope.ReadScopeRestricted)
 		}
 	} else {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has no proven source from which to derive its empty-path scope")
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has no proven source from which to derive its empty-path scope")
 	}
 	if sourceProject != s.bindings.Project || sourceGeneration != s.bindings.DatasetGeneration || !sameExecutionStrings(sourcePaths, s.bindings.AuthResourcePaths) {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input scope differs from the exact output project, generation, or authorization paths")
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input scope differs from the exact output project, generation, or authorization paths")
 	}
 	if sourceMode != string(authscope.ReadScopeUnrestricted) && sourceMode != string(authscope.ReadScopeRestricted) {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input has unsupported authorization scope mode %q", sourceMode)
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input has unsupported authorization scope mode %q", sourceMode)
 	}
 	schemaDigest, err := compiledOutputSchemaDigest(s.outputSchema)
 	if err != nil {
-		return ir.WholeRelationScopeIdentity{}, err
+		return irscope.WholeRelationScopeIdentity{}, err
 	}
-	return ir.WholeRelationScopeIdentity{
+	return irscope.WholeRelationScopeIdentity{
 		OutputID: s.Name, Project: s.bindings.Project, DatasetGeneration: s.bindings.DatasetGeneration,
 		AuthScopeMode: sourceMode, AuthResourcePaths: sourcePaths, SchemaDigest: schemaDigest,
 	}, nil
 }
 
-func (s OutputStream) workspaceScopeIdentity() (ir.WholeRelationScopeIdentity, error) {
+func (s OutputStream) workspaceScopeIdentity() (irscope.WholeRelationScopeIdentity, error) {
 	if s.scopeEvidenceIdentity != nil {
 		identity := *s.scopeEvidenceIdentity
 		if identity.OutputID != s.Name || identity.Project != s.bindings.Project || identity.DatasetGeneration != s.bindings.DatasetGeneration ||
 			(s.bindings.AuthScopeMode != "" && identity.AuthScopeMode != string(s.bindings.AuthScopeMode)) ||
 			!sameExecutionStrings(identity.AuthResourcePaths, s.bindings.AuthResourcePaths) {
-			return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine scope identity differs from its exact output bindings")
+			return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine scope identity differs from its exact output bindings")
 		}
 		if _, err := streamExecutionAuthScopeMode(s); err != nil {
-			return ir.WholeRelationScopeIdentity{}, err
+			return irscope.WholeRelationScopeIdentity{}, err
 		}
 		return identity, nil
 	}
 	mode, err := streamExecutionAuthScopeMode(s)
 	if err != nil {
-		return ir.WholeRelationScopeIdentity{}, err
+		return irscope.WholeRelationScopeIdentity{}, err
 	}
 	schemaDigest, err := compiledOutputSchemaDigest(s.outputSchema)
 	if err != nil {
-		return ir.WholeRelationScopeIdentity{}, err
+		return irscope.WholeRelationScopeIdentity{}, err
 	}
-	return ir.WholeRelationScopeIdentity{
+	return irscope.WholeRelationScopeIdentity{
 		OutputID: s.Name, Project: s.bindings.Project, DatasetGeneration: s.bindings.DatasetGeneration,
 		AuthScopeMode: string(mode), AuthResourcePaths: append([]string(nil), s.bindings.AuthResourcePaths...),
 		SchemaDigest: schemaDigest,
@@ -1229,4 +1234,71 @@ func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string
 		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, Many: column.Many, AllowUnknownKeys: column.AllowUnknownKeys}
 	}
 	return checks
+}
+
+func previewProjectionRows(ctx context.Context, query QueryRows, partitions []compiler.CompiledOutputPagePartition, keys []string, batchSize int) ([]map[string]any, error) {
+	var rows []map[string]any
+	var identities []string
+	allowed := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		allowed[key] = true
+	}
+	for partIndex, part := range partitions {
+		binds := cloneBindVars(part.RowsBindVars)
+		binds[compiler.RootPageKeysBind] = keys
+		expected := make(map[string]bool, len(part.ProjectionNames))
+		for _, name := range part.ProjectionNames {
+			expected[name] = true
+		}
+		var current []map[string]any
+		seen := make(map[string]bool)
+		err := query(ctx, part.RowsQuery, batchSize, binds, func(row map[string]any) error {
+			if len(expected) != 0 {
+				if len(row) != len(expected) {
+					return fmt.Errorf("preview projection returned an incomplete row")
+				}
+				for name := range row {
+					if !expected[name] {
+						return fmt.Errorf("preview projection returned an unexpected column %q", name)
+					}
+				}
+			}
+			key, ok := row["_key"].(string)
+			if !ok || key == "" || !allowed[key] || seen[key] {
+				return fmt.Errorf("preview projection returned missing or duplicate root identity")
+			}
+			seen[key] = true
+			current = append(current, row)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if partIndex == 0 {
+			rows = current
+			identities = make([]string, len(rows))
+			for i, row := range rows {
+				identities[i] = row["_key"].(string)
+			}
+			continue
+		}
+		if len(current) != len(rows) {
+			return nil, fmt.Errorf("preview projections returned different row counts")
+		}
+		for i, row := range current {
+			if row["_key"] != identities[i] {
+				return nil, fmt.Errorf("preview projections returned different row identities or order")
+			}
+			for name, value := range row {
+				if old, exists := rows[i][name]; exists {
+					if !reflect.DeepEqual(old, value) {
+						return nil, fmt.Errorf("preview projections returned conflicting values for %q", name)
+					}
+					continue
+				}
+				rows[i][name] = value
+			}
+		}
+	}
+	return rows, nil
 }

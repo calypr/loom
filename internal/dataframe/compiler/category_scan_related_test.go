@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -294,7 +295,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		t.Fatalf("native output multiplicity by Specimen = %v, want %v; category-scan identity dedup must not affect ordinary rows", rowsByRoot, want)
 	}
 
-	rawCategories := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
+	rawCategories := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{
 		Query: `FOR root IN Specimen
   FILTER root.project == @project AND root.dataset_generation == @generation
   LET patients = (
@@ -345,7 +346,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	if !reflect.DeepEqual(oracleCategories, want) {
 		t.Fatalf("independent raw category states = %v, want explicit MISSING, NULL, and native string: %v", oracleCategories, want)
 	}
-	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	actualRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
 	got := map[string]struct{}{}
 	for _, row := range actualRows {
 		present, ok := row[scanned.PresentColumn].(bool)
@@ -375,7 +376,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	witnessObservation := insertResource(witnessProject, "Observation", "only-code", map[string]any{"valueQuantity": map[string]any{"code": "d"}})
 	insertEdge(witnessProject, "only-code-patient", "Observation", witnessObservation, "Patient", witnessFull)
 	_, _, witnessScan := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), witnessProject, generation, MaxCategoryScanValues)
-	witnessRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: witnessScan.Query, BindVars: witnessScan.BindVars})
+	witnessRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: witnessScan.Query, BindVars: witnessScan.BindVars})
 	witnessCategories := map[string]struct{}{}
 	for _, row := range witnessRows {
 		witnessCategories[relatedCategoryValueKey(row[witnessScan.PresentColumn].(bool), row[witnessScan.ValueColumn])] = struct{}{}
@@ -394,7 +395,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	firstObservation := insertResource(firstStageProject, "Observation", "only-code", map[string]any{"valueQuantity": map[string]any{"code": "e"}})
 	insertEdge(firstStageProject, "only-code-patient", "Observation", firstObservation, "Patient", firstPatient)
 	_, _, firstStageScan := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), firstStageProject, generation, MaxCategoryScanValues)
-	firstStageRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: firstStageScan.Query, BindVars: firstStageScan.BindVars})
+	firstStageRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: firstStageScan.Query, BindVars: firstStageScan.BindVars})
 	firstStageCategories := map[string]struct{}{}
 	for _, row := range firstStageRows {
 		firstStageCategories[relatedCategoryValueKey(row[firstStageScan.PresentColumn].(bool), row[firstStageScan.ValueColumn])] = struct{}{}
@@ -417,7 +418,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		insertEdge(capProject, id+"-patient", "Observation", observation, "Patient", capFull)
 	}
 	_, _, capScan := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), capProject, generation, MaxCategoryScanValues)
-	capRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: capScan.Query, BindVars: capScan.BindVars})
+	capRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: capScan.Query, BindVars: capScan.BindVars})
 	if len(capRows) != MaxCategoryScanValues+1 {
 		t.Fatalf("category scan returned %d rows for 256 string categories plus a preserved empty category; want sentinel %d", len(capRows), MaxCategoryScanValues+1)
 	}
@@ -525,7 +526,7 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 		value, present := row["category"]
 		want[relatedCategoryValueKey(present, value)] = struct{}{}
 	}
-	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	actualRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
 	got := map[string]struct{}{}
 	for _, row := range actualRows {
 		present, ok := row[scanned.PresentColumn].(bool)
@@ -550,13 +551,13 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 	}
 }
 
-func compileRelatedCategoryRuntimeScans(t *testing.T, definition recipe.Output, project, generation string, maxValues int) (lower.CompiledRecipeOutput, CompiledQuery, CompiledCategoryScanQuery) {
+func compileRelatedCategoryRuntimeScans(t *testing.T, definition recipe.Output, project, generation string, maxValues int) (lower.CompiledRecipeOutput, model.CompiledQuery, CompiledCategoryScanQuery) {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	return compileRelatedCategoryRuntimeScansWithBindings(t, definition, bindings, maxValues)
 }
 
-func compileRelatedCategoryRuntimeScansWithBindings(t *testing.T, definition recipe.Output, bindings recipe.RuntimeBindings, maxValues int) (lower.CompiledRecipeOutput, CompiledQuery, CompiledCategoryScanQuery) {
+func compileRelatedCategoryRuntimeScansWithBindings(t *testing.T, definition recipe.Output, bindings recipe.RuntimeBindings, maxValues int) (lower.CompiledRecipeOutput, model.CompiledQuery, CompiledCategoryScanQuery) {
 	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: definition.Name, TranslationVersion: "related-category-test", Outputs: []recipe.Output{definition}}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)

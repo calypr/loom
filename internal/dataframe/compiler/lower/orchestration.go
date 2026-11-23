@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -89,7 +91,7 @@ func buildGenericPhysicalPlanWithPolicy(output recipeplan.OutputPlan, context re
 		for _, child := range parent.Children {
 			childBindings := clonePhysicalSemanticBindings(bindings)
 			if routeBinding, selectedRoute := expansionBindings[child.OccurrenceID]; selectedRoute {
-				childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
+				childProjectionPrefix := physicalpkg.TraversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
 				childSource := ir.PhysicalValue{Variable: routeBinding.Variable, Path: []string{"payload"}}
 				childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: childSource}
 				projections, err := semanticNodePhysicalProjections(&physical, child, childSource, childBindings, lowerer, childProjectionPrefix)
@@ -106,7 +108,7 @@ func buildGenericPhysicalPlanWithPolicy(output recipeplan.OutputPlan, context re
 
 				if physicalNodeNeedsMaterializedSet(child) {
 					childSetIndex++
-					childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
+					childProjectionPrefix := physicalpkg.TraversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
 					childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
 					set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy, childBindings, lowerer)
 					if err != nil {
@@ -133,7 +135,7 @@ func buildGenericPhysicalPlanWithPolicy(output recipeplan.OutputPlan, context re
 				}
 				nodeVariable := fmt.Sprintf("node_%d", traversalIndex)
 				edgeVariable := fmt.Sprintf("edge_%d", traversalIndex)
-				traversal, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+				traversal, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 					FromType: parent.ResourceType, EdgeLabel: child.EdgeLabel, ToType: child.ResourceType,
 					SourceVariable: parentVariable, TargetVariable: nodeVariable, EdgeVariable: edgeVariable,
 					BindPrefix: fmt.Sprintf("traversal_%d", traversalIndex), Policy: policy,
@@ -158,7 +160,7 @@ func buildGenericPhysicalPlanWithPolicy(output recipeplan.OutputPlan, context re
 			}
 
 			childSetIndex++
-			childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
+			childProjectionPrefix := physicalpkg.TraversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
 			childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
 			set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy, childBindings, lowerer)
 			if err != nil {

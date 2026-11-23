@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -139,7 +140,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		AuthScopeMode:              authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 	}
 	output := lowerConstructionOutput(t, composedRelatedExpandLineageOutput(selectionID), bindings)
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("composed related expansion row lineage capability = %#v", capability)
 	}
 	previewQuery, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
@@ -194,7 +195,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	}
 	page := func(offset int) map[string]any {
 		t.Helper()
-		compiled, compileErr := CompileRowLineageOutput(output, fullRowID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := rowlineage.CompileRowLineageOutput(output, fullRowID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile composed row lineage at offset %d: %v", offset, compileErr)
 		}
@@ -229,7 +230,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		if oracle["observation_id"] != nil || oracle["returned_specimen_id"] != nil {
 			t.Fatalf("empty oracle row unexpectedly has related terminals: %#v", oracle)
 		}
-		compiled, compileErr := CompileRowLineageOutput(output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := rowlineage.CompileRowLineageOutput(output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile preserved-empty composed lineage: %v", compileErr)
 		}
@@ -251,7 +252,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		"not-json",
 	}
 	for _, forged := range forgedRows {
-		compiled, compileErr := CompileRowLineageOutput(output, forged, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := rowlineage.CompileRowLineageOutput(output, forged, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile fail-closed composed identity %q: %v", forged, compileErr)
 		}

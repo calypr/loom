@@ -84,7 +84,7 @@ func CompileColumnPopulationScan(output lower.CompiledRecipeOutput, stageID stri
 	if physical.StageSequence == nil {
 		physical = narrowSourceCategoryScanProjection(physical, populationColumnNames(selected)...)
 	}
-	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledColumnPopulationScan{}, fmt.Errorf("apply column population execution window: %w", err)
 	}

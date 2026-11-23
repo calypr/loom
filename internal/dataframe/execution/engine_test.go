@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -535,7 +537,7 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 			defer close(queryFinished)
 			return visit(map[string]any{"status": "final", "rows": 1})
 		},
-		PreparePreviewIndex: func(_ context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+		PreparePreviewIndex: func(_ context.Context, spec model.PreviewCoveringIndexSpec) error {
 			select {
 			case <-queryFinished:
 				prepared <- spec.PrepareAfterPreview
@@ -595,7 +597,7 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 				ScopeDigest:      func(recipe.RuntimeBindings) string { return "test-scope" },
 				QueryRows:        func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 				PreviewQueryRows: rows,
-				PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+				PreparePreviewIndex: func(context.Context, model.PreviewCoveringIndexSpec) error {
 					prepareCalls <- struct{}{}
 					return nil
 				},
@@ -629,7 +631,7 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 		Registry:    invalidRecipeRegistry{},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+		PreparePreviewIndex: func(context.Context, model.PreviewCoveringIndexSpec) error {
 			preparedBeforeQuery = true
 			return nil
 		},
@@ -1038,11 +1040,11 @@ func TestNormalizePreviewErrorClassifiesDeadlineAsPreviewTimeout(t *testing.T) {
 }
 
 func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
-	valid := compiler.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
+	valid := model.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
 	if err := validatePreviewPlan(valid, 2, ir.PhysicalEngineAQL); err != nil {
 		t.Fatal(err)
 	}
-	for _, invalid := range []compiler.CompiledQuery{
+	for _, invalid := range []model.CompiledQuery{
 		{PlanMode: "logical", PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}},
 		{PlanMode: previewPlanMode, PlanProfile: "other", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}},
 		{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2},
@@ -1054,7 +1056,7 @@ func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 			t.Fatalf("invalid plan error = %v, want PLAN_TOO_EXPENSIVE", err)
 		}
 	}
-	clickHouse := compiler.CompiledQuery{PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "combine-fingerprint"}}
+	clickHouse := model.CompiledQuery{PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "combine-fingerprint"}}
 	if err := validatePreviewPlan(clickHouse, 2, ir.PhysicalEngineClickHouse); err != nil {
 		t.Fatalf("valid pinned ClickHouse preview plan: %v", err)
 	}

@@ -1,18 +1,16 @@
 package lower
 
 import (
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/spec"
-)
-
-import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 

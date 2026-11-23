@@ -11,6 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -125,7 +126,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("related presence scan proof = %#v, want a complete tracked query without a conclusive-MISSING overflow witness", categoryScan.Proof)
 	}
 
-	oracle := CompiledQuery{
+	oracle := model.CompiledQuery{
 		Query: `FOR root IN Specimen
   FILTER root.project == @project AND root.dataset_generation == @generation
     AND root.auth_resource_path IN @auth_paths AND root._key IN @root_keys
@@ -222,7 +223,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("preserved no-target row should remain in its group with NULL Pivot cells: %#v", noTarget)
 	}
 
-	discoveredRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
+	discoveredRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
 	gotCategoryKeys := make(map[string]bool, len(discoveredRows))
 	for _, row := range discoveredRows {
 		present, ok := row[categoryScan.PresentColumn].(bool)

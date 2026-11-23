@@ -58,7 +58,7 @@ func physicalTraversalCount(plan ir.PhysicalPlan) int {
 	return count
 }
 
-func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
+func WithGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
 	if plan.StageSequence != nil {
 		out := ir.ClonePhysicalPlan(plan)
 		if limit > 0 {

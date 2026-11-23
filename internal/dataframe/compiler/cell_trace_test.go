@@ -1,12 +1,14 @@
 package compiler
 
 import (
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -18,7 +20,7 @@ func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
 		RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields:           []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "patient_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "patient_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestCompileCellTraceForSourceOnlyGroupRowsUsesFinalMemberValueAndObjectIden
 	if output.Plan.StageSequence != nil || len(output.Plan.Operations) != 1 || output.Plan.Operations[0].GroupRows == nil {
 		t.Fatalf("source-only explicit cohort was not compiled as the ordinary GROUP_ROWS terminal: %#v", output.Plan)
 	}
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile CellTrace for ordinary group-row member field: %v", err)
 	}
@@ -134,7 +136,7 @@ func TestCompileSourceOnlyGroupRowsCellTraceMatchesExactOneAndAllMemberValues(t 
 					RowValues: []recipe.GroupRowValuePolicy{{ColumnID: test.field.ColumnID, Policy: test.policy}},
 				},
 			})
-			compiled, err := CompileCellTraceOutputWithPolicy(output, test.field.Name, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, test.field.Name, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile %s GROUP_ROWS CellTrace: %v", test.name, err)
 			}
@@ -170,7 +172,7 @@ func TestCompileCellTraceExplainsOptionalTraversalBeforeFirstReduction(t *testin
 			Fields: []recipe.Field{{Name: "condition_id", Expr: recipe.Expression{Select: "id"}, ValueMode: recipe.ValueModeFirst}},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +197,7 @@ func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
 			Aggregates: []recipe.Aggregate{{Name: "maximum_value", Operation: recipe.AggregateMax, Expr: &value}},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +229,7 @@ func TestCompileCellTracePreservesAggregateContributorsThroughCategoryRecode(t *
 			},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "category", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "category", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +254,7 @@ func TestCompileCellTraceExplainsNumericAggregateContributors(t *testing.T) {
 			{Name: "mean_value", Operation: recipe.AggregateMean, Expr: &value},
 		},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "sum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "sum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +287,7 @@ func TestCompileWindowedAggregateCellTraceUsesEligibleContributors(t *testing.T)
 			}},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "window_sum", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "window_sum", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +317,7 @@ func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 			Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "height_records", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "height_records", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +353,7 @@ func TestCompileCellTraceCarriesPivotAndDerivedLeafLineage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	alpha, err := CompileCellTraceOutputWithPolicy(compiled, "alpha", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	alpha, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "alpha", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +366,7 @@ func TestCompileCellTraceCarriesPivotAndDerivedLeafLineage(t *testing.T) {
 		t.Fatalf("pivot trace did not bind source document and value-presence fields: %#v", alpha.BindVars)
 	}
 
-	group, err := CompileCellTraceOutputWithPolicy(compiled, "group_text", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	group, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "group_text", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +374,7 @@ func TestCompileCellTraceCarriesPivotAndDerivedLeafLineage(t *testing.T) {
 		t.Fatalf("pivot group-key trace does not retain the selected source field:\n%s", group.Query)
 	}
 
-	derived, err := CompileCellTraceOutputWithPolicy(compiled, "alpha_plus_zero", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	derived, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "alpha_plus_zero", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +395,7 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := CompileCellTraceOutputWithPolicy(compiled, "amount", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	value, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "amount", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +407,7 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 	if !containsBindValue(value.BindVars, ir.PhysicalCellTraceSourceDocumentField) {
 		t.Fatalf("unpivot trace did not bind the source-document field: %#v", value.BindVars)
 	}
-	passed, err := CompileCellTraceOutputWithPolicy(compiled, "text_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	passed, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "text_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +418,7 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 		t.Fatalf("unpivot trace lost selected source columns: %#v", value.BindVars)
 	}
 
-	key, err := CompileCellTraceOutputWithPolicy(compiled, "measure", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	key, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "measure", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +432,7 @@ func TestConstructionCellTraceResolvesDeriveInputsThroughFilterStage(t *testing.
 	if output.Plan.StageSequence == nil {
 		t.Fatal("compiled output has no construction stage sequence")
 	}
-	lineage, err := constructionCellTraceLineage(output, *output.Plan.StageSequence, "total")
+	lineage, err := celltrace.ConstructionCellTraceLineage(output, *output.Plan.StageSequence, "total")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +452,7 @@ func TestConstructionCellTraceResolvesDeriveInputsThroughFilterStage(t *testing.
 
 func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *testing.T) {
 	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +486,7 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 	if sequence == nil {
 		t.Fatal("compiled output has no construction stage sequence")
 	}
-	lineage, err := constructionCellTraceLineage(output, *sequence, "observation_status")
+	lineage, err := celltrace.ConstructionCellTraceLineage(output, *sequence, "observation_status")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,12 +498,12 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 		t.Fatalf("related-source route identity or occurrence policy = %#v", related)
 	}
 	producer := sequence.Stages[1]
-	projection, found := stageProjectionByName(producer.OutputProjections, "observation_status")
+	projection, found := celltrace.StageProjectionByName(producer.OutputProjections, "observation_status")
 	if !found || projection.Expression == nil || projection.Expression.Subplan == nil || !reflect.DeepEqual(related.Subplan, *projection.Expression.Subplan) {
 		t.Fatal("trace did not retain the exact producer route subplan")
 	}
 
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "observation_status", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "observation_status", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +544,7 @@ func TestConstructionCellTraceRejectsMalformedPublishedIdentity(t *testing.T) {
 	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
 	output.RowIdentity = output.RowIdentity.Clone()
 	output.RowIdentity.Fields = []string{"project", "not_the_root_key"}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
+	if _, err := celltrace.CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
 		t.Fatalf("malformed construction identity error = %v", err)
 	}
 }
@@ -565,12 +567,12 @@ func TestConstructionCellTraceRejectsStructuredGeneratedIdentity(t *testing.T) {
 			output.Plan.StageSequence.Stages[lastStage].OutputColumns[index].Kind = "object"
 		}
 	}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "compiler-generated construction identity is not a required scalar string" {
+	if _, err := celltrace.CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "compiler-generated construction identity is not a required scalar string" {
 		t.Fatalf("structured generated identity error = %v", err)
 	}
 }
 
-func assertConstructionTraceUsesPreviewIdentity(t *testing.T, output lower.CompiledRecipeOutput, compiled CompiledCellTraceQuery) {
+func assertConstructionTraceUsesPreviewIdentity(t *testing.T, output lower.CompiledRecipeOutput, compiled celltrace.CompiledCellTraceQuery) {
 	t.Helper()
 	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 2 || output.RowIdentity.Fields[0] != "project" || output.RowIdentity.Fields[1] != "_key" {
 		t.Fatalf("normal construction lowering identity = %#v, want ordered project/_key", output.RowIdentity)
@@ -616,7 +618,7 @@ func TestConstructionCellTraceReplaysPivotDespiteGenericLineageRefusal(t *testin
 	recipeOutput := constructionOracleOutput()
 	recipeOutput.Construction.Steps = recipeOutput.Construction.Steps[:1]
 	output := compilePopulationMappingOutput(t, recipeOutput)
-	lineage, err := constructionCellTraceLineage(output, *output.Plan.StageSequence, "alpha")
+	lineage, err := celltrace.ConstructionCellTraceLineage(output, *output.Plan.StageSequence, "alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +628,7 @@ func TestConstructionCellTraceReplaysPivotDespiteGenericLineageRefusal(t *testin
 	if len(lineage.RowIdentityFields) != 1 || lineage.RowIdentityFields[0] != "__loom_row_id" {
 		t.Fatalf("pivot trace identity = %#v, want the compiler-generated explicit scalar identity", lineage.RowIdentityFields)
 	}
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,10 +689,10 @@ func TestCompileCellTraceRejectsUnknownOrHiddenColumn(t *testing.T) {
 		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
 		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
 	})
-	if _, err := CompileCellTraceOutputWithPolicy(output, "missing", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+	if _, err := celltrace.CompileCellTraceOutputWithPolicy(output, "missing", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("unknown trace column was accepted")
 	}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+	if _, err := celltrace.CompileCellTraceOutputWithPolicy(output, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("internal row identity was accepted as a trace column")
 	}
 }

@@ -14,6 +14,8 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/population"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -282,12 +284,12 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	if !ok || len(emptyMembers) != 0 {
 		t.Fatalf("empty cohort preview members = %#v, want empty list", emptyPreview["members"])
 	}
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiledRecipe.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := population.CompilePopulationMappingOutputWithPolicy(compiledRecipe.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	bindCollections(mapping.BindVars)
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: mapping.Query, BindVars: mapping.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: mapping.Query, BindVars: mapping.BindVars})
 
 	wantMembers := make([]string, 0, len(members))
 	for _, member := range members {
@@ -477,7 +479,7 @@ FOR target IN @@roots
 		t.Fatalf("GROUP→PIVOT cohort root contributors = %#v, want the exact shared Patient storage key", routedPivotPreview["__loom_root_contributor_keys"])
 	}
 
-	pivotMapping, err := CompilePopulationMappingOutputWithPolicy(pivotCompiled.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
+	pivotMapping, err := population.CompilePopulationMappingOutputWithPolicy(pivotCompiled.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT population mapping: %v", err)
 	}
@@ -637,7 +639,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 	if !identityColumnFound || !groupRevisionFound || !groupIDFound {
 		t.Fatalf("cohort final identity is not a required object over required string group identity components: %#v", sequence.FinalColumns)
 	}
-	mapping, err := CompilePopulationMappingOutputWithPolicy(outputPlan, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := population.CompilePopulationMappingOutputWithPolicy(outputPlan, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT population mapping: %v", err)
 	}
@@ -692,10 +694,10 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 			candidate.Plan = ir.ClonePhysicalPlan(outputPlan.Plan)
 			candidate.OptimizedPlan = nil
 			test.mutate(candidate.Plan.StageSequence)
-			if _, _, err := finalConstructionPopulationMappingIdentity(candidate.Plan, candidate); err == nil {
+			if _, _, err := population.FinalConstructionPopulationMappingIdentity(candidate.Plan, candidate); err == nil {
 				t.Fatalf("final construction identity accepted forged cohort shape: %#v", candidate.Plan.StageSequence)
 			}
-			if _, err := CompilePopulationMappingOutputWithPolicy(candidate, bindings, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+			if _, err := population.CompilePopulationMappingOutputWithPolicy(candidate, bindings, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 				t.Fatalf("population mapping accepted forged cohort identity shape: %#v", candidate.Plan.StageSequence)
 			}
 		})

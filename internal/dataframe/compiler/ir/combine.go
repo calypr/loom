@@ -267,9 +267,9 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 	if err := prefix.ValidateScope(); err != nil {
 		return err
 	}
-	paths, pathsOK := bindVars[physicalScopeAuthPathsBind].([]string)
-	unrestricted, unrestrictedOK := bindVars[physicalScopeAuthPathsUnrestrictedBind].(bool)
-	allowed, allowedOK := bindVars[physicalScopeAllowedBind].(bool)
+	paths, pathsOK := bindVars[PhysicalScopeAuthPathsBind].([]string)
+	unrestricted, unrestrictedOK := bindVars[PhysicalScopeAuthPathsUnrestrictedBind].(bool)
+	allowed, allowedOK := bindVars[PhysicalScopeAllowedBind].(bool)
 	if !pathsOK || !samePhysicalStrings(paths, prefix.AuthResourcePaths) || !unrestrictedOK || unrestricted != (prefix.AuthScopeMode == "unrestricted") || !allowedOK || !allowed {
 		return fmt.Errorf("private ClickHouse prefix scope differs from the AQL authorization bindings")
 	}

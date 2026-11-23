@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"

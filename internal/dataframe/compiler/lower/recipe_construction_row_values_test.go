@@ -1,10 +1,11 @@
 package lower
 
 import (
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestGroupedSourceColumnPolicies(t *testing.T) {

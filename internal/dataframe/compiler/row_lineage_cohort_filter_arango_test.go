@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -138,7 +139,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
-	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("composed cohort FILTER lineage capability = %#v", capability)
 	}
 	previewQuery, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
@@ -153,11 +154,11 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lineage, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	lineage, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile final filtered cohort row lineage: %v", err)
 	}
-	assertLineage := func(query CompiledRowLineageQuery, wantFound bool, wantIDs, wantKeys []string) {
+	assertLineage := func(query rowlineage.CompiledRowLineageQuery, wantFound bool, wantIDs, wantKeys []string) {
 		t.Helper()
 		got := executeRowLineageOracleQuery(t, ctx, client, query)
 		if got["found"] != wantFound || got["hasMore"] != false {
@@ -186,7 +187,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filteredOut, err := CompileRowLineageOutput(compiledOutput, string(filteredOutID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	filteredOut, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(filteredOutID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile filtered-out cohort row lineage: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged, err := CompileRowLineageOutput(compiledOutput, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	forged, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile forged cohort row lineage: %v", err)
 	}

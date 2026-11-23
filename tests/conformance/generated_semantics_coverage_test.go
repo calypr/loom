@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	generated "github.com/calypr/loom/fhir/schema"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -90,7 +91,7 @@ func loadGeneratedBuilderTraversals(t *testing.T) []fhirschema.CompilerTraversal
 
 var collectionIteration = regexp.MustCompile(`(?m)^FOR\s+[A-Za-z_][A-Za-z0-9_]*\s+IN\s+([A-Za-z_][A-Za-z0-9_]*)\s*$`)
 
-func assertOnlyValidatedRootCollection(t *testing.T, compiled compiler.CompiledQuery, rootResourceType string) {
+func assertOnlyValidatedRootCollection(t *testing.T, compiled model.CompiledQuery, rootResourceType string) {
 	t.Helper()
 	matches := collectionIteration.FindAllStringSubmatch(compiled.Query, -1)
 	if strings.Contains(compiled.Query, "FOR root IN @@root_collection") {

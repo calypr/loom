@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -715,9 +716,9 @@ func executeOracleTrace(t *testing.T, ctx context.Context, client *store.Client,
 	return contributors
 }
 
-func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
+func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (celltrace.CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
-	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}
@@ -732,7 +733,7 @@ func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.
 	return trace, oracleTraceResultsByIdentity(t, rows, trace, project)
 }
 
-func oracleTraceResultsByIdentity(t *testing.T, rows []map[string]any, trace CompiledCellTraceQuery, project string) map[string]operatorOracleTraceResult {
+func oracleTraceResultsByIdentity(t *testing.T, rows []map[string]any, trace celltrace.CompiledCellTraceQuery, project string) map[string]operatorOracleTraceResult {
 	t.Helper()
 	results := make(map[string]operatorOracleTraceResult, len(rows))
 	for _, row := range rows {

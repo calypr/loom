@@ -2,8 +2,10 @@ package lower
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
+
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -61,7 +63,7 @@ func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node recipeplan.Sem
 	}
 	expression := ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: physicalSelectorFallbacks(source, node.ResourceType, fallbacks), Distinct: distinct, ExecutionMode: selectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
+		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: physicalSelectorFallbacks(source, node.ResourceType, fallbacks), Distinct: distinct, ExecutionMode: physicalpkg.SelectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
 	}
 	if cardinality == ir.PhysicalArrayCardinality {
 		expression.NullBehavior = ir.PhysicalEmptyOnNull
@@ -124,7 +126,7 @@ func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node recipeplan.
 	}
 	projections := make([]ir.PhysicalProjection, 0, len(fields)+len(node.Aggregates)+len(node.OwnerRecords)+len(node.Slices))
 	for _, field := range fields {
-		field.Name = traversalColumnName(prefix, field.Name)
+		field.Name = physicalpkg.TraversalColumnName(prefix, field.Name)
 		projections = append(projections, field)
 	}
 	for _, aggregate := range node.Aggregates {
@@ -132,10 +134,10 @@ func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node recipeplan.
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, traversalColumnNamePrefix(prefix)), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, physicalpkg.TraversalColumnNamePrefix(prefix)), Expression: &expression})
 	}
 	for _, pivot := range node.Pivots {
-		pivotProjections, err := physicalPivotProjections(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, pivot, traversalColumnNamePrefix(prefix))
+		pivotProjections, err := physicalPivotProjections(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, pivot, physicalpkg.TraversalColumnNamePrefix(prefix))
 		if err != nil {
 			return nil, err
 		}
@@ -146,14 +148,14 @@ func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node recipeplan.
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(prefix, ownerRecords.Name), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: physicalpkg.TraversalColumnName(prefix, ownerRecords.Name), Expression: &expression})
 	}
 	for _, slice := range node.Slices {
 		expression, err := physicalSliceExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, slice)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(prefix, slice.Name), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: physicalpkg.TraversalColumnName(prefix, slice.Name), Expression: &expression})
 	}
 	return projections, nil
 }
@@ -165,7 +167,7 @@ func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType stri
 	if operation.Binding.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 		return ir.PhysicalExpression{}, fmt.Errorf("OWNER_RECORDS does not support Coding value scope")
 	}
-	prefix := "owner_records_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(operation.Name)
+	prefix := "owner_records_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(operation.Name)
 	systemKey := prefix + "_system"
 	codeKey := prefix + "_code"
 	ownerPathKey := prefix + "_owner_path"
@@ -195,11 +197,11 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		prefix = pivot.ExtensionProjectionPrefix
 	}
 	projections := make([]ir.PhysicalProjection, 0, len(pivot.Columns))
-	columnsBindKey := "pivot_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(pivot.Name) + "_columns"
+	columnsBindKey := "pivot_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(pivot.Name) + "_columns"
 	physical.BindVars[columnsBindKey] = append([]string(nil), pivot.Columns...)
-	familyVariable := "__loom_pivot_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(pivot.Name)
+	familyVariable := "__loom_pivot_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(pivot.Name)
 	for index := 1; deferredExpressionVariableExists(*physical, familyVariable); index++ {
-		familyVariable = fmt.Sprintf("__loom_pivot_%s_%s_%d", sanitizeColumnName(source.Variable), sanitizeColumnName(pivot.Name), index)
+		familyVariable = fmt.Sprintf("__loom_pivot_%s_%s_%d", physicalpkg.SanitizeColumnName(source.Variable), physicalpkg.SanitizeColumnName(pivot.Name), index)
 	}
 	sharedExpression := ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
 		Pivot: &ir.PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false, ColumnAliases: cloneStringMap(pivot.ColumnAliases), ProjectionMode: pivot.ProjectionMode}}
@@ -240,10 +242,10 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 	}
 	physical.DeferredExpressionLets = append(physical.DeferredExpressionLets, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "pivot_family"}, ExpressionLet: &ir.PhysicalExpressionLet{Variable: familyVariable, Expression: sharedExpression}})
 	for _, column := range pivot.Columns {
-		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)
+		columnBindKey := columnsBindKey + "_" + physicalpkg.SanitizeColumnName(column)
 		physical.BindVars[columnBindKey] = column
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
-		name := NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
+		name := physicalpkg.NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
 		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	return projections, nil
@@ -292,7 +294,7 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 	}
 	aggregatePhysical := ir.PhysicalAggregate{Source: source, Operation: op}
 	if len(aggregate.RequiredValues) > 0 {
-		key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_required_values"
+		key := "aggregate_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(aggregate.Name) + "_required_values"
 		physical.BindVars[key] = append([]string(nil), aggregate.RequiredValues...)
 		aggregatePhysical.RequiredValuesBindKey = key
 	}
@@ -301,7 +303,7 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
 			valueSource = ir.PhysicalValue{Variable: source.Variable, Path: []string{"payload"}}
 		}
-		extract := &ir.PhysicalExtract{Source: valueSource, ResourceType: resourceType, Selector: *aggregate.Selector, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Selector)}
+		extract := &ir.PhysicalExtract{Source: valueSource, ResourceType: resourceType, Selector: *aggregate.Selector, ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, *aggregate.Selector)}
 		if aggregate.UnitNormalization != nil {
 			if aggregate.UnitSystemSelector == nil || aggregate.UnitCodeSelector == nil {
 				return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q unit normalization is missing source identity selectors", aggregate.Name)
@@ -319,8 +321,8 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		aggregatePhysical.Value = &value
 	}
 	if aggregate.Predicate != nil {
-		bindPrefix := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate"
-		predicate, err := lowerTypedPredicate(physical, resourceType, source, *aggregate.Predicate, bindPrefix)
+		bindPrefix := "aggregate_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(aggregate.Name) + "_predicate"
+		predicate, err := physicalpkg.LowerTypedPredicate(physical, resourceType, source, *aggregate.Predicate, bindPrefix)
 		if err != nil {
 			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q predicate: %w", aggregate.Name, err)
 		}
@@ -332,10 +334,10 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		}
 		window := aggregate.ContributorWindow
 		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: window.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, window.Timestamp)}}
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: window.Timestamp, ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, window.Timestamp)}}
 		anchorSource := ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}
 		anchor := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-			Extract: &ir.PhysicalExtract{Source: anchorSource, ResourceType: window.AnchorResource, Selector: window.Anchor, ExecutionMode: selectorExecutionMode(window.AnchorResource, window.Anchor)}}
+			Extract: &ir.PhysicalExtract{Source: anchorSource, ResourceType: window.AnchorResource, Selector: window.Anchor, ExecutionMode: physicalpkg.SelectorExecutionMode(window.AnchorResource, window.Anchor)}}
 		aggregatePhysical.ContributorWindow = &ir.PhysicalContributorWindow{
 			Timestamp: timestamp, Anchor: anchor,
 			LowerOffset: window.LowerOffset, UpperOffset: window.UpperOffset,
@@ -349,7 +351,7 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		}
 		ordering := aggregate.Ordering
 		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: ordering.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, ordering.Timestamp)}}
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: ordering.Timestamp, ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, ordering.Timestamp)}}
 		aggregatePhysical.Ordering = &ir.PhysicalTemporalOrdering{Timestamp: timestamp, Direction: ordering.Direction, TiePolicy: ordering.TiePolicy}
 	}
 	cardinality := ir.PhysicalScalarCardinality
@@ -374,7 +376,7 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 	if slice.Limit <= 0 {
 		return ir.PhysicalExpression{}, fmt.Errorf("slice %q requires positive limit", slice.Name)
 	}
-	limitKey := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_limit"
+	limitKey := "slice_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(slice.Name) + "_limit"
 	physical.BindVars[limitKey] = slice.Limit
 
 	leftSource := source
@@ -385,18 +387,18 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		Projections:  make([]ir.PhysicalExpressionProjection, 0, len(slice.Fields)),
 	}
 	if slice.TypedPredicate != nil {
-		bindPrefix := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_predicate"
-		predicate, err := lowerTypedPredicate(physical, resourceType, source, *slice.TypedPredicate, bindPrefix)
+		bindPrefix := "slice_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(slice.Name) + "_predicate"
+		predicate, err := physicalpkg.LowerTypedPredicate(physical, resourceType, source, *slice.TypedPredicate, bindPrefix)
 		if err != nil {
 			return ir.PhysicalExpression{}, fmt.Errorf("slice %q predicate: %w", slice.Name, err)
 		}
 		physicalSlice.Predicate = predicate
 	} else if slice.Predicate != nil {
 		left := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-			Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: *slice.Predicate, ExecutionMode: selectorExecutionMode(resourceType, *slice.Predicate)}}
+			Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: *slice.Predicate, ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, *slice.Predicate)}}
 		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}
 		if slice.PredicateEquals != "" {
-			key := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_predicate_equals"
+			key := "slice_" + physicalpkg.SanitizeColumnName(source.Variable) + "_" + physicalpkg.SanitizeColumnName(slice.Name) + "_predicate_equals"
 			physical.BindVars[key] = slice.PredicateEquals
 			comparison.Operator = "EQUALS"
 			comparison.ValueKind = slice.PredicateKind
@@ -437,7 +439,7 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		physicalSlice.Projections = append(physicalSlice.Projections, ir.PhysicalExpressionProjection{
 			Name: selection.Name,
 			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: nullBehavior,
-				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: physicalSelectorFallbacks(leftSource, resourceType, fallbacks), Distinct: distinct, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
+				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: physicalSelectorFallbacks(leftSource, resourceType, fallbacks), Distinct: distinct, ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, selector, fallbacks...)}},
 		})
 	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Slice: &physicalSlice}, nil
@@ -467,14 +469,14 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root recipeplan.Semant
 		predicate := ir.PhysicalPredicate{
 			Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind,
 			LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-				Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: root.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(root.ResourceType, selector)}},
+				Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: root.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(root.ResourceType, selector)}},
 		}
 		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
 			key := fmt.Sprintf("root_filter_%d_value", index+1)
 			if filter.Operator == spec.FilterIn {
 				values := make([]any, 0, len(filter.Values))
 				for _, value := range filter.Values {
-					literal, err := filterLiteral(value)
+					literal, err := physicalpkg.FilterLiteral(value)
 					if err != nil {
 						return err
 					}
@@ -482,7 +484,7 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root recipeplan.Semant
 				}
 				physical.BindVars[key] = values
 			} else {
-				literal, err := filterLiteral(filter.Values[0])
+				literal, err := physicalpkg.FilterLiteral(filter.Values[0])
 				if err != nil {
 					return err
 				}

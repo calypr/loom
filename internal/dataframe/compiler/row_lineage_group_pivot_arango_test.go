@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/google/uuid"
 )
@@ -83,7 +84,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	}
 	output := constructionCountRowsGroupPivotLineageArangoOutput()
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
-	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("COUNT_ROWS Group/Pivot row-lineage capability = %#v", capability)
 	}
 	preview, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
@@ -123,9 +124,9 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 		t.Fatalf("target Group/Pivot row identity = %s, want exact typed identity %s", rowID, wantIdentity)
 	}
 
-	compilePage := func(requestedID string, offset int) CompiledRowLineageQuery {
+	compilePage := func(requestedID string, offset int) rowlineage.CompiledRowLineageQuery {
 		t.Helper()
-		compiled, compileErr := CompileRowLineageOutput(compiledOutput, requestedID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := rowlineage.CompileRowLineageOutput(compiledOutput, requestedID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Group/Pivot lineage page at offset %d: %v", offset, compileErr)
 		}

@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	population "github.com/calypr/loom/internal/dataframe/compiler/population"
+
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -32,7 +33,7 @@ func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 		}
 		return nil
 	})
-	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
+	result, err := engine.PopulationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query:        "RETURN witnesses",
 		MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
@@ -58,7 +59,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 	reader := PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")
 	})
-	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
+	result, err := engine.PopulationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{MaxWitnessRows: 0}, reader)
@@ -70,7 +71,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	incomplete, err := engine.PopulationMappingCompiled(ctx, compiler.CompiledPopulationMappingQuery{
+	incomplete, err := engine.PopulationMappingCompiled(ctx, population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{}, reader)
@@ -83,7 +84,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 }
 
 func TestPopulationWitnessIdentityRejectsWrongShape(t *testing.T) {
-	_, err := populationWitnessIdentity(compiler.CompiledPopulationMappingQuery{
+	_, err := populationWitnessIdentity(population.CompiledPopulationMappingQuery{
 		IdentityPartsColumn: "identity", RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, map[string]any{"identity": "not-an-array"})
 	if err == nil {
@@ -92,7 +93,7 @@ func TestPopulationWitnessIdentityRejectsWrongShape(t *testing.T) {
 }
 
 func TestPopulationWitnessIdentityCanonicalizesExplicitScalars(t *testing.T) {
-	query := compiler.CompiledPopulationMappingQuery{ExplicitIdentityColumn: "identity"}
+	query := population.CompiledPopulationMappingQuery{ExplicitIdentityColumn: "identity"}
 	cases := []struct {
 		name  string
 		value any
@@ -117,7 +118,7 @@ func TestPopulationWitnessIdentityCanonicalizesExplicitScalars(t *testing.T) {
 }
 
 func TestPopulationWitnessIdentityRejectsNullAndStructuredExplicitValues(t *testing.T) {
-	query := compiler.CompiledPopulationMappingQuery{ExplicitIdentityColumn: "identity"}
+	query := population.CompiledPopulationMappingQuery{ExplicitIdentityColumn: "identity"}
 	for _, value := range []any{nil, []any{"row-1"}, map[string]any{"id": "row-1"}} {
 		if _, err := populationWitnessIdentity(query, map[string]any{"identity": value}); err == nil {
 			t.Fatalf("identity value %#v unexpectedly accepted", value)
@@ -141,7 +142,7 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 			return nil
 		},
 	}
-	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
+	result, err := engine.PopulationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", ExplicitIdentityColumn: "identity",
 	}, PopulationMappingRequest{MaxUnmapped: 10}, PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")

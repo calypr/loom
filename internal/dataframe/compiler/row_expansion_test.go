@@ -14,7 +14,7 @@ import (
 
 func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
 	output := compileWindowExpansionOutput(t)
-	window, err := withGenericPhysicalExecutionWindow(output.Plan, 25)
+	window, err := WithGenericPhysicalExecutionWindow(output.Plan, 25)
 	if err != nil {
 		t.Fatal(err)
 	}

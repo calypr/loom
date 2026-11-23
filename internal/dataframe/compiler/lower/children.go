@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -14,7 +16,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 	prefix := fmt.Sprintf("child_set_%d", setIndex)
 	targetVariable := fmt.Sprintf("%s_node", prefix)
 	edgeVariable := fmt.Sprintf("%s_edge", prefix)
-	traversal, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+	traversal, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 		FromType: parent.ResourceType, EdgeLabel: child.EdgeLabel, ToType: child.ResourceType,
 		SourceVariable: parentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 		BindPrefix: prefix, Policy: policy,
@@ -53,13 +55,13 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q selector: %w", filter.FieldRef, err)
 		}
-		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(child.ResourceType, selector)}}}
+		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(child.ResourceType, selector)}}}
 		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
 			key := fmt.Sprintf("%s_filter_%d_value", prefix, index+1)
 			if filter.Operator == spec.FilterIn {
 				values := make([]any, 0, len(filter.Values))
 				for _, value := range filter.Values {
-					literal, err := filterLiteral(value)
+					literal, err := physicalpkg.FilterLiteral(value)
 					if err != nil {
 						return ir.PhysicalSet{}, nil, err
 					}
@@ -70,7 +72,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 				if len(filter.Values) == 0 {
 					return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q has no value", filter.FieldRef)
 				}
-				literal, err := filterLiteral(filter.Values[0])
+				literal, err := physicalpkg.FilterLiteral(filter.Values[0])
 				if err != nil {
 					return ir.PhysicalSet{}, nil, err
 				}
@@ -92,7 +94,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projection.Name = traversalColumnName(projectionPrefix, field.Name)
+		projection.Name = physicalpkg.TraversalColumnName(projectionPrefix, field.Name)
 		projections = append(projections, projection)
 	}
 	for _, aggregate := range child.Aggregates {
@@ -100,11 +102,11 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		name := aggregateProjectionName(aggregate, traversalColumnNamePrefix(projectionPrefix))
+		name := aggregateProjectionName(aggregate, physicalpkg.TraversalColumnNamePrefix(projectionPrefix))
 		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	for _, pivot := range child.Pivots {
-		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, traversalColumnNamePrefix(projectionPrefix))
+		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, physicalpkg.TraversalColumnNamePrefix(projectionPrefix))
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
@@ -115,14 +117,14 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(projectionPrefix, ownerRecords.Name), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: physicalpkg.TraversalColumnName(projectionPrefix, ownerRecords.Name), Expression: &expression})
 	}
 	for _, slice := range child.Slices {
 		expression, err := physicalSliceExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, slice)
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(projectionPrefix, slice.Name), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: physicalpkg.TraversalColumnName(projectionPrefix, slice.Name), Expression: &expression})
 	}
 
 	if policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) {
@@ -162,13 +164,13 @@ func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child recipeplan.Se
 		if err != nil {
 			return nil, fmt.Errorf("route filter %q selector: %w", filter.FieldRef, err)
 		}
-		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(child.ResourceType, selector)}}}
+		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(child.ResourceType, selector)}}}
 		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
 			key := fmt.Sprintf("%s_filter_%d_value", prefix, index+1)
 			if filter.Operator == spec.FilterIn {
 				values := make([]any, 0, len(filter.Values))
 				for _, value := range filter.Values {
-					literal, err := filterLiteral(value)
+					literal, err := physicalpkg.FilterLiteral(value)
 					if err != nil {
 						return nil, err
 					}
@@ -179,7 +181,7 @@ func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child recipeplan.Se
 				if len(filter.Values) == 0 {
 					return nil, fmt.Errorf("route filter %q has no value", filter.FieldRef)
 				}
-				literal, err := filterLiteral(filter.Values[0])
+				literal, err := physicalpkg.FilterLiteral(filter.Values[0])
 				if err != nil {
 					return nil, err
 				}
@@ -471,7 +473,7 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		if allValues[key] {
 			demand = ir.PhysicalSelectorAllValues
 		}
-		fields = append(fields, ir.PhysicalSetProjectionField{Name: name, ResourceType: resourceType, Selector: selectors[key], ExecutionMode: selectorExecutionMode(resourceType, selectors[key]), Demand: demand})
+		fields = append(fields, ir.PhysicalSetProjectionField{Name: name, ResourceType: resourceType, Selector: selectors[key], ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, selectors[key]), Demand: demand})
 	}
 	reductionFields := make([]ir.PhysicalSetReductionField, 0)
 	for index := range projections {

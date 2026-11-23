@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -20,7 +21,7 @@ func TestSemanticGroupUsesExactFamilyTupleAndReconstructsContributors(t *testing
 	output := lowerConstructionOutput(t, semanticGroupOutputForLineageTest(), recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	capability := RowLineageCapabilityForOutput(output)
+	capability := rowlineage.RowLineageCapabilityForOutput(output)
 	if !capability.Available {
 		t.Fatalf("direct semantic Group should retain contributor lineage: %#v", capability)
 	}
@@ -49,7 +50,7 @@ func TestSemanticGroupUsesExactFamilyTupleAndReconstructsContributors(t *testing
 		t.Fatalf("display fallback must read the tuple's code slot, not an object attribute:\n%s", groupPlan.Query)
 	}
 
-	lineage, err := CompileRowLineageOutput(output, "semantic-row-id", 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	lineage, err := rowlineage.CompileRowLineageOutput(output, "semantic-row-id", 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,13 +71,13 @@ func TestSemanticGroupUsesExactFamilyTupleAndReconstructsContributors(t *testing
 
 func TestExpandedCodingGroupLineagePagesExactInputOccurrences(t *testing.T) {
 	output := expandedCodingRowLineageOutput(t)
-	if !rowLineageExpandedCodingGroup(output) {
+	if !rowlineage.RowLineageExpandedCodingGroup(output) {
 		t.Fatal("compiler did not recognize the exact expanded Coding Group lineage shape")
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("expanded Coding Group row lineage is unavailable: %#v", capability)
 	}
-	compiled, err := CompileRowLineageOutput(output, "opaque-expanded-coded-group-row", 4, 7, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "opaque-expanded-coded-group-row", 4, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage: %v", err)
 	}
@@ -113,10 +114,10 @@ func TestExpandedCodingGroupLineagePagesExactInputOccurrences(t *testing.T) {
 
 func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T) {
 	output := relatedCodingGroupLineageOutput(t)
-	if !rowLineageRelatedCodingGroup(output) {
+	if !rowlineage.RowLineageRelatedCodingGroup(output) {
 		t.Fatal("compiler did not recognize the terminal related Coding Group lineage shape")
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("related Coding Group row lineage is unavailable: %#v", capability)
 	}
 	stage := output.Plan.StageSequence.Stages[0]
@@ -125,7 +126,7 @@ func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T
 	}
 	adapter := stage.Group.RelatedOccurrence
 	rowID := `[["construction","group_related_id"],["operation","GROUP"],["status_group_id","final"],["coding_group_id","coding_identity",["urn:example:codes","1","same-code"]]]`
-	compiled, err := CompileRowLineageOutput(output, rowID, 2, 5, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, rowID, 2, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile related Coding Group row lineage: %v", err)
 	}
@@ -133,12 +134,12 @@ func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T
 	if terminal != nil {
 		t.Fatal("compilation mutated its input output plan")
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != rowID || compiled.BindVars[rowLineageOffsetBind] != 2 ||
-		compiled.BindVars[rowLineageFetchLimitBind] != 6 || compiled.BindVars[rowLineageLimitBind] != 5 {
+	if compiled.BindVars[rowlineage.RowLineageRowIDBind] != rowID || compiled.BindVars[rowlineage.RowLineageOffsetBind] != 2 ||
+		compiled.BindVars[rowlineage.RowLineageFetchLimitBind] != 6 || compiled.BindVars[rowlineage.RowLineageLimitBind] != 5 {
 		t.Fatalf("lineage query has wrong identity/page bindings: %#v", compiled.BindVars)
 	}
 	if !rowLineageHasBindValue(compiled.BindVars, adapter.OccurrenceKeyColumn) ||
-		!rowLineageHasBindValue(compiled.BindVars, rowLineageResourceID) {
+		!rowLineageHasBindValue(compiled.BindVars, rowlineage.RowLineageResourceID) {
 		t.Fatalf("lineage output does not expose the exact Group occurrence and root resource ID columns: %#v", compiled.BindVars)
 	}
 	if _, ok := compiled.BindVars["@related_expand_0_hop_1_edge_collection"]; !ok {
@@ -183,7 +184,7 @@ func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T
 	unsupported := output
 	unsupported.Plan = ir.ClonePhysicalPlan(output.Plan)
 	unsupported.Plan.StageSequence.Stages[0].Group.RelatedOccurrence.RouteID += "_other"
-	if capability := RowLineageCapabilityForOutput(unsupported); capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(unsupported); capability.Available {
 		t.Fatalf("mismatched route unexpectedly enabled related Group lineage: %#v", capability)
 	}
 }
@@ -340,10 +341,10 @@ func TestExpandedCodingGroupLineageReusesRoutedAncestorOccurrence(t *testing.T) 
 	for _, operation := range output.Plan.Operations {
 		operationKinds = append(operationKinds, string(operation.Kind))
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("routed expanded Coding Group row lineage is unavailable: %#v", capability)
 	}
-	compiled, err := CompileRowLineageOutput(output, "routed-expanded-row", 0, 7, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "routed-expanded-row", 0, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed expanded Coding Group lineage: %v", err)
 	}
@@ -381,7 +382,7 @@ func TestExpandedCodingGroupLineageCapabilityAcceptsExactPopulationRouteFixture(
 	if !rootKeyRetained {
 		t.Fatal("source preimage lost the typed Patient root key needed for exact occurrence lineage")
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("exact population/route/UNNEST Coding Group lineage capability = %#v", capability)
 	}
 	groupQuery, err := CompileRecipeOutputWithPolicy(output, recipe.RuntimeBindings{
@@ -427,7 +428,7 @@ func TestExpandedCodingGroupLineageCapabilityAcceptsExactPopulationRouteFixture(
 	if strings.Contains(inputProjection, "coding_item,") || !strings.Contains(groupQuery.Query, "construction_group_row_value_arrays_0 = UNIQUE(") {
 		t.Fatalf("Group input must project compact Coding fields and only the requested ALL RowValue, not whole Coding payloads:\nprojection=%s\nquery=%s", inputProjection, groupQuery.Query)
 	}
-	compiled, err := CompileRowLineageOutput(output, "fixture-expanded-coded-group-row", 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "fixture-expanded-coded-group-row", 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile exact fixture Coding Group lineage: %v", err)
 	}
@@ -618,11 +619,11 @@ func TestCompileRowLineageUsesBoundedCanonicalGroupTerminal(t *testing.T) {
 	output := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	capability := RowLineageCapabilityForOutput(output)
+	capability := rowlineage.RowLineageCapabilityForOutput(output)
 	if !capability.Available {
 		t.Fatalf("unsupported source operation: %s", capability.Operation)
 	}
-	compiled, err := CompileRowLineageOutput(output, "opaque-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "opaque-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,8 +639,8 @@ func TestCompileRowLineageUsesBoundedCanonicalGroupTerminal(t *testing.T) {
 	if strings.Contains(compiled.Query, "COLLECT ") && strings.Contains(compiled.Query, " INTO ") {
 		t.Fatalf("row lineage query materialized unbounded Group contributors:\n%s", compiled.Query)
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != "opaque-group-row" || compiled.BindVars[rowLineageOffsetBind] != 25 ||
-		compiled.BindVars[rowLineageLimitBind] != 10 || compiled.BindVars[rowLineageFetchLimitBind] != 11 {
+	if compiled.BindVars[rowlineage.RowLineageRowIDBind] != "opaque-group-row" || compiled.BindVars[rowlineage.RowLineageOffsetBind] != 25 ||
+		compiled.BindVars[rowlineage.RowLineageLimitBind] != 10 || compiled.BindVars[rowlineage.RowLineageFetchLimitBind] != 11 {
 		t.Fatalf("row lineage page bindings = %#v", compiled.BindVars)
 	}
 }
@@ -649,14 +650,14 @@ func TestCompileStandaloneExplicitGroupRowLineageUsesPinnedBoundedMembers(t *tes
 		Name: "NamedCohort", RootResourceType: "Observation", RowGrain: "groups",
 		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_row_lineage", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
 	}, recipe.RuntimeBindings{Project: "row-lineage-project", SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation"})
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("standalone explicit GROUP_ROWS lineage capability = %#v", capability)
 	}
 	rowID, err := json.Marshal(map[string]string{"group_revision_id": "grouprev_row_lineage", "group_id": "cohort-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileRowLineageOutput(output, string(rowID), 3, 7, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, string(rowID), 3, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +692,7 @@ func TestCompileStandaloneExplicitGroupRowLineageUsesPinnedBoundedMembers(t *tes
 		`{"group_id":"cohort-a","group_revision_id":"grouprev_row_lineage","extra":"forged"}`,
 		`{"group_revision_id":"grouprev_row_lineage", "group_id":"cohort-a"}`,
 	} {
-		invalid, compileErr := CompileRowLineageOutput(output, invalidID, 0, 7, ir.DefaultPhysicalOptimizationPolicy())
+		invalid, compileErr := rowlineage.CompileRowLineageOutput(output, invalidID, 0, 7, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile malformed/cross-revision identity %q: %v", invalidID, compileErr)
 		}
@@ -732,14 +733,14 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
-	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("cohort Group with trailing filter has no lineage capability: %#v", capability)
 	}
 	rowID, err := json.Marshal(map[string]string{"group_revision_id": "grouprev_cohort_row_lineage", "group_id": "cohort-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileRowLineageOutput(compiledOutput, string(rowID), 2, 4, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(rowID), 2, 4, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +769,7 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 		`{"group_revision_id":"grouprev_other","group_id":"cohort-a"}`,
 		`{"group_revision_id":"grouprev_cohort_row_lineage","group_id":"forged"}`,
 	} {
-		invalid, compileErr := CompileRowLineageOutput(compiledOutput, invalidID, 0, 4, ir.DefaultPhysicalOptimizationPolicy())
+		invalid, compileErr := rowlineage.CompileRowLineageOutput(compiledOutput, invalidID, 0, 4, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile invalid cohort row ID %q: %v", invalidID, compileErr)
 		}
@@ -777,7 +778,7 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 			t.Errorf("invalid cohort row ID %q retained binds %#v", invalidID, invalid.BindVars)
 		}
 	}
-	forged, err := CompileRowLineageOutput(compiledOutput,
+	forged, err := rowlineage.CompileRowLineageOutput(compiledOutput,
 		`{"group_id":"forged","group_revision_id":"grouprev_cohort_row_lineage"}`, 0, 4, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile canonical but nonexistent cohort row ID: %v", err)
@@ -789,7 +790,7 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 	memberFilterOutput := compiledOutput
 	memberFilterOutput.Plan = ir.ClonePhysicalPlan(compiledOutput.Plan)
 	memberFilterOutput.Plan.StageSequence.Stages[1].Filter.Predicate.Left.Path = []string{"specimen_id"}
-	if capability := RowLineageCapabilityForOutput(memberFilterOutput); capability.Available || capability.Operation != string(ir.PhysicalStageFilterOp) {
+	if capability := rowlineage.RowLineageCapabilityForOutput(memberFilterOutput); capability.Available || capability.Operation != string(ir.PhysicalStageFilterOp) {
 		t.Fatalf("array-valued member filter unexpectedly claimed scalar cohort lineage support: %#v", capability)
 	}
 }
@@ -798,11 +799,11 @@ func TestCompileGroupRowLineageAppliesEveryTrailingFilter(t *testing.T) {
 	output := lowerConstructionOutput(t, constructionGroupFilterLineageOutput(104, 103), recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	capability := RowLineageCapabilityForOutput(output)
+	capability := rowlineage.RowLineageCapabilityForOutput(output)
 	if !capability.Available {
 		t.Fatalf("Group with trailing filters has no lineage capability: %#v", capability)
 	}
-	compiled, err := CompileRowLineageOutput(output, "opaque-filtered-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "opaque-filtered-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -828,7 +829,7 @@ func TestCompileGroupRowLineageAppliesEveryTrailingFilter(t *testing.T) {
 	changedSchema := output
 	changedSchema.Plan = ir.ClonePhysicalPlan(output.Plan)
 	changedSchema.Plan.StageSequence.Stages[1].OutputColumns[0].Name = "renamed"
-	if got := RowLineageCapabilityForOutput(changedSchema); got.Available || got.ReasonCode != "ROW_LINEAGE_OPERATION_UNSUPPORTED" {
+	if got := rowlineage.RowLineageCapabilityForOutput(changedSchema); got.Available || got.ReasonCode != "ROW_LINEAGE_OPERATION_UNSUPPORTED" {
 		t.Fatalf("filter changing its schema retained lineage capability: %#v", got)
 	}
 }
@@ -837,10 +838,10 @@ func TestCompileNonCountGroupFilterLineageProjectsSourceRowsInScope(t *testing.T
 	output := lowerConstructionOutput(t, constructionGroupFilteredSummaryOutput(), recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("non-count Group with a trailing filter has no lineage capability: %#v", capability)
 	}
-	compiled, err := CompileRowLineageOutput(output, "opaque-filtered-summary-row", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "opaque-filtered-summary-row", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,18 +864,18 @@ func TestGroupRowLineageCapabilityRequiresPhysicalFinalIdentityBinding(t *testin
 	if stage.RowIdentityColumn == "" || stage.RowIdentityColumn != output.Plan.StageSequence.FinalRowIdentity {
 		t.Fatalf("compiled Group physical identity binding = %q / %q", stage.RowIdentityColumn, output.Plan.StageSequence.FinalRowIdentity)
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("valid physical Group identity rejected: %#v", capability)
 	}
 
 	withoutSemanticIdentity := output
 	withoutSemanticIdentity.RowIdentity = nil
-	if capability := RowLineageCapabilityForOutput(withoutSemanticIdentity); capability.Available || capability.ReasonCode != "ROW_LINEAGE_IDENTITY_UNAVAILABLE" {
+	if capability := rowlineage.RowLineageCapabilityForOutput(withoutSemanticIdentity); capability.Available || capability.ReasonCode != "ROW_LINEAGE_IDENTITY_UNAVAILABLE" {
 		t.Fatalf("Group without declared publication identity capability = %#v, want identity unavailable", capability)
 	}
 
 	output.Plan.StageSequence.FinalRowIdentity = "forged_identity"
-	capability := RowLineageCapabilityForOutput(output)
+	capability := rowlineage.RowLineageCapabilityForOutput(output)
 	if capability.Available || capability.ReasonCode != "ROW_LINEAGE_IDENTITY_UNAVAILABLE" {
 		t.Fatalf("mismatched physical Group identity binding capability = %#v, want identity unavailable", capability)
 	}
@@ -884,17 +885,17 @@ func TestCompileKeylessEmptyGroupHasExplicitEmptyContributorPage(t *testing.T) {
 	output := lowerConstructionOutput(t, constructionCountRowsOnlyOutput(), recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("keyless Group capability = %#v, want available", capability)
 	}
-	compiled, err := CompileRowLineageOutput(output, "opaque-empty-group-row", 0, 0, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "opaque-empty-group-row", 0, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(compiled.Query, "COLLECT WITH COUNT INTO") || !strings.Contains(compiled.Query, "contributors: SLICE") || strings.Contains(compiled.Query, "COLLECT "+"__loom_physical_row_lineage_group_key") {
 		t.Fatalf("keyless Group lineage terminal does not preserve the empty Group row and bounded empty page:\n%s", compiled.Query)
 	}
-	if compiled.Limit != DefaultRowLineageLimit || compiled.BindVars[rowLineageFetchLimitBind] != DefaultRowLineageLimit+1 {
+	if compiled.Limit != rowlineage.DefaultRowLineageLimit || compiled.BindVars[rowlineage.RowLineageFetchLimitBind] != rowlineage.DefaultRowLineageLimit+1 {
 		t.Fatalf("default page = limit %d, bindings %#v", compiled.Limit, compiled.BindVars)
 	}
 }
@@ -923,7 +924,7 @@ func TestGroupRowLineageCapabilityKeepsPopulationSourcesEligible(t *testing.T) {
 			break
 		}
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("legacy Group population-source capability narrowed to %#v", capability)
 	}
 }
@@ -936,10 +937,10 @@ func TestCompileCodedGroupRowLineageResolvesExactTupleAndPagesRootSources(t *tes
 	output := lowerConstructionOutput(t, lineageOutput, recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("CODED_GROUP lineage capability = %#v", capability)
 	}
-	compiled, err := CompileRowLineageOutput(output, "opaque-coded-group-row", 4, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "opaque-coded-group-row", 4, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -963,8 +964,8 @@ func TestCompileCodedGroupRowLineageResolvesExactTupleAndPagesRootSources(t *tes
 		strings.Contains(compiled.Query, " INTO ") {
 		t.Fatalf("CODED_GROUP lineage materialized an unbounded contributor list:\n%s", compiled.Query)
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != "opaque-coded-group-row" || compiled.BindVars[rowLineageOffsetBind] != 4 ||
-		compiled.BindVars[rowLineageLimitBind] != 10 || compiled.BindVars[rowLineageFetchLimitBind] != 11 {
+	if compiled.BindVars[rowlineage.RowLineageRowIDBind] != "opaque-coded-group-row" || compiled.BindVars[rowlineage.RowLineageOffsetBind] != 4 ||
+		compiled.BindVars[rowlineage.RowLineageLimitBind] != 10 || compiled.BindVars[rowlineage.RowLineageFetchLimitBind] != 11 {
 		t.Fatalf("CODED_GROUP lineage page bindings = %#v", compiled.BindVars)
 	}
 }
@@ -979,7 +980,7 @@ func TestCodedGroupRowLineageCapabilityKeepsPopulationSourcesEligible(t *testing
 			break
 		}
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("population-selected CODED_GROUP lineage capability = %#v", capability)
 	}
 }
@@ -989,7 +990,7 @@ func TestRowLineageCapabilityRejectsEarlierConstructionOperations(t *testing.T) 
 	compiled := lowerConstructionOutput(t, output, recipe.RuntimeBindings{
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
-	capability := RowLineageCapabilityForOutput(compiled)
+	capability := rowlineage.RowLineageCapabilityForOutput(compiled)
 	if capability.Available || capability.ReasonCode == "" || capability.Operation == "" {
 		t.Fatalf("multi-stage construction capability = %#v, want a specific unsupported state", capability)
 	}
@@ -1007,14 +1008,14 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/lineage"},
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
-	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("direct construction Pivot lineage capability = %#v", capability)
 	}
 	rowID, err := json.Marshal([]any{"GROUPED_PIVOT", "row_lineage_pivot", []any{"STRING", nil}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileRowLineageOutput(compiledOutput, string(rowID), 4, 7, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(rowID), 4, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1058,8 +1059,8 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 	if !keyFound || keyValue != nil {
 		t.Fatalf("decoded null Pivot group key = (%#v, %t), want a present null binding; binds=%#v", keyValue, keyFound, compiled.BindVars)
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != string(rowID) || compiled.BindVars[rowLineageOffsetBind] != 4 ||
-		compiled.BindVars[rowLineageLimitBind] != 7 || compiled.BindVars[rowLineageFetchLimitBind] != 8 {
+	if compiled.BindVars[rowlineage.RowLineageRowIDBind] != string(rowID) || compiled.BindVars[rowlineage.RowLineageOffsetBind] != 4 ||
+		compiled.BindVars[rowlineage.RowLineageLimitBind] != 7 || compiled.BindVars[rowlineage.RowLineageFetchLimitBind] != 8 {
 		t.Fatalf("construction Pivot row lineage identity/page bindings = %#v", compiled.BindVars)
 	}
 	if compiled.BindVars["population_selection_id"] != "selection-lineage-revision" ||
@@ -1076,12 +1077,12 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		`not-a-pivot-row-id`,
 	}
 	for _, forgedID := range forgedIDs {
-		forged, compileErr := CompileRowLineageOutput(compiledOutput, forgedID, 0, 7, ir.DefaultPhysicalOptimizationPolicy())
+		forged, compileErr := rowlineage.CompileRowLineageOutput(compiledOutput, forgedID, 0, 7, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile forged Pivot row ID %q: %v", forgedID, compileErr)
 		}
 		if !strings.Contains(forged.Query, "FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id") ||
-			forged.BindVars[rowLineageRowIDBind] != forgedID {
+			forged.BindVars[rowlineage.RowLineageRowIDBind] != forgedID {
 			t.Errorf("forged Pivot row ID %q did not remain an exact owner-identity comparison: %#v", forgedID, forged.BindVars)
 		}
 		if key, ok := forged.BindVars["row_lineage_pivot_group_key_0"]; !ok || key != nil {
@@ -1091,7 +1092,7 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 
 	compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot.DuplicatePolicy = "SUM"
 	compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot.MissingCellPolicy = "ERROR"
-	summed, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 7, ir.DefaultPhysicalOptimizationPolicy())
+	summed, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(rowID), 0, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile SUM Pivot lineage: %v", err)
 	}
@@ -1114,7 +1115,7 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/group-pivot"},
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
-	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("COUNT_ROWS Group followed by Pivot lineage capability = %#v", capability)
 	}
 	sequence := compiledOutput.Plan.StageSequence
@@ -1125,7 +1126,7 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileRowLineageOutput(compiledOutput, string(rowID), 6, 9, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(rowID), 6, 9, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1164,8 +1165,8 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 			t.Errorf("Group/Pivot lineage omitted typed/page bind %q: %#v", key, compiled.BindVars)
 		}
 	}
-	if compiled.BindVars["row_lineage_pivot_group_key_0"] != "patient-7" || compiled.BindVars[rowLineageRowIDBind] != string(rowID) ||
-		compiled.BindVars[rowLineageOffsetBind] != 6 || compiled.BindVars[rowLineageLimitBind] != 9 || compiled.BindVars[rowLineageFetchLimitBind] != 10 {
+	if compiled.BindVars["row_lineage_pivot_group_key_0"] != "patient-7" || compiled.BindVars[rowlineage.RowLineageRowIDBind] != string(rowID) ||
+		compiled.BindVars[rowlineage.RowLineageOffsetBind] != 6 || compiled.BindVars[rowlineage.RowLineageLimitBind] != 9 || compiled.BindVars[rowlineage.RowLineageFetchLimitBind] != 10 {
 		t.Errorf("Group/Pivot typed identity/page bindings = %#v", compiled.BindVars)
 	}
 	if compiled.BindVars["population_selection_id"] != "selection-group-pivot-revision" ||
@@ -1182,7 +1183,7 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 		policyOutput := compiledOutput
 		policyOutput.Plan = ir.ClonePhysicalPlan(compiledOutput.Plan)
 		policyOutput.Plan.StageSequence.Stages[0].Group.MissingKeyPolicy = policy
-		policyCompiled, policyErr := CompileRowLineageOutput(policyOutput, string(rowID), 0, 9, ir.DefaultPhysicalOptimizationPolicy())
+		policyCompiled, policyErr := rowlineage.CompileRowLineageOutput(policyOutput, string(rowID), 0, 9, ir.DefaultPhysicalOptimizationPolicy())
 		if policyErr != nil {
 			t.Fatalf("compile Group/Pivot lineage with Group missing policy %q: %v", policy, policyErr)
 		}
@@ -1205,7 +1206,7 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 		mutated := compiledOutput
 		mutated.Plan = ir.ClonePhysicalPlan(compiledOutput.Plan)
 		mutate(mutated.Plan.StageSequence)
-		capability := RowLineageCapabilityForOutput(mutated)
+		capability := rowlineage.RowLineageCapabilityForOutput(mutated)
 		if capability.Available || capability.ReasonCode == "" {
 			t.Errorf("unsupported composed Group/Pivot %s capability = %#v", name, capability)
 		}
@@ -1270,7 +1271,7 @@ func TestRowLineagePivotCapabilityRejectsUnsupportedPolicies(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "lineage-project", DatasetGeneration: "lineage-generation"}
 	compiled := lowerConstructionOutput(t, constructionPivotLineageOutput(), bindings)
 	compiled.Plan.StageSequence.Stages[0].GroupedPivot.UnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
-	if capability := RowLineageCapabilityForOutput(compiled); capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiled); capability.Available {
 		t.Fatalf("Pivot lineage capability admitted unsupported unlisted-category policy: %#v", capability)
 	}
 }
@@ -1312,7 +1313,7 @@ func constructionPivotLineageOutput() recipe.Output {
 func TestRelatedExpandLineageCapabilityAdmitsIdentityPreservingSuffixAndRejectsInvalidRouteMetadata(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation"}
 	filtered := lowerConstructionOutput(t, relatedExpandOracleOutput(recipe.ExpansionExclude), bindings)
-	if capability := RowLineageCapabilityForOutput(filtered); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(filtered); !capability.Available {
 		t.Fatalf("RELATED_EXPAND with identity-preserving suffix capability = %#v, want available", capability)
 	}
 
@@ -1321,7 +1322,7 @@ func TestRelatedExpandLineageCapabilityAdmitsIdentityPreservingSuffixAndRejectsI
 		direct.Plan.StageSequence.Stages[0].RelatedExpand.Route,
 		direct.Plan.StageSequence.Stages[0].RelatedExpand.Route[0],
 	)
-	if capability := RowLineageCapabilityForOutput(direct); capability.Available || capability.ReasonCode != "ROW_LINEAGE_ROUTE_UNSUPPORTED" {
+	if capability := rowlineage.RowLineageCapabilityForOutput(direct); capability.Available || capability.ReasonCode != "ROW_LINEAGE_ROUTE_UNSUPPORTED" {
 		t.Fatalf("route metadata that disagrees with its physical traversal = %#v, want route unsupported", capability)
 	}
 }
@@ -1330,7 +1331,7 @@ func TestRelatedExpandLineageCapabilityRejectsIndirectSourceOperations(t *testin
 	bindings := recipe.RuntimeBindings{Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation"}
 	direct := lowerConstructionOutput(t, directRelatedExpandOutput(recipe.ExpansionExclude), bindings)
 	direct.Plan.Operations[0].Kind = ir.PhysicalGroupRowsOp
-	if capability := RowLineageCapabilityForOutput(direct); capability.Available || capability.ReasonCode != "ROW_LINEAGE_SOURCE_NOT_DIRECT" {
+	if capability := rowlineage.RowLineageCapabilityForOutput(direct); capability.Available || capability.ReasonCode != "ROW_LINEAGE_SOURCE_NOT_DIRECT" {
 		t.Fatalf("transformed source capability = %#v, want direct-source refusal", capability)
 	}
 }
@@ -1344,7 +1345,7 @@ func TestRelatedExpandLineageCapabilityKeepsSelectedRootSourcesEligible(t *testi
 			break
 		}
 	}
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("selected root source lineage capability = %#v, want available", capability)
 	}
 }
@@ -1355,14 +1356,14 @@ func TestCompileRelatedExpandRowLineageUsesAnchoredCanonicalAuthorizedRoute(t *t
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"Patient/visible"},
 	}
 	output := lowerConstructionOutput(t, directRelatedExpandOutput(recipe.ExpansionExclude), bindings)
-	capability := RowLineageCapabilityForOutput(output)
+	capability := rowlineage.RowLineageCapabilityForOutput(output)
 	if !capability.Available {
 		t.Fatalf("direct one-hop RELATED_EXPAND capability = %#v", capability)
 	}
 	stage := output.Plan.StageSequence.Stages[0]
 	constructionID := output.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
 	rowID := relatedExpandRowID(t, "patient-storage-key", constructionID, "Observation/observation-storage-key")
-	compiled, err := CompileRowLineageOutput(output, rowID, 0, 1, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, rowID, 0, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1384,7 +1385,7 @@ func TestCompileRelatedExpandRowLineageUsesAnchoredCanonicalAuthorizedRoute(t *t
 	}
 	if compiled.BindVars[rowLineageRootKeyBind] != "patient-storage-key" ||
 		compiled.BindVars[rowLineageStage0TerminalIDBind] != "Observation/observation-storage-key" ||
-		compiled.BindVars[rowLineageStage0RowIDBind] != rowID || compiled.BindVars[rowLineageRowIDBind] != rowID {
+		compiled.BindVars[rowLineageStage0RowIDBind] != rowID || compiled.BindVars[rowlineage.RowLineageRowIDBind] != rowID {
 		t.Fatalf("row identity bindings = %#v", compiled.BindVars)
 	}
 	if !strings.Contains(compiled.Query, "auth_resource_path IN @auth_resource_paths") {
@@ -1398,7 +1399,7 @@ func TestCompileRelatedExpandPreserveParentLineageReturnsRootOnlyForEmptyIdentit
 	stage := output.Plan.StageSequence.Stages[0]
 	constructionID := output.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
 	rowID := relatedExpandEmptyRowID(t, "patient-storage-key", constructionID)
-	compiled, err := CompileRowLineageOutput(output, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1427,7 +1428,7 @@ func TestCompileRelatedExpandRowLineageTreatsForgedIdentityAsUnmatchable(t *test
 	stage := output.Plan.StageSequence.Stages[0]
 	constructionID := output.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
 	forged := relatedExpandRowID(t, "patient-storage-key", constructionID, "Observation/forged-key")
-	compiled, err := CompileRowLineageOutput(output, forged, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, forged, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1444,7 +1445,7 @@ func TestCompileRelatedExpandRowLineageTreatsForgedIdentityAsUnmatchable(t *test
 func TestCompileRelatedExpandRowLineageBindsMalformedIdentityToNullRoot(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation"}
 	output := lowerConstructionOutput(t, directRelatedExpandOutput(recipe.ExpansionExclude), bindings)
-	compiled, err := CompileRowLineageOutput(output, "not-json", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, "not-json", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1456,11 +1457,11 @@ func TestCompileRelatedExpandRowLineageBindsMalformedIdentityToNullRoot(t *testi
 
 func TestParseRelatedExpandRowIDRejectsMalformedAndCrossStageIdentity(t *testing.T) {
 	for _, rowID := range []string{"not-json", `[["input","p"],["construction","other"],["related","Observation/o"]]`, `[["input","p"],["construction","step"],["empty"]]`} {
-		if _, _, _, ok := parseRelatedExpandRowID(rowID, "step", false); ok {
+		if _, _, _, ok := rowlineage.ParseRelatedExpandRowID(rowID, "step", false); ok {
 			t.Errorf("row ID %q parsed as a row for a different operation", rowID)
 		}
 	}
-	if _, _, _, ok := parseRelatedExpandRowID(`[["input","p"],["construction","step"],["empty"]]`, "step", true); !ok {
+	if _, _, _, ok := rowlineage.ParseRelatedExpandRowID(`[["input","p"],["construction","step"],["empty"]]`, "step", true); !ok {
 		t.Fatal("PRESERVE_PARENT empty row identity did not parse")
 	}
 }
@@ -1488,7 +1489,7 @@ func TestDecodeRelatedRowLineageIdentityWalksEveryAuthoredOwner(t *testing.T) {
 		}
 	}
 
-	rootKey, matches, ok := decodeRelatedRowLineageIdentity(rowID, stages, bindVars)
+	rootKey, matches, ok := rowlineage.DecodeRelatedRowLineageIdentity(rowID, stages, bindVars)
 	if !ok || rootKey != "root-storage-key" || len(matches) != owners {
 		t.Fatalf("decoded root=%q matches=%#v valid=%v", rootKey, matches, ok)
 	}
@@ -1499,7 +1500,7 @@ func TestDecodeRelatedRowLineageIdentityWalksEveryAuthoredOwner(t *testing.T) {
 	}
 
 	bindVars["construction_2"] = "wrong-stage"
-	if _, _, ok := decodeRelatedRowLineageIdentity(rowID, stages, bindVars); ok {
+	if _, _, ok := rowlineage.DecodeRelatedRowLineageIdentity(rowID, stages, bindVars); ok {
 		t.Fatal("wrong construction owner was accepted in a nested identity")
 	}
 }
@@ -1507,7 +1508,7 @@ func TestDecodeRelatedRowLineageIdentityWalksEveryAuthoredOwner(t *testing.T) {
 func TestCompileComposedRelatedRowLineageBindsEachOwnerAndPagesWitnesses(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation"}
 	output := lowerConstructionOutput(t, composedRelatedExpandOutput(), bindings)
-	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("multi-stage and multi-hop RELATED_EXPAND capability = %#v", capability)
 	}
 	stages := output.Plan.StageSequence.Stages
@@ -1518,7 +1519,7 @@ func TestCompileComposedRelatedRowLineageBindsEachOwnerAndPagesWitnesses(t *test
 	secondConstructionID := output.Plan.BindVars[stages[1].RelatedExpand.ConstructionIDBindKey]
 	firstRowID := relatedExpandRowID(t, "patient-storage-key", firstConstructionID.(string), "Observation/observation-storage-key")
 	finalRowID := relatedExpandRowID(t, firstRowID, secondConstructionID.(string), "Patient/related-patient-storage-key")
-	compiled, err := CompileRowLineageOutput(output, finalRowID, 2, 7, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := rowlineage.CompileRowLineageOutput(output, finalRowID, 2, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1527,7 +1528,7 @@ func TestCompileComposedRelatedRowLineageBindsEachOwnerAndPagesWitnesses(t *test
 		compiled.BindVars[rowLineageStage0TerminalIDBind] != "Observation/observation-storage-key" ||
 		compiled.BindVars["row_lineage_stage_1_row_id"] != finalRowID ||
 		compiled.BindVars["row_lineage_stage_1_terminal_id"] != "Patient/related-patient-storage-key" ||
-		compiled.BindVars[rowLineageRowIDBind] != finalRowID {
+		compiled.BindVars[rowlineage.RowLineageRowIDBind] != finalRowID {
 		t.Fatalf("composed owner bindings do not retain exact stage identities: %#v", compiled.BindVars)
 	}
 	for _, want := range []string{

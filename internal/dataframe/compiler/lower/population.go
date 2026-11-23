@@ -3,6 +3,8 @@ package lower
 import (
 	"fmt"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -76,7 +78,7 @@ func configurePopulationRootSource(physical *ir.PhysicalPlan, output recipeplan.
 		if err != nil {
 			return fmt.Errorf("reverse population route step %d: %w", index, err)
 		}
-		result, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+		result, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 			FromType: types[index+1], EdgeLabel: step.Relationship, ToType: types[index],
 			DirectionOverride: directionOverride,
 			SourceVariable:    terminalVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,

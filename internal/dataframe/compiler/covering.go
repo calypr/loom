@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
@@ -24,7 +25,7 @@ func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName 
 	return rendered.Query, rendered.BindVars, nil
 }
 
-func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
+func previewCoveringIndexSpec(plan ir.PhysicalPlan) *model.PreviewCoveringIndexSpec {
 	sequence := plan.StageSequence
 	if sequence == nil || sequence.PreviewLimitBindKey == "" || sequence.PreviewSourceWindowByRootID ||
 		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
@@ -61,7 +62,7 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 		}
 		spec := previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
 		if spec != nil {
-			spec.pivotGroupKeyPaths = groupKeyPaths
+			spec.PivotGroupKeyPaths = groupKeyPaths
 		}
 		return spec
 	case ir.PhysicalStageGroupOp:
@@ -81,7 +82,7 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	return nil
 }
 
-func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
+func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *model.PreviewCoveringIndexSpec {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
 		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
@@ -186,7 +187,7 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveri
 		}
 	}
 	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
-	return &PreviewCoveringIndexSpec{
+	return &model.PreviewCoveringIndexSpec{
 		Collection: collection, Name: name, Fields: fields, StoredValues: storedValues,
 	}
 }
@@ -250,7 +251,7 @@ func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot
 	return parent, true
 }
 
-func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSpec) *PreviewGroupScanSpec {
+func previewGroupScanSpec(plan ir.PhysicalPlan, covering *model.PreviewCoveringIndexSpec) *model.PreviewGroupScanSpec {
 	sequence := plan.StageSequence
 	if covering == nil || !covering.PrepareAfterPreview || sequence == nil || len(sequence.Stages) != 1 ||
 		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil {
@@ -272,7 +273,7 @@ func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSp
 	if err != nil {
 		return nil
 	}
-	return &PreviewGroupScanSpec{
+	return &model.PreviewGroupScanSpec{
 		Collection:         covering.Collection,
 		SequentialQuery:    sequential.Query,
 		SequentialBindVars: sequential.BindVars,
@@ -410,7 +411,7 @@ func previewCoveringPivotGroupKeyPaths(pivot *ir.PhysicalGroupedPivot, projectio
 	return paths, true
 }
 
-func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths []string) *PreviewCoveringIndexSpec {
+func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths []string) *model.PreviewCoveringIndexSpec {
 	if strings.TrimSpace(collection) == "" {
 		return nil
 	}
@@ -442,10 +443,10 @@ func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths [
 	}
 	storedValues := []string{"auth_resource_path"}
 	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
-	return &PreviewCoveringIndexSpec{Collection: collection, Name: name, Fields: fields, StoredValues: storedValues}
+	return &model.PreviewCoveringIndexSpec{Collection: collection, Name: name, Fields: fields, StoredValues: storedValues}
 }
 
-func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) *PreviewCoveringIndexSpec {
+func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) *model.PreviewCoveringIndexSpec {
 	if strings.TrimSpace(collection) == "" || len(projectionPaths) == 0 {
 		return nil
 	}
@@ -470,7 +471,7 @@ func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) 
 	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
 	fields = append(fields, projectionPaths...)
 	storedValues := []string{"auth_resource_path"}
-	return &PreviewCoveringIndexSpec{
+	return &model.PreviewCoveringIndexSpec{
 		Collection: collection, Name: previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
 		Fields: fields, StoredValues: storedValues,
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -166,9 +167,9 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 		}
 		return rowID
 	}
-	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
+	compilePage := func(rowID string, offset int) rowlineage.CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := rowlineage.CompileRowLineageOutput(compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile CODED_GROUP row-lineage page at %d: %v", offset, compileErr)
 		}

@@ -3,6 +3,8 @@ package lower
 import (
 	"testing"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -81,14 +83,14 @@ func TestSelectorModeClassifierKeepsPredicateAndFallbackGeneric(t *testing.T) {
 		t.Fatal(err)
 	}
 	selector.Filter = &fhirschema.ContainsFilter{Field: "system", Needle: "case_id"}
-	if got := selectorExecutionModeForExpression("Patient", selector, nil); got != ir.PhysicalSelectorGeneric {
+	if got := physicalpkg.SelectorExecutionModeForExpression("Patient", selector, nil); got != ir.PhysicalSelectorGeneric {
 		t.Fatalf("predicate selector unexpectedly specialized: %q", got)
 	}
 	plain, err := spec.ParseSelector("gender")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := selectorExecutionModeForExpression("Patient", plain, []spec.Selector{selector}); got != ir.PhysicalSelectorGeneric {
+	if got := physicalpkg.SelectorExecutionModeForExpression("Patient", plain, []spec.Selector{selector}); got != ir.PhysicalSelectorGeneric {
 		t.Fatalf("fallback selector unexpectedly specialized: %q", got)
 	}
 }

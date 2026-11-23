@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
+
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 
 	"github.com/calypr/loom/internal/testkit"
 
@@ -20,8 +22,6 @@ import (
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
-
-	"github.com/calypr/loom/internal/dataframe/compiler"
 )
 
 func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
@@ -89,8 +89,8 @@ func TestLoggedPreviewIndexPreparationUsesSafeFields(t *testing.T) {
 	failure := fmt.Errorf("prepare index: %w", shared.ArangoError{
 		HasError: true, Code: http.StatusConflict, ErrorNum: 12345, ErrorMessage: "AQL: persistent index field is unsupported; access_token=private-auth-value",
 	})
-	spec := compiler.PreviewCoveringIndexSpec{Collection: "patients", Name: "idx_patient_category"}
-	gotErr := executionarango.LoggedPreviewIndexPreparation(logger, func(context.Context, compiler.PreviewCoveringIndexSpec) error { return failure })(ctx, spec)
+	spec := model.PreviewCoveringIndexSpec{Collection: "patients", Name: "idx_patient_category"}
+	gotErr := executionarango.LoggedPreviewIndexPreparation(logger, func(context.Context, model.PreviewCoveringIndexSpec) error { return failure })(ctx, spec)
 	if gotErr != failure {
 		t.Fatalf("preparation error = %v, want original error", gotErr)
 	}

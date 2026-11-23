@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -118,20 +119,20 @@ func TestCurrentConstructionDirectIDPivotFixtureRetainsFastPath(t *testing.T) {
 	}
 }
 
-func compileCurrentConstructionOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, CompiledQuery, error) {
+func compileCurrentConstructionOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, model.CompiledQuery, error) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "current-construction-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	return compiled.Outputs[0], query, err

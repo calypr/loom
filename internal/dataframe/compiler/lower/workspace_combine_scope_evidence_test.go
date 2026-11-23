@@ -3,6 +3,8 @@ package lower
 import (
 	"testing"
 
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -19,20 +21,20 @@ func TestWorkspaceCombineScopeEvidenceComposesExactOutputAndPublishedOperands(t 
 	outputRef := ir.PhysicalCombineInputRef{WorkspaceOutputID: source.Name}
 	publishedRef := ir.PhysicalCombineInputRef{TableID: "4:r1:1v7:published", RevisionID: "revision-1", OutputID: "published"}
 	plan := testWorkspaceCombinePlan("group_gender_id", outputRef, "source_value", publishedRef)
-	identity := ir.WholeRelationScopeIdentity{
+	identity := irscope.WholeRelationScopeIdentity{
 		OutputID: "combined", Project: "project", DatasetGeneration: "generation",
 		AuthScopeMode: "unrestricted", SchemaDigest: "combined-schema",
 	}
-	outputOperand, err := ir.NewWorkspaceOutputScopeOperand(0, outputRef, source.Plan, *source.ScopeEvidenceIdentity, *source.ScopeEvidence)
+	outputOperand, err := irscope.NewWorkspaceOutputScopeOperand(0, outputRef, source.Plan, *source.ScopeEvidenceIdentity, *source.ScopeEvidence)
 	if err != nil {
 		t.Fatalf("workspace output operand: %v", err)
 	}
 	published := testResolvedPublishedInput(publishedRef)
-	publishedOperand, err := ir.NewPublishedWorkspaceScopeOperand(1, publishedRef, published, identity)
+	publishedOperand, err := irscope.NewPublishedWorkspaceScopeOperand(1, publishedRef, published, identity)
 	if err != nil {
 		t.Fatalf("published operand: %v", err)
 	}
-	evidence, err := ir.NewWorkspaceCombineScopeEvidence(plan, identity, []ir.WorkspaceCombineScopeOperand{outputOperand, publishedOperand})
+	evidence, err := irscope.NewWorkspaceCombineScopeEvidence(plan, identity, []irscope.WorkspaceCombineScopeOperand{outputOperand, publishedOperand})
 	if err != nil {
 		t.Fatalf("workspace Combine evidence: %v", err)
 	}
@@ -40,23 +42,23 @@ func TestWorkspaceCombineScopeEvidenceComposesExactOutputAndPublishedOperands(t 
 		t.Fatal("workspace Combine evidence does not match its exact optimized plan and output identity")
 	}
 
-	reordered := []ir.WorkspaceCombineScopeOperand{publishedOperand, outputOperand}
-	if _, err := ir.NewWorkspaceCombineScopeEvidence(plan, identity, reordered); err == nil {
+	reordered := []irscope.WorkspaceCombineScopeOperand{publishedOperand, outputOperand}
+	if _, err := irscope.NewWorkspaceCombineScopeEvidence(plan, identity, reordered); err == nil {
 		t.Fatal("workspace Combine evidence accepted reordered input provenance")
 	}
 	wrongPublishedSchema := published
 	wrongPublishedSchema.Columns = append([]ir.ResolvedClickHouseColumn(nil), published.Columns...)
 	wrongPublishedSchema.Columns[1].ID = "substituted_source_column"
-	wrongPublishedOperand, err := ir.NewPublishedWorkspaceScopeOperand(1, publishedRef, wrongPublishedSchema, identity)
+	wrongPublishedOperand, err := irscope.NewPublishedWorkspaceScopeOperand(1, publishedRef, wrongPublishedSchema, identity)
 	if err != nil {
 		t.Fatalf("construct substituted-schema operand: %v", err)
 	}
-	if _, err := ir.NewWorkspaceCombineScopeEvidence(plan, identity, []ir.WorkspaceCombineScopeOperand{outputOperand, wrongPublishedOperand}); err == nil {
+	if _, err := irscope.NewWorkspaceCombineScopeEvidence(plan, identity, []irscope.WorkspaceCombineScopeOperand{outputOperand, wrongPublishedOperand}); err == nil {
 		t.Fatal("workspace Combine evidence accepted a resolved schema that substitutes a referenced source column")
 	}
 	wrongScope := identity
 	wrongScope.DatasetGeneration = "other-generation"
-	if _, err := ir.NewWorkspaceCombineScopeEvidence(plan, wrongScope, []ir.WorkspaceCombineScopeOperand{outputOperand, publishedOperand}); err == nil {
+	if _, err := irscope.NewWorkspaceCombineScopeEvidence(plan, wrongScope, []irscope.WorkspaceCombineScopeOperand{outputOperand, publishedOperand}); err == nil {
 		t.Fatal("workspace Combine evidence accepted an operand from another dataset generation")
 	}
 	mutated := ir.ClonePhysicalPlan(plan)
@@ -77,34 +79,34 @@ func TestWorkspaceCombineScopeOperandsRejectSourceAndResolverSubstitution(t *tes
 	ref := ir.PhysicalCombineInputRef{WorkspaceOutputID: source.Name}
 	wrongSourceIdentity := *source.ScopeEvidenceIdentity
 	wrongSourceIdentity.SchemaDigest += "-substituted"
-	if _, err := ir.NewWorkspaceOutputScopeOperand(0, ref, source.Plan, wrongSourceIdentity, *source.ScopeEvidence); err == nil {
+	if _, err := irscope.NewWorkspaceOutputScopeOperand(0, ref, source.Plan, wrongSourceIdentity, *source.ScopeEvidence); err == nil {
 		t.Fatal("workspace output operand accepted a substituted source schema identity")
 	}
 	wrongRef := ref
 	wrongRef.WorkspaceOutputID = "different-output"
-	if _, err := ir.NewWorkspaceOutputScopeOperand(0, wrongRef, source.Plan, *source.ScopeEvidenceIdentity, *source.ScopeEvidence); err == nil {
+	if _, err := irscope.NewWorkspaceOutputScopeOperand(0, wrongRef, source.Plan, *source.ScopeEvidenceIdentity, *source.ScopeEvidence); err == nil {
 		t.Fatal("workspace output operand accepted a different sibling output ID")
 	}
 
 	publishedRef := ir.PhysicalCombineInputRef{TableID: "4:r1:1v7:published", RevisionID: "revision-1", OutputID: "published"}
-	identity := ir.WholeRelationScopeIdentity{
+	identity := irscope.WholeRelationScopeIdentity{
 		OutputID: "combined", Project: "project", DatasetGeneration: "generation",
 		AuthScopeMode: "unrestricted", SchemaDigest: "combined-schema",
 	}
 	resolved := testResolvedPublishedInput(publishedRef)
 	wrongRevision := publishedRef
 	wrongRevision.RevisionID = "revision-2"
-	if _, err := ir.NewPublishedWorkspaceScopeOperand(0, wrongRevision, resolved, identity); err == nil {
+	if _, err := irscope.NewPublishedWorkspaceScopeOperand(0, wrongRevision, resolved, identity); err == nil {
 		t.Fatal("published operand accepted a substituted immutable revision")
 	}
 	wrongPublishedScope := resolved
 	wrongPublishedScope.DatasetGeneration = "other-generation"
-	if _, err := ir.NewPublishedWorkspaceScopeOperand(0, publishedRef, wrongPublishedScope, identity); err == nil {
+	if _, err := irscope.NewPublishedWorkspaceScopeOperand(0, publishedRef, wrongPublishedScope, identity); err == nil {
 		t.Fatal("published operand accepted a different dataset generation")
 	}
 	wrongPublishedSchema := resolved
 	wrongPublishedSchema.SchemaDigest = ""
-	if _, err := ir.NewPublishedWorkspaceScopeOperand(0, publishedRef, wrongPublishedSchema, identity); err == nil {
+	if _, err := irscope.NewPublishedWorkspaceScopeOperand(0, publishedRef, wrongPublishedSchema, identity); err == nil {
 		t.Fatal("published operand accepted missing immutable schema provenance")
 	}
 }
@@ -144,15 +146,15 @@ func TestWorkspaceCombineScopeEvidenceBindsExactPrivateAQLPrefix(t *testing.T) {
 	identity := *source.ScopeEvidenceIdentity
 	identity.OutputID = "combined"
 	identity.SchemaDigest = "combined-schema"
-	privateOperand, err := ir.NewPrivateAQLPrefixScopeOperand(0, privateRef, source.Plan, *source.ScopeEvidenceIdentity, *source.ScopeEvidence)
+	privateOperand, err := irscope.NewPrivateAQLPrefixScopeOperand(0, privateRef, source.Plan, *source.ScopeEvidenceIdentity, *source.ScopeEvidence)
 	if err != nil {
 		t.Fatalf("private AQL prefix operand: %v", err)
 	}
-	publishedOperand, err := ir.NewPublishedWorkspaceScopeOperand(1, publishedRef, testResolvedPublishedInput(publishedRef), identity)
+	publishedOperand, err := irscope.NewPublishedWorkspaceScopeOperand(1, publishedRef, testResolvedPublishedInput(publishedRef), identity)
 	if err != nil {
 		t.Fatalf("published operand: %v", err)
 	}
-	evidence, err := ir.NewWorkspaceCombineScopeEvidence(actualPlan, identity, []ir.WorkspaceCombineScopeOperand{privateOperand, publishedOperand})
+	evidence, err := irscope.NewWorkspaceCombineScopeEvidence(actualPlan, identity, []irscope.WorkspaceCombineScopeOperand{privateOperand, publishedOperand})
 	if err != nil {
 		t.Fatalf("composite workspace evidence: %v", err)
 	}

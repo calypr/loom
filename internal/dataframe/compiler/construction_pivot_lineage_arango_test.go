@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/google/uuid"
 )
@@ -76,7 +77,7 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 			if err != nil {
 				t.Fatal(err)
 			}
-			lineage, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+			lineage, err := rowlineage.CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile Pivot row lineage: %v", err)
 			}
@@ -138,9 +139,9 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 		t.Fatal(err)
 	}
 	rowID := string(rowIDBytes)
-	compilePage := func(requestedRowID string, offset int) CompiledRowLineageQuery {
+	compilePage := func(requestedRowID string, offset int) rowlineage.CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiledOutput, requestedRowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := rowlineage.CompileRowLineageOutput(compiledOutput, requestedRowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Pivot row-lineage page at %d: %v", offset, compileErr)
 		}

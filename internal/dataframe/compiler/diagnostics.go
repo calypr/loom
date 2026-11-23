@@ -8,6 +8,6 @@ func normalizeDatasetGeneration(generation string) string {
 func physicalScopeWindowEnd(operations []ir.PhysicalOperation, start int) int {
 	return ir.PhysicalScopeWindowEnd(operations, start)
 }
-func physicalPlanDiagnostics(plan ir.PhysicalPlan) ir.CompilerPlanDiagnostics {
+func PhysicalPlanDiagnostics(plan ir.PhysicalPlan) ir.CompilerPlanDiagnostics {
 	return ir.PhysicalPlanDiagnostics(plan)
 }

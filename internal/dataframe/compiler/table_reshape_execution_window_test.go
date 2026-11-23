@@ -27,7 +27,7 @@ func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
 	}
 	plan := compileTableReshapePhysicalPlan(t, reshape)
 	pivot := findGroupedPivot(t, plan)
-	windowed, err := withGenericPhysicalExecutionWindow(plan, 5)
+	windowed, err := WithGenericPhysicalExecutionWindow(plan, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
 	}
 	plan := compileTableReshapePhysicalPlan(t, reshape)
 	unpivot := findUnpivot(t, plan)
-	windowed, err := withGenericPhysicalExecutionWindow(plan, 7)
+	windowed, err := WithGenericPhysicalExecutionWindow(plan, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestTableReshapeExecutionWindowBindsExpectedLimit(t *testing.T) {
 			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullDrop,
 		},
 	})
-	windowed, err := withGenericPhysicalExecutionWindow(plan, 11)
+	windowed, err := WithGenericPhysicalExecutionWindow(plan, 11)
 	if err != nil {
 		t.Fatal(err)
 	}

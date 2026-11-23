@@ -7,10 +7,11 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
-func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.CompiledOutputColumn, index *PreviewCoveringIndexSpec, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
+func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.CompiledOutputColumn, index *model.PreviewCoveringIndexSpec, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
 	root, sourceReturn, ok := categoryScanRootProjectionSource(plan)
 	if !ok || root.Population != nil {
 		return "", nil, nil, fmt.Errorf("category index requires one direct root scan")
@@ -53,7 +54,7 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	return rendered.Query, rendered.BindVars, witness, nil
 }
 
-func categoryScanUsesStoredQuantityParent(index *PreviewCoveringIndexSpec, valuePath []string) bool {
+func categoryScanUsesStoredQuantityParent(index *model.PreviewCoveringIndexSpec, valuePath []string) bool {
 	if index == nil || index.Collection != "Observation" ||
 		!reflect.DeepEqual(index.Fields, previewQuantityCategoryFields()) ||
 		!reflect.DeepEqual(index.StoredValues, previewQuantityCategoryStoredValues()) || len(index.StoredValues) < 2 {
@@ -82,7 +83,7 @@ func samePathPrefix(path, prefix []string) bool {
 	return true
 }
 
-func categoryScanRootResourceType(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *PreviewCoveringIndexSpec) (string, error) {
+func categoryScanRootResourceType(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *model.PreviewCoveringIndexSpec) (string, error) {
 	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
 	if !ok || collection == "" || index.Collection != collection {
 		return "", fmt.Errorf("category index collection does not match the direct root scan")

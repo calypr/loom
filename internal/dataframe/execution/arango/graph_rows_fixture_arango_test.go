@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -729,12 +731,12 @@ func TestGraphRowsIndependentFixturePlansCompile(t *testing.T) {
 	}
 }
 
-func compileGraphRowsFixture(t *testing.T, output recipe.Output) compiler.CompiledQuery {
+func compileGraphRowsFixture(t *testing.T, output recipe.Output) model.CompiledQuery {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: "fixture-v1", AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"}
 	return compileGraphRowsFixtureWithBindings(t, output, bindings)
 }
-func compileGraphRowsFixtureWithBindings(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) compiler.CompiledQuery {
+func compileGraphRowsFixtureWithBindings(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) model.CompiledQuery {
 	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "graph-rows-fixture", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)

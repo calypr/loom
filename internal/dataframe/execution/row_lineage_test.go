@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	rowlineage "github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 )
 
 func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
@@ -21,7 +21,7 @@ func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
 			"hasMore": true,
 		})
 	}}
-	result, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
+	result, err := engine.rowLineageCompiled(context.Background(), rowlineage.CompiledRowLineageQuery{
 		Query: "row-lineage-query", BindVars: map[string]any{"row_id": "row-7"},
 		Offset: 24, Limit: 1, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
@@ -37,7 +37,7 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"found": false, "contributors": []any{}, "hasMore": false})
 	}}
-	_, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
+	_, err := engine.rowLineageCompiled(context.Background(), rowlineage.CompiledRowLineageQuery{
 		Query: "keyed-group-query", Limit: 25, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if !errors.Is(err, ErrRowLineageRowNotFound) {
@@ -46,7 +46,7 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 	engine.queryRows = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"found": true, "contributors": []any{}, "hasMore": false})
 	}
-	result, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
+	result, err := engine.rowLineageCompiled(context.Background(), rowlineage.CompiledRowLineageQuery{
 		Query: "keyless-empty-group-query", Limit: 25, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestRowLineageRejectsQueryResultsLargerThanRequestedPage(t *testing.T) {
 			map[string]any{"resourceType": "Observation", "resourceId": "two", "occurrenceKey": "two"},
 		}, "hasMore": false})
 	}}
-	_, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
+	_, err := engine.rowLineageCompiled(context.Background(), rowlineage.CompiledRowLineageQuery{
 		Query: "row-lineage-query", Limit: 1, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if err == nil {

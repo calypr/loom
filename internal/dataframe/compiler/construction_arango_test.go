@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -311,11 +313,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(gotSparse) != 0 {
 		t.Fatalf("sparse p2 observation statuses = %#v, want empty list", byPatient["p2"]["observation_status"])
 	}
-	trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
+	traceRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
 	traces := make(map[string]map[string]any, len(traceRows))
 	for _, row := range traceRows {
 		traces[traceRootKey(row, trace.IdentityPartsColumn)] = row
@@ -475,11 +477,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			if values["p1"] != form.present || values["p2"] != form.absent {
 				t.Fatalf("%s values = %#v, want p1=%v p2=%v", form.name, values, form.present, form.absent)
 			}
-			trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+			trace, err := celltrace.CompileCellTraceOutputWithPolicy(compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
-			traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
+			traceRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
 			for _, row := range traceRows {
 				if traceRootKey(row, trace.IdentityPartsColumn) != patientKey("p1") {
 					continue
@@ -538,11 +540,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(existsSparse) != 0 {
 		t.Fatalf("EXISTS sparse p2 statuses = %#v, want empty list", existsByPatient["p2"]["observation_status"])
 	}
-	existsTrace, err := CompileCellTraceOutputWithPolicy(existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	existsTrace, err := celltrace.CompileCellTraceOutputWithPolicy(existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	existsTraceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: existsTrace.Query, BindVars: existsTrace.BindVars})
+	existsTraceRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: existsTrace.Query, BindVars: existsTrace.BindVars})
 	for _, row := range existsTraceRows {
 		if traceRootKey(row, existsTrace.IdentityPartsColumn) != patientKey("p1") {
 			continue

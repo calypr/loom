@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -16,7 +18,7 @@ import (
 
 type Result struct {
 	FixtureID string
-	Compiled  compiler.CompiledQuery
+	Compiled  model.CompiledQuery
 	Err       error
 }
 
@@ -25,22 +27,22 @@ func Run(fixture Fixture) Result {
 	return Result{FixtureID: fixture.ID, Compiled: compiled, Err: err}
 }
 
-func compileRecipe(bundle recipe.Bundle, project string, limit int, policy ir.PhysicalOptimizationPolicy) (compiler.CompiledQuery, error) {
+func compileRecipe(bundle recipe.Bundle, project string, limit int, policy ir.PhysicalOptimizationPolicy) (model.CompiledQuery, error) {
 	bindings := recipe.RuntimeBindings{Project: project}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return compiler.CompiledQuery{}, err
+		return model.CompiledQuery{}, err
 	}
 	resolved, err := recipeplan.ResolveRecipePlan(plan, "conformance", "")
 	if err != nil {
-		return compiler.CompiledQuery{}, err
+		return model.CompiledQuery{}, err
 	}
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, policy)
 	if err != nil {
-		return compiler.CompiledQuery{}, err
+		return model.CompiledQuery{}, err
 	}
 	if len(queries) != 1 {
-		return compiler.CompiledQuery{}, fmt.Errorf("recipe outputs = %d, want one", len(queries))
+		return model.CompiledQuery{}, fmt.Errorf("recipe outputs = %d, want one", len(queries))
 	}
 	return queries[0], nil
 }

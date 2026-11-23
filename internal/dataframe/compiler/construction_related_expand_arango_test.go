@@ -13,7 +13,9 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -141,7 +143,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		for parent, parentRows := range byParent {
 			for _, row := range parentRows {
 				rowID, _ := row["__loom_row_id"].(string)
-				compiled, err := CompileRowLineageOutput(directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+				compiled, err := rowlineage.CompileRowLineageOutput(directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatalf("compile row lineage for %s: %v", parent, err)
 				}
@@ -170,7 +172,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		stage := directOutput.Plan.StageSequence.Stages[0]
 		constructionID := directOutput.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
 		forgedRowID := relatedExpandRowID(t, project+"_p1", constructionID, "Observation/"+project+"_forged")
-		forged, err := CompileRowLineageOutput(directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+		forged, err := rowlineage.CompileRowLineageOutput(directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -745,7 +747,7 @@ func relatedExpandOracleOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.O
 	}
 }
 
-func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project, generation string) (lower.CompiledRecipeOutput, CompiledQuery) {
+func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project, generation string) (lower.CompiledRecipeOutput, model.CompiledQuery) {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{
 		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted,
@@ -770,7 +772,7 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 	return compiled.Outputs[0], query
 }
 
-func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledRowLineageQuery) map[string]any {
+func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query rowlineage.CompiledRowLineageQuery) map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0, 1)
 	if err := client.QueryRows(ctx, query.Query, 32, query.BindVars, func(row map[string]any) error {
@@ -862,7 +864,7 @@ func relatedExpandCountOutput(groupByPresence bool) recipe.Output {
 	}
 }
 
-func compileRelatedExpandCountQuery(t *testing.T, output recipe.Output) CompiledQuery {
+func compileRelatedExpandCountQuery(t *testing.T, output recipe.Output) model.CompiledQuery {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{
 		Project: "related-expand-count-project", DatasetGeneration: "related-expand-count-generation",
@@ -1107,7 +1109,7 @@ func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
 			if err != nil {
 				t.Fatalf("render %s terminal primitive selector: %v", mode, err)
 			}
-			rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
+			rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
 			if len(rows) != len(documents) {
 				t.Fatalf("%s terminal primitive query returned %d rows, want %d:\n%s", mode, len(rows), len(documents), rendered.Query)
 			}

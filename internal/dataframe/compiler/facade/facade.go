@@ -3,9 +3,12 @@ package facade
 import (
 	compilerpkg "github.com/calypr/loom/internal/dataframe/compiler"
 	capability "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	ir "github.com/calypr/loom/internal/dataframe/compiler/ir"
 	lower "github.com/calypr/loom/internal/dataframe/compiler/lower"
+	lowerphysical "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 )
 
 type CategoryScanProof = compilerpkg.CategoryScanProof
@@ -19,16 +22,16 @@ var CompileCategoryScanStageRequiringValue = compilerpkg.CompileCategoryScanStag
 var CompileRecipeOutputPageWithPolicy = compilerpkg.CompileRecipeOutputPageWithPolicy
 var CompileRecipeOutputWithPolicy = compilerpkg.CompileRecipeOutputWithPolicy
 
-const DefaultRowLineageLimit = compilerpkg.DefaultRowLineageLimit
+const DefaultRowLineageLimit = rowlineage.DefaultRowLineageLimit
 const MaxCategoryScanValues = compilerpkg.MaxCategoryScanValues
-const MaxCellTraceContributions = compilerpkg.MaxCellTraceContributions
+const MaxCellTraceContributions = celltrace.MaxCellTraceContributions
 const MaxColumnPopulationBatch = compilerpkg.MaxColumnPopulationBatch
-const MaxRowLineageContributors = compilerpkg.MaxRowLineageContributors
+const MaxRowLineageContributors = rowlineage.MaxRowLineageContributors
 const RootPageAfterKeyBind = compilerpkg.RootPageAfterKeyBind
 const RootPageKeysBind = compilerpkg.RootPageKeysBind
 
-type RowLineageCapability = compilerpkg.RowLineageCapability
-type RowLineageUnsupportedError = compilerpkg.RowLineageUnsupportedError
+type RowLineageCapability = rowlineage.RowLineageCapability
+type RowLineageUnsupportedError = rowlineage.RowLineageUnsupportedError
 
 var BindGroupRelatedOccurrenceSource = lower.BindGroupRelatedOccurrenceSource
 var CompileResolvedRecipePlan = lower.CompileResolvedRecipePlan
@@ -43,8 +46,8 @@ type CompiledStageDescriptor = lower.CompiledStageDescriptor
 
 var ConstructionCombineColumnType = lower.ConstructionCombineColumnType
 var DescribeConstructionSourceStage = lower.DescribeConstructionSourceStage
-var NativePivotColumnName = lower.NativePivotColumnName
-var NativeTraversalColumnPrefix = lower.NativeTraversalColumnPrefix
+var NativePivotColumnName = lowerphysical.NativePivotColumnName
+var NativeTraversalColumnPrefix = lowerphysical.NativeTraversalColumnPrefix
 
 type PivotReducerTypeError = lower.PivotReducerTypeError
 type RelatedEligibilityAnchorError = lower.RelatedEligibilityAnchorError

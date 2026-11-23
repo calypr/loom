@@ -76,19 +76,16 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                                 'queries, and typed category-scan eligibility/proofs.',
  'internal/dataframe/compiler/capability': 'Probe which dataframe language capabilities the compiler can prove and '
                                            'support.',
- 'internal/dataframe/compiler/categoryscan': 'Expose category-scan proof and refusal types and entry points.',
  'internal/dataframe/compiler/facade': 'Present one compiler surface to Explorer consumers.',
  'internal/dataframe/compiler/ir': 'Define typed physical operations, category-scan terminals/source hints, values, '
                                    'scope proofs, policies, and validation.',
- 'internal/dataframe/compiler/ir/physical': 'Expose physical plan and stage types to second-wave consumers.',
  'internal/dataframe/compiler/ir/scope': 'Expose whole-relation scope evidence and validation.',
- 'internal/dataframe/compiler/ir/validate': 'Expose physical-plan validation entry points.',
- 'internal/dataframe/compiler/lineage': 'Expose row-lineage capability and compiled query types.',
+ 'internal/dataframe/compiler/celltrace': 'Compile cell-trace plans and prove cell-trace capability.',
  'internal/dataframe/compiler/lower': 'Lower logical FHIR dataframe plans into storage-aware physical IR.',
+ 'internal/dataframe/compiler/lower/physical': 'Own physical traversal, route, predicate, literal, and column naming primitives.',
  'internal/dataframe/compiler/model': 'Expose compiled query and paging result models.',
  'internal/dataframe/compiler/optimize': 'Apply explainable semantics-preserving rewrites to validated physical IR.',
  'internal/dataframe/compiler/population': 'Expose compiler population limit contracts.',
- 'internal/dataframe/compiler/preview': 'Expose compiler preview limit contracts.',
  'internal/dataframe/compiler/render/aql': 'Render validated physical IR and category-scan terminals as deterministic '
                                            'parameterized AQL.',
  'internal/dataframe/compiler/render/aql/internal/aqlsyntax': 'Provide pure AQL path and identifier syntax helpers.',

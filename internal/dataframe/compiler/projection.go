@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
@@ -21,7 +22,7 @@ func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName stri
 	return rendered.Query, rendered.BindVars, nil
 }
 
-func previewGroupProjectionSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionSpec {
+func previewGroupProjectionSpec(plan ir.PhysicalPlan) *model.PreviewGroupProjectionSpec {
 	if err := aql.ValidateSemanticGroupProjectionPreviewPlan(plan); err != nil {
 		return nil
 	}
@@ -35,13 +36,13 @@ func previewGroupProjectionSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionSpe
 		return nil
 	}
 	binds := ir.ClonePhysicalPlan(ir.PhysicalPlan{BindVars: scopeCount.BindVars}).BindVars
-	return &PreviewGroupProjectionSpec{
+	return &model.PreviewGroupProjectionSpec{
 		Collection: collection, ScopeCountQuery: scopeCount.Query, ScopeCountBindVars: binds,
 		ReadOnlyIndex: previewGroupProjectionIndexSpec(plan),
 	}
 }
 
-func previewGroupProjectionIndexSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionIndexSpec {
+func previewGroupProjectionIndexSpec(plan ir.PhysicalPlan) *model.PreviewGroupProjectionIndexSpec {
 	if plan.StageSequence == nil || len(plan.StageSequence.Stages) != 1 || plan.StageSequence.Stages[0].Group == nil {
 		return nil
 	}
@@ -58,7 +59,7 @@ func previewGroupProjectionIndexSpec(plan ir.PhysicalPlan) *PreviewGroupProjecti
 	for _, segment := range semantic.PathSegments {
 		path += "." + segment.Name
 	}
-	return &PreviewGroupProjectionIndexSpec{
+	return &model.PreviewGroupProjectionIndexSpec{
 		RequiredFields:       append([]string(nil), previewCoveringIndexPrefixFields...),
 		RequiredStoredValues: []string{"auth_resource_path"},
 		ProjectionPath:       path,

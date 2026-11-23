@@ -11,6 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -125,16 +126,16 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		GroupRows: &recipe.GroupRows{RevisionID: revisionID, UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
 	}
 	compiled := lowerConstructionOutput(t, output, bindings)
-	if capability := RowLineageCapabilityForOutput(compiled); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiled); !capability.Available {
 		t.Fatalf("standalone explicit GROUP_ROWS lineage capability = %#v", capability)
 	}
-	compilePage := func(groupID string, offset, limit int) CompiledRowLineageQuery {
+	compilePage := func(groupID string, offset, limit int) rowlineage.CompiledRowLineageQuery {
 		t.Helper()
 		rowID, err := json.Marshal(map[string]string{"group_revision_id": revisionID, "group_id": groupID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		query, err := CompileRowLineageOutput(compiled, string(rowID), offset, limit, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := rowlineage.CompileRowLineageOutput(compiled, string(rowID), offset, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile standalone cohort lineage page for %s at %d: %v", groupID, offset, err)
 		}
@@ -214,7 +215,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged, err := CompileRowLineageOutput(compiled, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	forged, err := rowlineage.CompileRowLineageOutput(compiled, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile forged cross-revision row identity: %v", err)
 	}
@@ -238,7 +239,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleQuery, err := CompileRowLineageOutput(staleCompiled, string(staleRowID), 0, 1, ir.DefaultPhysicalOptimizationPolicy())
+	staleQuery, err := rowlineage.CompileRowLineageOutput(staleCompiled, string(staleRowID), 0, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile stale standalone cohort row lineage: %v", err)
 	}

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	celltrace "github.com/calypr/loom/internal/dataframe/compiler/celltrace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
@@ -37,7 +38,7 @@ func assertCellTraceMissingRowUserFault(t *testing.T, err error, wantRowID, want
 }
 
 func TestEngineCellTraceCompiledMissingRowIsUserFault(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
 	_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-does-not-exist", Column: "gender"})
 	assertCellTraceMissingRowUserFault(t, err, "row-does-not-exist", "patients")
@@ -53,7 +54,7 @@ func TestEngineCellTraceMissingPublishedRowIsUserFault(t *testing.T) {
 }
 
 func TestEngineCellTraceKnownRowNeverTakesTheNotFoundArm(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"identity": "row-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
 	}}

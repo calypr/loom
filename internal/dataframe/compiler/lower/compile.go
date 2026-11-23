@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
@@ -38,8 +41,8 @@ type CompiledRecipeOutput struct {
 
 	WorkspaceOutputSources []WorkspaceOutputSource
 
-	ScopeEvidence         *ir.WholeRelationScopeEvidence
-	ScopeEvidenceIdentity *ir.WholeRelationScopeIdentity
+	ScopeEvidence         *irscope.WholeRelationScopeEvidence
+	ScopeEvidenceIdentity *irscope.WholeRelationScopeIdentity
 
 	RowIdentity *spec.RowIdentity
 
@@ -551,13 +554,13 @@ func validateSemanticOutputNames(output recipeplan.OutputPlan) error {
 		}
 		for _, pivot := range node.Pivots {
 			for _, column := range pivot.Columns {
-				if err := check(pivot.Name+"__"+sanitizeColumnName(column), "pivot"); err != nil {
+				if err := check(pivot.Name+"__"+physicalpkg.SanitizeColumnName(column), "pivot"); err != nil {
 					return err
 				}
 			}
 		}
 		for _, child := range node.Children {
-			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
+			childPrefix := physicalpkg.TraversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
 			if err := walk(child, childPrefix); err != nil {
 				return err
 			}

@@ -3,6 +3,8 @@ package lower
 import (
 	"testing"
 
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -40,12 +42,12 @@ func TestCompiledWholeRelationEvidenceCoversCompleteTypedSources(t *testing.T) {
 			if !output.ScopeEvidence.Matches(output.Plan, identity) || output.ScopeEvidence.Digest() == "" {
 				t.Fatal("whole-relation evidence does not match its exact finalized plan and schema identity")
 			}
-			if output.ScopeEvidence.Matches(output.Plan, withChangedWholeRelationIdentity(identity, func(changed *ir.WholeRelationScopeIdentity) {
+			if output.ScopeEvidence.Matches(output.Plan, withChangedWholeRelationIdentity(identity, func(changed *irscope.WholeRelationScopeIdentity) {
 				changed.OutputID += "-other"
 			})) {
 				t.Fatal("whole-relation evidence matched a different output ID")
 			}
-			if output.ScopeEvidence.Matches(output.Plan, withChangedWholeRelationIdentity(identity, func(changed *ir.WholeRelationScopeIdentity) {
+			if output.ScopeEvidence.Matches(output.Plan, withChangedWholeRelationIdentity(identity, func(changed *irscope.WholeRelationScopeIdentity) {
 				changed.SchemaDigest += "-other"
 			})) {
 				t.Fatal("whole-relation evidence matched a different finalized schema")
@@ -87,13 +89,13 @@ func TestWholeRelationEvidenceRejectsUnscopedOrNarrowedGroupedPlans(t *testing.T
 	if rootVariable == "" || !removePhysicalScopeFilter(&missingProject.Operations, rootVariable, "project") {
 		t.Fatal("test setup could not remove the exact root project guard")
 	}
-	if _, err := ir.NewWholeRelationScopeEvidence(missingProject, identity); err == nil {
+	if _, err := irscope.NewWholeRelationScopeEvidence(missingProject, identity); err == nil {
 		t.Fatal("whole-relation evidence accepted a grouped source without its project guard")
 	}
 
 	wrongScope := ir.ClonePhysicalPlan(compiled.Plan)
 	wrongScope.BindVars["auth_resource_paths_unrestricted"] = false
-	if _, err := ir.NewWholeRelationScopeEvidence(wrongScope, identity); err == nil {
+	if _, err := irscope.NewWholeRelationScopeEvidence(wrongScope, identity); err == nil {
 		t.Fatal("whole-relation evidence accepted a plan with a different authorization mode")
 	}
 
@@ -117,7 +119,7 @@ func TestWholeRelationEvidenceRejectsUnscopedOrNarrowedGroupedPlans(t *testing.T
 		t.Fatal("test setup could not find typed CohortGroup source")
 	}
 	cohortPlan.BindVars[cohortRows.AuthResourcePathsBindKey] = []string{"/wrong/path"}
-	if _, err := ir.NewWholeRelationScopeEvidence(cohortPlan, *cohort.ScopeEvidenceIdentity); err == nil {
+	if _, err := irscope.NewWholeRelationScopeEvidence(cohortPlan, *cohort.ScopeEvidenceIdentity); err == nil {
 		t.Fatal("whole-relation evidence accepted a CohortGroup custom read outside the exact authorization path set")
 	}
 
@@ -126,12 +128,12 @@ func TestWholeRelationEvidenceRejectsUnscopedOrNarrowedGroupedPlans(t *testing.T
 	})
 	codedPlan := ir.ClonePhysicalPlan(coded.Plan)
 	codedPlan.BindVars[codedPlan.StageSequence.Stages[0].CodedGroup.RootCollectionBindKey] = "Procedure"
-	if _, err := ir.NewWholeRelationScopeEvidence(codedPlan, *coded.ScopeEvidenceIdentity); err == nil {
+	if _, err := irscope.NewWholeRelationScopeEvidence(codedPlan, *coded.ScopeEvidenceIdentity); err == nil {
 		t.Fatal("whole-relation evidence accepted a CodedGroup custom lookup substituted to another source collection")
 	}
 }
 
-func withChangedWholeRelationIdentity(identity ir.WholeRelationScopeIdentity, change func(*ir.WholeRelationScopeIdentity)) ir.WholeRelationScopeIdentity {
+func withChangedWholeRelationIdentity(identity irscope.WholeRelationScopeIdentity, change func(*irscope.WholeRelationScopeIdentity)) irscope.WholeRelationScopeIdentity {
 	change(&identity)
 	return identity
 }

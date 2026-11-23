@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -13,11 +14,11 @@ func TestCanonicalExecutionPhysicalPlanPreservesValidRelatedCellTrace(t *testing
 	output := compilePopulationMappingOutput(t, constructionRelatedSourceCellTraceRecipeOutput())
 	physical := ir.ClonePhysicalPlan(output.Plan)
 	var err error
-	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lineage, err := constructionCellTraceLineage(output, *physical.StageSequence, "observation_status")
+	lineage, err := celltrace.ConstructionCellTraceLineage(output, *physical.StageSequence, "observation_status")
 	if err != nil {
 		t.Fatal(err)
 	}

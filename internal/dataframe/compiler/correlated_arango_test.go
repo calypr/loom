@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"math"
 	"os"
 	"reflect"
@@ -12,8 +11,11 @@ import (
 	"testing"
 	"time"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -264,7 +266,7 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 	}
 }
 
-func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]CompiledQuery, error) {
+func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]model.CompiledQuery, error) {
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit groups", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "Grouped", RootResourceType: "Observation", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: revisionID, UnassignedMemberPolicy: policy}}},
@@ -279,7 +281,7 @@ func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]Co
 	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
 }
 
-func mustCompileGroupRowsQuery(t *testing.T, project, generation, revisionID, policy string) CompiledQuery {
+func mustCompileGroupRowsQuery(t *testing.T, project, generation, revisionID, policy string) model.CompiledQuery {
 	t.Helper()
 	queries, err := compileGroupRowsQuery(project, generation, revisionID, policy)
 	if err != nil {
@@ -1053,7 +1055,7 @@ func runRecipeExpansionQuery(t *testing.T, ctx context.Context, client *store.Cl
 	return rows
 }
 
-func compileRecipeExpansionQuery(t *testing.T, project, generation string, output recipe.Output) ([]CompiledQuery, error) {
+func compileRecipeExpansionQuery(t *testing.T, project, generation string, output recipe.Output) ([]model.CompiledQuery, error) {
 	t.Helper()
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "literal-occurrence-expansion", TranslationVersion: "test", Outputs: []recipe.Output{output},

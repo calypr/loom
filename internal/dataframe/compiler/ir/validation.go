@@ -29,7 +29,7 @@ func validateCohortRootSourceProof(plan PhysicalPlan) error {
 	if !ok || strings.TrimSpace(resourceProject) == "" {
 		return fmt.Errorf("cohort root source requires its resource-storage project binding")
 	}
-	authorizedProject, ok := plan.BindVars[physicalScopeProjectBind].(string)
+	authorizedProject, ok := plan.BindVars[PhysicalScopeProjectBind].(string)
 	if !ok || strings.TrimSpace(authorizedProject) == "" || resourceProject != authorizedProject {
 		return fmt.Errorf("cohort root source resource-storage project must match the authorized source project")
 	}

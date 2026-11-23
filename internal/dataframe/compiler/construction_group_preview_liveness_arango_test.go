@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -214,7 +216,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	if err != nil {
 		t.Fatalf("render generic full-source typed GROUP plan: %v", err)
 	}
-	allRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
+	allRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{
 		PhysicalPlan: genericPlan,
 		Query:        genericRendered.Query,
 		BindVars:     genericRendered.BindVars,

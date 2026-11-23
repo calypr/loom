@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -140,7 +141,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 
 	assertMissingAndNull := func(categoryScan CompiledCategoryScanQuery) {
 		t.Helper()
-		rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
+		rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
 		if len(rows) != 2 {
 			t.Fatalf("category scan returned %d categories, want distinct MISSING and NULL: %#v", len(rows), rows)
 		}
@@ -308,7 +309,7 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		t.Fatalf("stored-parent category index should suppress the older field-only prewarm: %+v", scan.PreviewCoveringIndex)
 	}
 
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
 	seen := map[string]bool{}
 	for _, row := range rows {
 		present, ok := row[scan.PresentColumn].(bool)

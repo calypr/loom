@@ -58,7 +58,7 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 	}
 
 	_ = policy
-	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
+	physical, err := WithGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
 	if err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
 	}
@@ -147,7 +147,7 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		OutputRowIDField:     ir.PhysicalTableShapeExclusionOutputRowIDField,
 		ReasonField:          ir.PhysicalTableShapeExclusionReasonField,
 		OmissionField:        ir.PhysicalTableShapeExclusionOmissionField,
-		Offset:               offset, Limit: limit, Diagnostics: physicalPlanDiagnostics(physical),
+		Offset:               offset, Limit: limit, Diagnostics: PhysicalPlanDiagnostics(physical),
 	}, nil
 }
 

@@ -14,6 +14,8 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -141,9 +143,9 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 		t.Fatalf("Group preview row identity = %#v", rows[0]["__loom_row_id"])
 	}
 
-	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
+	compilePage := func(rowID string, offset int) rowlineage.CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(output, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := rowlineage.CompileRowLineageOutput(output, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Group row-lineage page at %d: %v", offset, compileErr)
 		}
@@ -279,9 +281,9 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 		t.Fatalf("filtered Group row identity = %#v", rows[0]["__loom_row_id"])
 	}
 
-	compilePage := func(compiled lower.CompiledRecipeOutput, id string, offset int) CompiledRowLineageQuery {
+	compilePage := func(compiled lower.CompiledRecipeOutput, id string, offset int) rowlineage.CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiled, id, offset, 50, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := rowlineage.CompileRowLineageOutput(compiled, id, offset, 50, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile filtered Group row-lineage page at %d: %v", offset, compileErr)
 		}
@@ -967,12 +969,12 @@ func executeConstructionOutputError(t *testing.T, ctx context.Context, client *s
 	return client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
 }
 
-func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project, generation string) CompiledQuery {
+func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project, generation string) model.CompiledQuery {
 	t.Helper()
 	return compileConstructionOutputQueryWithBindings(t, output, project, generation, recipe.RuntimeBindings{})
 }
 
-func compileConstructionOutputQueryWithBindings(t *testing.T, output recipe.Output, project, generation string, bindings recipe.RuntimeBindings) CompiledQuery {
+func compileConstructionOutputQueryWithBindings(t *testing.T, output recipe.Output, project, generation string, bindings recipe.RuntimeBindings) model.CompiledQuery {
 	t.Helper()
 	bindings.Project, bindings.DatasetGeneration = project, generation
 	compiledOutput := lowerConstructionOutput(t, output, bindings)

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -279,7 +281,7 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 			t.Fatal("category discovery used the unbounded executor")
 			return nil
 		},
-		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+		preparePreviewIndex: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
 			if spec.Collection != "Patient" || spec.Name != "loom_pivot_preview_test" || !reflect.DeepEqual(spec.Fields, []string{"project", "payload.gender"}) {
 				t.Errorf("prewarm spec = %+v", spec)
 			}
@@ -308,7 +310,7 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 		},
 	}
 	compiled := compiledCategoryScan(256)
-	compiled.PreviewCoveringIndex = &compiler.PreviewCoveringIndexSpec{
+	compiled.PreviewCoveringIndex = &model.PreviewCoveringIndexSpec{
 		Collection: "Patient", Name: "loom_pivot_preview_test", Fields: []string{"project", "payload.gender"},
 	}
 	first, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
@@ -387,7 +389,7 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
 	prepared := false
 	engine := &Engine{
-		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+		preparePreviewIndex: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
 			prepared = true
 			return nil
 		},
@@ -399,7 +401,7 @@ func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
 		},
 	}
 	compiled := compiledCategoryScan(256)
-	compiled.CategoryIndex = &compiler.PreviewCoveringIndexSpec{Collection: "Observation", Name: "category_test", Fields: []string{"project", "dataset_generation", "payload.status"}}
+	compiled.CategoryIndex = &model.PreviewCoveringIndexSpec{Collection: "Observation", Name: "category_test", Fields: []string{"project", "dataset_generation", "payload.status"}}
 	result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
 	if err != nil || !result.Complete || len(result.Values) != 1 {
 		t.Fatalf("category result=%#v error=%v", result, err)

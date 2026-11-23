@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -270,7 +272,7 @@ func TestPopulationSelfRouteReversesThePinnedStorageDirection(t *testing.T) {
 		})
 	}
 
-	defaultRoute, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+	defaultRoute, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 		FromType: "Specimen", EdgeLabel: "parent", ToType: "Specimen",
 		SourceVariable: "root", TargetVariable: "node", EdgeVariable: "edge",
 		BindPrefix: "self_default", Policy: ir.DefaultPhysicalOptimizationPolicy(),

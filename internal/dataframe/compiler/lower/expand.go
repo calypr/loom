@@ -3,6 +3,7 @@ package lower
 import (
 	"crypto/sha256"
 	"encoding/hex"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )

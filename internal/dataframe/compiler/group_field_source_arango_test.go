@@ -12,6 +12,8 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -48,7 +50,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 	}
 
 	compiledByPolicy := make(map[recipe.ConstructionGroupMissingKeyPolicy]lower.CompiledRecipeOutput)
-	queryByPolicy := make(map[recipe.ConstructionGroupMissingKeyPolicy]CompiledQuery)
+	queryByPolicy := make(map[recipe.ConstructionGroupMissingKeyPolicy]model.CompiledQuery)
 	for _, policy := range []recipe.ConstructionGroupMissingKeyPolicy{
 		recipe.ConstructionGroupMissingKeyGroup,
 		recipe.ConstructionGroupMissingKeyExclude,
@@ -287,7 +289,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 	})
 
 	t.Run("on-demand-lineage", func(t *testing.T) {
-		if capability := RowLineageCapabilityForOutput(compiledByPolicy[recipe.ConstructionGroupMissingKeyGroup]); !capability.Available {
+		if capability := rowlineage.RowLineageCapabilityForOutput(compiledByPolicy[recipe.ConstructionGroupMissingKeyGroup]); !capability.Available {
 			t.Fatalf("expanded Coding Group row lineage capability = %#v, want available for the exact source preimage", capability)
 		}
 		assertExpandedCodingGroupLineage(t, ctx, client, compiledByPolicy[recipe.ConstructionGroupMissingKeyGroup], sharedRow, project, patientKey,
@@ -478,7 +480,7 @@ func TestConstructionGroupAncestorRowValuesAgainstArango(t *testing.T) {
 	assertExpandedCodingGroupOwnerValues(t, componentTwo["owners"], []string{"observation-a"})
 	assertExpandedAncestorGroupNumericValues(t, componentOne["component_values"], []float64{10, 30})
 	assertExpandedAncestorGroupNumericValues(t, componentTwo["component_values"], []float64{20})
-	if capability := RowLineageCapabilityForOutput(compiled); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiled); !capability.Available {
 		t.Fatalf("ancestor Coding Group row lineage capability = %#v, want the exact routed Coding preimage", capability)
 	}
 	assertExpandedCodingGroupLineage(t, ctx, client, compiled, componentOne, project, patientKey,
@@ -842,7 +844,7 @@ func expandedCodingGroupSourceContext(t *testing.T, output recipe.Output, bindin
 	return *descriptor.GroupFieldSourceContext
 }
 
-func assertExpandedCodingGroupUsesProjectedMembership(t *testing.T, compiled lower.CompiledRecipeOutput, query CompiledQuery) {
+func assertExpandedCodingGroupUsesProjectedMembership(t *testing.T, compiled lower.CompiledRecipeOutput, query model.CompiledQuery) {
 	t.Helper()
 	sequence := compiled.Plan.StageSequence
 	if sequence == nil || len(sequence.Stages) != 1 || sequence.Stages[0].Group == nil ||
@@ -1058,7 +1060,7 @@ func assertExpandedCodingGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := rowlineage.CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage for %q: %v", row["coding"], err)
 	}

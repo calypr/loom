@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/expression"
 )
 
@@ -241,7 +242,7 @@ func categoryScanDirectScalarColumn(column lower.CompiledOutputColumn) bool {
 	}
 }
 
-func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.CompiledOutputColumn) *PreviewCoveringIndexSpec {
+func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.CompiledOutputColumn) *model.PreviewCoveringIndexSpec {
 	if !categoryScanDirectRootSource(plan, category) {
 		return nil
 	}
@@ -276,7 +277,7 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 		path == "payload.valueQuantity.code" && categoryScanHasExactRootPresencePath(*selected, root.Variable, strings.Split(path, ".")) {
 		legacyStoredValues := previewQuantityCategoryStoredValues()
 		fields := previewQuantityCategoryFields()
-		return &PreviewCoveringIndexSpec{
+		return &model.PreviewCoveringIndexSpec{
 			Collection:   collection,
 			Name:         previewCoveringIndexNameWithStoredValues(collection, fields, legacyStoredValues),
 			Fields:       fields,
@@ -285,7 +286,7 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	}
 	if rootType == "" || collection != rootType {
 		fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
-		return &PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
+		return &model.PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
 	}
 	fields := []string{"project", "dataset_generation", path}
 	seen := make(map[string]struct{}, len(fields))
@@ -299,7 +300,7 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	if rootType != "" && collection == rootType {
 		storedValues = append(storedValues, "resourceType")
 	}
-	return &PreviewCoveringIndexSpec{
+	return &model.PreviewCoveringIndexSpec{
 		Collection: collection, Name: previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
 		Fields: fields, StoredValues: storedValues,
 	}

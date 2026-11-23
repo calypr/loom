@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/semantic"
@@ -341,7 +342,7 @@ func assertSimpleSemanticGroupProjectionArray(t *testing.T, queryName, query, wa
 
 type semanticGroupProjectionRun struct {
 	engine                 *execution.Engine
-	ordinaryQuery          compiler.CompiledQuery
+	ordinaryQuery          model.CompiledQuery
 	ordinaryRows           []map[string]any
 	factoredRows           []map[string]any
 	assessmentRows         []map[string]any
@@ -383,14 +384,14 @@ func compileRunAndCaptureSemanticGroupProjectionPreview(
 		t.Fatalf("render exact factored semantic Group projection query: %v", err)
 	}
 	factoredRows := querySemanticGroupProjectionRows(t, ctx, client,
-		compiler.CompiledQuery{Query: factoredText, BindVars: factoredBindVars}, 2000)
+		model.CompiledQuery{Query: factoredText, BindVars: factoredBindVars}, 2000)
 
 	assessmentText, assessmentBindVars, err := compiler.RenderPreviewGroupProjectionAssessment(ordinaryQuery.PhysicalPlan, "", false)
 	if err != nil {
 		t.Fatalf("render bounded semantic Group projection assessment: %v", err)
 	}
 	assessmentRows := querySemanticGroupProjectionRows(t, ctx, client,
-		compiler.CompiledQuery{Query: assessmentText, BindVars: assessmentBindVars}, 10)
+		model.CompiledQuery{Query: assessmentText, BindVars: assessmentBindVars}, 10)
 
 	var previewRows []map[string]any
 	summary, err := engine.PreviewOutput(ctx, resolved,
@@ -420,7 +421,7 @@ func prepareSemanticGroupProjectionPreview(
 	bindings recipe.RuntimeBindings,
 	output recipe.Output,
 	limit int,
-) (*execution.Engine, execution.Resolved, compiler.CompiledQuery, *semanticGroupProjectionCallbackCounts) {
+) (*execution.Engine, execution.Resolved, model.CompiledQuery, *semanticGroupProjectionCallbackCounts) {
 	t.Helper()
 	bundle := semanticGroupProjectionBundle(output)
 	callbacks := &semanticGroupProjectionCallbackCounts{}
@@ -485,7 +486,7 @@ func compileSemanticGroupProjectionPolicy(
 	bindings recipe.RuntimeBindings,
 	output recipe.Output,
 	limit int,
-) compiler.CompiledQuery {
+) model.CompiledQuery {
 	t.Helper()
 	resolved, err := engine.ResolveBundle(ctx, semanticGroupProjectionBundle(output), bindings)
 	if err != nil {
@@ -774,7 +775,7 @@ func querySemanticGroupProjectionRows(
 	t *testing.T,
 	ctx context.Context,
 	client *arangostore.Client,
-	query compiler.CompiledQuery,
+	query model.CompiledQuery,
 	maxRows int,
 ) []map[string]any {
 	t.Helper()
@@ -829,7 +830,7 @@ func assertSemanticGroupProjectionAssessment(t *testing.T, rows []map[string]any
 	}
 }
 
-func assertSemanticGroupProjectionIndexDescriptor(t *testing.T, query compiler.CompiledQuery, resourceType, codingPath string) {
+func assertSemanticGroupProjectionIndexDescriptor(t *testing.T, query model.CompiledQuery, resourceType, codingPath string) {
 	t.Helper()
 	if query.PreviewGroupProjection == nil {
 		t.Fatal("semantic Group query has no projection-factorization metadata")
@@ -857,14 +858,14 @@ func assertSemanticGroupProjectionScopeCount(
 	t *testing.T,
 	ctx context.Context,
 	client *arangostore.Client,
-	query compiler.CompiledQuery,
+	query model.CompiledQuery,
 	want int,
 ) {
 	t.Helper()
 	if query.PreviewGroupProjection == nil {
 		t.Fatal("semantic Group query lost its source-scope count evidence")
 	}
-	countQuery := compiler.CompiledQuery{
+	countQuery := model.CompiledQuery{
 		Query:    query.PreviewGroupProjection.ScopeCountQuery,
 		BindVars: query.PreviewGroupProjection.ScopeCountBindVars,
 	}
@@ -876,7 +877,7 @@ func assertSemanticGroupProjectionScopeCount(
 
 func assertProjectionSelectionCallbacks(
 	t *testing.T,
-	ordinaryQuery compiler.CompiledQuery,
+	ordinaryQuery model.CompiledQuery,
 	callbacks *semanticGroupProjectionCallbackCounts,
 	selectedIndex string,
 	wantSelectedIndex bool,

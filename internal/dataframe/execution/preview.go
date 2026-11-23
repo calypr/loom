@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+	rowlineage "github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -77,7 +79,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		chooseGroupPreviewScan:    e.chooseGroupPreviewScan,
 		previewCollectionRevision: e.previewCollectionRevision,
 		groupPreviewRowsCache:     &e.groupPreviewRowsCache,
-		scheduleIndexPrewarm: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) {
+		scheduleIndexPrewarm: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) {
 			schedulePreviewIndexPrewarm(ctx, e, spec)
 		},
 	}
@@ -85,14 +87,14 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 }
 
 type previewExecutor struct {
-	streamForOutput           func(Resolved, string, int) (OutputStream, compiler.CompiledQuery, error)
-	preparePreviewIndex       func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	streamForOutput           func(Resolved, string, int) (OutputStream, model.CompiledQuery, error)
+	preparePreviewIndex       func(context.Context, model.PreviewCoveringIndexSpec) error
 	previewQueryRows          QueryRows
 	withPreviewReadSnapshot   WithPreviewReadSnapshot
-	chooseGroupPreviewScan    func(context.Context, *compiler.CompiledQuery, *OutputStream) error
+	chooseGroupPreviewScan    func(context.Context, *model.CompiledQuery, *OutputStream) error
 	previewCollectionRevision func(context.Context, string) (string, error)
 	groupPreviewRowsCache     *groupPreviewRowsCache
-	scheduleIndexPrewarm      func(context.Context, compiler.PreviewCoveringIndexSpec)
+	scheduleIndexPrewarm      func(context.Context, model.PreviewCoveringIndexSpec)
 }
 
 func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, request PreviewRequest, visit func(map[string]any) error, limit int) (PreviewSummary, error) {
@@ -154,7 +156,7 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: !stream.sampledAggregate, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
-			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
+			summary.RowLineageCapability = rowlineage.RowLineageCapabilityForOutput(output)
 			break
 		}
 	}
@@ -330,7 +332,7 @@ func normalizePreviewLimit(limit int) (int, error) {
 	return limit, nil
 }
 
-func validatePreviewPlan(query compiler.CompiledQuery, limit int, engine ir.PhysicalEngine) error {
+func validatePreviewPlan(query model.CompiledQuery, limit int, engine ir.PhysicalEngine) error {
 	if engine == ir.PhysicalEngineClickHouse {
 		if query.PlanMode != "clickhouse" || query.PlanProfile != "pinned_table_combine" || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
 			return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled ClickHouse combine plan is not in the approved preview plan class", nil)

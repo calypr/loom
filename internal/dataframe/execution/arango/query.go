@@ -9,9 +9,10 @@ import (
 	"log/slog"
 	"time"
 
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
@@ -117,8 +118,8 @@ func classifyAQLDiagnostic(err error) (string, string) {
 	return "", err.Error()
 }
 
-func LoggedPreviewIndexPreparation(logger *slog.Logger, prepare func(context.Context, compiler.PreviewCoveringIndexSpec) error) func(context.Context, compiler.PreviewCoveringIndexSpec) error {
-	return func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+func LoggedPreviewIndexPreparation(logger *slog.Logger, prepare func(context.Context, model.PreviewCoveringIndexSpec) error) func(context.Context, model.PreviewCoveringIndexSpec) error {
+	return func(ctx context.Context, spec model.PreviewCoveringIndexSpec) error {
 		started := time.Now()
 		err := prepare(ctx, spec)
 		level := slog.LevelInfo

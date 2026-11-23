@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -49,7 +51,7 @@ func recipeFieldProjectionLowerer(output recipeplan.OutputPlan) semanticFieldPro
 					extract.ResourceType = resourceType
 					extract.Selector = relative
 					if len(extract.Fallbacks) == 0 {
-						extract.ExecutionMode = selectorExecutionModeForExpression(resourceType, relative, nil)
+						extract.ExecutionMode = physicalpkg.SelectorExecutionModeForExpression(resourceType, relative, nil)
 					}
 					if err := bindRecipeFallbackSelectors(output, node, field, source, bindings, contexts, projection.Expression); err != nil {
 						return ir.PhysicalProjection{}, err
@@ -251,7 +253,7 @@ func insertPhysicalExpressionLet(plan *ir.PhysicalPlan, returnIndex int, variabl
 }
 
 func dynamicFamilyVariable(plan ir.PhysicalPlan, name string) string {
-	base := "__loom_family_" + sanitizeColumnName(name)
+	base := "__loom_family_" + physicalpkg.SanitizeColumnName(name)
 	if base == "__loom_family_" {
 		base = "__loom_family_dynamic"
 	}

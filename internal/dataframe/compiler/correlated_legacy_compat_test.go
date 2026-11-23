@@ -3,9 +3,10 @@ package compiler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"regexp"
 	"testing"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"

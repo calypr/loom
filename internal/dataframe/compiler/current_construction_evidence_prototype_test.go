@@ -3,11 +3,13 @@ package compiler
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestCurrentConstructionEvidencePrototype(t *testing.T) {
@@ -30,7 +32,7 @@ func TestCurrentConstructionEvidencePrototype(t *testing.T) {
 				t.Fatal(marshalErr)
 			}
 			for _, column := range test.columns {
-				trace, err := CompileCellTraceOutputWithPolicy(compiled, column, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+				trace, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, column, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatalf("trace %s: %v", column, err)
 				}
@@ -113,7 +115,7 @@ func TestCurrentConstructionTracePrototypeRetainsFilteredStageFallback(t *testin
 		t.Fatal(err)
 	}
 	original := ir.ClonePhysicalPlan(compiled.Plan)
-	returned, ok := sourceStageReshapeForTrace(ir.ClonePhysicalPlan(original))
+	returned, ok := celltrace.SourceStageReshapeForTrace(ir.ClonePhysicalPlan(original))
 	if ok || !reflect.DeepEqual(returned, original) {
 		t.Fatal("filtered Pivot replay was flattened or its stage population changed")
 	}

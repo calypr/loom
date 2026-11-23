@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/population"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -38,7 +39,7 @@ func TestCompilePopulationMappingFilterExistsUsesPinnedRootKey(t *testing.T) {
 		t.Fatalf("compiled construction stages = %#v, want the authored FILTER EXISTS stage", compiledOutput.Plan.StageSequence.Stages)
 	}
 
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := population.CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile population mapping for FILTER EXISTS: %v", err)
 	}

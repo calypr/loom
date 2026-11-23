@@ -28,7 +28,7 @@ func TestCanonicalExecutionPhysicalPlanPreservesLegacyOmittedSubplans(t *testing
 	}
 
 	canonical := CanonicalExecutionPhysicalPlan(plan)
-	if got := physicalPlanFingerprint(canonical); got != "4aee7b08c0ed70fc45dc2fc36caa7896cbb858f46c6f397f4d4ff9dd479740be" {
+	if got := PhysicalPlanFingerprint(canonical); got != "4aee7b08c0ed70fc45dc2fc36caa7896cbb858f46c6f397f4d4ff9dd479740be" {
 		t.Fatalf("canonical fixture fingerprint = %s; want unchanged legacy fingerprint", got)
 	}
 	if canonical.Operations[0].GroupRows.MemberValues[0].Expression.Subplan.Operations[0].Source != groupSource ||

@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -26,12 +27,12 @@ func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
 	return false
 }
 
-func CompileResolvedRecipePlanWithPolicy(resolved recipeplan.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+func CompileResolvedRecipePlanWithPolicy(resolved recipeplan.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]model.CompiledQuery, error) {
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
 	if err != nil {
 		return nil, err
 	}
-	queries := make([]CompiledQuery, 0, len(compiled.Outputs))
+	queries := make([]model.CompiledQuery, 0, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
 		output.TranslationVersion = resolved.SemanticPlan.TranslationVersion
 		query, err := CompileRecipeOutputWithPolicy(output, resolved.SemanticPlan.Bindings, limit, policy)
@@ -43,9 +44,9 @@ func CompileResolvedRecipePlanWithPolicy(resolved recipeplan.ResolvedRecipePlan,
 	return queries, nil
 }
 
-func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (model.CompiledQuery, error) {
 	if workspaceOutputCaptureRequired(output) {
-		return CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
+		return model.CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
 	}
 	var physical ir.PhysicalPlan
 	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
@@ -57,7 +58,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		var err error
 		physical, err = optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
 		if err != nil {
-			return CompiledQuery{}, fmt.Errorf("optimize canonical recipe plan: %w", err)
+			return model.CompiledQuery{}, fmt.Errorf("optimize canonical recipe plan: %w", err)
 		}
 	}
 	includePreviewSourceID := false
@@ -65,20 +66,20 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		var err error
 		physical, includePreviewSourceID, err = withPreviewSourceResourceID(output, physical)
 		if err != nil {
-			return CompiledQuery{}, fmt.Errorf("add preview source identity projection: %w", err)
+			return model.CompiledQuery{}, fmt.Errorf("add preview source identity projection: %w", err)
 		}
 	}
 	if limit > 0 {
 		physical = withConstructionPreviewRootIDFilter(output, physical)
 	}
-	physical, err := withGenericPhysicalExecutionWindow(physical, limit)
+	physical, err := WithGenericPhysicalExecutionWindow(physical, limit)
 	if err != nil {
-		return CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
+		return model.CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
 	}
 	physical = withoutUnusedTerminalPivotPresenceCompanions(physical)
 	if bindings.IncludeAuthResourcePath && !groupRows {
 		if err := appendAuthResourcePathProjection(&physical); err != nil {
-			return CompiledQuery{}, err
+			return model.CompiledQuery{}, err
 		}
 	}
 	streamingMissingCategoryPivot := canRenderStreamingMissingCategoryPivotPreview(output, bindings, physical)
@@ -99,8 +100,8 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			rendered, err = aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(physical)
 		}
 	} else if previewCoveringIndex != nil {
-		if len(previewCoveringIndex.pivotGroupKeyPaths) != 0 {
-			rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.pivotGroupKeyPaths)
+		if len(previewCoveringIndex.PivotGroupKeyPaths) != 0 {
+			rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.PivotGroupKeyPaths)
 		} else {
 			rendered, err = aql.RenderPhysicalPlanWithRootIndexHint(physical, previewCoveringIndex.Name)
 		}
@@ -110,7 +111,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		rendered, err = aql.RenderPhysicalPlan(physical)
 	}
 	if err != nil {
-		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
+		return model.CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
 	columns, pivotFields := physicalProjectionMetadata(physical)
 	if len(output.Columns) != 0 {
@@ -133,7 +134,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			publicColumns = append(publicColumns, column)
 		}
 	}
-	return CompiledQuery{
+	return model.CompiledQuery{
 		PhysicalPlan:       ir.ClonePhysicalPlan(physical),
 		Project:            bindings.Project,
 		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),
@@ -157,7 +158,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PreviewCoveringIndex:   previewCoveringIndex,
 		PreviewGroupScan:       previewGroupScan,
 		PreviewGroupProjection: previewGroupProjection,
-		PlanDiagnostics:        physicalPlanDiagnostics(physical),
+		PlanDiagnostics:        PhysicalPlanDiagnostics(physical),
 	}, nil
 }
 
@@ -365,7 +366,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 			continue
 		}
 		returnFound = true
-		operation.Return.Projections = appendUniqueProjection(operation.Return.Projections, projection)
+		operation.Return.Projections = AppendUniqueProjection(operation.Return.Projections, projection)
 	}
 	if !returnFound {
 		return plan, false, nil
@@ -386,10 +387,10 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 			}
 			stage.InputColumns = appendUniqueStageColumn(stage.InputColumns, sourceColumn)
 			stage.OutputColumns = appendUniqueStageColumn(stage.OutputColumns, sourceColumn)
-			stage.InputProjections = appendUniqueProjection(stage.InputProjections, inputProjection)
-			stage.OutputProjections = appendUniqueProjection(stage.OutputProjections, inputProjection)
+			stage.InputProjections = AppendUniqueProjection(stage.InputProjections, inputProjection)
+			stage.OutputProjections = AppendUniqueProjection(stage.OutputProjections, inputProjection)
 			if stage.Unpivot != nil {
-				stage.Unpivot.InputProjections = appendUniqueProjection(stage.Unpivot.InputProjections, inputProjection)
+				stage.Unpivot.InputProjections = AppendUniqueProjection(stage.Unpivot.InputProjections, inputProjection)
 				if len(stage.Unpivot.PreservedOutputs) != 0 {
 					stage.Unpivot.PreservedOutputs = appendUniqueUnpivotOutput(stage.Unpivot.PreservedOutputs, ir.PhysicalUnpivotOutput{
 						InputColumn: sourceColumn.Name, OutputColumn: sourceColumn.Name,
@@ -405,7 +406,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 		}
 		inputProjection := projection
 		inputProjection.Value = ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}}
-		operation.Unpivot.InputProjections = appendUniqueProjection(operation.Unpivot.InputProjections, inputProjection)
+		operation.Unpivot.InputProjections = AppendUniqueProjection(operation.Unpivot.InputProjections, inputProjection)
 		if len(operation.Unpivot.PreservedOutputs) != 0 {
 			operation.Unpivot.PreservedOutputs = appendUniqueUnpivotOutput(operation.Unpivot.PreservedOutputs, ir.PhysicalUnpivotOutput{
 				InputColumn: inputProjection.Name, OutputColumn: inputProjection.Name,
@@ -424,7 +425,7 @@ func appendUniqueUnpivotOutput(outputs []ir.PhysicalUnpivotOutput, candidate ir.
 	return append(outputs, candidate)
 }
 
-func appendUniqueProjection(projections []ir.PhysicalProjection, candidate ir.PhysicalProjection) []ir.PhysicalProjection {
+func AppendUniqueProjection(projections []ir.PhysicalProjection, candidate ir.PhysicalProjection) []ir.PhysicalProjection {
 	for _, projection := range projections {
 		if projection.Name == candidate.Name {
 			return projections

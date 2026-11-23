@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
 )
@@ -23,7 +24,7 @@ type relatedCategoryPlan struct {
 	fieldByID   map[string]ir.PhysicalConstructionStage
 	category    ir.PhysicalStageRelatedField
 	value       ir.PhysicalStageRelatedField
-	index       *PreviewCoveringIndexSpec
+	index       *model.PreviewCoveringIndexSpec
 }
 
 func compileRelatedCategoryScan(
@@ -31,7 +32,7 @@ func compileRelatedCategoryScan(
 	stageID, categoryColumnID, valueColumnID string,
 	category, value lower.CompiledOutputColumn,
 	maxValues int,
-) (string, map[string]any, *PreviewCoveringIndexSpec, bool, error) {
+) (string, map[string]any, *model.PreviewCoveringIndexSpec, bool, error) {
 	shape, eligible := relatedCategoryScanShape(plan, stageID, categoryColumnID, valueColumnID, category, value)
 	if !eligible {
 		return "", nil, nil, false, nil
@@ -204,7 +205,7 @@ func relatedCategoryScanShape(
 	path := strings.Join(categoryStage.RelatedField.Path, ".")
 	fields := []string{"project", "dataset_generation", path}
 	storedValues := []string{"auth_resource_path", "resourceType"}
-	shape.index = &PreviewCoveringIndexSpec{
+	shape.index = &model.PreviewCoveringIndexSpec{
 		Collection:   collection,
 		Name:         previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
 		Fields:       fields,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/population"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -77,7 +78,7 @@ func TestCompilePopulationMappingExplicitIdentityUsesCompiledExpression(t *testi
 }
 
 func TestCompilePopulationMappingDefaultIdentityIsStableAcrossInnerOuterExpansion(t *testing.T) {
-	queries := make(map[string]CompiledPopulationMappingQuery, 2)
+	queries := make(map[string]population.CompiledPopulationMappingQuery, 2)
 	for _, mode := range []string{"INNER", "OUTER"} {
 		output := compilePopulationMappingOutput(t, recipe.Output{
 			Name: "Specimens", RootResourceType: "Specimen", RowGrain: "expanded",
@@ -95,7 +96,7 @@ func TestCompilePopulationMappingDefaultIdentityIsStableAcrossInnerOuterExpansio
 				}
 			}
 		}
-		compiled, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, err := population.CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +123,7 @@ func TestCompilePopulationMappingRejectsMissingIdentityField(t *testing.T) {
 		},
 	})
 	output.RowIdentity.Fields = []string{"project", "missing_identity_field"}
-	if _, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "missing_identity_field") {
+	if _, err := population.CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "missing_identity_field") {
 		t.Fatalf("missing identity field error = %v", err)
 	}
 }
@@ -136,7 +137,7 @@ func TestPopulationMappingPhysicalPlanCollectsMatchedIDsOnceAndUsesFinalTerminal
 			ResourceType: "Specimen",
 		},
 	})
-	physical, err := mappingPhysicalPlan(output, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := population.MappingPhysicalPlan(output, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func TestCompilePopulationMappingPreservesInnerAndOuterFinalRowSemantics(t *test
 					t.Fatal("compiled expansion has no UNNEST operation")
 				}
 			}
-			compiled, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err := population.CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -339,7 +340,7 @@ func TestCompilePopulationMappingOrdinaryGroupRelatedUsesTypedFinalIdentity(t *t
 		t.Fatalf("GROUP→RELATED_SOURCE final identity = %#v", sequence)
 	}
 
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiledOutput, recipe.RuntimeBindings{
+	mapping, err := population.CompilePopulationMappingOutputWithPolicy(compiledOutput, recipe.RuntimeBindings{
 		Project: "fixture_project", SelectionProject: "fixture/project", DatasetGeneration: "generation-a",
 		SelectionMembersCollection: "loom_explorer_selection_members",
 	}, ir.DefaultPhysicalOptimizationPolicy())
@@ -362,7 +363,7 @@ func TestCompilePopulationMappingConstructionRejectsUnrelatedIdentityFallback(t 
 	compiledOutput := compilePopulationMappingOutput(t, populationMappingGroupRelatedOutput())
 	compiledOutput.RowIdentity = compiledOutput.RowIdentity.Clone()
 	compiledOutput.RowIdentity.Fields = []string{"project", "unrelated_key"}
-	if _, err := CompilePopulationMappingOutputWithPolicy(compiledOutput, recipe.RuntimeBindings{
+	if _, err := population.CompilePopulationMappingOutputWithPolicy(compiledOutput, recipe.RuntimeBindings{
 		Project: "fixture_project", SelectionProject: "fixture/project", DatasetGeneration: "generation-a",
 		SelectionMembersCollection: "loom_explorer_selection_members",
 	}, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "exact final row identity") {
@@ -407,7 +408,7 @@ func TestCompilePopulationMappingConstructionRejectsUnprovenFinalIdentitySchema(
 			} else {
 				test.mutate(&compiledOutput.Plan.StageSequence.FinalColumns[identityIndex])
 			}
-			if _, err := CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+			if _, err := population.CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 				t.Fatalf("population mapping accepted unproven final identity schema: %#v", compiledOutput.Plan.StageSequence.FinalColumns)
 			}
 		})
@@ -427,7 +428,7 @@ func TestCompilePopulationMappingConstructionRejectsWrongDefaultIdentityFieldCou
 			compiledOutput := compilePopulationMappingOutput(t, populationMappingGroupRelatedOutput())
 			compiledOutput.RowIdentity = compiledOutput.RowIdentity.Clone()
 			compiledOutput.RowIdentity.Fields = append([]string(nil), test.fields...)
-			if _, err := CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "exact final row identity") {
+			if _, err := population.CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "exact final row identity") {
 				t.Fatalf("identity fields %v were accepted or returned the wrong error: %v", test.fields, err)
 			}
 		})
@@ -450,10 +451,10 @@ func populationMappingTestBindings() recipe.RuntimeBindings {
 	}
 }
 
-func compilePopulationMappingRecipe(t *testing.T, output recipe.Output) CompiledPopulationMappingQuery {
+func compilePopulationMappingRecipe(t *testing.T, output recipe.Output) population.CompiledPopulationMappingQuery {
 	t.Helper()
 	compiled := compilePopulationMappingOutput(t, output)
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiled, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := population.CompilePopulationMappingOutputWithPolicy(compiled, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,10 +1,11 @@
 package compiler
 
 import (
+	"testing"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"testing"
 )
 
 func TestAuthResourcePathProjectionPreservesOpaqueColumnIDCollision(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -83,7 +85,7 @@ func BuildGraphPhysicalPlan(output recipeplan.OutputPlan, context recipeplan.Exe
 			targetVariable := fmt.Sprintf("graph_node_%d", index)
 			edgeVariable := fmt.Sprintf("graph_edge_%d", index)
 			sourceVariable := fmt.Sprintf("graph_source_%d", index)
-			traversalResult, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+			traversalResult, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 				FromType: parent.ResourceType, EdgeLabel: child.EdgeLabel, ToType: child.ResourceType,
 				SourceVariable: sourceVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 				BindPrefix: fmt.Sprintf("graph_traversal_%d", index), Policy: policy,
@@ -245,13 +247,13 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node recipeplan.
 			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
 				return fmt.Errorf("graph traversal %q correlated filter %q requires one CODE value", node.Alias, filter.FieldRef)
 			}
-			systemKey := fmt.Sprintf("graph_%s_filter_%d_system", sanitizeColumnName(node.Alias), index+1)
-			codeKey := fmt.Sprintf("graph_%s_filter_%d_code", sanitizeColumnName(node.Alias), index+1)
+			systemKey := fmt.Sprintf("graph_%s_filter_%d_system", physicalpkg.SanitizeColumnName(node.Alias), index+1)
+			codeKey := fmt.Sprintf("graph_%s_filter_%d_code", physicalpkg.SanitizeColumnName(node.Alias), index+1)
 			binds[systemKey] = filter.Values[0].Code.System
 			binds[codeKey] = filter.Values[0].Code.Code
 			versionKey := ""
 			if strings.TrimSpace(binding.VersionPath) != "" {
-				versionKey = fmt.Sprintf("graph_%s_filter_%d_version", sanitizeColumnName(node.Alias), index+1)
+				versionKey = fmt.Sprintf("graph_%s_filter_%d_version", physicalpkg.SanitizeColumnName(node.Alias), index+1)
 				binds[versionKey] = filter.Values[0].Code.Version
 			}
 			predicate, err := correlatedPredicateWithVersionBinds(node.ResourceType, *binding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, systemKey, codeKey, versionKey)
@@ -267,17 +269,17 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node recipeplan.
 		}
 		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind,
 			LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-				Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: node.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(node.ResourceType, selector)}},
+				Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: node.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(node.ResourceType, selector)}},
 		}
 		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
 			if len(filter.Values) == 0 {
 				return fmt.Errorf("graph traversal %q filter %q has no value", node.Alias, filter.FieldRef)
 			}
-			key := fmt.Sprintf("graph_%s_filter_%d_value", sanitizeColumnName(node.Alias), index+1)
+			key := fmt.Sprintf("graph_%s_filter_%d_value", physicalpkg.SanitizeColumnName(node.Alias), index+1)
 			if filter.Operator == spec.FilterIn {
 				values := make([]any, 0, len(filter.Values))
 				for _, value := range filter.Values {
-					literal, err := filterLiteral(value)
+					literal, err := physicalpkg.FilterLiteral(value)
 					if err != nil {
 						return err
 					}
@@ -286,7 +288,7 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node recipeplan.
 				binds[key] = values
 				predicate.Right = &ir.PhysicalValue{BindKey: key}
 			} else {
-				literal, err := filterLiteral(filter.Values[0])
+				literal, err := physicalpkg.FilterLiteral(filter.Values[0])
 				if err != nil {
 					return err
 				}

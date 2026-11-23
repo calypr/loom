@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -67,7 +69,7 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 			Source:        ir.PhysicalValue{Variable: variable, Path: []string{"payload"}},
 			ResourceType:  resourceType,
 			Selector:      selector,
-			ExecutionMode: selectorExecutionModeForExpression(resourceType, selector, nil),
+			ExecutionMode: physicalpkg.SelectorExecutionModeForExpression(resourceType, selector, nil),
 		}
 		return result, nil
 	case expression.LiteralNode:

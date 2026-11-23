@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -162,7 +164,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 				if pivot.SourceKind == "EXTENSION_COLUMN" {
 					projectionPrefix = pivot.ExtensionProjectionPrefix
 				}
-				name := NativePivotColumnName(projectionPrefix, pivot.Name, column, pivot.ColumnAliases)
+				name := physicalpkg.NativePivotColumnName(projectionPrefix, pivot.Name, column, pivot.ColumnAliases)
 				sourceKind, sourceKey, outputKey, outputPath := pivot.SourceKind, pivot.SourceKey, pivot.OutputKey, pivot.SourcePath
 				if sourceKind == "" {
 					sourceKind, sourceKey, outputKey, outputPath = "PIVOT", pivot.Name, column, fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex)
@@ -184,8 +186,8 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false, nil)
 		}
 		for childIndex, child := range node.Children {
-			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
-			addNode(child, traversalColumnNamePrefix(childPrefix), fmt.Sprintf("%straversals[%d].", sourcePath, childIndex))
+			childPrefix := physicalpkg.TraversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
+			addNode(child, physicalpkg.TraversalColumnNamePrefix(childPrefix), fmt.Sprintf("%straversals[%d].", sourcePath, childIndex))
 		}
 	}
 	addNode(output.Root, "", "")

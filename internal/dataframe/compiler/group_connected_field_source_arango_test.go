@@ -11,6 +11,8 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -21,7 +23,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	project, generation := "loom_group_connected_field_source_"+uuid.NewString(), "generation-group-connected-field-source"
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	source := connectedGroupFieldSourceFixture(t, bindings)
-	queries := make(map[string]CompiledQuery, 3)
+	queries := make(map[string]model.CompiledQuery, 3)
 	compiledByPolicy := make(map[string]lower.CompiledRecipeOutput, 3)
 	for _, codingEmptyPolicy := range []string{"GROUP", "EXCLUDE", "ERROR"} {
 		output := connectedGroupOutputFromJSON(t, source, codingEmptyPolicy)
@@ -240,7 +242,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 		insert("fhir_edge", edgeDocument)
 	}
 
-	if capability := RowLineageCapabilityForOutput(compiledByPolicy["GROUP"]); !capability.Available {
+	if capability := rowlineage.RowLineageCapabilityForOutput(compiledByPolicy["GROUP"]); !capability.Available {
 		t.Fatalf("connected Group row-lineage capability = %#v, want exact related owner and Coding ordinal lineage", capability)
 	}
 	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aOneShared, project, patientKey("A"),
@@ -462,7 +464,7 @@ func connectedCodingWithoutSystem(version, code, display string) map[string]any 
 	return map[string]any{"version": version, "code": code, "display": display}
 }
 
-func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) []map[string]any {
+func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store.Client, query model.CompiledQuery) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
 	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
@@ -625,7 +627,7 @@ func assertConnectedGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := rowlineage.CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile connected Group lineage for row %#v: %v", row, err)
 	}

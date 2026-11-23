@@ -12,6 +12,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -88,8 +89,8 @@ type CompiledCategoryScanQuery struct {
 	ValueColumn          string
 	Proof                CategoryScanProof
 	Diagnostics          ir.CompilerPlanDiagnostics
-	CategoryIndex        *PreviewCoveringIndexSpec
-	PreviewCoveringIndex *PreviewCoveringIndexSpec
+	CategoryIndex        *model.PreviewCoveringIndexSpec
+	PreviewCoveringIndex *model.PreviewCoveringIndexSpec
 	OverflowWitness      *CategoryOverflowWitness
 }
 
@@ -241,7 +242,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		} else {
 			physical = withCategoryScanSourceFilterPushdown(physical)
 		}
-		physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+		physical, err = WithGenericPhysicalExecutionWindow(physical, 0)
 		if err != nil {
 			return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 		}
@@ -278,7 +279,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		previewCoveringIndex = nil
 	}
 
-	diagnostics := physicalPlanDiagnostics(physical)
+	diagnostics := PhysicalPlanDiagnostics(physical)
 	schemaDigest, err := categoryHash(schema)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan schema: %w", err)
@@ -408,7 +409,7 @@ func withoutCategoryScanRootIdentitySort(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	return plan
 }
 
-func categoryScanPreviewCoveringIndexSpec(plan ir.PhysicalPlan, schema []lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string) *PreviewCoveringIndexSpec {
+func categoryScanPreviewCoveringIndexSpec(plan ir.PhysicalPlan, schema []lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string) *model.PreviewCoveringIndexSpec {
 	if stageID != recipe.ConstructionSourceProjectionID || categoryColumnID == "" || valueColumnID == "" || categoryColumnID == valueColumnID {
 		return nil
 	}

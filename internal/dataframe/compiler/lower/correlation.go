@@ -2,10 +2,12 @@ package lower
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -125,9 +127,9 @@ func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceTyp
 	if err := fhirbinding.ValidateCorrelatedKey(binding.SelectionScope, fhirbinding.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
 		return ir.PhysicalPredicate{}, err
 	}
-	suffix := sanitizeColumnName(source.Variable)
+	suffix := physicalpkg.SanitizeColumnName(source.Variable)
 	if strings.TrimSpace(identity) != "" {
-		suffix += "_" + sanitizeColumnName(identity)
+		suffix += "_" + physicalpkg.SanitizeColumnName(identity)
 	}
 	systemKey := "correlated_system_" + suffix
 	codeKey := "correlated_code_" + suffix

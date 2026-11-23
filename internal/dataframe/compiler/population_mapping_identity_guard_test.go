@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/population"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -27,7 +28,7 @@ func TestFinalConstructionPopulationMappingIdentityRequiresCanonicalProjectKey(t
 			} else {
 				output.Plan.BindVars["project"] = test.value
 			}
-			_, _, err := finalConstructionPopulationMappingIdentity(output.Plan, output)
+			_, _, err := population.FinalConstructionPopulationMappingIdentity(output.Plan, output)
 			if test.wantValid && err != nil {
 				t.Fatalf("valid project binding was rejected: %v", err)
 			}
@@ -42,7 +43,7 @@ func TestFinalConstructionPopulationMappingIdentityPreservesExactKeyOnlyIdentity
 	output := compilePopulationMappingOutput(t, filterExistsPopulationMappingOutput())
 	output.RowIdentity = output.RowIdentity.Clone()
 	output.RowIdentity.Fields = []string{"_key"}
-	terminal, identity, err := finalConstructionPopulationMappingIdentity(output.Plan, output)
+	terminal, identity, err := population.FinalConstructionPopulationMappingIdentity(output.Plan, output)
 	if err != nil {
 		t.Fatalf("exact public `_key` identity was rejected: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestFinalConstructionPopulationMappingIdentityRejectsWrongContributorResour
 		column := &output.Plan.StageSequence.FinalColumns[index]
 		if column.Name == "_key" && column.RootContributorResourceType == output.RootResourceType {
 			column.RootContributorResourceType = "Patient"
-			_, _, err := finalConstructionPopulationMappingIdentity(output.Plan, output)
+			_, _, err := population.FinalConstructionPopulationMappingIdentity(output.Plan, output)
 			if err == nil || !strings.Contains(strings.ToLower(err.Error()), "contributor") {
 				t.Fatalf("wrong contributor resource was not rejected by the contributor guard: %v", err)
 			}

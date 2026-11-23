@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/semantic"
 	"github.com/google/uuid"
@@ -70,7 +72,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 		targetSystem, targetVersion, codingPath,
 	)
 	groupedCompiled := lowerConstructionOutput(t, groupedOutput, bindings)
-	compile := func(policy recipe.ConstructionGroupMissingKeyPolicy) CompiledQuery {
+	compile := func(policy recipe.ConstructionGroupMissingKeyPolicy) model.CompiledQuery {
 		t.Helper()
 		if policy == recipe.ConstructionGroupMissingKeyGroup {
 			query, err := CompileRecipeOutputWithPolicy(groupedCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
@@ -137,7 +139,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 		t.Fatalf("active shared-code Group row with two contributors is missing: %#v", grouped)
 	}
 	sharedCodeRowID, _ := sharedCodeRow["__loom_row_id"].(string)
-	lineageQuery, err := CompileRowLineageOutput(groupedCompiled, sharedCodeRowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	lineageQuery, err := rowlineage.CompileRowLineageOutput(groupedCompiled, sharedCodeRowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group row-lineage page: %v", err)
 	}
@@ -157,7 +159,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 		"RETURN {selectedGroup: __loom_physical_construction_row_lineage_semantic_selected_group, found: __loom_physical_construction_row_lineage_semantic_selected_group != null, contributors:", 1)
 	identityProbe.BindVars["diagnostic_scalar_key"] = "active"
 	identityProbe.BindVars["diagnostic_semantic_tuple"] = []any{targetSystem, targetVersion, "shared-code"}
-	delete(identityProbe.BindVars, rowLineageRowIDBind)
+	delete(identityProbe.BindVars, rowlineage.RowLineageRowIDBind)
 	identityResult := executeRowLineageOracleQuery(t, ctx, client, identityProbe)
 	selectedGroup, _ := identityResult["selectedGroup"].(map[string]any)
 	lineageIdentity, _ := selectedGroup["identity"].(string)
@@ -345,7 +347,7 @@ func semanticGroupArangoOutput(
 	return output
 }
 
-func compileSemanticCategoryGroupQuery(t *testing.T, bindings recipe.RuntimeBindings, output recipe.Output) CompiledQuery {
+func compileSemanticCategoryGroupQuery(t *testing.T, bindings recipe.RuntimeBindings, output recipe.Output) model.CompiledQuery {
 	t.Helper()
 	compiled := lowerConstructionOutput(t, output, bindings)
 	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())

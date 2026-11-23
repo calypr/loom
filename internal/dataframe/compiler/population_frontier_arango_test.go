@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/population"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -187,7 +188,7 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		t.Fatal(err)
 	}
 	output := compiledRecipe.Outputs[0]
-	compiled, err := CompilePopulationMappingOutputWithPolicy(output, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := population.CompilePopulationMappingOutputWithPolicy(output, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

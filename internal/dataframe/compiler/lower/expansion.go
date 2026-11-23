@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -63,7 +65,7 @@ func appendRecipeRowExpansion(plan *ir.PhysicalPlan, output recipeplan.OutputPla
 		targetVariable := fmt.Sprintf("__loom_expansion_node_%d", stepNumber)
 		edgeVariable := fmt.Sprintf("__loom_expansion_edge_%d", stepNumber)
 		prefix := fmt.Sprintf("expansion_route_%d", stepNumber)
-		traversal, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+		traversal, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 			FromType: parentType, EdgeLabel: node.EdgeLabel, ToType: node.ResourceType,
 			SourceVariable: parentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 			BindPrefix: prefix, Policy: policy,

@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	celltrace "github.com/calypr/loom/internal/dataframe/compiler/celltrace"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -51,7 +52,7 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 	if !strings.Contains(preview.Query, `TO_STRING(["GROUPED_PIVOT"`) {
 		t.Fatalf("Preview query does not emit the compiler-generated string identity:\n%s", preview.Query)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 	if !strings.Contains(preview.Query, "__loom_row_id: {group_revision_id: revision._key, group_id:") {
 		t.Fatalf("ordinary Preview lowering does not emit its structured cohort identity:\n%s", preview.Query)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 
 func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *testing.T) {
 	output := compileComposedCohortIdentityOutput(t)
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +251,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile ordinary group-row CellTrace: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
 	if finalIdentity == nil || finalIdentity.Kind != "string" || finalIdentity.Cardinality != "required_one" || !finalIdentity.Internal || !finalIdentity.Identity {
 		t.Fatalf("cohort Pivot Preview identity schema = %#v, want a required compiler-owned scalar", finalIdentity)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "ordinal_pair", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, "ordinal_pair", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +431,7 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 	encoded, _ := json.Marshal(parts)
 	digest := sha256.Sum256(encoded)
 	rowID := hex.EncodeToString(digest[:])
-	query := compiler.CompiledCellTraceQuery{
+	query := celltrace.CompiledCellTraceQuery{
 		Query: "trace", BindVars: map[string]any{"project": "p"}, ValueColumn: "value", ContributionsColumn: "contributors",
 		StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id", "generation"}}, ContributionLimit: 1,
@@ -466,7 +467,7 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 }
 
 func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{
+	query := celltrace.CompiledCellTraceQuery{
 		Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors",
 		StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity",
 	}
@@ -502,7 +503,7 @@ func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *tes
 }
 
 func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"identity": "patient-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
 	}}
@@ -513,7 +514,7 @@ func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
 }
 
 func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		for _, id := range []string{"one", "two"} {
 			if err := visit(map[string]any{"identity": id}); err != nil {
@@ -529,7 +530,7 @@ func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
 }
 
 func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	for _, test := range []struct {
 		code   dataframeerrors.ErrorCode
 		status CellTraceStatus
@@ -551,7 +552,7 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 }
 
 func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := celltrace.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	t.Run("malformed", func(t *testing.T) {
 		engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{"identity": "row", "status": "MAYBE", "contributors": []any{}})

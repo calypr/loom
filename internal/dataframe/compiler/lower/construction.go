@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
@@ -1497,7 +1499,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 		prefix := fmt.Sprintf("related_%d_hop_%d", index, routeIndex+1)
 		targetVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_target", index)
 		edgeVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_edge", index)
-		traversal, traversalErr := BuildPhysicalTraversal(TraversalLoweringRequest{
+		traversal, traversalErr := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 			FromType: currentResource, EdgeLabel: hop.Relationship, ToType: hop.ToResourceType,
 			SourceVariable: currentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 			BindPrefix: prefix, Policy: lowerer.policy,
@@ -1528,7 +1530,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	}
 	fieldExpression := ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}}, ResourceType: related.Source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(related.Source.ResourceType, selector)},
+		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}}, ResourceType: related.Source.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(related.Source.ResourceType, selector)},
 	}
 	if predicate := related.Predicate; predicate != nil {
 		if predicate.CandidateID != related.Source.CandidateID {
@@ -2849,7 +2851,7 @@ func (lowerer *constructionLowerer) lowerConstructionGroupRelatedCodingKey(
 		Extract: &ir.PhysicalExtract{
 			Source:       ir.PhysicalValue{Variable: adapter.RelatedRecords.RelatedRecords.Sort.Variable, Path: []string{"payload"}},
 			ResourceType: related.TargetResourceType, Selector: selector,
-			ExecutionMode: selectorExecutionMode(related.TargetResourceType, selector),
+			ExecutionMode: physicalpkg.SelectorExecutionMode(related.TargetResourceType, selector),
 		},
 	}
 	if adapter.RelatedRecords.RelatedRecords.Return.Kind != ir.PhysicalObjectExpression || adapter.RelatedRecords.RelatedRecords.Return.Object == nil {
@@ -3071,7 +3073,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedEligibility(
 		prefix := fmt.Sprintf("related_eligibility_%d_hop_%d", stepIndex, routeIndex+1)
 		targetVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_target", stepIndex)
 		edgeVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_edge", stepIndex)
-		traversal, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+		traversal, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 			FromType: hop.FromResourceType, EdgeLabel: hop.Relationship, ToType: hop.ToResourceType,
 			SourceVariable: currentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 			BindPrefix: prefix, Policy: lowerer.policy,
@@ -3113,7 +3115,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedEligibility(
 		field := ir.PhysicalExpression{
 			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 			Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}}, ResourceType: source.ResourceType,
-				Selector: selector, ExecutionMode: selectorExecutionMode(source.ResourceType, selector)},
+				Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(source.ResourceType, selector)},
 		}
 		if predicate := related.ContributorPredicate; predicate != nil {
 			if predicate.CandidateID != source.CandidateID {
@@ -3304,7 +3306,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 		prefix := fmt.Sprintf("related_expand_%d_hop_%d", stepIndex, routeIndex+1)
 		targetVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_target", stepIndex)
 		edgeVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_edge", stepIndex)
-		traversal, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+		traversal, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
 			FromType: hop.FromResourceType, EdgeLabel: hop.Relationship, ToType: hop.ToResourceType,
 			SourceVariable: currentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 			BindPrefix: prefix, Policy: lowerer.policy,
@@ -3475,7 +3477,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpandContributor(su
 	field := ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}},
-			ResourceType: source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(source.ResourceType, selector)},
+			ResourceType: source.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(source.ResourceType, selector)},
 	}
 	if predicate := related.ContributorPredicate; predicate != nil {
 		if predicate.CandidateID != source.CandidateID {

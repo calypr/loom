@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -82,7 +84,7 @@ func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, roo
 	parentVariable := "root"
 	parentType := root.ResourceType
 	for stepIndex, node := range routeNodes {
-		route, err := resolveStorageRoute(parentType, node.EdgeLabel, node.ResourceType)
+		route, err := physicalpkg.ResolveStorageRoute(parentType, node.EdgeLabel, node.ResourceType)
 		if err != nil {
 			return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d: %w", matchIndex, stepIndex, err)
 		}
@@ -103,7 +105,7 @@ func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, roo
 				SourceVariable: parentVariable, TargetVariable: nodeVariable, EdgeVariable: edgeVariable,
 				Direction: route.Direction, EdgeCollectionBindKey: edgeCollectionBind,
 				EdgeLabelBindKey: labelBind, TargetTypeBindKey: typeBind,
-				EdgeTargetTypeField: route.targetEdgeTypeField(),
+				EdgeTargetTypeField: route.TargetEdgeTypeField(),
 			},
 		})
 		subplan.Operations = appendProjectScope(subplan.Operations, []string{edgeVariable, nodeVariable}, node.EdgeLabel, node)
@@ -131,7 +133,7 @@ func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, roo
 				if filter.Operator == spec.FilterIn {
 					values := make([]any, 0, len(filter.Values))
 					for _, value := range filter.Values {
-						literal, err := filterLiteral(value)
+						literal, err := physicalpkg.FilterLiteral(value)
 						if err != nil {
 							return ir.PhysicalPredicateExpression{}, err
 						}
@@ -139,7 +141,7 @@ func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, roo
 					}
 					physical.BindVars[key] = values
 				} else {
-					literal, err := filterLiteral(filter.Values[0])
+					literal, err := physicalpkg.FilterLiteral(filter.Values[0])
 					if err != nil {
 						return ir.PhysicalPredicateExpression{}, err
 					}

@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -64,7 +65,7 @@ FOR document IN Observation
 	if !scan.Proof.PresenceTracked || scan.OverflowWitness == nil || scan.Proof.OverflowWitnessFingerprint == "" {
 		t.Fatalf("root category scan proof = %+v, overflow witness present=%t; want tracked parent presence and a fingerprinted witness", scan.Proof, scan.OverflowWitness != nil)
 	}
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
 	got := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		present, ok := row[scan.PresentColumn].(bool)
@@ -124,14 +125,14 @@ FOR document IN Observation
 	if overflowScan.OverflowWitness == nil || !overflowScan.Proof.PresenceTracked {
 		t.Fatalf("overflow scan proof = %+v, witness=%+v; want a presence-aware overflow witness", overflowScan.Proof, overflowScan.OverflowWitness)
 	}
-	witnessRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
+	witnessRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{
 		Query: overflowScan.OverflowWitness.Query, BindVars: overflowScan.OverflowWitness.BindVars,
 	})
 	if len(witnessRows) != 1 || witnessRows[0][overflowScan.PresentColumn] != false || witnessRows[0][overflowScan.ValueColumn] != nil {
 		t.Fatalf("overflow witness rows = %#v, want one MISSING category witness", witnessRows)
 	}
 
-	overflowRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: overflowScan.Query, BindVars: overflowScan.BindVars})
+	overflowRows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: overflowScan.Query, BindVars: overflowScan.BindVars})
 	if len(overflowRows) != MaxCategoryScanValues+1 {
 		t.Fatalf("category scan returned %d rows at the overflow boundary, want %d (256 values plus one witness row)", len(overflowRows), MaxCategoryScanValues+1)
 	}

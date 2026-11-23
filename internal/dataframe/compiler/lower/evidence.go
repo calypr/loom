@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func issueWholeRelationScopeEvidence(outputID string, plan ir.PhysicalPlan, schema []CompiledOutputColumn) (*ir.WholeRelationScopeEvidence, *ir.WholeRelationScopeIdentity, error) {
+func issueWholeRelationScopeEvidence(outputID string, plan ir.PhysicalPlan, schema []CompiledOutputColumn) (*irscope.WholeRelationScopeEvidence, *irscope.WholeRelationScopeIdentity, error) {
 	if !wholeRelationScopeCandidate(plan) {
 		return nil, nil, nil
 	}
@@ -25,11 +27,11 @@ func issueWholeRelationScopeEvidence(outputID string, plan ir.PhysicalPlan, sche
 	if unrestricted {
 		mode = "unrestricted"
 	}
-	identity := ir.WholeRelationScopeIdentity{
+	identity := irscope.WholeRelationScopeIdentity{
 		OutputID: outputID, Project: project, DatasetGeneration: generation,
 		AuthScopeMode: mode, AuthResourcePaths: append([]string(nil), paths...), SchemaDigest: schemaDigest,
 	}
-	evidence, err := ir.NewWholeRelationScopeEvidence(plan, identity)
+	evidence, err := irscope.NewWholeRelationScopeEvidence(plan, identity)
 	if err != nil {
 
 		return nil, nil, nil

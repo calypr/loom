@@ -11,6 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -260,6 +261,6 @@ func sourceGroupPreviewArangoOutput() recipe.Output {
 	}
 }
 
-func executeSourceGroupPreviewError(ctx context.Context, client *store.Client, query CompiledQuery) error {
+func executeSourceGroupPreviewError(ctx context.Context, client *store.Client, query model.CompiledQuery) error {
 	return client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
 }

@@ -1,9 +1,11 @@
 package compiler
 
 import (
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"testing"
 )
 
 type oracleReshape struct {
@@ -145,7 +147,7 @@ func TestS04CurrentConstructionFixtureCompilation(t *testing.T) {
 	if !foundCount {
 		t.Fatal("final output dropped Pivot exclusion count")
 	}
-	if _, err := CompileCellTraceOutputWithPolicy(compiled, "alpha_plus_zero", 0, 100, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
+	if _, err := celltrace.CompileCellTraceOutputWithPolicy(compiled, "alpha_plus_zero", 0, 100, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := CompileTableShapeExclusionsWithPolicy(compiled, 0, 100, ir.DefaultPhysicalOptimizationPolicy()); err != nil {

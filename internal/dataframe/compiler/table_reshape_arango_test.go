@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -174,7 +176,7 @@ func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstAra
 	}
 
 	output := constructionPreviewMultiKeyPivotOutput()
-	compile := func(limit int) CompiledQuery {
+	compile := func(limit int) model.CompiledQuery {
 		t.Helper()
 		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
@@ -279,7 +281,7 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 		if err != nil {
 			t.Fatalf("resolve %s plan: %v", policy, err)
 		}
-		compile := func(limit int) CompiledQuery {
+		compile := func(limit int) model.CompiledQuery {
 			t.Helper()
 			queries, compileErr := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 			if compileErr != nil {
@@ -1189,30 +1191,30 @@ func reshapeOracleOutput(name string, reshape *oracleReshape) recipe.Output {
 	return bindOracleCurrentConstruction(output, reshape)
 }
 
-func compileReshapeOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, CompiledQuery, error) {
+func compileReshapeOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, model.CompiledQuery, error) {
 	output = bindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-table-reshape-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
+		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
 	}
 	return compiled.Outputs[0], query, nil
 }
 
-func executeReshapeOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) []map[string]any {
+func executeReshapeOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query model.CompiledQuery) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
 	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
@@ -1233,7 +1235,7 @@ func outputColumn(columns []lower.CompiledOutputColumn, name string) any {
 	return nil
 }
 
-func assertReshapeOracleRepeatedIdentities(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery, first []map[string]any) {
+func assertReshapeOracleRepeatedIdentities(t *testing.T, ctx context.Context, client *store.Client, query model.CompiledQuery, first []map[string]any) {
 	t.Helper()
 	second := executeReshapeOracleQuery(t, ctx, client, query)
 	firstIDs, secondIDs := reshapeOracleIdentities(first), reshapeOracleIdentities(second)
@@ -1582,7 +1584,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 	if err != nil {
 		t.Fatalf("render unwindowed compiler plan: %v", err)
 	}
-	rawRows, err := queryReshapeOracle(ctx, client, CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
+	rawRows, err := queryReshapeOracle(ctx, client, model.CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
 	if err != nil {
 		t.Fatalf("execute unwindowed compiler plan: %v\n%s", err, rendered.Query)
 	}
@@ -1708,7 +1710,7 @@ func assertReshapeOracleUnpivotRejectsIncompatibleInputs(t *testing.T, project, 
 	}
 }
 
-func queryReshapeOracle(ctx context.Context, client *store.Client, query CompiledQuery) ([]map[string]any, error) {
+func queryReshapeOracle(ctx context.Context, client *store.Client, query model.CompiledQuery) ([]map[string]any, error) {
 	rows := make([]map[string]any, 0)
 	err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
 		rows = append(rows, row)
@@ -1717,9 +1719,9 @@ func queryReshapeOracle(ctx context.Context, client *store.Client, query Compile
 	return rows, err
 }
 
-func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
+func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (celltrace.CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
-	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}

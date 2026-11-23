@@ -3,13 +3,13 @@ package ir
 import "fmt"
 
 const (
-	physicalScopeProjectBind               = "project"
-	physicalScopeAllowedBind               = "scope_allowed"
-	physicalScopeAuthPathsBind             = "auth_resource_paths"
-	physicalScopeAuthPathsUnrestrictedBind = "auth_resource_paths_unrestricted"
+	PhysicalScopeProjectBind               = "project"
+	PhysicalScopeAllowedBind               = "scope_allowed"
+	PhysicalScopeAuthPathsBind             = "auth_resource_paths"
+	PhysicalScopeAuthPathsUnrestrictedBind = "auth_resource_paths_unrestricted"
 	physicalScopeAuthPathField             = "auth_resource_path"
 	physicalScopeProjectField              = "project"
-	physicalScopeDatasetGenerationBind     = datasetGenerationBindKey
+	PhysicalScopeDatasetGenerationBind     = datasetGenerationBindKey
 	physicalScopeDatasetGenerationField    = datasetGenerationField
 )
 
@@ -526,7 +526,7 @@ func findDatasetGenerationScopeFilters(operations []PhysicalOperation, start, en
 		for index := lastIndex + 1; index < end; index++ {
 			operation := operations[index]
 			if operation.Kind == PhysicalDerivedLetOp && operation.DerivedLet.Operator == "AUTH_RESOURCE_PATH_ALLOWED" {
-				return 0, fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED LET at operation %d appears before dataset generation scope filter %s.%s == @%s", index, variable, physicalScopeDatasetGenerationField, physicalScopeDatasetGenerationBind)
+				return 0, fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED LET at operation %d appears before dataset generation scope filter %s.%s == @%s", index, variable, physicalScopeDatasetGenerationField, PhysicalScopeDatasetGenerationBind)
 			}
 			if operation.Kind != PhysicalFilterOp {
 				continue
@@ -540,10 +540,10 @@ func findDatasetGenerationScopeFilters(operations []PhysicalOperation, start, en
 				lastIndex = index
 				break
 			}
-			return 0, fmt.Errorf("dataset generation scope filter at operation %d must be %s.%s == @%s", index, variable, physicalScopeDatasetGenerationField, physicalScopeDatasetGenerationBind)
+			return 0, fmt.Errorf("dataset generation scope filter at operation %d must be %s.%s == @%s", index, variable, physicalScopeDatasetGenerationField, PhysicalScopeDatasetGenerationBind)
 		}
 		if !found {
-			return 0, fmt.Errorf("missing dataset generation scope filter %s.%s == @%s before the next resource operation", variable, physicalScopeDatasetGenerationField, physicalScopeDatasetGenerationBind)
+			return 0, fmt.Errorf("missing dataset generation scope filter %s.%s == @%s before the next resource operation", variable, physicalScopeDatasetGenerationField, PhysicalScopeDatasetGenerationBind)
 		}
 	}
 	return lastIndex, nil
@@ -556,7 +556,7 @@ func findProjectScopeFilters(operations []PhysicalOperation, start, end int, res
 		for index := lastIndex + 1; index < end; index++ {
 			operation := operations[index]
 			if operation.Kind == PhysicalDerivedLetOp && operation.DerivedLet.Operator == "AUTH_RESOURCE_PATH_ALLOWED" {
-				return 0, fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED LET at operation %d appears before project scope filter %s.project == @%s", index, variable, physicalScopeProjectBind)
+				return 0, fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED LET at operation %d appears before project scope filter %s.project == @%s", index, variable, PhysicalScopeProjectBind)
 			}
 			if operation.Kind != PhysicalFilterOp {
 				continue
@@ -570,10 +570,10 @@ func findProjectScopeFilters(operations []PhysicalOperation, start, end int, res
 				lastIndex = index
 				break
 			}
-			return 0, fmt.Errorf("project scope filter at operation %d must be %s.project == @%s", index, variable, physicalScopeProjectBind)
+			return 0, fmt.Errorf("project scope filter at operation %d must be %s.project == @%s", index, variable, PhysicalScopeProjectBind)
 		}
 		if !found {
-			return 0, fmt.Errorf("missing project scope filter %s.project == @%s before the next resource operation", variable, physicalScopeProjectBind)
+			return 0, fmt.Errorf("missing project scope filter %s.project == @%s before the next resource operation", variable, PhysicalScopeProjectBind)
 		}
 	}
 	return lastIndex, nil
@@ -609,9 +609,9 @@ func findAuthScopeEquality(operations []PhysicalOperation, start, end int, authV
 		if isScopeAllowedPredicate(predicate, authVariable) {
 			return nil
 		}
-		return fmt.Errorf("auth scope equality at operation %d must be %s == @%s", index, authVariable, physicalScopeAllowedBind)
+		return fmt.Errorf("auth scope equality at operation %d must be %s == @%s", index, authVariable, PhysicalScopeAllowedBind)
 	}
-	return fmt.Errorf("missing auth scope equality %s == @%s before the next resource operation", authVariable, physicalScopeAllowedBind)
+	return fmt.Errorf("missing auth scope equality %s == @%s before the next resource operation", authVariable, PhysicalScopeAllowedBind)
 }
 
 func isProjectScopePredicate(predicate PhysicalPredicate, variable string) bool {
@@ -619,13 +619,13 @@ func isProjectScopePredicate(predicate PhysicalPredicate, variable string) bool 
 		predicate.Left.Variable == variable &&
 		physicalPathEquals(predicate.Left.Path, []string{physicalScopeProjectField}) &&
 		predicate.Right != nil &&
-		predicate.Right.BindKey == physicalScopeProjectBind &&
+		predicate.Right.BindKey == PhysicalScopeProjectBind &&
 		predicate.Right.Variable == "" &&
 		len(predicate.Right.Path) == 0
 }
 
 func isScopeAllowedFilter(predicate PhysicalPredicate) bool {
-	return predicate.Operator == "EQUALS" && predicate.Right != nil && predicate.Right.BindKey == physicalScopeAllowedBind && predicate.Right.Variable == "" && len(predicate.Right.Path) == 0
+	return predicate.Operator == "EQUALS" && predicate.Right != nil && predicate.Right.BindKey == PhysicalScopeAllowedBind && predicate.Right.Variable == "" && len(predicate.Right.Path) == 0
 }
 
 func isScopeAllowedPredicate(predicate PhysicalPredicate, variable string) bool {
@@ -637,7 +637,7 @@ func isDatasetGenerationScopePredicate(predicate PhysicalPredicate, variable str
 		predicate.Left.Variable == variable &&
 		physicalPathEquals(predicate.Left.Path, []string{physicalScopeDatasetGenerationField}) &&
 		predicate.Right != nil &&
-		predicate.Right.BindKey == physicalScopeDatasetGenerationBind &&
+		predicate.Right.BindKey == PhysicalScopeDatasetGenerationBind &&
 		predicate.Right.Variable == "" &&
 		len(predicate.Right.Path) == 0
 }
@@ -648,7 +648,7 @@ func validateAuthScopeInputs(inputs, expectedPaths []PhysicalValue) error {
 			return fmt.Errorf("must include %s", formatPhysicalValue(expected))
 		}
 	}
-	for _, bindKey := range []string{physicalScopeAuthPathsBind, physicalScopeAuthPathsUnrestrictedBind} {
+	for _, bindKey := range []string{PhysicalScopeAuthPathsBind, PhysicalScopeAuthPathsUnrestrictedBind} {
 		expected := PhysicalValue{BindKey: bindKey}
 		if !containsPhysicalValue(inputs, expected) {
 			return fmt.Errorf("must include @%s", bindKey)

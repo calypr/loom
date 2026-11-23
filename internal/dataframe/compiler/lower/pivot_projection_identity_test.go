@@ -2,12 +2,15 @@ package lower_test
 
 import (
 	"context"
+	"testing"
+
+	lowerphysical "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"testing"
 )
 
 func TestNativePivotKeyIdentityMatchesActualCompiledProjectionNames(t *testing.T) {
@@ -21,7 +24,7 @@ func TestNativePivotKeyIdentityMatchesActualCompiledProjectionNames(t *testing.T
 			t.Fatal(err)
 		}
 		for _, key := range keys {
-			expected := lower.NativePivotColumnName("", pivot.Name, key, aliases)
+			expected := lowerphysical.NativePivotColumnName("", pivot.Name, key, aliases)
 			count := 0
 			for _, column := range resolved.Compiled.Outputs[0].OutputSchema {
 				if column.Name == expected {

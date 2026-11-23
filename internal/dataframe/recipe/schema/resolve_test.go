@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	lowerphysical "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -270,8 +272,8 @@ func TestResolvePivotOutputOverrideUsesNativeNamesForCollision(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			aliases := map[string]string{"code-a": tc.alias}
-			firstName := lower.NativePivotColumnName("", "values", "code-a", aliases)
-			secondName := lower.NativePivotColumnName("", "values", tc.rawKey, aliases)
+			firstName := lowerphysical.NativePivotColumnName("", "values", "code-a", aliases)
+			secondName := lowerphysical.NativePivotColumnName("", "values", tc.rawKey, aliases)
 			if (firstName == secondName) != tc.wantCollision {
 				t.Fatalf("test fixture names %q and %q do not match expected collision=%v", firstName, secondName, tc.wantCollision)
 			}

@@ -45,7 +45,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestStreamingMissingCategoryPivotIndexFallsBackWithoutScalarKeyProof(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}

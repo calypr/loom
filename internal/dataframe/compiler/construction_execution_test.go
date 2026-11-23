@@ -8,6 +8,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -124,7 +125,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 			t.Fatal(err)
 		}
 	}
-	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +576,7 @@ func TestConstructionGroupScanAlternativeRejectsExtraSourceFilters(t *testing.T)
 	}
 }
 
-func compileConstructionPivotPreview(t *testing.T, output recipe.Output, limit int) CompiledQuery {
+func compileConstructionPivotPreview(t *testing.T, output recipe.Output, limit int) model.CompiledQuery {
 	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: "construction-preview-project", DatasetGeneration: "construction-preview-generation"}

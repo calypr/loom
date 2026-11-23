@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -152,7 +154,7 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 
 func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex(t *testing.T) {
 	engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-	query.PreviewGroupScan = &compiler.PreviewGroupScanSpec{
+	query.PreviewGroupScan = &model.PreviewGroupScanSpec{
 		Collection:         query.PreviewGroupProjection.Collection,
 		SequentialQuery:    "sequential-query",
 		SequentialBindVars: map[string]any{"scan": "sequential"},
@@ -195,7 +197,7 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 }
 
 func TestCompatibleGroupProjectionIndexesRequiresOwnedScopeAndProjectionCoverage(t *testing.T) {
-	required := &compiler.PreviewGroupProjectionIndexSpec{
+	required := &model.PreviewGroupProjectionIndexSpec{
 		RequiredFields:       []string{"project", "dataset_generation"},
 		RequiredStoredValues: []string{"auth_resource_path"},
 		ProjectionPath:       "payload.code.coding",
@@ -233,7 +235,7 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 			queryCalls++
 			return groupPreviewCacheRows()(ctx, query, batch, binds, visit)
 		},
-		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+		PreparePreviewIndex: func(context.Context, model.PreviewCoveringIndexSpec) error {
 			prepareCalls++
 			return errors.New("reused indexes must not be prepared")
 		},
@@ -265,7 +267,7 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 	}
 }
 
-func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindings) (*Engine, compiler.CompiledQuery, OutputStream) {
+func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindings) (*Engine, model.CompiledQuery, OutputStream) {
 	t.Helper()
 	engine, err := New(Config{
 		Registry:         invalidRecipeRegistry{},
@@ -516,10 +518,10 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 	}
 }
 
-func groupPreviewScanFixture() (*Engine, compiler.CompiledQuery, OutputStream) {
-	return &Engine{}, compiler.CompiledQuery{
+func groupPreviewScanFixture() (*Engine, model.CompiledQuery, OutputStream) {
+	return &Engine{}, model.CompiledQuery{
 		Query: "normal-query", BindVars: map[string]any{"scan": "normal"},
-		PreviewGroupScan: &compiler.PreviewGroupScanSpec{
+		PreviewGroupScan: &model.PreviewGroupScanSpec{
 			Collection: "Specimen", SequentialQuery: "sequential-query",
 			SequentialBindVars: map[string]any{"scan": "sequential"},
 			ScopeCountQuery:    "scope-count-query", ScopeCountBindVars: map[string]any{"scope": true},
@@ -537,7 +539,7 @@ func nonCoveringGroupExplain(context.Context, string, map[string]any) (arango.Ex
 	}}}}, nil
 }
 
-func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows) (*Engine, Resolved, compiler.CompiledQuery, OutputStream) {
+func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows) (*Engine, Resolved, model.CompiledQuery, OutputStream) {
 	t.Helper()
 	engine, err := New(Config{
 		Registry:         invalidRecipeRegistry{},
@@ -611,7 +613,7 @@ func semanticGroupProjectionExecutionOutput() recipe.Output {
 func configureSemanticGroupProjectionIndex(
 	t *testing.T,
 	engine *Engine,
-	query compiler.CompiledQuery,
+	query model.CompiledQuery,
 ) (arango.PreviewCoveringIndex, string, map[string]any, string, map[string]any) {
 	t.Helper()
 	if query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil {
@@ -871,7 +873,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 
 	t.Run("unknown scan plan", func(t *testing.T) {
 		engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-		query.PreviewGroupScan = &compiler.PreviewGroupScanSpec{
+		query.PreviewGroupScan = &model.PreviewGroupScanSpec{
 			Collection:         query.PreviewGroupProjection.Collection,
 			ScopeCountQuery:    query.PreviewGroupProjection.ScopeCountQuery,
 			ScopeCountBindVars: query.PreviewGroupProjection.ScopeCountBindVars,
