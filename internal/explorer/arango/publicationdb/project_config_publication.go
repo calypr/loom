@@ -788,5 +788,3 @@ func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
 }
-
-var _ explorer.ProjectConfigPublisher = (*Store)(nil)

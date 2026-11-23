@@ -1,8 +1,6 @@
 package explorer
 
 import (
-	"context"
-
 	"github.com/calypr/loom/internal/dataset"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 )
@@ -19,10 +17,6 @@ type ProjectConfigPublishRequest struct {
 	ExpectedConfigRevisionIDs map[string]string
 	Release                   dataset.ProjectRelease
 	ExpectedReleaseRevision   int64
-}
-
-type ProjectConfigPublisher interface {
-	PublishProjectConfigs(context.Context, ProjectConfigPublishRequest) (dataset.ActiveRelease, error)
 }
 
 const ProjectConfigsAPIVersion = explorerconfig.ProjectConfigsAPIVersion

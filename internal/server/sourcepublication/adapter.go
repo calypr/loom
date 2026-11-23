@@ -19,9 +19,13 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
+type projectConfigPublisher interface {
+	PublishProjectConfigs(context.Context, explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error)
+}
+
 type sourcePublicationExplorer interface {
 	GetViewBuilderSettings(context.Context, string) (explorer.ViewBuilderSettings, error)
-	explorer.ProjectConfigPublisher
+	projectConfigPublisher
 	List(context.Context, string) ([]explorer.Explorer, error)
 }
 
