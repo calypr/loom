@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -44,10 +46,10 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 		t.Fatal(err)
 	}
 
-	request := ConstructionChoiceProposalRequest{
+	request := construction.ConstructionChoiceProposalRequest{
 		CommandID: choiceID, Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest, OutputID: "patients",
-		ConstructionChoices: []ConstructionChoiceProposalSelection{
+		ConstructionChoices: []construction.ConstructionChoiceProposalSelection{
 			{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue},
 			{ChoiceID: choiceBatch.ChoiceID, Form: capability.ConstructionChoiceFirst},
 		},
@@ -113,10 +115,10 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 		store.receipt = receipt
 		return receipt, nil
 	}
-	request := ConstructionChoiceProposalRequest{
+	request := construction.ConstructionChoiceProposalRequest{
 		CommandID: "command-choice-stale", Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest, OutputID: "patients",
-		ConstructionChoices: []ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
+		ConstructionChoices: []construction.ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
 	}
 	request.ExpectedDraftVersion++
 	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "DRAFT_CONFLICT") {
@@ -154,10 +156,10 @@ func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDr
 	}
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
-	proposal, err := service.ProposeConstructionChoice(context.Background(), ConstructionChoiceProposalRequest{
+	proposal, err := service.ProposeConstructionChoice(context.Background(), construction.ConstructionChoiceProposalRequest{
 		CommandID: "semantic-choice-preview", Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest, OutputID: "patients",
-		ConstructionChoices: []ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
+		ConstructionChoices: []construction.ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
 	})
 	if err != nil {
 		t.Fatal(err)

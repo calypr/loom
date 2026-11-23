@@ -17,7 +17,7 @@ func previewPopulationMemberRemovalProposal(ctx context.Context, service *Servic
 	return service.populationService.PreviewPopulationMemberRemovalProposal(ctx, project, explorerID, receipt)
 }
 
-func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request PopulationMemberRemovalProposalRequest) (PopulationMemberRemovalProposalResponse, error) {
+func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request population.PopulationMemberRemovalProposalRequest) (population.PopulationMemberRemovalProposalResponse, error) {
 	return s.populationService.ProposePopulationMemberRemoval(ctx, request)
 }
 

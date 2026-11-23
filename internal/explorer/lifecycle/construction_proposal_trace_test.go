@@ -12,6 +12,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -94,7 +96,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 		t.Fatalf("Document.AnalyzeConstructionCandidate dependent FILTER input type = %q, want decimal", got)
 	}
 
-	proposal, err := service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: versionBefore, ExpectedDraftDigest: digestBefore, OutputID: "patients",
 		ChangedStepID: "group-records", CandidateConstruction: candidate,
@@ -529,14 +531,14 @@ type operationHistoryReloadFile struct {
 	Cases         []operationHistoryReloadCase `json:"cases"`
 }
 type operationHistoryReloadCase struct {
-	ID              string                           `json:"id"`
-	ActionIndex     int                              `json:"actionIndex"`
-	OutputID        string                           `json:"outputId"`
-	StageID         string                           `json:"stageId"`
-	Before          authoringv2.BuilderState         `json:"before"`
-	After           authoringv2.BuilderState         `json:"after"`
-	StoredWorkspace authoringv2.Workspace            `json:"storedWorkspace"`
-	Capabilities    ConstructionCapabilitiesResponse `json:"capabilities"`
+	ID              string                                        `json:"id"`
+	ActionIndex     int                                           `json:"actionIndex"`
+	OutputID        string                                        `json:"outputId"`
+	StageID         string                                        `json:"stageId"`
+	Before          authoringv2.BuilderState                      `json:"before"`
+	After           authoringv2.BuilderState                      `json:"after"`
+	StoredWorkspace authoringv2.Workspace                         `json:"storedWorkspace"`
+	Capabilities    construction.ConstructionCapabilitiesResponse `json:"capabilities"`
 }
 type operationHistoryReloadSummary struct {
 	ID           string `json:"id"`
@@ -572,11 +574,11 @@ type operationHistoryProposalResponseCase struct {
 	Checkpoints []operationHistoryProposalResponseEntry `json:"checkpoints"`
 }
 type operationHistoryProposalResponseEntry struct {
-	ActionIndex        int                            `json:"actionIndex"`
-	RequestID          string                         `json:"requestId"`
-	RequestFingerprint string                         `json:"requestFingerprint"`
-	ProposalResponse   ConstructionProposalResponse   `json:"proposalResponse"`
-	PreviewResult      *operationHistoryPreviewResult `json:"previewResult,omitempty"`
+	ActionIndex        int                                       `json:"actionIndex"`
+	RequestID          string                                    `json:"requestId"`
+	RequestFingerprint string                                    `json:"requestFingerprint"`
+	ProposalResponse   construction.ConstructionProposalResponse `json:"proposalResponse"`
+	PreviewResult      *operationHistoryPreviewResult            `json:"previewResult,omitempty"`
 }
 type operationHistoryPreviewResult struct {
 	ReceiptID string                            `json:"receiptId"`
@@ -802,7 +804,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 		assertTraceSeedIdentity(t, traceID, seedIdentity, workspace, initialRequest)
 		assertTraceProposalContext(t, traceID, trace, candidate.Checkpoints[0].ProposalRequest, initialRequest)
 		service, store, snapshot, currentWorkspace, stats := newOperationHistoryService(t, workspace, initialRequest)
-		lastProposal := ConstructionProposalResponse{}
+		lastProposal := construction.ConstructionProposalResponse{}
 		var lastPreviewResult *operationHistoryPreviewResult
 		ready, previewed, awaitingAck, canceled := false, false, false, false
 		replay := operationHistoryReplayCase{ID: traceID, ProposalCheckpoints: []operationHistoryReplayProposal{}, ApplyAck: []operationHistoryReplayAck{}}
@@ -995,7 +997,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				if reloadErr != nil || !bytes.Equal(readCanonical, persistedCanonical) || afterReload.DraftDigest != persistedDigest || afterReload.DraftVersion != version+1 {
 					t.Fatalf("fresh Builder lost saved Group: err=%v", reloadErr)
 				}
-				reloadCaps, reloadErr := reloadService.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
+				reloadCaps, reloadErr := reloadService.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
 				if reloadErr != nil {
 					t.Fatalf("fresh Group capabilities: %v", reloadErr)
 				}
@@ -1123,10 +1125,10 @@ func prepareOperationHistorySeeds(t *testing.T, traces operationHistoryTraceFile
 			failed = true
 			continue
 		}
-		prepareRequest := ConstructionProposalRequest{Project: workspaceContext.Project, ExplorerID: workspaceContext.ExplorerID, SnapshotToken: identity.SnapshotToken,
+		prepareRequest := construction.ConstructionProposalRequest{Project: workspaceContext.Project, ExplorerID: workspaceContext.ExplorerID, SnapshotToken: identity.SnapshotToken,
 			ExpectedDraftVersion: identity.AcceptedVersion, ExpectedDraftDigest: identity.AcceptedDigest, OutputID: identity.OutputID}
 		service, store, _, _, stats := newOperationHistoryService(t, workspace, prepareRequest)
-		if _, err := service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+		if _, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: prepareRequest.Project, ExplorerID: prepareRequest.ExplorerID, SnapshotToken: prepareRequest.SnapshotToken,
 			ExpectedDraftVersion: prepareRequest.ExpectedDraftVersion, ExpectedDraftDigest: prepareRequest.ExpectedDraftDigest,
 			OutputID: prepareRequest.OutputID, StageID: recipe.ConstructionSourceProjectionID,
@@ -1192,7 +1194,7 @@ func traceAggregateOutputID(t *testing.T, trace operationHistoryTrace) string {
 	return initial.AggregateOutputID
 }
 
-func assertTraceSeedIdentity(t *testing.T, id string, identity operationHistorySeedIdentity, workspace authoringv2.Workspace, request ConstructionProposalRequest) {
+func assertTraceSeedIdentity(t *testing.T, id string, identity operationHistorySeedIdentity, workspace authoringv2.Workspace, request construction.ConstructionProposalRequest) {
 	t.Helper()
 	digest, err := workspace.Digest()
 	if err != nil {
@@ -1229,12 +1231,12 @@ func decodeTraceWorkspace(t *testing.T, id string, data json.RawMessage) authori
 	return w
 }
 
-func decodeTraceProposalRequest(t *testing.T, id string, data json.RawMessage) ConstructionProposalRequest {
+func decodeTraceProposalRequest(t *testing.T, id string, data json.RawMessage) construction.ConstructionProposalRequest {
 	t.Helper()
 	if len(data) == 0 {
 		t.Fatalf("trace %s has no full proposalRequest", id)
 	}
-	var request ConstructionProposalRequest
+	var request construction.ConstructionProposalRequest
 	if err := json.Unmarshal(data, &request); err != nil {
 		t.Fatalf("trace %s decode proposalRequest: %v", id, err)
 	}
@@ -1250,7 +1252,7 @@ func traceProposalRequestID(t *testing.T, id string, data json.RawMessage) strin
 	return request.RequestID
 }
 
-func assertTraceProposalContext(t *testing.T, id string, trace operationHistoryTrace, data json.RawMessage, request ConstructionProposalRequest) {
+func assertTraceProposalContext(t *testing.T, id string, trace operationHistoryTrace, data json.RawMessage, request construction.ConstructionProposalRequest) {
 	t.Helper()
 	context := decodeTraceWorkspaceContext(t, trace)
 	var raw struct {
@@ -1286,7 +1288,7 @@ func constructionFromRaw(t *testing.T, id string, actionIndex int, data json.Raw
 	return candidate
 }
 
-func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w authoringv2.Workspace, r ConstructionProposalRequest) {
+func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w authoringv2.Workspace, r construction.ConstructionProposalRequest) {
 	t.Helper()
 	if err := w.Validate(); err != nil {
 		t.Fatalf("trace %s accepted workspace validation: %v", id, err)
@@ -1302,7 +1304,7 @@ func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w authoringv2.W
 
 type operationHistoryCompileStats struct{ base, candidate int }
 
-func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request ConstructionProposalRequest) (*Service, *fakeStore, capability.Snapshot, authoringv2.Workspace, *operationHistoryCompileStats) {
+func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request construction.ConstructionProposalRequest) (*Service, *fakeStore, capability.Snapshot, authoringv2.Workspace, *operationHistoryCompileStats) {
 	t.Helper()
 	encoded, err := w.CanonicalJSON()
 	if err != nil {
@@ -1446,7 +1448,7 @@ func sameOperationHistoryExpectation(a, b operationHistoryExpectation) bool {
 	return a.ProposalStatus == b.ProposalStatus && equalStringSlices(a.StepIDs, b.StepIDs) && reflect.DeepEqual(a.GroupOutputTypes, b.GroupOutputTypes) && reflect.DeepEqual(a.DownstreamInputTypes, b.DownstreamInputTypes) && reflect.DeepEqual(a.DownstreamOutputTypes, b.DownstreamOutputTypes) && a.CandidateGroupKeyOutputID == b.CandidateGroupKeyOutputID && a.AcceptedGroupKeyOutputID == b.AcceptedGroupKeyOutputID && a.GroupKeyOutputRelation == b.GroupKeyOutputRelation && a.AcceptedAggregate == b.AcceptedAggregate && a.CandidateAggregate == b.CandidateAggregate && a.AcceptedChangesOnApply == b.AcceptedChangesOnApply && a.ApplyAck == b.ApplyAck && equalTraceMissingInputs(a.MissingInputs, b.MissingInputs) && equalStringSlices(a.RemovedStepIDs, b.RemovedStepIDs)
 }
 
-func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, aggregateOutputID string, expected operationHistoryExpectation, accepted authoringv2.Construction, proposal ConstructionProposalResponse, receipt *explorer.CompilationReceipt, outputID string) {
+func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, aggregateOutputID string, expected operationHistoryExpectation, accepted authoringv2.Construction, proposal construction.ConstructionProposalResponse, receipt *explorer.CompilationReceipt, outputID string) {
 	t.Helper()
 	if got := constructionStepIDs(proposal.CandidateConstruction.Steps); !reflect.DeepEqual(got, expected.StepIDs) {
 		t.Fatalf("trace %s action %d steps %v != model %v", id, actionIndex, got, expected.StepIDs)

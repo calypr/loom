@@ -71,15 +71,15 @@ type ConfiguredColumnContext struct {
 }
 
 type ConfiguredColumnContextResult struct {
-	SnapshotToken   string                          `json:"snapshotToken"`
-	DraftVersion    int64                           `json:"draftVersion"`
-	DraftDigest     string                          `json:"draftDigest"`
-	Libraries       []InterpretationLibrarySummary  `json:"libraries"`
-	PinnedRevisions []InterpretationRevisionSummary `json:"pinnedRevisions"`
-	Columns         []ConfiguredColumnContext       `json:"columns"`
+	SnapshotToken   string                                         `json:"snapshotToken"`
+	DraftVersion    int64                                          `json:"draftVersion"`
+	DraftDigest     string                                         `json:"draftDigest"`
+	Libraries       []interpretation.InterpretationLibrarySummary  `json:"libraries"`
+	PinnedRevisions []interpretation.InterpretationRevisionSummary `json:"pinnedRevisions"`
+	Columns         []ConfiguredColumnContext                      `json:"columns"`
 }
 
-func validateConfiguredColumnContextRequest(request ConfiguredColumnContextRequest) error {
+func validateConfiguredColumnContextRequest(request interpretation.ConfiguredColumnContextRequest) error {
 	values := map[string]string{
 		"project": request.Project, "explorerId": request.ExplorerID, "snapshotToken": request.SnapshotToken,
 		"expectedDraftDigest": request.ExpectedDraftDigest,
@@ -95,10 +95,10 @@ func validateConfiguredColumnContextRequest(request ConfiguredColumnContextReque
 	return nil
 }
 
-func (s *Service) ConfiguredColumnContext(ctx context.Context, request ConfiguredColumnContextRequest) (ConfiguredColumnContextResult, error) {
+func (s *Service) ConfiguredColumnContext(ctx context.Context, request interpretation.ConfiguredColumnContextRequest) (ConfiguredColumnContextResult, error) {
 	result := ConfiguredColumnContextResult{
 		SnapshotToken: request.SnapshotToken,
-		Libraries:     []InterpretationLibrarySummary{}, PinnedRevisions: []InterpretationRevisionSummary{}, Columns: []ConfiguredColumnContext{},
+		Libraries:     []interpretation.InterpretationLibrarySummary{}, PinnedRevisions: []interpretation.InterpretationRevisionSummary{}, Columns: []ConfiguredColumnContext{},
 	}
 	if err := validateConfiguredColumnContextRequest(request); err != nil {
 		return result, support.Malformed("interpretation-context", err.Error(), err)

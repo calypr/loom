@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -119,7 +121,7 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 		definition.Contributor = &contributor
 	}
 	candidate := match.StructuralCandidate
-	return s.CreateInterpretationRevision(ctx, CreateInterpretationRevisionRequest{
+	return s.CreateInterpretationRevision(ctx, interpretation.CreateInterpretationRevisionRequest{
 		Project: request.Project, LibraryID: request.LibraryID, ParentRevisionID: request.ParentRevisionID,
 		Applicability: explorer.InterpretationApplicability{
 			ResourceTypes: singletonInterpretationDimension(candidate.ResourceType),

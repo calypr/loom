@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -132,7 +134,7 @@ func wrappedCategoryUserError(t *testing.T, code dataframeerrors.ErrorCode, deta
 	return fmt.Errorf("scan callback: %w", dataframeerrors.Wrap(categoryScanTestCause, code, detail))
 }
 
-func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Service, ConstructionCategoryDiscoveryRequest) {
+func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Service, construction.ConstructionCategoryDiscoveryRequest) {
 	t.Helper()
 	service, store, snapshot := constructionProposalService(t)
 	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
@@ -160,7 +162,7 @@ func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Se
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := ConstructionCategoryDiscoveryRequest{
+	request := construction.ConstructionCategoryDiscoveryRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,

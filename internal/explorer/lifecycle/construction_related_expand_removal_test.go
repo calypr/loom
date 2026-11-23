@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	constructionpkg "github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
@@ -66,7 +67,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 				return receipt, nil
 			}
 
-			proposal, err := service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+			proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 				OutputID: "patients", RemoveStepIDs: []string{test.removeStepID}, CandidateConstruction: candidate,
@@ -148,7 +149,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 		store.receipt = receipt
 		return receipt, nil
 	}
-	proposal, err := service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "group-records", CandidateConstruction: candidate,

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -178,7 +180,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 		ResolveSemanticInventorySelections: resolver,
 	})
 
-	browsed, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
+	browsed, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
 		OutputID: "out", FrameID: frame.ID,
 	})

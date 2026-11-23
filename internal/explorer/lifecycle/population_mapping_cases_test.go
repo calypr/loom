@@ -10,6 +10,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/population"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -120,8 +122,8 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
-	expected := PopulationMappingBinding{ReceiptID: receipt.ID, OutputID: "patients", Project: project, ExplorerID: receipt.ExplorerID, Generation: selection.Generation, ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: "membership-digest", ResourceType: "Specimen"}
-	result, err := service.PopulationMapping(context.Background(), PopulationMappingRequest{Project: requestProject, ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+	expected := population.PopulationMappingBinding{ReceiptID: receipt.ID, OutputID: "patients", Project: project, ExplorerID: receipt.ExplorerID, Generation: selection.Generation, ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: "membership-digest", ResourceType: "Specimen"}
+	result, err := service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: requestProject, ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 	row := formalPopulationResult{ID: value.ID, Outcome: string(result.Report.Status), MemberReads: store.visits, MappingCalls: calls, Counts: []int64{}}
 	if err != nil {
 		row.Outcome = "rejected"

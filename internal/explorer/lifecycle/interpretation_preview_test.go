@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -70,7 +72,7 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	service := newTestService(t, store, config)
 	beforeDraft := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
-	result, err := service.PreviewInterpretationCandidate(context.Background(), PreviewInterpretationCandidateRequest{
+	result, err := service.PreviewInterpretationCandidate(context.Background(), interpretation.PreviewInterpretationCandidateRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest,
 		OutputID: "patients", Column: "patient_id", RevisionID: string(revision.ID), Limit: 1,
@@ -84,7 +86,7 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	if result.BaseReceiptID == "" || result.CandidateReceiptID == "" || result.BaseReceiptID == result.CandidateReceiptID {
 		t.Fatalf("receipt identities = %#v", result)
 	}
-	if result.Completeness != CandidatePreviewIncomplete || result.Counts.Compared != 1 || result.Counts.Changed != 1 {
+	if result.Completeness != interpretation.CandidatePreviewIncomplete || result.Counts.Compared != 1 || result.Counts.Changed != 1 {
 		t.Fatalf("preview result = %#v, want bounded incomplete changed result", result)
 	}
 	if len(result.Samples) != 1 || result.Samples[0].Before["patient_id"] != "before" || result.Samples[0].After["patient_id"] != "after" {

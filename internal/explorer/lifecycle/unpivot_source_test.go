@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -72,17 +75,17 @@ func newUnpivotSourceHarness(t *testing.T) *unpivotSourceHarness {
 	return &unpivotSourceHarness{filterSourceHarness: newFilterSourceHarness(t)}
 }
 
-func unpivotPatientProposalRequest(changedStepID string, sources []ConstructionUnpivotSourceSelection) ConstructionProposalRequest {
-	return ConstructionProposalRequest{
+func unpivotPatientProposalRequest(changedStepID string, sources []rowsource.ConstructionUnpivotSourceSelection) construction.ConstructionProposalRequest {
+	return construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "unpivot-source-patient-token",
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:unpivot-source-patient-draft", OutputID: filterSourceOutput,
 		ChangedStepID: changedStepID, UnpivotSources: sources,
 	}
 }
 
-func unpivotBSSelections(t *testing.T, snapshot capability.Snapshot, path, columnID string) ConstructionUnpivotSourceSelection {
+func unpivotBSSelections(t *testing.T, snapshot capability.Snapshot, path, columnID string) rowsource.ConstructionUnpivotSourceSelection {
 	t.Helper()
-	return ConstructionUnpivotSourceSelection{ChoiceID: deriveSourceRowChoice(t, snapshot, deriveSourceRootType, path).ChoiceID, ColumnID: columnID}
+	return rowsource.ConstructionUnpivotSourceSelection{ChoiceID: deriveSourceRowChoice(t, snapshot, deriveSourceRootType, path).ChoiceID, ColumnID: columnID}
 }
 
 func TestConstructionUnpivotSourceCapabilityExposesPopulatedUnselectedRootScalars(t *testing.T) {
@@ -96,7 +99,7 @@ func TestConstructionUnpivotSourceCapabilityExposesPopulatedUnselectedRootScalar
 	if !result.Supported || result.ReasonCode != "" || result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("unpivot source capability = %#v, want a supported source-stage capability", result)
 	}
-	byPath := make(map[string]ConstructionUnpivotSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.ConstructionUnpivotSourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -148,7 +151,7 @@ func TestConstructionUnpivotSourceRefusesForgedAndCrossSnapshotChoices(t *testin
 
 	foreign := deriveSourceRowChoice(t, other, deriveSourceRootType, "active")
 	if _, err := service.resolveConstructionUnpivotSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
-		ConstructionUnpivotSourceSelection{ChoiceID: foreign.ChoiceID, ColumnID: unpivotSourceBSColumn}); err == nil {
+		rowsource.ConstructionUnpivotSourceSelection{ChoiceID: foreign.ChoiceID, ColumnID: unpivotSourceBSColumn}); err == nil {
 		t.Fatal("a choice issued against another snapshot was accepted")
 	} else if code := lifecycleErrorCode(err); code != "INVALID_UNPIVOT_SOURCE_CHOICE" {
 		t.Fatalf("cross-snapshot error = %v, want INVALID_UNPIVOT_SOURCE_CHOICE", err)
@@ -160,14 +163,14 @@ func TestConstructionUnpivotSourceRefusesForgedAndCrossSnapshotChoices(t *testin
 	}
 	forged := parts[0] + "." + parts[1] + "." + strings.Repeat("0", len(parts[2]))
 	if _, err := service.resolveConstructionUnpivotSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
-		ConstructionUnpivotSourceSelection{ChoiceID: forged, ColumnID: unpivotSourceBSColumn}); err == nil {
+		rowsource.ConstructionUnpivotSourceSelection{ChoiceID: forged, ColumnID: unpivotSourceBSColumn}); err == nil {
 		t.Fatal("a tampered choice token was accepted")
 	} else if code := lifecycleErrorCode(err); code != "INVALID_UNPIVOT_SOURCE_CHOICE" {
 		t.Fatalf("tampered token error = %v, want INVALID_UNPIVOT_SOURCE_CHOICE", err)
 	}
 
 	if _, err := service.resolveConstructionUnpivotSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
-		ConstructionUnpivotSourceSelection{ChoiceID: "rc1.not-a-real-token.deadbeef", ColumnID: unpivotSourceBSColumn}); err == nil {
+		rowsource.ConstructionUnpivotSourceSelection{ChoiceID: "rc1.not-a-real-token.deadbeef", ColumnID: unpivotSourceBSColumn}); err == nil {
 		t.Fatal("an invented choice token was accepted")
 	}
 }
@@ -193,7 +196,7 @@ func TestConstructionUnpivotSourceRejectsNonScalarKindOnAdmission(t *testing.T) 
 	projection, err := harness.service.resolveConstructionUnpivotSource(context.Background(),
 		deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
 		unpivotPatientProposalRequest(unpivotSourceStep, nil), recipe.ConstructionSourceProjectionID,
-		ConstructionUnpivotSourceSelection{ChoiceID: numberChoice.ChoiceID, ColumnID: unpivotPatientColumn})
+		rowsource.ConstructionUnpivotSourceSelection{ChoiceID: numberChoice.ChoiceID, ColumnID: unpivotPatientColumn})
 	if err == nil {
 		t.Fatalf("compiler-refused number field was admitted as an unpivot source projection: %#v", projection)
 	}
@@ -222,7 +225,7 @@ func TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission(t *testing.T) {
 		projection, err := harness.service.resolveConstructionUnpivotSource(context.Background(),
 			deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
 			unpivotPatientProposalRequest(unpivotSourceStep, nil), recipe.ConstructionSourceProjectionID,
-			ConstructionUnpivotSourceSelection{ChoiceID: dateChoice.ChoiceID, ColumnID: unpivotPatientColumn})
+			rowsource.ConstructionUnpivotSourceSelection{ChoiceID: dateChoice.ChoiceID, ColumnID: unpivotPatientColumn})
 		if err == nil {
 			t.Fatalf("%s root scalar was admitted as an unpivot source projection: %#v", row.logicalType, projection)
 		}
@@ -255,7 +258,7 @@ func TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	byPath := make(map[string]ConstructionUnpivotSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.ConstructionUnpivotSourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -297,7 +300,7 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 	clone.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
 	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+		unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
 		}), clone)
 	if err != nil {
@@ -359,7 +362,7 @@ func TestConstructionUnpivotSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	})
 
 	_, err := harness.service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+		unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
 		}), candidate)
 	if err == nil {
@@ -385,11 +388,11 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 	notInput := unpivotMeltStep(unpivotSourceStep, []string{"note_col"}, unpivotMeltOutputs())
 	notInput.Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 	_, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		ConstructionProposalRequest{
+		construction.ConstructionProposalRequest{
 			Project: deriveSourceProject, ExplorerID: deriveSourceExplorer, SnapshotToken: "unpivot-source-kinds",
 			ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:unpivot-source-draft", OutputID: deriveSourceOutput,
 			ChangedStepID: unpivotSourceStep,
-			UnpivotSources: []ConstructionUnpivotSourceSelection{
+			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{
 				unpivotBSSelections(t, snapshot, "active", "foreign_column"),
 			},
 		}, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{notInput}})
@@ -402,11 +405,11 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 
 	mixed := unpivotMeltStep(unpivotSourceStep, []string{"note_col", unpivotSourceBSColumn}, unpivotMeltOutputs())
 	_, err = service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		ConstructionProposalRequest{
+		construction.ConstructionProposalRequest{
 			Project: deriveSourceProject, ExplorerID: deriveSourceExplorer, SnapshotToken: "unpivot-source-kinds",
 			ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:unpivot-source-draft", OutputID: deriveSourceOutput,
 			ChangedStepID: unpivotSourceStep,
-			UnpivotSources: []ConstructionUnpivotSourceSelection{
+			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{
 				unpivotBSSelections(t, snapshot, "active", unpivotSourceBSColumn),
 			},
 		}, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{mixed}})
@@ -439,11 +442,11 @@ func TestConstructionUnpivotSourceRefusesSecondCarrierOfSameField(t *testing.T) 
 
 	melt := unpivotMeltStep(unpivotSourceStep, []string{"active_flag", unpivotSourceBSColumn}, unpivotMeltOutputs())
 	_, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		ConstructionProposalRequest{
+		construction.ConstructionProposalRequest{
 			Project: deriveSourceProject, ExplorerID: deriveSourceExplorer, SnapshotToken: "unpivot-source-collision",
 			ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:unpivot-source-draft", OutputID: deriveSourceOutput,
 			ChangedStepID: unpivotSourceStep,
-			UnpivotSources: []ConstructionUnpivotSourceSelection{
+			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{
 				unpivotBSSelections(t, snapshot, "active", unpivotSourceBSColumn),
 			},
 		}, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{melt}})
@@ -483,7 +486,7 @@ func TestConstructionUnpivotSourceRemovalStripsProjection(t *testing.T) {
 	}
 
 	cleared, err := service.constructionCandidateWithUnpivotSources(context.Background(),
-		deriveSourcePatientBase(snapshot, saved), unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{}), saved)
+		deriveSourcePatientBase(snapshot, saved), unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{}), saved)
 	if err != nil {
 		t.Fatalf("clearing the unpivot source selections failed: %v", err)
 	}
@@ -519,21 +522,21 @@ func TestConstructionUnpivotSourceLeavesSelectedColumnBehaviorUnchanged(t *testi
 }
 
 func TestConstructionUnpivotSourceSelectionsRequireExactDeduplicatedFacts(t *testing.T) {
-	duplicate := unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+	duplicate := unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 		{ChoiceID: "rc1.a.b", ColumnID: "c1"}, {ChoiceID: "rc1.a.b", ColumnID: "c2"},
 	})
 	if err := duplicate.Validate(); err == nil || !strings.Contains(err.Error(), "unpivotSources") {
 		t.Fatalf("duplicate unpivotSources error = %v, want an unpivotSources dedup refusal", err)
 	}
-	blank := unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{{ChoiceID: " ", ColumnID: "c1"}})
+	blank := unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: " ", ColumnID: "c1"}})
 	if err := blank.Validate(); err == nil || !strings.Contains(err.Error(), "unpivotSources[0].choiceId") {
 		t.Fatalf("blank choiceId error = %v, want unpivotSources[0].choiceId refusal", err)
 	}
-	blankColumn := unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{{ChoiceID: "rc1.a.b", ColumnID: " "}})
+	blankColumn := unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: "rc1.a.b", ColumnID: " "}})
 	if err := blankColumn.Validate(); err == nil || !strings.Contains(err.Error(), "unpivotSources[0].columnId") {
 		t.Fatalf("blank columnId error = %v, want unpivotSources[0].columnId refusal", err)
 	}
-	encoded, err := json.Marshal(ConstructionUnpivotSourceSelection{ChoiceID: "rc1.x.y", ColumnID: "c"})
+	encoded, err := json.Marshal(rowsource.ConstructionUnpivotSourceSelection{ChoiceID: "rc1.x.y", ColumnID: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,20 +547,20 @@ func TestConstructionUnpivotSourceSelectionsRequireExactDeduplicatedFacts(t *tes
 
 func TestConstructionUnpivotSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
-	structFields := make(map[string]bool, reflect.TypeOf(ConstructionUnpivotSourceChoice{}).NumField())
-	for index := range reflect.TypeOf(ConstructionUnpivotSourceChoice{}).NumField() {
-		tag := strings.Split(reflect.TypeOf(ConstructionUnpivotSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
+	structFields := make(map[string]bool, reflect.TypeOf(rowsource.ConstructionUnpivotSourceChoice{}).NumField())
+	for index := range reflect.TypeOf(rowsource.ConstructionUnpivotSourceChoice{}).NumField() {
+		tag := strings.Split(reflect.TypeOf(rowsource.ConstructionUnpivotSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
 		structFields[tag] = true
 	}
 	if !reflect.DeepEqual(structFields, wantFields) {
-		t.Fatalf("ConstructionUnpivotSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
+		t.Fatalf("rowsource.ConstructionUnpivotSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
 	}
 	for _, pivotExtra := range []string{"occurrenceId", "fhirType", "valueType", "isIdentifier", "isReference"} {
 		if structFields[pivotExtra] {
 			t.Fatalf("pivot-style field %q must never appear on an unpivot source choice: %#v", pivotExtra, structFields)
 		}
 	}
-	encoded, err := json.Marshal(ConstructionUnpivotSourceChoice{
+	encoded, err := json.Marshal(rowsource.ConstructionUnpivotSourceChoice{
 		ChoiceID: "rc1.a.b", FieldPath: "multipleBirthInteger", Label: "Patient.multipleBirthInteger", LogicalType: "integer", IsPopulated: true,
 	})
 	if err != nil {
@@ -634,7 +637,7 @@ func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSi
 
 func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourceInput(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -649,7 +652,7 @@ func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourc
 	if result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("unpivot source input stage = %#v, want the selected source stage", result)
 	}
-	byPath := make(map[string]ConstructionUnpivotSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.ConstructionUnpivotSourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -693,12 +696,12 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
 		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
-	proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         unpivotSourceStep,
 		CandidateConstruction: candidate,
-		UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn}},
+		UnpivotSources:        []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn}},
 	})
 	if err != nil {
 		t.Fatalf("ProposeConstruction with unpivotSources: %v", err)
@@ -833,12 +836,12 @@ func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *te
 			authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 		choice := deriveSourceRowChoice(t, snapshot, "Patient", row.fieldPath)
-		proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+		proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 			Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 			ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 			ChangedStepID:         unpivotSourceStep,
 			CandidateConstruction: candidate,
-			UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
+			UnpivotSources:        []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
 		})
 		if err == nil {
 			t.Fatalf("%s melt reached a preview instead of a refusal: %#v", row.logicalType, proposal)
@@ -892,12 +895,12 @@ func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(
 		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-language")})
 
 	choice := deriveSourceRowChoice(t, snapshot, "Patient", "language")
-	proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         unpivotSourceStep,
 		CandidateConstruction: candidate,
-		UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
+		UnpivotSources:        []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
 	})
 	if err != nil {
 		t.Fatalf("ProposeConstruction melting a signed string field: %v", err)
@@ -943,12 +946,12 @@ func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T
 		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 	choice := deriveSourceRowChoice(t, snapshot, "Patient", "birthDate")
-	_, err = harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	_, err = harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         unpivotSourceStep,
 		CandidateConstruction: candidate,
-		UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
+		UnpivotSources:        []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
 	})
 	if err == nil || lifecycleErrorCode(err) != "UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD" {
 		t.Fatalf("integer+date melt error = %v, want UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", err)
@@ -977,12 +980,12 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 			}
 			candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
 				authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
-			proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 				ChangedStepID:         unpivotSourceStep,
 				CandidateConstruction: candidate,
-				UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn}},
+				UnpivotSources:        []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn}},
 			})
 			if err != nil {
 				t.Fatalf("ProposeConstruction: %v", err)

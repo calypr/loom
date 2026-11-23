@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -128,13 +130,13 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 	return stages
 }
 
-func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, document authoringv2.Document, changedStepID string) ConstructionProposalRequest {
+func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, document authoringv2.Document, changedStepID string) construction.ConstructionProposalRequest {
 	upgraded, _ := authoringv2.StartDocumentConstruction(document)
 	columns := make([]authoringv2.StageColumn, 0, len(upgraded.Columns))
 	for _, column := range upgraded.Columns {
 		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
-	return ConstructionProposalRequest{
+	return construction.ConstructionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: "patients", ChangedStepID: changedStepID,
@@ -259,7 +261,7 @@ func turnProposalStepIntoRelatedSource(workspace authoringv2.Workspace, index in
 	return step
 }
 
-func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, workspace authoringv2.Workspace, related authoringv2.ConstructionRelatedSource, changedStepID string, removeStepIDs ...string) ConstructionProposalRequest {
+func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, workspace authoringv2.Workspace, related authoringv2.ConstructionRelatedSource, changedStepID string, removeStepIDs ...string) construction.ConstructionProposalRequest {
 	document := workspace.Documents[0]
 	candidate, _ := authoringv2.StartDocumentConstruction(document)
 	for index := range candidate.Construction.Steps {
@@ -267,7 +269,7 @@ func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.
 			candidate.Construction.Steps[index].Operation.RelatedSource = &related
 		}
 	}
-	return ConstructionProposalRequest{
+	return construction.ConstructionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: "patients", ChangedStepID: changedStepID, RemoveStepIDs: removeStepIDs,
@@ -347,7 +349,7 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 		store.receipt = receipt
 		return receipt, nil
 	}
-	choices, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
+	choices, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, AnchorColumnID: "_key", TargetResourceType: "Observation",
@@ -369,14 +371,14 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
 	outputs = append(outputs, authoringv2.StageColumn{ID: "observation_id", Name: "observation_id", Label: "FHIR resource ID", Type: "string"})
-	makeRequest := func(route []capability.ConstructionRouteStep) ConstructionProposalRequest {
+	makeRequest := func(route []capability.ConstructionRouteStep) construction.ConstructionProposalRequest {
 		related := &authoringv2.ConstructionRelatedExpand{
 			AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, TargetNodeID: choice.TargetNodeID,
 			TargetResourceType: choice.TargetResourceType, Route: route,
 			ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
 			EmptyPolicy:     authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id",
 		}
-		return ConstructionProposalRequest{
+		return construction.ConstructionProposalRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			OutputID: "patients", ChangedStepID: "expand_observations",
@@ -419,7 +421,7 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 		t.Fatal(err)
 	}
 	request := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step")
-	capabilities, err := service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	capabilities, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
 		ExpectedDraftVersion: request.ExpectedDraftVersion, ExpectedDraftDigest: request.ExpectedDraftDigest,
 		OutputID: request.OutputID, StageID: recipe.ConstructionSourceProjectionID,
@@ -437,7 +439,7 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 		t.Fatalf("source descriptor omitted stable column identity: %#v", capabilities.SelectedStage.Columns)
 	}
 	stageID := "frontend-invented-stage"
-	_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
 		ExpectedDraftVersion: request.ExpectedDraftVersion, ExpectedDraftDigest: request.ExpectedDraftDigest,
 		OutputID: request.OutputID, StageID: stageID,
@@ -482,7 +484,7 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 				request.Workspace = prepared
 				return compileReceipt(ctx, request)
 			}
-			_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+			_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 				OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -572,7 +574,7 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 	store.created.DraftConfig = draft
 	store.created.DraftDigest = digest
 
-	proposal, err := service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", RemoveStepIDs: []string{"only_step"},
@@ -837,7 +839,7 @@ func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection
 		t.Fatal(err)
 	}
 	proposal := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step")
-	_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: proposal.Project, ExplorerID: proposal.ExplorerID, SnapshotToken: proposal.SnapshotToken,
 		ExpectedDraftVersion: proposal.ExpectedDraftVersion + 1, ExpectedDraftDigest: proposal.ExpectedDraftDigest,
 		OutputID: proposal.OutputID, StageID: recipe.ConstructionSourceProjectionID,
@@ -905,7 +907,7 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 			{ID: "patient_gender", Name: "patient_gender", Label: "Patient gender", Type: "string", Nullable: true},
 		},
 	}}}
-	proposal, err := service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "append_three_sources", CandidateConstruction: candidate,

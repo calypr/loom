@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -276,7 +278,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		t.Fatalf("PRESERVE assessment mutated the saved consumer:\n got %#v\nwant %#v", storedAfterPreserve.Documents[0], result.Workspace.Documents[0])
 	}
 
-	capabilities, err := service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	capabilities, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: result.DraftVersion, ExpectedDraftDigest: result.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -516,7 +518,7 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 	if compileCalls != 0 {
 		t.Fatalf("compiled invalid full workspace %d times", compileCalls)
 	}
-	_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 2, ExpectedDraftDigest: digest,
 		OutputID: "source", StageID: recipe.ConstructionSourceProjectionID,
@@ -551,7 +553,7 @@ func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing
 		compileCalls++
 		return compile(ctx, request)
 	}
-	_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: digest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,

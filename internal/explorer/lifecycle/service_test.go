@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/population"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
@@ -363,7 +365,7 @@ func lifecycleTestFieldChoice(snapshotToken, candidateID, nodeID, resourceType, 
 }
 
 func testConfig(snapshot capability.Snapshot) Config {
-	cursorCodec, _ := NewHMACPopulationMappingCursorCodec("population-mapping-test-secret")
+	cursorCodec, _ := population.NewHMACPopulationMappingCursorCodec("population-mapping-test-secret")
 	return Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
@@ -580,7 +582,7 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
-	routes, err := service.SearchPopulationRoutes(context.Background(), PopulationRoutesRequest{
+	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		OutputID: "patients", SelectionRevisionID: "selection-1",
 	})

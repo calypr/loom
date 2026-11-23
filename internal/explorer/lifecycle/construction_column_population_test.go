@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -37,7 +39,7 @@ func TestConstructionColumnPopulationValidatesExactStageAndCachesOnlyConclusiveR
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
 	document := workspace.Documents[0]
-	request := ConstructionColumnPopulationRequest{
+	request := construction.ConstructionColumnPopulationRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,

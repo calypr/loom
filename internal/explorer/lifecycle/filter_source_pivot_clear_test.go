@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -229,7 +232,7 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 	clearedB.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
 	preparedB, err := service.constructionCandidateWithFilterSources(context.Background(), base,
 		filterSourceProposalRequest(rs05FilterID,
-			[]ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), clearedB)
+			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), clearedB)
 	if err != nil {
 		t.Fatalf("prepare filter with signed filterSource failed: %v", err)
 	}
@@ -248,7 +251,7 @@ func TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves(t *testing.T) {
 
 	candidate := rs05SeedCleared()
 	candidate.Steps = append(candidate.Steps, rs05PivotStep(rs05OtherPivotID, "public-key"))
-	request := ConstructionProposalRequest{
+	request := construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "filter-source-token",
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:xop", OutputID: filterSourceOutput,
 		ChangedStepID: rs05FilterID,
@@ -273,7 +276,7 @@ func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 	clearedForFilter.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
 	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), base,
 		filterSourceProposalRequest(rs05FilterID,
-			[]ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), clearedForFilter)
+			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), clearedForFilter)
 	if err != nil {
 		t.Fatalf("prepare filter against cleared durable: %v", err)
 	}
@@ -303,7 +306,7 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 	}
 	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction),
 		filterSourceProposalRequest(rs05FilterID,
-			[]ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
 	if err != nil {
 		t.Fatalf("filter SET while the other pivot source was cleared: %v", err)
 	}
@@ -463,8 +466,8 @@ func rs05ProposePivotStep(groupKeys ...string) authoringv2.ConstructionStep {
 	}
 }
 
-func rs05ProposeRequest(store *explorer.Explorer, snapshot capability.Snapshot, changedStepID string, candidate authoringv2.Construction) ConstructionProposalRequest {
-	return ConstructionProposalRequest{
+func rs05ProposeRequest(store *explorer.Explorer, snapshot capability.Snapshot, changedStepID string, candidate authoringv2.Construction) construction.ConstructionProposalRequest {
+	return construction.ConstructionProposalRequest{
 		Project: store.Project, ExplorerID: store.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.DraftVersion, ExpectedDraftDigest: store.DraftDigest,
 		OutputID: "patients", ChangedStepID: changedStepID, CandidateConstruction: candidate,
@@ -529,7 +532,7 @@ func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput
 		},
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05FilterID, cleared)
-	request.FilterSources = []ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}
+	request.FilterSources = []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose filter source SET with cleared Pivot source input: %v", err)
@@ -567,7 +570,7 @@ func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T
 		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05FilterOwnedProjection()},
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05PivotID, cleared)
-	request.PivotSources = []ConstructionPivotSourceSelection{}
+	request.PivotSources = []construction.ConstructionPivotSourceSelection{}
 	proposal, err := service.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose pivot [] clear with a foreign filter source: %v", err)
@@ -649,8 +652,8 @@ func rs05DeriveOwnedProjection() authoringv2.ConstructionSourceProjection {
 	}
 }
 
-func rs05DeriveRequest(changedStepID string) ConstructionProposalRequest {
-	return ConstructionProposalRequest{
+func rs05DeriveRequest(changedStepID string) construction.ConstructionProposalRequest {
+	return construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "filter-source-token",
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:xop", OutputID: filterSourceOutput,
 		ChangedStepID: changedStepID,
@@ -697,7 +700,7 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing
 	}
 	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction),
 		filterSourceProposalRequest(rs05FilterID,
-			[]ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
 	if err != nil {
 		t.Fatalf("filter SET while the derive source was cleared: %v", err)
 	}
@@ -829,7 +832,7 @@ func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing
 	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
 
 	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
-		deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
 		}), candidate)
 	if err != nil {
@@ -878,7 +881,7 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
 	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+		unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
 		}), candidate)
 	if err != nil {
@@ -915,7 +918,7 @@ func TestXopPortDeriveSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
 
 	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
-		deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
 		}), candidate)
 	if err != nil {
@@ -969,7 +972,7 @@ func TestXopPortUnpivotSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
 	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+		unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
 		}), candidate)
 	if err != nil {

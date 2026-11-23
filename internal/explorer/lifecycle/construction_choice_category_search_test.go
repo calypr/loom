@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -60,9 +62,9 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 			}, nil
 		},
 	})
-	result, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+	result, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: snapshot.Identity.Project, ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
-		Source: ConstructionChoiceSearchSource{
+		Source: construction.ConstructionChoiceSearchSource{
 			Kind: capability.ConstructionChoiceSourceSemantic, ContextToken: contextToken, BuildID: buildID,
 			ConceptID: family.FamilyID, BindingID: family.BindingID, ChoiceID: signed.ChoiceID,
 			SelectionMode: semantic.SystemVersionCategory,

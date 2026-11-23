@@ -44,9 +44,9 @@ func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request r
 		return rowdef.ResolvedRowChoice{}, context.Canceled
 	}
 	switch request.ExpectedKind {
-	case RowChoiceFieldGroup:
+	case rowdef.RowChoiceFieldGroup:
 		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
-	case RowChoiceExpanded:
+	case rowdef.RowChoiceExpanded:
 		return rowdef.ResolvedRowChoice{Kind: rowdef.RowChoiceExpanded, OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]"}, nil
 	default:
 		return rowdef.ResolvedRowChoice{}, context.Canceled

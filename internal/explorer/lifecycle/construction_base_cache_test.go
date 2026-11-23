@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -38,8 +40,8 @@ func configureSnapshotConstructionCompilation(service *Service, store *fakeStore
 	}
 }
 
-func constructionCapabilitiesRequestFor(owner *explorer.Explorer, snapshotToken, outputID string) ConstructionCapabilitiesRequest {
-	return ConstructionCapabilitiesRequest{
+func constructionCapabilitiesRequestFor(owner *explorer.Explorer, snapshotToken, outputID string) construction.ConstructionCapabilitiesRequest {
+	return construction.ConstructionCapabilitiesRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshotToken,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: outputID, StageID: recipe.ConstructionSourceProjectionID,

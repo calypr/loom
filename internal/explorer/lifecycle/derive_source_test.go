@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -160,13 +163,13 @@ func deriveSourceRowChoice(t *testing.T, snapshot capability.Snapshot, resourceT
 	return capability.RowChoice{}
 }
 
-func deriveSourceSelection(t *testing.T, snapshot capability.Snapshot, resourceType, path, columnID string) ConstructionDeriveSourceSelection {
+func deriveSourceSelection(t *testing.T, snapshot capability.Snapshot, resourceType, path, columnID string) rowsource.ConstructionDeriveSourceSelection {
 	t.Helper()
-	return ConstructionDeriveSourceSelection{ChoiceID: deriveSourceRowChoice(t, snapshot, resourceType, path).ChoiceID, ColumnID: columnID}
+	return rowsource.ConstructionDeriveSourceSelection{ChoiceID: deriveSourceRowChoice(t, snapshot, resourceType, path).ChoiceID, ColumnID: columnID}
 }
 
-func deriveSourceProposalRequest(changedStepID string, sources []ConstructionDeriveSourceSelection) ConstructionProposalRequest {
-	return ConstructionProposalRequest{
+func deriveSourceProposalRequest(changedStepID string, sources []rowsource.ConstructionDeriveSourceSelection) construction.ConstructionProposalRequest {
+	return construction.ConstructionProposalRequest{
 		Project: deriveSourceProject, ExplorerID: deriveSourceExplorer, SnapshotToken: "derive-source-token",
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:derive-source-draft", OutputID: deriveSourceOutput,
 		ChangedStepID: changedStepID, DeriveSources: sources,
@@ -197,8 +200,8 @@ func deriveSourcePatientBase(snapshot capability.Snapshot, construction authorin
 	}
 }
 
-func deriveSourcePatientProposalRequest(changedStepID string, sources []ConstructionDeriveSourceSelection) ConstructionProposalRequest {
-	return ConstructionProposalRequest{
+func deriveSourcePatientProposalRequest(changedStepID string, sources []rowsource.ConstructionDeriveSourceSelection) construction.ConstructionProposalRequest {
+	return construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "derive-source-patient-token",
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:derive-source-patient-draft", OutputID: filterSourceOutput,
 		ChangedStepID: changedStepID, DeriveSources: sources,
@@ -246,7 +249,7 @@ func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRoot
 	if !result.Supported || result.ReasonCode != "" || result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("derive source capability = %#v, want a supported source-stage capability", result)
 	}
-	byPath := make(map[string]ConstructionDeriveSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.ConstructionDeriveSourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -307,7 +310,7 @@ func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t
 	projection, err := service.resolveConstructionDeriveSource(context.Background(),
 		deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
 		deriveSourceProposalRequest(deriveSourceStep, nil), recipe.ConstructionSourceProjectionID,
-		ConstructionDeriveSourceSelection{ChoiceID: nonnumeric.ChoiceID, ColumnID: deriveSourceColumn})
+		rowsource.ConstructionDeriveSourceSelection{ChoiceID: nonnumeric.ChoiceID, ColumnID: deriveSourceColumn})
 	if err == nil {
 		t.Fatalf("non-numeric field was admitted as a derive source projection: %#v", projection)
 	}
@@ -325,7 +328,7 @@ func TestConstructionDeriveSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 
 	foreign := deriveSourceRowChoice(t, other, deriveSourceRootType, deriveSourceField)
 	if _, err := service.resolveConstructionDeriveSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
-		ConstructionDeriveSourceSelection{ChoiceID: foreign.ChoiceID, ColumnID: deriveSourceColumn}); err == nil {
+		rowsource.ConstructionDeriveSourceSelection{ChoiceID: foreign.ChoiceID, ColumnID: deriveSourceColumn}); err == nil {
 		t.Fatal("a choice issued against another snapshot was accepted")
 	} else if code := lifecycleErrorCode(err); code != "INVALID_DERIVE_SOURCE_CHOICE" {
 		t.Fatalf("cross-snapshot error = %v, want INVALID_DERIVE_SOURCE_CHOICE", err)
@@ -337,14 +340,14 @@ func TestConstructionDeriveSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 	}
 	forged := parts[0] + "." + parts[1] + "." + strings.Repeat("0", len(parts[2]))
 	if _, err := service.resolveConstructionDeriveSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
-		ConstructionDeriveSourceSelection{ChoiceID: forged, ColumnID: deriveSourceColumn}); err == nil {
+		rowsource.ConstructionDeriveSourceSelection{ChoiceID: forged, ColumnID: deriveSourceColumn}); err == nil {
 		t.Fatal("a tampered choice token was accepted")
 	} else if code := lifecycleErrorCode(err); code != "INVALID_DERIVE_SOURCE_CHOICE" {
 		t.Fatalf("tampered token error = %v, want INVALID_DERIVE_SOURCE_CHOICE", err)
 	}
 
 	if _, err := service.resolveConstructionDeriveSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
-		ConstructionDeriveSourceSelection{ChoiceID: "rc1.not-a-real-token.deadbeef", ColumnID: deriveSourceColumn}); err == nil {
+		rowsource.ConstructionDeriveSourceSelection{ChoiceID: "rc1.not-a-real-token.deadbeef", ColumnID: deriveSourceColumn}); err == nil {
 		t.Fatal("an invented choice token was accepted")
 	}
 }
@@ -365,7 +368,7 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	candidate.Steps[0].Outputs = append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 
 	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
-		deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 			deriveSourceSelection(t, snapshot, "Patient", "multipleBirthInteger", deriveSourceBirth),
 		}), candidate)
 	if err != nil {
@@ -433,7 +436,7 @@ func TestConstructionDeriveSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	})
 
 	_, err := harness.service.constructionCandidateWithDeriveSources(context.Background(), base,
-		deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 			deriveSourceSelection(t, harness.snapshot, "Patient", "multipleBirthInteger", deriveSourceBirth),
 		}), candidate)
 	if err == nil {
@@ -497,7 +500,7 @@ func TestConstructionDeriveSourceRemovalStripsProjectionAndRefusesDanglingDerive
 	}
 
 	cleared, err := service.constructionCandidateWithDeriveSources(context.Background(),
-		deriveSourcePatientBase(snapshot, saved), deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{}), saved)
+		deriveSourcePatientBase(snapshot, saved), deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{}), saved)
 	if err != nil {
 		t.Fatalf("clearing the derive source selections failed: %v", err)
 	}
@@ -551,27 +554,27 @@ func TestConstructionDeriveSourceLeavesSelectedColumnBehaviorUnchanged(t *testin
 }
 
 func TestConstructionDeriveSourceSelectionsRequireExactDeduplicatedFacts(t *testing.T) {
-	duplicate := deriveSourceProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+	duplicate := deriveSourceProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 		{ChoiceID: "rc1.a.b", ColumnID: "c1"}, {ChoiceID: "rc1.a.b", ColumnID: "c2"},
 	})
 	if err := duplicate.Validate(); err == nil || !strings.Contains(err.Error(), "deriveSources") {
 		t.Fatalf("duplicate deriveSources error = %v, want a deriveSources dedup refusal", err)
 	}
-	blank := deriveSourceProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{{ChoiceID: " ", ColumnID: "c1"}})
+	blank := deriveSourceProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{{ChoiceID: " ", ColumnID: "c1"}})
 	if err := blank.Validate(); err == nil || !strings.Contains(err.Error(), "deriveSources[0].choiceId") {
 		t.Fatalf("blank choiceId error = %v, want deriveSources[0].choiceId refusal", err)
 	}
-	blankColumn := deriveSourceProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{{ChoiceID: "rc1.a.b", ColumnID: " "}})
+	blankColumn := deriveSourceProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{{ChoiceID: "rc1.a.b", ColumnID: " "}})
 	if err := blankColumn.Validate(); err == nil || !strings.Contains(err.Error(), "deriveSources[0].columnId") {
 		t.Fatalf("blank columnId error = %v, want deriveSources[0].columnId refusal", err)
 	}
-	oversized := deriveSourceProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+	oversized := deriveSourceProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 		{ChoiceID: "rc1.a.b", ColumnID: "c1"}, {ChoiceID: "rc1.c.d", ColumnID: "c2"}, {ChoiceID: "rc1.e.f", ColumnID: "c3"},
 	})
 	if err := oversized.Validate(); err == nil || !strings.Contains(err.Error(), "operand") {
 		t.Fatalf("oversized deriveSources error = %v, want the two-operand cap refusal", err)
 	}
-	encoded, err := json.Marshal(ConstructionDeriveSourceSelection{ChoiceID: "rc1.x.y", ColumnID: "c"})
+	encoded, err := json.Marshal(rowsource.ConstructionDeriveSourceSelection{ChoiceID: "rc1.x.y", ColumnID: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,20 +585,20 @@ func TestConstructionDeriveSourceSelectionsRequireExactDeduplicatedFacts(t *test
 
 func TestConstructionDeriveSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
-	structFields := make(map[string]bool, reflect.TypeOf(ConstructionDeriveSourceChoice{}).NumField())
-	for index := range reflect.TypeOf(ConstructionDeriveSourceChoice{}).NumField() {
-		tag := strings.Split(reflect.TypeOf(ConstructionDeriveSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
+	structFields := make(map[string]bool, reflect.TypeOf(rowsource.ConstructionDeriveSourceChoice{}).NumField())
+	for index := range reflect.TypeOf(rowsource.ConstructionDeriveSourceChoice{}).NumField() {
+		tag := strings.Split(reflect.TypeOf(rowsource.ConstructionDeriveSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
 		structFields[tag] = true
 	}
 	if !reflect.DeepEqual(structFields, wantFields) {
-		t.Fatalf("ConstructionDeriveSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
+		t.Fatalf("rowsource.ConstructionDeriveSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
 	}
 	for _, pivotExtra := range []string{"occurrenceId", "fhirType", "valueType", "isIdentifier", "isReference"} {
 		if structFields[pivotExtra] {
 			t.Fatalf("pivot-style field %q must never appear on a derive source choice: %#v", pivotExtra, structFields)
 		}
 	}
-	encoded, err := json.Marshal(ConstructionDeriveSourceChoice{
+	encoded, err := json.Marshal(rowsource.ConstructionDeriveSourceChoice{
 		ChoiceID: "rc1.a.b", FieldPath: "multipleBirthInteger", Label: "Patient.multipleBirthInteger", LogicalType: "integer", IsPopulated: true,
 	})
 	if err != nil {
@@ -677,7 +680,7 @@ func TestConstructionDeriveSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 
 func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceInput(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -695,7 +698,7 @@ func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceI
 	if result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("derive source input stage = %#v, want the selected source stage", result)
 	}
-	byPath := make(map[string]ConstructionDeriveSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.ConstructionDeriveSourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -733,12 +736,12 @@ func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompil
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
 
-	proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         deriveSourceStep,
 		CandidateConstruction: harness.candidateDeriveConstruction(),
-		DeriveSources:         []ConstructionDeriveSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth}},
+		DeriveSources:         []rowsource.ConstructionDeriveSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth}},
 	})
 	if err != nil {
 		t.Fatalf("ProposeConstruction with deriveSources: %v", err)
@@ -838,12 +841,12 @@ func TestProposeConstructionDeriveSourceCompilesChainedColumnOperands(t *testing
 	candidate.Steps[1].Operation.Derive.Right = right
 	candidate.Steps[1].Outputs = append(append([]authoringv2.StageColumn(nil), candidate.Steps[0].Outputs...), deriveSourcePatientProjectionColumn(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 
-	proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         deriveSourceStep,
 		CandidateConstruction: candidate,
-		DeriveSources:         []ConstructionDeriveSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth}},
+		DeriveSources:         []rowsource.ConstructionDeriveSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth}},
 	})
 	if err != nil {
 		t.Fatalf("ProposeConstruction with two column operands: %v", err)
@@ -882,12 +885,12 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 				deriveSourceLiteralOnlyStep(deriveSourceStep, deriveSourcePatientDerivedColumns()),
 			}})
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
-			proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 				ChangedStepID:         deriveSourceStep,
 				CandidateConstruction: harness.candidateDeriveConstruction(),
-				DeriveSources:         []ConstructionDeriveSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth}},
+				DeriveSources:         []rowsource.ConstructionDeriveSourceSelection{{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth}},
 			})
 			if err != nil {
 				t.Fatalf("ProposeConstruction: %v", err)
@@ -925,7 +928,7 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 				saved.SourceProjections[0].FieldPath != "multipleBirthInteger" {
 				t.Fatalf("applied construction lost the durable derive projection: %#v", saved)
 			}
-			capabilities, capErr := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+			capabilities, capErr := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 				Project: applied.Project, ExplorerID: applied.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest,
 				OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -960,7 +963,7 @@ func TestProposeConstructionDeriveSourceRefusesVanishedFieldRestore(t *testing.T
 	}
 	harness.saveDraftDurableDerive(t, durable)
 	restoreChoice := harness.choice(t, "multipleBirthInteger").ChoiceID
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -980,12 +983,12 @@ func TestProposeConstructionDeriveSourceRefusesVanishedFieldRestore(t *testing.T
 
 	harness.unobserveBirthCount()
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
-	_, err = harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	_, err = harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: deriveSourceStep,
 		CandidateConstruction: durable,
-		DeriveSources:         []ConstructionDeriveSourceSelection{{ChoiceID: restoreChoice, ColumnID: deriveSourceBirth}},
+		DeriveSources:         []rowsource.ConstructionDeriveSourceSelection{{ChoiceID: restoreChoice, ColumnID: deriveSourceBirth}},
 	})
 	if err == nil {
 		t.Fatal("a restore of a vanished field via its durable columnId was accepted")

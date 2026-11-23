@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -73,7 +75,7 @@ func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *
 		}},
 	})
 
-	result, err := service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
+	result, err := service.ConfiguredColumnContext(context.Background(), interpretation.ConfiguredColumnContextRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 	})
@@ -124,7 +126,7 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 	}
 	snapshot, scope := interpretationContextSnapshot()
 	repository := &interpretationContextRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision}}
-	request := ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 7, ExpectedDraftDigest: digest}
+	request := interpretation.ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 7, ExpectedDraftDigest: digest}
 
 	t.Run("draft", func(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 8, DraftDigest: digest}}, Config{
@@ -181,7 +183,7 @@ func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 	})
-	_, err = service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
+	_, err = service.ConfiguredColumnContext(context.Background(), interpretation.ConfiguredColumnContextRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 	})
 	assertLifecycleCode(t, err, "STALE_COLUMN_ROUTE")
@@ -215,7 +217,7 @@ func TestConfiguredColumnContextRejectsWorkAboveExplicitLimits(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 			InterpretationRepository: &interpretationContextRepository{}, Capability: capabilityResolver,
 		})
-		_, err = service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest})
+		_, err = service.ConfiguredColumnContext(context.Background(), interpretation.ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest})
 		assertLifecycleCode(t, err, "INTERPRETATION_CONTEXT_LIMIT")
 	})
 
@@ -236,7 +238,7 @@ func TestConfiguredColumnContextRejectsWorkAboveExplicitLimits(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 			InterpretationRepository: &interpretationContextRepository{libraries: libraries}, Capability: capabilityResolver,
 		})
-		_, err = service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest})
+		_, err = service.ConfiguredColumnContext(context.Background(), interpretation.ConfiguredColumnContextRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest})
 		assertLifecycleCode(t, err, "INTERPRETATION_CONTEXT_LIMIT")
 	})
 }
@@ -306,7 +308,7 @@ func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSourc
 		}},
 	})
 
-	result, err := service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
+	result, err := service.ConfiguredColumnContext(context.Background(), interpretation.ConfiguredColumnContextRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 	})

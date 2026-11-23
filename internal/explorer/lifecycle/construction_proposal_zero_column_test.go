@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -194,7 +196,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		}},
 		Outputs: []authoringv2.StageColumn{{ID: "medication-id", Name: "related_medication_id", Label: "Medication FHIR resource ID", Type: "string", Nullable: true}},
 	}}}
-	response, err := service.ProposeConstruction(context.Background(), lifecycle.ConstructionProposalRequest{
+	response, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", ChangedStepID: "expand_medications",
 		CandidateConstruction: candidate,

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/population"
+
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -289,8 +291,8 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 	return service, store, snapshot, workspace
 }
 
-func populationProposalRequest(store *populationProposalTestStore, snapshot capability.Snapshot, member explorerselection.ResourceRef) PopulationMemberRemovalProposalRequest {
-	return PopulationMemberRemovalProposalRequest{
+func populationProposalRequest(store *populationProposalTestStore, snapshot capability.Snapshot, member explorerselection.ResourceRef) population.PopulationMemberRemovalProposalRequest {
+	return population.PopulationMemberRemovalProposalRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", BaseSelectionID: "selection-base", RemovedMember: member,
@@ -464,7 +466,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		t.Fatal(err)
 	}
 
-	baseRoutes, err := service.SearchPopulationRoutes(context.Background(), PopulationRoutesRequest{
+	baseRoutes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-base",
 	})
 	if err != nil || !baseRoutes.Complete || len(baseRoutes.Choices) != 1 || len(baseRoutes.Choices[0].Route) != 2 {
@@ -562,13 +564,15 @@ func jsonEqual(a, b any) bool {
 func TestPopulationMemberRemovalProposalRejectsStaleScopeAndForeignMember(t *testing.T) {
 	cases := []struct {
 		name   string
-		change func(*PopulationMemberRemovalProposalRequest)
+		change func(*population.PopulationMemberRemovalProposalRequest)
 	}{
-		{"stale version", func(r *PopulationMemberRemovalProposalRequest) { r.ExpectedDraftVersion-- }},
-		{"stale digest", func(r *PopulationMemberRemovalProposalRequest) { r.ExpectedDraftDigest = "sha256:stale" }},
-		{"wrong project", func(r *PopulationMemberRemovalProposalRequest) { r.RemovedMember.Project = "other-project" }},
-		{"wrong generation", func(r *PopulationMemberRemovalProposalRequest) { r.RemovedMember.Generation = "old-generation" }},
-		{"foreign member", func(r *PopulationMemberRemovalProposalRequest) { r.RemovedMember.ID = "patient-foreign" }},
+		{"stale version", func(r *population.PopulationMemberRemovalProposalRequest) { r.ExpectedDraftVersion-- }},
+		{"stale digest", func(r *population.PopulationMemberRemovalProposalRequest) { r.ExpectedDraftDigest = "sha256:stale" }},
+		{"wrong project", func(r *population.PopulationMemberRemovalProposalRequest) { r.RemovedMember.Project = "other-project" }},
+		{"wrong generation", func(r *population.PopulationMemberRemovalProposalRequest) {
+			r.RemovedMember.Generation = "old-generation"
+		}},
+		{"foreign member", func(r *population.PopulationMemberRemovalProposalRequest) { r.RemovedMember.ID = "patient-foreign" }},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

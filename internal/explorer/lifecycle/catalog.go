@@ -14,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -41,17 +43,17 @@ type fieldPresentationResult interface {
 }
 
 type FieldPresentationUnavailable struct {
-	Kind   FieldPresentationResultKind `json:"kind"`
-	Reason FieldPresentationReason     `json:"reason"`
+	Kind   semanticbrowse.FieldPresentationResultKind `json:"kind"`
+	Reason semanticbrowse.FieldPresentationReason     `json:"reason"`
 }
 
 func (FieldPresentationUnavailable) fieldPresentationResult() {}
 
 type FieldPresentationReady struct {
-	Kind         FieldPresentationResultKind `json:"kind"`
-	Context      FieldPresentationContext    `json:"context"`
-	Decisions    []fieldPresentationDecision `json:"decisions"`
-	Replacements []SemanticInventoryItem     `json:"replacements"`
+	Kind         semanticbrowse.FieldPresentationResultKind `json:"kind"`
+	Context      FieldPresentationContext                   `json:"context"`
+	Decisions    []fieldPresentationDecision                `json:"decisions"`
+	Replacements []semanticbrowse.SemanticInventoryItem     `json:"replacements"`
 }
 
 func (FieldPresentationReady) fieldPresentationResult() {}
@@ -80,9 +82,9 @@ type fieldPresentationDecision interface {
 }
 
 type FieldPresentationKeepRaw struct {
-	Kind        FieldPresentationDecisionKind `json:"kind"`
-	CandidateID string                        `json:"candidateId"`
-	Reason      FieldPresentationReason       `json:"reason"`
+	Kind        semanticbrowse.FieldPresentationDecisionKind `json:"kind"`
+	CandidateID string                                       `json:"candidateId"`
+	Reason      semanticbrowse.FieldPresentationReason       `json:"reason"`
 }
 
 func (FieldPresentationKeepRaw) fieldPresentationDecision() {}
@@ -92,41 +94,41 @@ type semanticInventoryItemIdentity interface {
 }
 
 type ExactSemanticInventoryItemIdentity struct {
-	Kind      SemanticInventoryItemIdentityKind `json:"kind"`
-	ConceptID string                            `json:"conceptId"`
-	BindingID string                            `json:"bindingId"`
+	Kind      semanticbrowse.SemanticInventoryItemIdentityKind `json:"kind"`
+	ConceptID string                                           `json:"conceptId"`
+	BindingID string                                           `json:"bindingId"`
 }
 
 func (ExactSemanticInventoryItemIdentity) semanticInventoryItemIdentity() {}
 
 type FamilySemanticInventoryItemIdentity struct {
-	Kind      SemanticInventoryItemIdentityKind `json:"kind"`
-	FamilyID  string                            `json:"familyId"`
-	BindingID string                            `json:"bindingId"`
+	Kind      semanticbrowse.SemanticInventoryItemIdentityKind `json:"kind"`
+	FamilyID  string                                           `json:"familyId"`
+	BindingID string                                           `json:"bindingId"`
 }
 
 func (FamilySemanticInventoryItemIdentity) semanticInventoryItemIdentity() {}
 
 type FieldPresentationGroupUnderSemantic struct {
-	Kind           FieldPresentationDecisionKind   `json:"kind"`
-	CandidateID    string                          `json:"candidateId"`
-	CoverageID     string                          `json:"coverageId"`
-	ReplacementIDs []semanticInventoryItemIdentity `json:"replacementIds"`
-	Access         FieldPresentationAccess         `json:"access"`
+	Kind           semanticbrowse.FieldPresentationDecisionKind `json:"kind"`
+	CandidateID    string                                       `json:"candidateId"`
+	CoverageID     string                                       `json:"coverageId"`
+	ReplacementIDs []semanticInventoryItemIdentity              `json:"replacementIds"`
+	Access         semanticbrowse.FieldPresentationAccess       `json:"access"`
 }
 
 func (FieldPresentationGroupUnderSemantic) fieldPresentationDecision() {}
 
 type BrowseSemanticInventoryResponse struct {
-	FrameID            string                       `json:"frameId,omitempty"`
-	FrameSource        *authoringv2.FrameDefinition `json:"frameSource,omitempty"`
-	ContextToken       string                       `json:"contextToken"`
-	BuildID            string                       `json:"buildId"`
-	State              semantic.State               `json:"state"`
-	SourceAvailability string                       `json:"sourceAvailability"`
-	Entries            []SemanticInventoryItem      `json:"entries"`
-	NextCursor         string                       `json:"nextCursor,omitempty"`
-	FieldPresentation  fieldPresentationResult      `json:"fieldPresentation,omitempty"`
+	FrameID            string                                 `json:"frameId,omitempty"`
+	FrameSource        *authoringv2.FrameDefinition           `json:"frameSource,omitempty"`
+	ContextToken       string                                 `json:"contextToken"`
+	BuildID            string                                 `json:"buildId"`
+	State              semantic.State                         `json:"state"`
+	SourceAvailability string                                 `json:"sourceAvailability"`
+	Entries            []semanticbrowse.SemanticInventoryItem `json:"entries"`
+	NextCursor         string                                 `json:"nextCursor,omitempty"`
+	FieldPresentation  fieldPresentationResult                `json:"fieldPresentation,omitempty"`
 }
 
 type semanticBrowseCursor struct {
@@ -252,8 +254,8 @@ func proveSemanticCandidateForRoute(
 	return proof, nil
 }
 
-func fieldPresentationUnavailable(reason FieldPresentationReason) fieldPresentationResult {
-	return FieldPresentationUnavailable{Kind: FieldPresentationResultUnavailable, Reason: reason}
+func fieldPresentationUnavailable(reason semanticbrowse.FieldPresentationReason) fieldPresentationResult {
+	return FieldPresentationUnavailable{Kind: semanticbrowse.FieldPresentationResultUnavailable, Reason: reason}
 }
 
 func semanticCoverageCandidatePathKey(path semanticarango.SemanticCoverageCandidatePath) string {
@@ -281,17 +283,17 @@ func fieldPresentationCandidateBatchDigest(candidates []capability.Candidate) (s
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func fieldPresentationCoverageReason(reason string) (FieldPresentationReason, bool) {
-	value := FieldPresentationReason(reason)
+func fieldPresentationCoverageReason(reason string) (semanticbrowse.FieldPresentationReason, bool) {
+	value := semanticbrowse.FieldPresentationReason(reason)
 	switch value {
-	case FieldPresentationMissingSystem, FieldPresentationMissingCode, FieldPresentationTextOnly,
-		FieldPresentationAmbiguousAnchor, FieldPresentationMixedChoice, FieldPresentationUnsupportedValueProjection,
-		FieldPresentationUnsupportedVersion, FieldPresentationUnknownSchemaMember, FieldPresentationUnknownCodeClassification,
-		FieldPresentationUnsupportedSelector, FieldPresentationIncompleteSource, FieldPresentationWalkFailed,
-		FieldPresentationTruncatedEvidence, FieldPresentationUnrepresentedMetadata:
+	case semanticbrowse.FieldPresentationMissingSystem, semanticbrowse.FieldPresentationMissingCode, semanticbrowse.FieldPresentationTextOnly,
+		semanticbrowse.FieldPresentationAmbiguousAnchor, semanticbrowse.FieldPresentationMixedChoice, semanticbrowse.FieldPresentationUnsupportedValueProjection,
+		semanticbrowse.FieldPresentationUnsupportedVersion, semanticbrowse.FieldPresentationUnknownSchemaMember, semanticbrowse.FieldPresentationUnknownCodeClassification,
+		semanticbrowse.FieldPresentationUnsupportedSelector, semanticbrowse.FieldPresentationIncompleteSource, semanticbrowse.FieldPresentationWalkFailed,
+		semanticbrowse.FieldPresentationTruncatedEvidence, semanticbrowse.FieldPresentationUnrepresentedMetadata:
 		return value, true
 	default:
-		return FieldPresentationIncompleteCoverage, false
+		return semanticbrowse.FieldPresentationIncompleteCoverage, false
 	}
 }
 
@@ -304,7 +306,7 @@ func semanticPresentationReferenceFromCoverage(reference fieldprofile.SemanticCo
 		if reference.ConceptID == "" || reference.BindingID == "" {
 			return semanticPresentationReference{}, false
 		}
-		identity := ExactSemanticInventoryItemIdentity{Kind: SemanticInventoryIdentityExact, ConceptID: reference.ConceptID, BindingID: reference.BindingID}
+		identity := ExactSemanticInventoryItemIdentity{Kind: semanticbrowse.SemanticInventoryIdentityExact, ConceptID: reference.ConceptID, BindingID: reference.BindingID}
 		exact := semantic.Reference{ConceptID: reference.ConceptID, BindingID: reference.BindingID}
 		return semanticPresentationReference{identity: identity, key: "EXACT\x00" + reference.BindingID + "\x00" + reference.ConceptID, exact: &exact}, true
 	case fieldprofile.SemanticCoverageFamilyReference:
@@ -314,7 +316,7 @@ func semanticPresentationReferenceFromCoverage(reference fieldprofile.SemanticCo
 			family.ResourceType != candidate.ResourceType || family.SourcePath == "" || family.System == "" {
 			return semanticPresentationReference{}, false
 		}
-		identity := FamilySemanticInventoryItemIdentity{Kind: SemanticInventoryIdentityFamily, FamilyID: family.FamilyID, BindingID: family.BindingID}
+		identity := FamilySemanticInventoryItemIdentity{Kind: semanticbrowse.SemanticInventoryIdentityFamily, FamilyID: family.FamilyID, BindingID: family.BindingID}
 		familyCopy := family
 		return semanticPresentationReference{identity: identity, key: "FAMILY\x00" + family.BindingID + "\x00" + family.FamilyID, family: &familyCopy}, true
 	default:
@@ -362,10 +364,10 @@ func semanticInventoryItemForPresentation(
 	family *semantic.Family,
 	candidate capability.Candidate,
 	choice capability.ConstructionChoice,
-) SemanticInventoryItem {
+) semanticbrowse.SemanticInventoryItem {
 	observation := entry.Observation
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
-	item := SemanticInventoryItem{
+	item := semanticbrowse.SemanticInventoryItem{
 		ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
 		SourcePath: observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
 		CodingVersion: observation.Key.Version, Display: observation.Key.Display,
@@ -981,7 +983,7 @@ func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, row
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanticInventoryRequest) (BrowseSemanticInventoryResponse, error) {
+func (s *Service) BrowseSemanticInventory(ctx context.Context, req semanticbrowse.BrowseSemanticInventoryRequest) (BrowseSemanticInventoryResponse, error) {
 	browse := s.fieldBrowse()
 	var result BrowseSemanticInventoryResponse
 	if req.FieldPresentation != nil {
@@ -1132,7 +1134,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			return result, err
 		}
 	}
-	result.Entries = make([]SemanticInventoryItem, 0, len(entries))
+	result.Entries = make([]semanticbrowse.SemanticInventoryItem, 0, len(entries))
 	for _, entry := range entries {
 		observation := entry.Observation
 		family, isCategory := familyByChoice[semanticChoiceKey(entry.ConceptID, entry.BindingID)]
@@ -1144,7 +1146,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			}
 			entry, observation, plan = projected, projected.Observation, projectedPlan
 		}
-		item := SemanticInventoryItem{
+		item := semanticbrowse.SemanticInventoryItem{
 			ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
 			SourcePath: observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
 			CodingVersion: observation.Key.Version, Display: observation.Key.Display,
@@ -1244,7 +1246,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	return result, nil
 }
 
-func (s *Service) resolveSemanticBrowseSource(ctx context.Context, req BrowseSemanticInventoryRequest, authorized ports.AuthorizedCapability, snapshot capability.Snapshot) (semanticBrowseSourceSelection, error) {
+func (s *Service) resolveSemanticBrowseSource(ctx context.Context, req semanticbrowse.BrowseSemanticInventoryRequest, authorized ports.AuthorizedCapability, snapshot capability.Snapshot) (semanticBrowseSourceSelection, error) {
 	var frame *authoringv2.FrameDefinition
 	var codedFamily *frameSourceFamilyCandidate
 	var codedRoute []capability.ConstructionRouteStep
@@ -1336,7 +1338,7 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 	entries []semantic.Entry,
 	families []semantic.Family,
 	current fieldPresentationCurrentContext,
-	request FieldPresentationRequest,
+	request semanticbrowse.FieldPresentationRequest,
 ) (map[string]capability.ConstructionChoice, fieldPresentationResult, error) {
 	proofCache := make(map[string]semanticCandidateRouteProof)
 	choices, err := semanticInventoryChoicesForExactOccurrence(
@@ -1347,13 +1349,13 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 		return nil, nil, err
 	}
 	if !current.stageSupported {
-		return choices, fieldPresentationUnavailable(FieldPresentationUnsupportedCurrentStage), nil
+		return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationUnsupportedCurrentStage), nil
 	}
 	if b.semanticCoverage == nil {
-		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
+		return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationCoverageUnavailable), nil
 	}
 	if build.BuildID == "" || build.SourceKind == "" {
-		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
+		return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationCoverageUnavailable), nil
 	}
 	coveragePaths := make([]semanticarango.SemanticCoverageCandidatePath, 0, len(current.candidates))
 	coveragePathKeys := make(map[string]struct{}, len(current.candidates))
@@ -1380,9 +1382,9 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 		return nil, nil, support.PersistenceFailure("catalog", "semantic field coverage could not be read", err)
 	}
 	if lookup.State != semanticarango.SemanticCoverageBuildComplete && lookup.State != semanticarango.SemanticCoverageBuildPartial {
-		reason := FieldPresentationCoverageUnavailable
+		reason := semanticbrowse.FieldPresentationCoverageUnavailable
 		if lookup.State == semanticarango.SemanticCoverageBuildBuilding || lookup.State == semanticarango.SemanticCoverageBuildFailed {
-			reason = FieldPresentationIncompleteCoverage
+			reason = semanticbrowse.FieldPresentationIncompleteCoverage
 		}
 		return choices, fieldPresentationUnavailable(reason), nil
 	}
@@ -1392,16 +1394,16 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath,
 		})
 		if _, duplicate := coverageByPath[key]; duplicate {
-			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 		}
 		coverageByPath[key] = candidate
 	}
 	if len(coverageByPath) != len(coveragePaths) {
-		return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+		return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 	}
 	for _, path := range coveragePaths {
 		if _, found := coverageByPath[semanticCoverageCandidatePathKey(path)]; !found {
-			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 		}
 	}
 	batchDigest, err := fieldPresentationCandidateBatchDigest(current.candidates)
@@ -1424,13 +1426,13 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 	requestedReferences := make(map[string]semanticPresentationReference)
 	for _, candidate := range current.candidates {
 		if !candidate.Populated {
-			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationCandidateNotPopulated})
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: semanticbrowse.FieldPresentationCandidateNotPopulated})
 			continue
 		}
 		if _, addable, addableErr := fieldPresentationRawCandidateChoice(ctx, authorized, snapshot, document.RootResourceType, candidate, current.route, proofCache); addableErr != nil {
 			return nil, nil, addableErr
 		} else if !addable {
-			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationCandidateNotAddable})
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: semanticbrowse.FieldPresentationCandidateNotAddable})
 			continue
 		}
 		coverage := coverageByPath[semanticCoverageCandidatePathKey(semanticarango.SemanticCoverageCandidatePath{
@@ -1438,7 +1440,7 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 		})]
 		if coverage.ResourceState != semanticarango.SemanticCoverageBuildComplete {
 			decisions = append(decisions, FieldPresentationKeepRaw{
-				Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage,
+				Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: semanticbrowse.FieldPresentationIncompleteCoverage,
 			})
 			continue
 		}
@@ -1446,21 +1448,21 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 		case semanticarango.SemanticCoverageCandidateKeepRaw:
 			reason, ok := fieldPresentationCoverageReason(string(coverage.Reason))
 			if !ok {
-				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+				return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 			}
-			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: reason})
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: reason})
 		case semanticarango.SemanticCoverageCandidateUnavailable:
-			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage})
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: semanticbrowse.FieldPresentationIncompleteCoverage})
 		case semanticarango.SemanticCoverageCandidateGroupable:
 			if strings.TrimSpace(coverage.CoverageID) == "" || len(coverage.References) == 0 {
-				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+				return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 			}
 			references := make([]semanticPresentationReference, 0, len(coverage.References))
 			seen := make(map[string]struct{}, len(coverage.References))
 			for _, reference := range coverage.References {
 				resolvedReference, valid := semanticPresentationReferenceFromCoverage(reference, candidate, build.SourceKind)
 				if !valid {
-					return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+					return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 				}
 				if _, duplicate := seen[resolvedReference.key]; duplicate {
 					continue
@@ -1469,7 +1471,7 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 				references = append(references, resolvedReference)
 			}
 			if len(references) == 0 {
-				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+				return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 			}
 			newReferenceCount := 0
 			for _, reference := range references {
@@ -1478,7 +1480,7 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 				}
 			}
 			if len(requestedReferences)+newReferenceCount > fieldPresentationReplacementLimit {
-				decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationReplacementUnavailable})
+				decisions = append(decisions, FieldPresentationKeepRaw{Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: semanticbrowse.FieldPresentationReplacementUnavailable})
 				continue
 			}
 			groupReferences[candidate.ID] = references
@@ -1487,25 +1489,25 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 			}
 			decisions = append(decisions, nil)
 		default:
-			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 		}
 	}
 	if len(groupReferences) == 0 {
-		return choices, FieldPresentationReady{Kind: FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: []SemanticInventoryItem{}}, nil
+		return choices, FieldPresentationReady{Kind: semanticbrowse.FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: []semanticbrowse.SemanticInventoryItem{}}, nil
 	}
 	resolvedItems, replacementsComplete, err := b.resolveFieldPresentationReplacements(ctx, authorized, snapshot, document.RootResourceType, contextToken, build.BuildID, current, requestedReferences, proofCache)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !replacementsComplete {
-		return choices, fieldPresentationUnavailable(FieldPresentationReplacementUnavailable), nil
+		return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationReplacementUnavailable), nil
 	}
 	replacementByKey := resolvedItems
 	groupedReferences := make(map[string]semanticPresentationReference)
 	decisionIndex := 0
 	for _, candidate := range current.candidates {
 		if decisionIndex >= len(decisions) {
-			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			return choices, fieldPresentationUnavailable(semanticbrowse.FieldPresentationIncompleteCoverage), nil
 		}
 		if references, group := groupReferences[candidate.ID]; group {
 			identities := make([]semanticInventoryItemIdentity, 0, len(references))
@@ -1522,14 +1524,14 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 					ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 				})]
 				decisions[decisionIndex] = FieldPresentationGroupUnderSemantic{
-					Kind: FieldPresentationDecisionGroup, CandidateID: candidate.ID, CoverageID: coverage.CoverageID,
-					ReplacementIDs: identities, Access: FieldPresentationAccessSourceFields,
+					Kind: semanticbrowse.FieldPresentationDecisionGroup, CandidateID: candidate.ID, CoverageID: coverage.CoverageID,
+					ReplacementIDs: identities, Access: semanticbrowse.FieldPresentationAccessSourceFields,
 				}
 				for _, reference := range references {
 					groupedReferences[reference.key] = reference
 				}
 			} else {
-				decisions[decisionIndex] = FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationReplacementUnavailable}
+				decisions[decisionIndex] = FieldPresentationKeepRaw{Kind: semanticbrowse.FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: semanticbrowse.FieldPresentationReplacementUnavailable}
 			}
 		}
 		decisionIndex++
@@ -1539,11 +1541,11 @@ func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 		replacementKeys = append(replacementKeys, key)
 	}
 	sort.Strings(replacementKeys)
-	replacements := make([]SemanticInventoryItem, 0, len(replacementKeys))
+	replacements := make([]semanticbrowse.SemanticInventoryItem, 0, len(replacementKeys))
 	for _, key := range replacementKeys {
 		replacements = append(replacements, replacementByKey[key])
 	}
-	return choices, FieldPresentationReady{Kind: FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: replacements}, nil
+	return choices, FieldPresentationReady{Kind: semanticbrowse.FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: replacements}, nil
 }
 
 func (b *fieldBrowse) resolveFieldPresentationReplacements(
@@ -1554,8 +1556,8 @@ func (b *fieldBrowse) resolveFieldPresentationReplacements(
 	current fieldPresentationCurrentContext,
 	references map[string]semanticPresentationReference,
 	proofCache map[string]semanticCandidateRouteProof,
-) (map[string]SemanticInventoryItem, bool, error) {
-	items := make(map[string]SemanticInventoryItem, len(references))
+) (map[string]semanticbrowse.SemanticInventoryItem, bool, error) {
+	items := make(map[string]semanticbrowse.SemanticInventoryItem, len(references))
 	if len(references) == 0 {
 		return items, true, nil
 	}
@@ -1652,31 +1654,31 @@ func (b *fieldBrowse) semanticFieldPresentationReplacement(
 	entry semantic.Entry,
 	family *semantic.Family,
 	proofCache map[string]semanticCandidateRouteProof,
-) (SemanticInventoryItem, bool, FieldPresentationReason, error) {
+) (semanticbrowse.SemanticInventoryItem, bool, semanticbrowse.FieldPresentationReason, error) {
 	observation := entry.Observation
 	if !fieldPresentationRuleVisibleInCodedView(observation.RuleHint) {
-		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationReplacementUnavailable, nil
 	}
 	if observation.Population <= 0 {
-		return SemanticInventoryItem{}, false, FieldPresentationCandidateNotPopulated, nil
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationCandidateNotPopulated, nil
 	}
 	if !authoringv2.ResolveSemanticSelectionPlan(observation).Readiness.Addable() {
-		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationReplacementUnavailable, nil
 	}
 	candidate, found := semanticConstructionCandidate(snapshot, observation)
 	if !found || candidate.NodeID != current.sourceNodeID || !candidate.Populated {
-		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationReplacementUnavailable, nil
 	}
 	proof, err := proveSemanticCandidateForRoute(ctx, authorized, rootResourceType, candidate, current.route, proofCache)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
-			return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, support.Unavailable("catalog", "FIELD_PRESENTATION_REPLACEMENT_PROOF_INTERRUPTED", "compiler proof for a semantic replacement was interrupted", err)
+			return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationReplacementUnavailable, support.Unavailable("catalog", "FIELD_PRESENTATION_REPLACEMENT_PROOF_INTERRUPTED", "compiler proof for a semantic replacement was interrupted", err)
 		}
-		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, support.Internal("catalog", "FIELD_PRESENTATION_REPLACEMENT_PROOF_FAILED", "compiler proof for a semantic replacement failed", err)
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationReplacementUnavailable, support.Internal("catalog", "FIELD_PRESENTATION_REPLACEMENT_PROOF_FAILED", "compiler proof for a semantic replacement failed", err)
 	}
 	fieldChoice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, current.route, proof.candidate)
 	if err != nil || len(fieldChoice.Options) == 0 {
-		return SemanticInventoryItem{}, false, FieldPresentationSourceFieldsInaccessible, nil
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationSourceFieldsInaccessible, nil
 	}
 	ownerRecordsProved := family == nil && proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, current.route)
 	var choice capability.ConstructionChoice
@@ -1686,7 +1688,7 @@ func (b *fieldBrowse) semanticFieldPresentationReplacement(
 		choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, entry, proof.candidate, ownerRecordsProved)
 	}
 	if err != nil || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) || len(choice.Options) == 0 {
-		return SemanticInventoryItem{}, false, FieldPresentationSourceFieldsInaccessible, nil
+		return semanticbrowse.SemanticInventoryItem{}, false, semanticbrowse.FieldPresentationSourceFieldsInaccessible, nil
 	}
 	item := semanticInventoryItemForPresentation(entry, family, proof.candidate, choice)
 	return item, true, "", nil
@@ -1694,7 +1696,7 @@ func (b *fieldBrowse) semanticFieldPresentationReplacement(
 
 func (b *fieldBrowse) fieldPresentationCurrentContext(
 	ctx context.Context,
-	request BrowseSemanticInventoryRequest,
+	request semanticbrowse.BrowseSemanticInventoryRequest,
 	snapshot capability.Snapshot,
 ) (fieldPresentationCurrentContext, error) {
 	var current fieldPresentationCurrentContext

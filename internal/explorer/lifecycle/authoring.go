@@ -8,6 +8,9 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/proposal"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -28,21 +31,21 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	return response.Commands, nil
 }
 
-func (s *Service) ApplyBuilderCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+func (s *Service) ApplyBuilderCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory proposal.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		sinkFactory = nil
 	}
 	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
 }
 
-func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory proposal.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		return nil, support.Malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
 }
 
-func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, previewSinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, previewSinkFactory proposal.PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if err := request.Validate(); err != nil {
 		if strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
 			return nil, support.Conflict("commands", "UNSUPPORTED_SEMANTICS_VERSION", "the authoring semantics version is unsupported; reload the workspace", nil, err)
@@ -55,7 +58,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	}
 	var rowDefinitionCandidate *explorer.CompilationReceipt
 	var constructionCandidate *explorer.CompilationReceipt
-	var acceptedConstruction *AcceptedConstruction
+	var acceptedConstruction *construction.AcceptedConstruction
 	var populationMemberCandidate *explorer.CompilationReceipt
 	var rowChangeReplacementCandidate *explorer.CompilationReceipt
 	if s.config.Capability.Catalog == nil {

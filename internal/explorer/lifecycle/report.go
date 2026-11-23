@@ -1,7 +1,11 @@
 package lifecycle
 
-import "context"
+import (
+	"context"
 
-func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappingRequest) (PopulationMappingResult, error) {
+	"github.com/calypr/loom/internal/explorer/population"
+)
+
+func (s *Service) PopulationMapping(ctx context.Context, request population.PopulationMappingRequest) (population.PopulationMappingResult, error) {
 	return s.populationService.PopulationMapping(ctx, request)
 }

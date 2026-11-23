@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/population"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -12,7 +14,7 @@ import (
 func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	store.selection = completedTestSelection(snapshot, "Observation")
-	routes, err := service.SearchPopulationRoutes(context.Background(), PopulationRoutesRequest{
+	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
@@ -54,7 +56,7 @@ func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.
 func TestLegacyPopulationRouteHydratesDirectionOnlyForResolvedInputs(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	store.selection = completedTestSelection(snapshot, "Observation")
-	routes, err := service.SearchPopulationRoutes(context.Background(), PopulationRoutesRequest{
+	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		SelectionRevisionID: "selection-1",
 	})

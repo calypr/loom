@@ -18,6 +18,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/proposal"
+
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -275,7 +278,7 @@ func TestBuilderFullUIRegisteredGroupFilterDeriveFixtureCompiles(t *testing.T) {
 	if fixture.CapabilityRequest == nil {
 		t.Fatal("registered fixture capability request is missing")
 	}
-	capabilities, err := harness.Service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	capabilities, err := harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 		ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: harness.Store.created.DraftDigest,
 		OutputID: fixture.OutputID, StageID: fixture.CapabilityRequest.StageID, GroupStepID: fixture.CapabilityRequest.GroupStepID,
@@ -624,7 +627,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	candidate.Steps[0].Operation.Group.Aggregates[0] = authoringv2.ConstructionGroupAggregate{
 		Operation: authoringv2.ConstructionGroupMean, InputColumnID: "age-id", OutputColumnID: "row-count",
 	}
-	proposal, err := harness.Service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := harness.Service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 		ExpectedDraftVersion: harness.Store.created.DraftVersion, ExpectedDraftDigest: acceptedDigest,
 		OutputID: fixture.OutputID, ChangedStepID: "group-step", CandidateConstruction: candidate,
@@ -872,8 +875,8 @@ type builderFullUIHarness struct {
 	Workspace    authoringv2.Workspace
 	Fixture      builderFullUICapabilityFixture
 	Base         *explorer.CompilationReceipt
-	Capabilities ConstructionCapabilitiesResponse
-	LastPreview  *PreviewResult
+	Capabilities construction.ConstructionCapabilitiesResponse
+	LastPreview  *proposal.PreviewResult
 }
 
 type builderFullUIObservation struct {
@@ -1100,9 +1103,9 @@ func prepareBuilderFullUISeed(source builderFullUIInventoryRow, manifestEntry bu
 		seed.Error = "registered fixture has no stage capability request"
 		return seed, fmt.Errorf("%s", seed.Error)
 	}
-	var capabilities ConstructionCapabilitiesResponse
+	var capabilities construction.ConstructionCapabilitiesResponse
 	if capRequest != nil {
-		capabilities, err = harness.Service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+		capabilities, err = harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 			ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: harness.Store.created.DraftDigest,
 			OutputID: fixture.OutputID, StageID: capRequest.StageID, GroupStepID: capRequest.GroupStepID,
@@ -1283,7 +1286,7 @@ func builderFullUIRegisteredSeedFixture(entryID, seedKind string, state builderF
 	}
 }
 
-func builderFullUIFixtureColumnBindings(modelState json.RawMessage, workspace authoringv2.Workspace, capabilities ConstructionCapabilitiesResponse, fixture builderFullUICapabilityFixture) (builderFullUIFixtureBindings, error) {
+func builderFullUIFixtureColumnBindings(modelState json.RawMessage, workspace authoringv2.Workspace, capabilities construction.ConstructionCapabilitiesResponse, fixture builderFullUICapabilityFixture) (builderFullUIFixtureBindings, error) {
 	var state struct {
 		Columns []struct {
 			ID          string `json:"id"`
@@ -1652,7 +1655,7 @@ func newBuilderFullUIHarnessFromPrepared(prepared builderFullUISeed) (*builderFu
 	}
 	if fixture.CapabilityRequest != nil {
 		capRequest := fixture.CapabilityRequest
-		capabilities, capabilityErr := harness.Service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+		capabilities, capabilityErr := harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 			ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: prepared.AcceptedDigest,
 			OutputID: fixture.OutputID, StageID: capRequest.StageID, GroupStepID: capRequest.GroupStepID,
@@ -2521,19 +2524,19 @@ type builderFullUIActualCol struct {
 }
 
 type builderFullUIActual struct {
-	Kind                  string                               `json:"kind"`
-	Disposition           string                               `json:"disposition"`
-	Proposal              *ConstructionProposalResponse        `json:"proposal,omitempty"`
-	RowDefinitionProposal *rowdef.RowDefinitionProposal        `json:"rowDefinitionProposal,omitempty"`
-	Capabilities          *ConstructionCapabilitiesResponse    `json:"capabilities,omitempty"`
-	Suggestions           *builderFullUIActualSuggestions      `json:"suggestions,omitempty"`
-	RowDefinitionChoices  *rowdef.RowDefinitionChoicesResponse `json:"rowDefinitionChoices,omitempty"`
-	CompiledReceipt       *builderFullUIActualReceipt          `json:"compiledReceipt,omitempty"`
-	Preview               *builderFullUIPreviewObservation     `json:"preview,omitempty"`
-	Applied               *authoringv2.ApplyCommandsResponse   `json:"applied,omitempty"`
-	AcceptedWorkspace     json.RawMessage                      `json:"acceptedWorkspace,omitempty"`
-	ServiceError          *builderFullUIActualServiceError     `json:"serviceError,omitempty"`
-	FakeStore             *builderFullUIFakeStoreObservation   `json:"fakeStorePersistence,omitempty"`
+	Kind                  string                                         `json:"kind"`
+	Disposition           string                                         `json:"disposition"`
+	Proposal              *construction.ConstructionProposalResponse     `json:"proposal,omitempty"`
+	RowDefinitionProposal *rowdef.RowDefinitionProposal                  `json:"rowDefinitionProposal,omitempty"`
+	Capabilities          *construction.ConstructionCapabilitiesResponse `json:"capabilities,omitempty"`
+	Suggestions           *builderFullUIActualSuggestions                `json:"suggestions,omitempty"`
+	RowDefinitionChoices  *rowdef.RowDefinitionChoicesResponse           `json:"rowDefinitionChoices,omitempty"`
+	CompiledReceipt       *builderFullUIActualReceipt                    `json:"compiledReceipt,omitempty"`
+	Preview               *builderFullUIPreviewObservation               `json:"preview,omitempty"`
+	Applied               *authoringv2.ApplyCommandsResponse             `json:"applied,omitempty"`
+	AcceptedWorkspace     json.RawMessage                                `json:"acceptedWorkspace,omitempty"`
+	ServiceError          *builderFullUIActualServiceError               `json:"serviceError,omitempty"`
+	FakeStore             *builderFullUIFakeStoreObservation             `json:"fakeStorePersistence,omitempty"`
 }
 
 type builderFullUIActualSuggestions struct {
@@ -2635,16 +2638,16 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		return actual, layers, nil
 	case "constructionproposal":
 		var body struct {
-			ExpectedDraftDigest   string                              `json:"expectedDraftDigest"`
-			ExpectedDraftVersion  int64                               `json:"expectedDraftVersion"`
-			SnapshotToken         string                              `json:"snapshotToken"`
-			OutputID              string                              `json:"outputId"`
-			ChangedStepID         *string                             `json:"changedStepId"`
-			RemoveStepIDs         *[]string                           `json:"removeStepIds"`
-			CandidateConstruction json.RawMessage                     `json:"candidateConstruction"`
-			GroupSource           *ConstructionGroupSourceSelection   `json:"groupSource"`
-			GroupSources          *[]ConstructionGroupSourceSelection `json:"groupSources"`
-			Limit                 *int                                `json:"limit"`
+			ExpectedDraftDigest   string                                           `json:"expectedDraftDigest"`
+			ExpectedDraftVersion  int64                                            `json:"expectedDraftVersion"`
+			SnapshotToken         string                                           `json:"snapshotToken"`
+			OutputID              string                                           `json:"outputId"`
+			ChangedStepID         *string                                          `json:"changedStepId"`
+			RemoveStepIDs         *[]string                                        `json:"removeStepIds"`
+			CandidateConstruction json.RawMessage                                  `json:"candidateConstruction"`
+			GroupSource           *construction.ConstructionGroupSourceSelection   `json:"groupSource"`
+			GroupSources          *[]construction.ConstructionGroupSourceSelection `json:"groupSources"`
+			Limit                 *int                                             `json:"limit"`
 		}
 		if err := json.Unmarshal(request.Body, &body); err != nil {
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: construction proposal request body is not decodable: %w", err)
@@ -2656,7 +2659,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if err := json.Unmarshal(body.CandidateConstruction, &candidate); err != nil {
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode candidateConstruction: %w", err)
 		}
-		requestValue := ConstructionProposalRequest{
+		requestValue := construction.ConstructionProposalRequest{
 			Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken,
 			ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
 			OutputID: body.OutputID, CandidateConstruction: candidate,
@@ -2672,7 +2675,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 			requestValue.GroupSource = &groupSource
 		}
 		if body.GroupSources != nil {
-			requestValue.GroupSources = append([]ConstructionGroupSourceSelection(nil), (*body.GroupSources)...)
+			requestValue.GroupSources = append([]construction.ConstructionGroupSourceSelection(nil), (*body.GroupSources)...)
 		}
 		if body.Limit != nil {
 			requestValue.Limit = *body.Limit
@@ -2796,7 +2799,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if err := json.Unmarshal(request.Body, &body); err != nil {
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode ConstructionCapabilities request: %w", err)
 		}
-		value, err := harness.Service.GetConstructionCapabilities(ctx, ConstructionCapabilitiesRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken, ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest, OutputID: body.OutputID, StageID: body.StageID, GroupStepID: body.GroupStepID})
+		value, err := harness.Service.GetConstructionCapabilities(ctx, construction.ConstructionCapabilitiesRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken, ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest, OutputID: body.OutputID, StageID: body.StageID, GroupStepID: body.GroupStepID})
 		layers = append(layers, "lifecycle_analyzer_compiler")
 		if err != nil {
 			return resultError(err)

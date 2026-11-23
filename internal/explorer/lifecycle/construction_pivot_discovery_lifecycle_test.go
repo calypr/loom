@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -30,7 +32,7 @@ func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testin
 				}
 			}
 		}
-		proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
+		proof := compilerCategoryScanProof(construction.ConstructionCategoryDiscoveryRequest{
 			OutputID: scan.Output, StageID: scan.StageID,
 			CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
 		}, category)
@@ -88,7 +90,7 @@ func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
 				}
 			}
 		}
-		proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
+		proof := compilerCategoryScanProof(construction.ConstructionCategoryDiscoveryRequest{
 			OutputID: scan.Output, StageID: scan.StageID,
 			CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
 		}, category)
@@ -140,7 +142,7 @@ func TestLoadConstructionBaseRejectsSavedUnresolvedPivotDiscovery(t *testing.T) 
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
 
-	_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,

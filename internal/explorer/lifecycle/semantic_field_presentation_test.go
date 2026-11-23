@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -90,7 +92,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 			return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
 		},
 	})
-	request := BrowseSemanticInventoryRequest{
+	request := semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: project, ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
 		OutputID: "out", FrameID: frame.ID,
 	}
@@ -139,16 +141,16 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 	t.Run("malformed batches stop before authorization and reads", func(t *testing.T) {
 		for _, test := range []struct {
 			name   string
-			mutate func(*BrowseSemanticInventoryRequest)
+			mutate func(*semanticbrowse.BrowseSemanticInventoryRequest)
 		}{
-			{name: "duplicate candidate ID", mutate: func(request *BrowseSemanticInventoryRequest) {
+			{name: "duplicate candidate ID", mutate: func(request *semanticbrowse.BrowseSemanticInventoryRequest) {
 				request.FieldPresentation.CandidateIDs = []string{"opaque-candidate", "opaque-candidate"}
 			}},
-			{name: "empty supplied stage", mutate: func(request *BrowseSemanticInventoryRequest) {
+			{name: "empty supplied stage", mutate: func(request *semanticbrowse.BrowseSemanticInventoryRequest) {
 				stageID := ""
 				request.FieldPresentation.StageID = &stageID
 			}},
-			{name: "too many candidates", mutate: func(request *BrowseSemanticInventoryRequest) {
+			{name: "too many candidates", mutate: func(request *semanticbrowse.BrowseSemanticInventoryRequest) {
 				request.FieldPresentation.CandidateIDs = make([]string, fieldPresentationCandidateLimit+1)
 				for index := range request.FieldPresentation.CandidateIDs {
 					request.FieldPresentation.CandidateIDs[index] = "opaque-" + strconv.Itoa(index)
@@ -311,7 +313,7 @@ func TestFieldPresentationRequiresStageWhenOutputHasConstructionSteps(t *testing
 		t.Fatal(err)
 	}
 	unavailableResult, ok := response.FieldPresentation.(FieldPresentationUnavailable)
-	if !ok || unavailableResult.Reason != FieldPresentationUnsupportedCurrentStage {
+	if !ok || unavailableResult.Reason != semanticbrowse.FieldPresentationUnsupportedCurrentStage {
 		t.Fatalf("presentation=%#v, want unsupported-stage fallback when stageId is omitted", response.FieldPresentation)
 	}
 	if fixture.coverageReads != 0 || len(response.Entries) != 1 || response.Entries[0].ConstructionChoice == nil {
@@ -384,7 +386,7 @@ func TestFieldPresentationKeepsRawWhenReplacementIsUnavailableOrNotInCodedView(t
 				t.Fatalf("presentation=%#v, want one READY raw-retention decision", response.FieldPresentation)
 			}
 			decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
-			if !ok || decision.CandidateID != fixture.candidate.ID || decision.Reason != FieldPresentationReplacementUnavailable {
+			if !ok || decision.CandidateID != fixture.candidate.ID || decision.Reason != semanticbrowse.FieldPresentationReplacementUnavailable {
 				t.Fatalf("decision=%#v, want KEEP_RAW / REPLACEMENT_UNAVAILABLE", ready.Decisions[0])
 			}
 			if len(ready.Replacements) != 0 || len(response.Entries) != 1 || response.Entries[0].ConstructionChoice == nil {
@@ -408,7 +410,7 @@ func TestFieldPresentationKeepsRawForClosedCoverageDisposition(t *testing.T) {
 		t.Fatalf("presentation=%#v, want one READY raw-retention decision", response.FieldPresentation)
 	}
 	decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
-	if !ok || decision.Reason != FieldPresentationMissingSystem || decision.CandidateID != fixture.candidate.ID {
+	if !ok || decision.Reason != semanticbrowse.FieldPresentationMissingSystem || decision.CandidateID != fixture.candidate.ID {
 		t.Fatalf("decision=%#v, want closed MISSING_SYSTEM reason for the requested raw candidate", ready.Decisions[0])
 	}
 	if len(ready.Replacements) != 0 || fixture.coverageReads != 1 {
@@ -420,14 +422,14 @@ func TestFieldPresentationDoesNotBypassRawPopulatedOrAddableChecks(t *testing.T)
 	for _, test := range []struct {
 		name       string
 		mutate     func(*capability.Candidate)
-		wantReason FieldPresentationReason
+		wantReason semanticbrowse.FieldPresentationReason
 	}{
 		{name: "candidate not populated", mutate: func(candidate *capability.Candidate) {
 			candidate.Populated = false
-		}, wantReason: FieldPresentationCandidateNotPopulated},
+		}, wantReason: semanticbrowse.FieldPresentationCandidateNotPopulated},
 		{name: "candidate has no supported construction form", mutate: func(candidate *capability.Candidate) {
 			candidate.ProjectionModes = nil
-		}, wantReason: FieldPresentationCandidateNotAddable},
+		}, wantReason: semanticbrowse.FieldPresentationCandidateNotAddable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFieldPresentationTestFixture(t, false)
@@ -586,9 +588,9 @@ func assertFieldPresentationCodedFamilyProof(
 			return semantic.ResolveResult{Build: build, State: semantic.Complete, Families: []semantic.Family{family}}, nil
 		},
 	})
-	request := BrowseSemanticInventoryRequest{
+	request := semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: project, ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: resourceType, OutputID: "patients",
-		FieldPresentation: &FieldPresentationRequest{
+		FieldPresentation: &semanticbrowse.FieldPresentationRequest{
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			SourceNodeID: sourceNodeID, OccurrenceID: authoringv2.RootOccurrenceID, CandidateIDs: []string{codeCandidate.ID},
 		},
@@ -625,7 +627,7 @@ func assertFieldPresentationCodedFamilyProof(
 			t.Fatalf("presentation=%#v, incomplete Task certificate must not return replacements", ready.Replacements)
 		}
 		decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
-		if !ok || decision.CandidateID != codeCandidate.ID || decision.Reason != FieldPresentationIncompleteCoverage {
+		if !ok || decision.CandidateID != codeCandidate.ID || decision.Reason != semanticbrowse.FieldPresentationIncompleteCoverage {
 			t.Fatalf("decision=%#v, want KEEP_RAW / INCOMPLETE_COVERAGE", ready.Decisions[0])
 		}
 		if len(response.Entries) != 1 || response.Entries[0].ConstructionChoice == nil {
@@ -646,7 +648,7 @@ func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 		t.Fatalf("presentation=%#v, want one ready decision and one replacement", response.FieldPresentation)
 	}
 	group, ok := ready.Decisions[0].(FieldPresentationGroupUnderSemantic)
-	if !ok || group.CandidateID != fixture.candidate.ID || group.CoverageID != "coverage-id" || group.Access != FieldPresentationAccessSourceFields || len(group.ReplacementIDs) != 1 {
+	if !ok || group.CandidateID != fixture.candidate.ID || group.CoverageID != "coverage-id" || group.Access != semanticbrowse.FieldPresentationAccessSourceFields || len(group.ReplacementIDs) != 1 {
 		t.Fatalf("decision=%#v, want bounded semantic group with Source fields access", ready.Decisions[0])
 	}
 	identity, ok := group.ReplacementIDs[0].(ExactSemanticInventoryItemIdentity)
@@ -850,11 +852,11 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	return fixture
 }
 
-func (fixture *fieldPresentationTestFixture) request() BrowseSemanticInventoryRequest {
-	return BrowseSemanticInventoryRequest{
+func (fixture *fieldPresentationTestFixture) request() semanticbrowse.BrowseSemanticInventoryRequest {
+	return semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: fixture.snapshot.Token,
 		RowRoot: fixture.rootResourceType, OutputID: "patients",
-		FieldPresentation: &FieldPresentationRequest{
+		FieldPresentation: &semanticbrowse.FieldPresentationRequest{
 			ExpectedDraftVersion: fixture.store.created.DraftVersion, ExpectedDraftDigest: fixture.store.created.DraftDigest,
 			SourceNodeID: "observation", OccurrenceID: fixture.occurrenceID, CandidateIDs: []string{fixture.candidate.ID},
 		},

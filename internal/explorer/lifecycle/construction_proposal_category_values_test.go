@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -93,7 +95,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 					if category.ID == "" {
 						t.Fatalf("category column %q is missing from the receipt stage", scan.ColumnID)
 					}
-					proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
+					proof := compilerCategoryScanProof(construction.ConstructionCategoryDiscoveryRequest{
 						OutputID: scan.Output, StageID: scan.StageID,
 						CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
 					}, category)
@@ -190,7 +192,7 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 						}
 					}
 				}
-				proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
+				proof := compilerCategoryScanProof(construction.ConstructionCategoryDiscoveryRequest{
 					OutputID: scan.Output, StageID: scan.StageID,
 					CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
 				}, category)
@@ -329,7 +331,7 @@ func constructionProposalPivotRequest(
 	owner *explorer.Explorer,
 	snapshot capability.Snapshot,
 	categories []authoringv2.ConstructionPivotCategory,
-) ConstructionProposalRequest {
+) construction.ConstructionProposalRequest {
 	pivot := &authoringv2.ConstructionPivot{
 		ConstructionID: "pivot_status", GroupKeyIDs: []string{"group_id"},
 		CategoryColumnID: "category_id", ValueColumnID: "value_id",
@@ -338,7 +340,7 @@ func constructionProposalPivotRequest(
 		MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
 		UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
 	}
-	return ConstructionProposalRequest{
+	return construction.ConstructionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
 		OutputID: "patients", ChangedStepID: "pivot_status",

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -137,12 +139,12 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 		return engine.ScanCategoriesCompiled(ctx, query)
 	}
 
-	request := ConstructionCategoryDiscoveryRequest{
+	request := construction.ConstructionCategoryDiscoveryRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "keep_positive", PivotStepID: "pivot_probe",
 		CategoryColumnID: "pivot_category_id", ValueColumnID: "pivot_value_id", GroupKeyIDs: []string{"group_id"},
-		PivotSources: []ConstructionPivotSourceSelection{
+		PivotSources: []construction.ConstructionPivotSourceSelection{
 			{ChoiceID: categoryChoice.ChoiceID, ColumnID: "pivot_category_id"},
 			{ChoiceID: valueChoice.ChoiceID, ColumnID: "pivot_value_id"},
 		},

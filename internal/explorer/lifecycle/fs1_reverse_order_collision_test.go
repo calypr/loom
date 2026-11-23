@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -97,7 +100,7 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 				fs1r6Projection(rs05OldColumn, rs05PivotID, filterSourceField, "boolean"),
 			},
 		}
-		request := filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{
+		request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 			filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 		})
 		_, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate)
@@ -132,11 +135,11 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 				fs1r6Projection(rs05OldColumn, rs05PivotID, filterSourceField, "boolean"),
 			},
 		}
-		request := ConstructionProposalRequest{
+		request := construction.ConstructionProposalRequest{
 			Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "filter-source-token",
 			ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:filter-source-draft",
 			OutputID: filterSourceOutput, ChangedStepID: "melt-step",
-			UnpivotSources: []ConstructionUnpivotSourceSelection{{ChoiceID: filterSourceRowChoice(t, snapshot, filterSourceField).ChoiceID, ColumnID: "melt_slot"}},
+			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: filterSourceRowChoice(t, snapshot, filterSourceField).ChoiceID, ColumnID: "melt_slot"}},
 		}
 		_, err := service.constructionCandidateWithUnpivotSources(context.Background(), base, request, candidate)
 		if code := fs1r6LaneCode(err); code != "UNPIVOT_SOURCE_CANNOT_CROSS_STAGE" {
@@ -174,7 +177,7 @@ func TestFS1ForwardAndReverseSignedCarrierCollisionRefusedNamed(t *testing.T) {
 			projection := fs1r6Projection("derive_slot_a", "derive-carrier", filterSourceField, "boolean")
 			base := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: steps, SourceProjections: []authoringv2.ConstructionSourceProjection{projection}})
 			candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: steps, SourceProjections: []authoringv2.ConstructionSourceProjection{projection}}
-			request := filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{
+			request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 				filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 			})
 			_, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate)
@@ -201,7 +204,7 @@ func TestFS1LegitNonCollisionReverseOrderStillAccepted(t *testing.T) {
 	steps := []authoringv2.ConstructionStep{filter, carrier}
 	base := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: steps, SourceProjections: []authoringv2.ConstructionSourceProjection{projection}})
 	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: steps, SourceProjections: []authoringv2.ConstructionSourceProjection{projection}}
-	request := filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{
+	request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 		filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 	})
 	if _, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate); err != nil {
@@ -288,8 +291,8 @@ func fs1r6SignedFilterStep() authoringv2.ConstructionStep {
 	}
 }
 
-func fs1r6SignedSlotRequest() ConstructionFilterSourceSelection {
-	return ConstructionFilterSourceSelection{ColumnID: "fs1r6_slot_b"}
+func fs1r6SignedSlotRequest() rowsource.ConstructionFilterSourceSelection {
+	return rowsource.ConstructionFilterSourceSelection{ColumnID: "fs1r6_slot_b"}
 }
 
 func TestFS1FullProposeRefusesSignedStepInsertedBeforeCommittedPivot(t *testing.T) {
@@ -300,11 +303,11 @@ func TestFS1FullProposeRefusesSignedStepInsertedBeforeCommittedPivot(t *testing.
 	candidate.Steps = append([]authoringv2.ConstructionStep{fs1r6SignedFilterStep()}, durable.Steps...)
 	selection := fs1r6SignedSlotRequest()
 	selection.ChoiceID = harness.choice(t, "multipleBirthInteger").ChoiceID
-	_, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "fs1r6_filter", CandidateConstruction: candidate,
-		FilterSources: []ConstructionFilterSourceSelection{selection},
+		FilterSources: []rowsource.ConstructionFilterSourceSelection{selection},
 	})
 	if code := fs1r6LaneCode(err); code != "INVALID_CONSTRUCTION_CANDIDATE" {
 		t.Fatalf("signed step inserted before the committed pivot: code=%q err=%v, want INVALID_CONSTRUCTION_CANDIDATE (reverse arrival unreachable by construction)", code, err)
@@ -322,11 +325,11 @@ func TestFS1FullProposeReverseDirectionRefusedAtBoundary(t *testing.T) {
 	candidate.Steps = append(candidate.Steps, signed)
 	selection := fs1r6SignedSlotRequest()
 	selection.ChoiceID = harness.choice(t, "multipleBirthInteger").ChoiceID
-	proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "fs1r6_filter", CandidateConstruction: candidate,
-		FilterSources: []ConstructionFilterSourceSelection{selection},
+		FilterSources: []rowsource.ConstructionFilterSourceSelection{selection},
 	})
 	if err == nil {
 		t.Fatalf("pivot-first signed slot was accepted (status=%q, %d projections): the collision must be refused as FILTER_SOURCE_CANNOT_CROSS_STAGE at the lane boundary",

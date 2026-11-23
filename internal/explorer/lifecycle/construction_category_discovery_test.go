@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -43,7 +45,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	if upgraded.Construction == nil || len(upgraded.Columns) != 2 {
 		t.Fatalf("upgraded source columns = %#v", upgraded)
 	}
-	request := ConstructionCategoryDiscoveryRequest{
+	request := construction.ConstructionCategoryDiscoveryRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -187,7 +189,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	}
 }
 
-func compilerCategoryScanProof(request ConstructionCategoryDiscoveryRequest, column explorer.ReceiptConstructionStageColumn) facade.CategoryScanProof {
+func compilerCategoryScanProof(request construction.ConstructionCategoryDiscoveryRequest, column explorer.ReceiptConstructionStageColumn) facade.CategoryScanProof {
 	return facade.CategoryScanProof{
 		Version: 2, Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, Column: column.Name, Kind: column.Type,

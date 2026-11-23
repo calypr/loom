@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -31,7 +33,7 @@ func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) 
 						}
 					}
 				}
-				proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{OutputID: scan.Output, StageID: scan.StageID, CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID}, category)
+				proof := compilerCategoryScanProof(construction.ConstructionCategoryDiscoveryRequest{OutputID: scan.Output, StageID: scan.StageID, CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID}, category)
 				return dataframeexecution.CategoryScanResult{Values: []dataframeexecution.CategoryValue{{Present: true, Value: "other-observed-category"}}, Complete: true, Proof: proof}, nil
 			}
 			request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})

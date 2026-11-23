@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	proposalpkg "github.com/calypr/loom/internal/explorer/proposal"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -99,7 +101,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		return dataframeexecution.PreviewSummary{RowCount: 3, Complete: true}, nil
 	}
 	service := newTestService(t, store, config)
-	request := SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", Change: authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: "base", EdgeID: "authorized-edge", MatchMode: authoringv2.RouteMatchOptional}}
+	request := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", Change: authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: "base", EdgeID: "authorized-edge", MatchMode: authoringv2.RouteMatchOptional}}
 	proposal, err := service.ProposeSourceRelationship(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +252,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		}
 		return document, err
 	}
-	stepRequest := SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
+	stepRequest := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
 	compileFailure = true
 	if _, err := service.ProposeSourceRelationship(ctx, stepRequest); err == nil {
 		t.Fatal("downstream source-step removal failure produced a proposal")

@@ -4,6 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/population"
+
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
@@ -66,8 +69,8 @@ type Config struct {
 	ValidateReceiptStream        ReceiptStreamValidator
 	ScanCategories               CategoryScanner
 	ScanColumnPopulation         ColumnPopulationScanner
-	PopulationMapping            PopulationMappingExecutor
-	PopulationMappingCursorCodec *PopulationMappingCursorCodec
+	PopulationMapping            population.PopulationMappingExecutor
+	PopulationMappingCursorCodec *population.HMACPopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
 	RowLineage                   RowLineageExecutor
 	MaterializeReceipt           ports.ReceiptMaterializer
@@ -162,7 +165,7 @@ type PreviewRequest struct {
 
 type ApplyCommandsWithConstructionPreviewResponse struct {
 	Commands *authoringv2.ApplyCommandsResponse
-	Accepted *AcceptedConstruction
+	Accepted *construction.AcceptedConstruction
 }
 
 type CellTraceRequest struct {

@@ -16,6 +16,6 @@ func (s *Service) interpretationRepository() (interpretation.Repository, error) 
 	return s.config.InterpretationRepository, nil
 }
 
-func (s *Service) CreateInterpretationRevision(ctx context.Context, request CreateInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
+func (s *Service) CreateInterpretationRevision(ctx context.Context, request interpretation.CreateInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
 	return s.interpretationService.CreateInterpretationRevision(ctx, request)
 }
