@@ -547,8 +547,8 @@ func TestConstructionCodedGroupChoicesRequirePopulatedCodeAndShowPathBreadcrumb(
 		nil,
 	)
 	base := constructionBase{
-		snapshot: snapshot,
-		document: authoringv2.Document{
+		Snapshot: snapshot,
+		Document: authoringv2.Document{
 			RootResourceType: "BodyStructure",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
@@ -598,13 +598,13 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 	}
 	service := &Service{config: Config{RowChoicePlanner: resolver}}
 	base := constructionBase{
-		snapshot: snapshot,
-		document: authoringv2.Document{
+		Snapshot: snapshot,
+		Document: authoringv2.Document{
 			RootResourceType: "BodyStructure",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
-	capability, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
+	capability, err := service.constructionSources().ConstructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 		choice.LogicalType != "boolean" || choice.ValueType != "BOOLEAN" || choice.IsIdentifier || choice.IsReference || !choice.IsPopulated {
 		t.Fatalf("BodyStructure active choice = %#v", choice)
 	}
-	transformed, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", "group-step")
+	transformed, err := service.constructionSources().ConstructionGroupSourceCapability(context.Background(), base, "body-structures", "group-step")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,15 +664,15 @@ func TestConstructionGroupSourceChoicesExcludeConstantResourceTypeMetadata(t *te
 		t.Fatalf("fixture row choices = %#v, want only the observed resourceType choice", rowChoices)
 	}
 	service := &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
-	base := constructionBase{snapshot: snapshot, document: document}
-	sourceInput, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
+	base := constructionBase{Snapshot: snapshot, Document: document}
+	sourceInput, err := service.constructionSources().ConstructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sourceInput.Supported || sourceInput.ReasonCode != "NO_ELIGIBLE_POPULATED_SCALAR_GROUP_FIELDS" || len(sourceInput.Choices) != 0 {
 		t.Fatalf("constant resourceType was offered as a useful source group: %#v", sourceInput)
 	}
-	_, err = service.constructionSources().resolveConstructionGroupSource(context.Background(), base, ConstructionProposalRequest{
+	_, err = service.constructionSources().ResolveConstructionGroupSource(context.Background(), base, ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "explorer-a", OutputID: "body-structures",
 		GroupSource: &ConstructionGroupSourceSelection{RowChoiceID: rowChoices[0].ChoiceID, ColumnID: "source_resource_type"},
 	}, "source_resource_type")
@@ -1013,9 +1013,9 @@ func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *tes
 func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing.T) {
 	accepted := authoringv2.ConstructionSourceProjection{ColumnID: "accepted", FieldPath: "status", OwnerStepID: "group"}
 	forged := authoringv2.ConstructionSourceProjection{ColumnID: "forged", FieldPath: "secret", OwnerStepID: "group"}
-	base := constructionBase{construction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{accepted}}}
+	base := constructionBase{Construction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{accepted}}}
 	service := &Service{}
-	candidate, err := service.constructionSources().constructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{forged}}})
+	candidate, err := service.constructionSources().ConstructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{forged}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1032,7 +1032,7 @@ func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t 
 		return authoringv2.ConstructionStep{Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: outputID}}}
 	}
 	base := constructionBase{
-		workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
+		Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
 			{Output: authoringv2.Output{ID: "upstream", Title: "Upstream"}, Rows: authoringv2.RecordsRowDefinition()},
 			workspaceOutput("target"),
 			workspaceOutput("depends-on-target", combineInput("target")),
@@ -1040,7 +1040,7 @@ func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t 
 			{Output: authoringv2.Output{ID: "independent", Title: "Independent"}, Rows: authoringv2.RecordsRowDefinition()},
 		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		},
-		receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
+		Receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
 			"upstream": {
 				{ID: "patient-id", Name: "patient_id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one"},
 				{ID: "birth-date", Name: "birth_date", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one", Nullable: true},
@@ -1078,12 +1078,12 @@ func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t 
 
 func TestConstructionWorkspaceInputsRejectMissingFinalSiblingSchema(t *testing.T) {
 	base := constructionBase{
-		workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
+		Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
 			{Output: authoringv2.Output{ID: "target"}, Rows: authoringv2.RecordsRowDefinition()},
 			{Output: authoringv2.Output{ID: "sibling"}, Rows: authoringv2.RecordsRowDefinition()},
 		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		},
-		receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
+		Receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
 			"target": {{ID: "target-id", Name: "target", Label: "Target", LogicalType: "string", Cardinality: "required_one"}},
 		}},
 	}

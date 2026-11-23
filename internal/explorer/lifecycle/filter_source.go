@@ -30,28 +30,28 @@ func (s *Service) constructionFilterSourceCapability(
 	outputID, stageID string,
 ) (ConstructionFilterSourceCapability, error) {
 	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []ConstructionFilterSourceChoice{}}
-	if importedSourceChoiceUnavailable(base.document) {
+	if importedSourceChoiceUnavailable(base.Document) {
 		result.Supported = true
 		return result, nil
 	}
-	if _, found := constructionReceiptStage(base.stages, stageID); !found {
+	if _, found := constructionReceiptStage(base.Stages, stageID); !found {
 		result.ReasonCode = "STALE_STAGE_REFERENCE"
 		result.Reason = "the selected stage is not present in the current compiled output"
 		return result, nil
 	}
 	enumeration := rowSourceEnumeration{
-		rootReachable:     constructionRootProjectionCanReachStage(base.construction, stageID),
+		rootReachable:     constructionRootProjectionCanReachStage(base.Construction, stageID),
 		plannerConfigured: s.config.RowChoicePlanner != nil,
 	}
 	if enumeration.rootReachable && enumeration.plannerConfigured {
-		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
+		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
 		if err != nil {
 			result.ReasonCode, result.Reason = rowSourceInventoryFailure(filterSourceReasons)
 			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
 				fmt.Errorf("list authorized root filter source choices for output %q: %w", outputID, err))
 		}
 		for _, choice := range choices {
-			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
+			if rowSourceChoiceIsStaleVersion(choice, base.Snapshot) {
 				enumeration.skip(rowSourceSkipVersion)
 				continue
 			}
@@ -60,16 +60,16 @@ func (s *Service) constructionFilterSourceCapability(
 				enumeration.skip(rowSourceSkipRoute)
 				continue
 			}
-			candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
+			candidate, ok := constructionGroupSourceCandidate(base.Snapshot, choice)
 			if !ok {
-				enumeration.skip(rowSourceCandidateSkipClass(base.snapshot, choice))
+				enumeration.skip(rowSourceCandidateSkipClass(base.Snapshot, choice))
 				continue
 			}
 			result.Choices = append(result.Choices, ConstructionFilterSourceChoice{
 				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
-				Label:       constructionFieldDisplayLabel(base.document.RootResourceType, choice.Path, candidate.Label, choice.Label),
+				Label:       constructionFieldDisplayLabel(base.Document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
-				ColumnID: constructionOwnedFilterSourceColumnID(base.construction, stageID, choice.Path),
+				ColumnID: constructionOwnedFilterSourceColumnID(base.Construction, stageID, choice.Path),
 			})
 		}
 	}
@@ -101,12 +101,12 @@ func (s *Service) resolveConstructionFilterSource(
 	if s.config.RowChoiceResolver == nil {
 		return authoringv2.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized filter source choice resolution is not configured", nil)
 	}
-	if identity.SnapshotToken != base.snapshot.Token || identity.SchemaDigest != base.snapshot.Identity.SchemaDigest {
+	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, nil)
 	}
 	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
-		Snapshot: base.snapshot.Clone(), Route: base.document.Route,
+		Snapshot: base.Snapshot.Clone(), Route: base.Document.Route,
 		RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
 	})
 	if resolveErr != nil || identity.Kind != capability.RowChoiceFieldGroupKey ||
@@ -116,11 +116,11 @@ func (s *Service) resolveConstructionFilterSource(
 		resolved.OccurrenceID != authoringv2.RootOccurrenceID {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, resolveErr)
 	}
-	rootNode, ok := base.snapshot.Node(identity.Occurrence.NodeID)
-	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.document.RootResourceType {
+	rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
+	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
 	}
-	candidate, found := uniqueRowSourceCandidate(base.snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
+	candidate, found := uniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
 	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
 		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
@@ -135,7 +135,7 @@ func (s *Service) resolveConstructionFilterSource(
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_FILTER_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 	}
-	label := constructionFieldDisplayLabel(base.document.RootResourceType, facts.CanonicalPath, candidate.Label)
+	label := constructionFieldDisplayLabel(base.Document.RootResourceType, facts.CanonicalPath, candidate.Label)
 	return authoringv2.ConstructionSourceProjection{
 		ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 		FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
@@ -159,7 +159,7 @@ func (s *Service) constructionCandidateWithFilterSources(
 		return authoringv2.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_REQUIRES_FILTER", "filterSources can only be applied to a Filter step", nil)
 	}
 	if len(request.FilterSources) == 0 {
-		cleared, err := clearConstructionFilterOwnedSources(base.construction, candidate, request.ChangedStepID)
+		cleared, err := clearConstructionFilterOwnedSources(base.Construction, candidate, request.ChangedStepID)
 		if err != nil {
 			return authoringv2.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
@@ -169,7 +169,7 @@ func (s *Service) constructionCandidateWithFilterSources(
 	if acceptedStageID == "" {
 		return authoringv2.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_STAGE_UNAVAILABLE", "the Filter input stage cannot be resolved", nil)
 	}
-	if _, found := constructionReceiptStage(base.stages, acceptedStageID); !found {
+	if _, found := constructionReceiptStage(base.Stages, acceptedStageID); !found {
 		return authoringv2.Construction{}, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the filter source choices are not bound to an accepted stage", nil, nil)
 	}
 	for _, selection := range request.FilterSources {
@@ -190,7 +190,7 @@ func (s *Service) constructionCandidateWithFilterSources(
 	sort.Slice(resolved, func(i, j int) bool { return resolved[i].ColumnID < resolved[j].ColumnID })
 
 	droppedOwned := make(map[string]bool)
-	for _, projection := range base.construction.SourceProjections {
+	for _, projection := range base.Construction.SourceProjections {
 		if projection.OwnerStepID == request.ChangedStepID {
 			droppedOwned[projection.ColumnID] = true
 		}
@@ -205,22 +205,22 @@ func (s *Service) constructionCandidateWithFilterSources(
 		reowned[projection.ColumnID] = true
 	}
 
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(base.construction.SourceProjections)+len(resolved))
+	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(base.Construction.SourceProjections)+len(resolved))
 	for _, projection := range candidate.SourceProjections {
 		if projection.OwnerStepID != request.ChangedStepID {
 			projections = append(projections, projection)
 		}
 	}
-	for _, projection := range base.construction.SourceProjections {
+	for _, projection := range base.Construction.SourceProjections {
 		if projection.OwnerStepID != "" && projection.OwnerStepID != request.ChangedStepID && !hasPivotSourceProjection(projections, projection.ColumnID) &&
-			!constructionOwnerInputsClearedFromCandidate(base.construction, candidate, projection.OwnerStepID) {
+			!constructionOwnerInputsClearedFromCandidate(base.Construction, candidate, projection.OwnerStepID) {
 			projections = append(projections, projection)
 		}
 	}
 	projections = append(projections, resolved...)
 
 	for _, projection := range resolved {
-		if constructionRootFieldAlreadyProjected(base.document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
+		if constructionRootFieldAlreadyProjected(base.Document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
 			return authoringv2.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_FIELD_ALREADY_PROJECTED",
 				fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this filter source", projection.FieldPath), nil)
 		}
@@ -406,7 +406,7 @@ func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base
 			return fmt.Errorf("filter source projection %q is not the column filtered by its owner Filter step", projection.ColumnID)
 		}
 		if !planned {
-			listed, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
+			listed, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
 			if err != nil {
 				return fmt.Errorf("list authorized root filter source choices for output %q: %w", outputID, err)
 			}
@@ -418,10 +418,10 @@ func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) != canonicalRowPath(projection.FieldPath) {
 				continue
 			}
-			if _, found := base.snapshot.Node(choice.NodeID); !found {
+			if _, found := base.Snapshot.Node(choice.NodeID); !found {
 				continue
 			}
-			derived, ok := ConstructionFilterSourceFacts(base.snapshot, base.document.RootResourceType, projection.FieldPath)
+			derived, ok := ConstructionFilterSourceFacts(base.Snapshot, base.Document.RootResourceType, projection.FieldPath)
 			if !ok {
 				continue
 			}

@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -101,10 +101,10 @@ const (
 )
 
 type constructionScanFlow struct {
-	loadBase                   func(context.Context, string, string, string, int64, string, string) (constructionBase, error)
-	compile                    func(context.Context, compileRequest) (*explorer.CompilationReceipt, error)
+	loadBase                   func(context.Context, string, string, string, int64, string, string) (Base, error)
+	compile                    func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
 	verifyProposalReceipt      func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
-	withPivotSources           func(context.Context, constructionBase, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, map[string]bool, error)
+	withPivotSources           func(context.Context, Base, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, map[string]bool, error)
 	scanCategories             CategoryScanner
 	scanPopulation             ColumnPopulationScanner
 	selectionMembersCollection string
@@ -122,19 +122,19 @@ func (s *Service) constructionScans() constructionScanFlow {
 
 func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	request ConstructionCategoryDiscoveryRequest,
-) (constructionBase, string, error) {
+) (Base, string, error) {
 	if request.CandidateConstruction == nil {
-		return constructionBase{}, "", malformed("construction-category-discovery", "candidateConstruction is required when pivotSources are supplied", nil)
+		return Base{}, "", malformed("construction-category-discovery", "candidateConstruction is required when pivotSources are supplied", nil)
 	}
 	raw, err := json.Marshal(request.CandidateConstruction)
 	if err != nil {
-		return constructionBase{}, "", malformed("construction-category-discovery", "candidateConstruction is invalid", err)
+		return Base{}, "", malformed("construction-category-discovery", "candidateConstruction is invalid", err)
 	}
 	var candidate authoringv2.Construction
 	if err := json.Unmarshal(raw, &candidate); err != nil {
-		return constructionBase{}, "", malformed("construction-category-discovery", "candidateConstruction is invalid", err)
+		return Base{}, "", malformed("construction-category-discovery", "candidateConstruction is invalid", err)
 	}
 	pivotIndex := constructionStepIndex(candidate.Steps, request.PivotStepID)
 	if pivotIndex < 0 {
@@ -147,13 +147,13 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 			}
 		}
 		if len(groupKeys) == 0 {
-			return constructionBase{}, "", unprocessable("construction-category-discovery", "PIVOT_ROW_KEY_REQUIRED", "choose at least one row key before discovering Pivot categories", nil)
+			return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_ROW_KEY_REQUIRED", "choose at least one row key before discovering Pivot categories", nil)
 		}
 		input := authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputSourceProjection}
 		if request.StageID != recipe.ConstructionSourceProjectionID {
 			inputIndex := constructionStepIndex(candidate.Steps, request.StageID)
 			if inputIndex < 0 {
-				return constructionBase{}, "", conflict("construction-category-discovery", "STALE_STAGE_REFERENCE", "the requested input stage is not present in candidateConstruction", nil, nil)
+				return Base{}, "", conflict("construction-category-discovery", "STALE_STAGE_REFERENCE", "the requested input stage is not present in candidateConstruction", nil, nil)
 			}
 			candidate.Steps = candidate.Steps[:inputIndex+1]
 			input = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: request.StageID}
@@ -171,7 +171,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		pivotIndex = len(candidate.Steps) - 1
 	}
 	if candidate.Steps[pivotIndex].Operation.Kind != authoringv2.ConstructionOperationPivot || candidate.Steps[pivotIndex].Operation.Pivot == nil {
-		return constructionBase{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "pivotStepId must identify the candidate Pivot", nil)
+		return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "pivotStepId must identify the candidate Pivot", nil)
 	}
 	pivot := candidate.Steps[pivotIndex].Operation.Pivot
 	pivot.CategoryColumnID, pivot.ValueColumnID = request.CategoryColumnID, request.ValueColumnID
@@ -185,11 +185,11 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	}
 	candidate, _, err = s.withPivotSources(ctx, base, proposalRequest, candidate)
 	if err != nil {
-		return constructionBase{}, "", err
+		return Base{}, "", err
 	}
 	pivotIndex = constructionStepIndex(candidate.Steps, request.PivotStepID)
 	if pivotIndex < 0 || candidate.Steps[pivotIndex].Operation.Pivot == nil {
-		return constructionBase{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate Pivot was not preserved", nil)
+		return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate Pivot was not preserved", nil)
 	}
 
 	candidate.Steps = append([]authoringv2.ConstructionStep(nil), candidate.Steps[:pivotIndex+1]...)
@@ -198,7 +198,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	inputStageID := constructionStepInputStageID(*pivotStep)
 	inputColumns, err := constructionAuthoringStageColumns(base, candidate.Steps, inputStageID, candidate.SourceProjections)
 	if err != nil {
-		return constructionBase{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+		return Base{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 	}
 	inputByID := make(map[string]authoringv2.StageColumn, len(inputColumns))
 	for _, column := range inputColumns {
@@ -207,11 +207,11 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	category, categoryOK := inputByID[pivotStep.Operation.Pivot.CategoryColumnID]
 	value, valueOK := inputByID[pivotStep.Operation.Pivot.ValueColumnID]
 	if !categoryOK || !valueOK {
-		return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_PIVOT_COLUMN_PAIR", "the selected category and value columns are not present in the rebuilt Pivot input", nil)
+		return Base{}, "", unprocessable("construction-category-discovery", "INVALID_PIVOT_COLUMN_PAIR", "the selected category and value columns are not present in the rebuilt Pivot input", nil)
 	}
 	key, err := constructionProbeCategoryKey(category.Type)
 	if err != nil {
-		return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_CATEGORY_COLUMN_ID", "the selected category column has no supported scalar type", err)
+		return Base{}, "", unprocessable("construction-category-discovery", "INVALID_CATEGORY_COLUMN_ID", "the selected category column has no supported scalar type", err)
 	}
 	probeID := "pivot_probe_" + strings.TrimPrefix(constructionPivotSourceHelperID(request.PivotStepID, "category-discovery"), "pivot_source_")
 	pivotPayload := pivotStep.Operation.Pivot
@@ -223,7 +223,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	pivotPayload.UnlistedCategoryPolicy = authoringv2.ConstructionPivotUnlistedError
 	pivotStep.Outputs = make([]authoringv2.StageColumn, 0, len(pivotPayload.GroupKeyIDs)+1)
 	publicNames := make(map[string]bool, len(inputColumns))
-	if sourceStage, found := constructionReceiptStage(base.stages, request.StageID); found {
+	if sourceStage, found := constructionReceiptStage(base.Stages, request.StageID); found {
 		for _, column := range sourceStage.Columns {
 			if !strings.HasPrefix(column.Name, "__construction_source_") && !strings.HasPrefix(column.Name, "__pivot_source_") {
 				publicNames[strings.ToLower(column.Name)] = true
@@ -234,7 +234,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	for _, id := range pivotPayload.GroupKeyIDs {
 		column, exists := inputByID[id]
 		if !exists {
-			return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_GROUP_KEY_COLUMN_ID", "a Pivot row key is not present in the rebuilt input", nil)
+			return Base{}, "", unprocessable("construction-category-discovery", "INVALID_GROUP_KEY_COLUMN_ID", "a Pivot row key is not present in the rebuilt input", nil)
 		}
 		if path := pivotSourcePaths[id]; path != "" {
 			column.Name = uniqueConstructionPivotOutputName(path, publicNames)
@@ -246,38 +246,38 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		ID: probeID, Name: "__category_discovery_probe", Label: "Category discovery probe", Type: value.Type,
 	})
 
-	document, err := authoringv2.StartDocumentConstruction(base.document)
+	document, err := authoringv2.StartDocumentConstruction(base.Document)
 	if err != nil {
-		return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE", "the output cannot be upgraded for temporary category discovery", err)
+		return Base{}, "", unprocessable("construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE", "the output cannot be upgraded for temporary category discovery", err)
 	}
 	document.Construction = &candidate
 	document.ArchiveRetiredShape = nil
-	workspace := base.workspace
-	workspace.Documents = append([]authoringv2.Document(nil), base.workspace.Documents...)
+	workspace := base.Workspace
+	workspace.Documents = append([]authoringv2.Document(nil), base.Workspace.Documents...)
 	documentIndex := constructionDocumentIndex(workspace, request.OutputID)
 	if documentIndex < 0 {
-		return constructionBase{}, "", conflict("construction-category-discovery", "OUTPUT_NOT_FOUND", "the output is missing from the candidate workspace", nil, nil)
+		return Base{}, "", conflict("construction-category-discovery", "OUTPUT_NOT_FOUND", "the output is missing from the candidate workspace", nil, nil)
 	}
 	workspace.Documents[documentIndex] = document
 	if _, err := workspace.Digest(); err != nil {
-		return constructionBase{}, "", failureDetails(ports.ClassUnprocessable, "construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE",
+		return Base{}, "", failureDetails(ports.ClassUnprocessable, "construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE",
 			"the temporary category input construction is invalid", nil, err)
 	}
-	receipt, err := s.compile(ctx, compileRequest{
+	receipt, err := s.compile(ctx, CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-category-discovery-candidate",
 	})
 	if err != nil {
-		return constructionBase{}, "", err
+		return Base{}, "", err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "construction-category-discovery", receipt, request.Project, request.ExplorerID, request.SnapshotToken, base.snapshot, &workspace); err != nil {
-		return constructionBase{}, "", err
+	if _, err := s.verifyProposalReceipt(ctx, "construction-category-discovery", receipt, request.Project, request.ExplorerID, request.SnapshotToken, base.Snapshot, &workspace); err != nil {
+		return Base{}, "", err
 	}
 	stages := receipt.ConstructionStages[request.OutputID]
 	if _, found := constructionReceiptStage(stages, inputStageID); !found {
-		return constructionBase{}, "", conflict("construction-category-discovery", "INVALID_COMPILATION_RECEIPT", "the rebuilt category input stage is missing from the compiler receipt", nil, nil)
+		return Base{}, "", conflict("construction-category-discovery", "INVALID_COMPILATION_RECEIPT", "the rebuilt category input stage is missing from the compiler receipt", nil, nil)
 	}
-	base.receipt, base.stages = receipt, stages
+	base.Receipt, base.Stages = receipt, stages
 	return base, inputStageID, nil
 }
 
@@ -380,7 +380,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 	if err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, err
 	}
-	if base.receipt == nil {
+	if base.Receipt == nil {
 		return ConstructionCategoryDiscoveryResponse{}, conflict("construction-category-discovery", "STAGE_SCAN_UNAVAILABLE", "the exact compiled output is not available for category discovery", nil, nil)
 	}
 	if s.scanCategories == nil {
@@ -396,9 +396,9 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 		request.StageID = scanStageID
 	}
 	var stage *explorer.ReceiptConstructionStage
-	for index := range base.stages {
-		if base.stages[index].ID == request.StageID {
-			stage = &base.stages[index]
+	for index := range base.Stages {
+		if base.Stages[index].ID == request.StageID {
+			stage = &base.Stages[index]
 			break
 		}
 	}
@@ -430,12 +430,12 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "INVALID_CATEGORY_COLUMN_ID", "the category column must be scalar at the selected stage", nil)
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: projectid.Legacy(base.catalog.Project), SelectionProject: base.catalog.Project,
-		DatasetGeneration: base.snapshot.Identity.Generation, SelectionMembersCollection: s.selectionMembersCollection,
+		Project: projectid.Legacy(base.Catalog.Project), SelectionProject: base.Catalog.Project,
+		DatasetGeneration: base.Snapshot.Identity.Generation, SelectionMembersCollection: s.selectionMembersCollection,
 		OutputNames: []string{request.OutputID},
 	}
-	applyAuthorizedScope(&bindings, base.authorized, false)
-	scan, err := s.scanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{
+	applyAuthorizedScope(&bindings, base.Authorized, false)
+	scan, err := s.scanCategories(ctx, base.Receipt, bindings, dataframeexecution.CategoryScanRequest{
 		Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, MaxValues: facade.MaxCategoryScanValues, RequireValue: true,
 	})
@@ -456,7 +456,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 	}
 	if overflow {
 		return ConstructionCategoryDiscoveryResponse{
-			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			SnapshotToken: request.SnapshotToken, DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest,
 			OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,
 			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryLimitExceeded,
 			Categories: []ConstructionDiscoveredCategory{}, Limit: facade.MaxCategoryScanValues,
@@ -469,7 +469,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 	}
 	if missing && !proof.PresenceTracked {
 		return ConstructionCategoryDiscoveryResponse{
-			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			SnapshotToken: request.SnapshotToken, DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest,
 			OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,
 			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryMissingUnsupported,
 			Categories: []ConstructionDiscoveredCategory{},
@@ -486,7 +486,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 	}
 	if len(categories) == 0 {
 		return ConstructionCategoryDiscoveryResponse{
-			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			SnapshotToken: request.SnapshotToken, DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest,
 			OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,
 			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryNoValues,
 			Categories: []ConstructionDiscoveredCategory{},
@@ -494,7 +494,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 		}, nil
 	}
 	return ConstructionCategoryDiscoveryResponse{
-		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+		SnapshotToken: request.SnapshotToken, DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest,
 		OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryComplete,
 		Complete: true, ProofFingerprint: proof.Fingerprint, Categories: categories,

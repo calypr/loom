@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -113,7 +113,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, fmt.Errorf("digest construction choice candidate workspace: %w", err)
 	}
-	candidateReceipt, err := s.compile(ctx, compileRequest{
+	candidateReceipt, err := s.compile(ctx, CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-choice-proposal-candidate",
 	})

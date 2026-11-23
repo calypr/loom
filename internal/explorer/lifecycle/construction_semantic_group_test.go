@@ -46,7 +46,7 @@ func TestConstructionSemanticGroupChoicesPagesPastIneligibleFamilies(t *testing.
 			return page, nil
 		},
 	}}
-	base.snapshot = snapshot
+	base.Snapshot = snapshot
 	choices, incomplete, err := service.constructionSemanticGroupChoices(context.Background(), base, "patients", stage)
 	if err != nil || incomplete || len(choices) != 1 {
 		t.Fatalf("choices=%#v incomplete=%t err=%v, want one complete later-page field", choices, incomplete, err)
@@ -74,7 +74,7 @@ func TestConstructionSemanticGroupChoicesPagesPastIneligibleFamilies(t *testing.
 
 func TestConstructionSemanticGroupChoicesRequireDirectRootCodedCapability(t *testing.T) {
 	snapshot, base, stage, _ := semanticGroupChoicesTestSetup(t)
-	base.snapshot = snapshot
+	base.Snapshot = snapshot
 	calls := 0
 	stage.Capabilities = []explorer.ReceiptConstructionOperationChoice{
 		{Kind: "GROUP", Supported: true}, {Kind: "CODED_PIVOT", Supported: false},
@@ -116,7 +116,7 @@ func TestConstructionSemanticGroupChoicesMarksBoundedInventoryIncomplete(t *test
 			return page, nil
 		},
 	}}
-	base.snapshot = snapshot
+	base.Snapshot = snapshot
 	choices, incomplete, err := service.constructionSemanticGroupChoices(context.Background(), base, "patients", stage)
 	if err != nil || !incomplete || len(choices) != 1 || calls != constructionSemanticGroupChoicePageLimit {
 		t.Fatalf("choices=%#v incomplete=%t calls=%d err=%v, want one field, five bounded pages, and explicit incomplete status", choices, incomplete, calls, err)
@@ -125,7 +125,7 @@ func TestConstructionSemanticGroupChoicesMarksBoundedInventoryIncomplete(t *test
 
 func TestConstructionSemanticGroupChoicesClassifiesInventoryReadFailure(t *testing.T) {
 	snapshot, base, stage, _ := semanticGroupChoicesTestSetup(t)
-	base.snapshot = snapshot
+	base.Snapshot = snapshot
 	readErr := errors.New("semantic inventory backend offline")
 	service := &Service{config: Config{
 		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
@@ -172,10 +172,10 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 		t.Fatalf("test family did not resolve its compiler candidate: %#v ok=%t", candidate, ok)
 	}
 	base := constructionBase{
-		explorerID: "builder",
-		snapshot:   snapshot,
-		authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		document: authoringv2.Document{
+		ExplorerID: "builder",
+		Snapshot:   snapshot,
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
+		Document: authoringv2.Document{
 			RootResourceType: "Observation",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
 		},

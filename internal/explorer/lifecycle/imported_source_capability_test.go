@@ -24,7 +24,7 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"},
 		ImportedRecipe:   &authoringv2.ImportedRecipeRef{Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition(),
 	}
-	base := constructionBase{document: document, snapshot: capability.Snapshot{Nodes: []capability.Node{}}}
+	base := constructionBase{Document: document, Snapshot: capability.Snapshot{Nodes: []capability.Node{}}}
 	stage := explorer.ReceiptConstructionStage{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 		Capabilities: []explorer.ReceiptConstructionOperationChoice{
@@ -77,8 +77,8 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 
 func TestGenericEmptyRootStillFailsClosedForCodedGroupChoices(t *testing.T) {
 	base := constructionBase{
-		document: authoringv2.Document{RootResourceType: "MedicationAdministration", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition()},
-		snapshot: capability.Snapshot{Nodes: []capability.Node{}},
+		Document: authoringv2.Document{RootResourceType: "MedicationAdministration", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition()},
+		Snapshot: capability.Snapshot{Nodes: []capability.Node{}},
 	}
 	stage := explorer.ReceiptConstructionStage{ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key", Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}}}
 	if _, err := constructionCodedGroupChoices(base, "MedicationAdministration", stage); err == nil {
@@ -92,11 +92,11 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 		call func(*Service, constructionBase) (bool, string, string, int, error)
 	}{
 		{name: "group", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			got, err := service.constructionSources().ConstructionGroupSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
 		{name: "pivot", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionSources().constructionPivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			got, err := service.constructionSources().ConstructionPivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
 		{name: "filter", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
@@ -120,7 +120,7 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			planner := &importedSourceChoicePlanner{}
 			service := &Service{config: Config{RowChoicePlanner: planner}}
-			base := constructionBase{document: authoringv2.Document{ImportedRecipe: &authoringv2.ImportedRecipeRef{
+			base := constructionBase{Document: authoringv2.Document{ImportedRecipe: &authoringv2.ImportedRecipeRef{
 				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
 			}, Rows: authoringv2.RecordsRowDefinition(),
 			}}

@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -18,7 +18,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func importedSourceChoiceUnavailable(document authoringv2.Document) bool {
@@ -26,12 +25,12 @@ func importedSourceChoiceUnavailable(document authoringv2.Document) bool {
 	return document.ImportedRecipe != nil
 }
 
-func importedSourceRootChoiceInventoryMissing(base constructionBase) bool {
-	if base.document.ImportedRecipe == nil {
+func importedSourceRootChoiceInventoryMissing(base Base) bool {
+	if base.Document.ImportedRecipe == nil {
 		return false
 	}
-	for _, node := range base.snapshot.Nodes {
-		if node.RowRootEligible && node.ResourceType == base.document.RootResourceType {
+	for _, node := range base.Snapshot.Nodes {
+		if node.RowRootEligible && node.ResourceType == base.Document.RootResourceType {
 			return false
 		}
 	}
@@ -47,8 +46,8 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, err
 	}
 
-	stages := append([]explorer.ReceiptConstructionStage(nil), base.stages...)
-	if authoringv2.CanPopulateConstructionRows(&base.construction) && len(stages) > 0 {
+	stages := append([]explorer.ReceiptConstructionStage(nil), base.Stages...)
+	if authoringv2.CanPopulateConstructionRows(&base.Construction) && len(stages) > 0 {
 		last := len(stages) - 1
 		stages[last].Capabilities = append(append([]explorer.ReceiptConstructionOperationChoice(nil), stages[last].Capabilities...), explorer.ReceiptConstructionOperationChoice{Kind: "ROW_VALUES", Supported: true})
 	}
@@ -160,14 +159,14 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 			return ConstructionCapabilitiesResponse{}, buildErr
 		}
 	}
-	sourceProjectionAvailability := constructionSourceProjectionAvailability(base.construction, selected.ID)
+	sourceProjectionAvailability := constructionSourceProjectionAvailability(base.Construction, selected.ID)
 	workspaceInputs, err := constructionWorkspaceInputs(base, request.OutputID)
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
 	}
 	return ConstructionCapabilitiesResponse{
-		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
-		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
+		SnapshotToken: request.SnapshotToken, DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest,
+		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.Construction,
 		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
 		FilterSourceInput:              filterSourceInput,
 		DeriveSourceInput:              deriveSourceInput,
@@ -179,7 +178,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		SemanticGroupChoices:           semanticGroupChoices,
 		SemanticGroupChoicesIncomplete: semanticGroupChoicesIncomplete,
 		SourceProjectionAvailability:   &sourceProjectionAvailability,
-		NodeOccurrences:                constructionNodeOccurrences(base.document.Route, base.snapshot),
+		NodeOccurrences:                constructionNodeOccurrences(base.Document.Route, base.Snapshot),
 		WorkspaceInputs:                workspaceInputs,
 	}, nil
 }
@@ -282,23 +281,23 @@ func constructionSourceProjectionAvailability(construction authoringv2.Construct
 	return availability
 }
 
-func constructionWorkspaceInputs(base constructionBase, targetOutputID string) ([]ConstructionWorkspaceInput, error) {
+func constructionWorkspaceInputs(base Base, targetOutputID string) ([]ConstructionWorkspaceInput, error) {
 	inputs := []ConstructionWorkspaceInput{}
-	if base.receipt == nil || len(base.workspace.Documents) < 2 {
+	if base.Receipt == nil || len(base.Workspace.Documents) < 2 {
 		return inputs, nil
 	}
-	if len(base.receipt.CompiledOutputSchemas) == 0 {
+	if len(base.Receipt.CompiledOutputSchemas) == 0 {
 		return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "the current compilation receipt has no finalized workspace output schemas", nil, nil)
 	}
-	blocked, err := workspaceOutputConsumerClosure(base.workspace, targetOutputID)
+	blocked, err := workspaceOutputConsumerClosure(base.Workspace, targetOutputID)
 	if err != nil {
 		return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "the selected output is missing from the current workspace", nil, err)
 	}
-	for _, document := range base.workspace.Documents {
+	for _, document := range base.Workspace.Documents {
 		if _, excluded := blocked[document.Output.ID]; excluded {
 			continue
 		}
-		compiled, exists := base.receipt.CompiledOutputSchemas[document.Output.ID]
+		compiled, exists := base.Receipt.CompiledOutputSchemas[document.Output.ID]
 		if !exists {
 			return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "a sibling output is missing from the current compilation receipt schema", map[string]any{"outputId": document.Output.ID}, nil)
 		}
@@ -483,12 +482,12 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	diagnostics, err := s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidateConstruction, &base.construction, resolvedDiscoverySteps)
+	diagnostics, err := s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidateConstruction, &base.Construction, resolvedDiscoverySteps)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
 	candidateDocument, impact, err := analyzeConstructionCandidateWithCascade(
-		base.document, candidateConstruction, request.ChangedStepID, request.RemoveStepIDs, base.stages,
+		base.Document, candidateConstruction, request.ChangedStepID, request.RemoveStepIDs, base.Stages,
 	)
 	if err != nil {
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
@@ -499,7 +498,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseRelatedFields := make(map[string]authoringv2.ConstructionRelatedField)
 	baseCodedGroups := make(map[string]authoringv2.ConstructionCodedGroup)
 	baseCodedPivots := make(map[string]authoringv2.ConstructionCodedPivot)
-	for _, step := range base.construction.Steps {
+	for _, step := range base.Construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
 			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
 		}
@@ -587,14 +586,14 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "a changed coded Pivot requires current source and category choices", nil)
 		}
 	}
-	candidateWorkspace := base.workspace
-	candidateWorkspace.Documents = append([]authoringv2.Document(nil), base.workspace.Documents...)
+	candidateWorkspace := base.Workspace
+	candidateWorkspace.Documents = append([]authoringv2.Document(nil), base.Workspace.Documents...)
 	documentIndex := constructionDocumentIndex(candidateWorkspace, request.OutputID)
 	if documentIndex < 0 {
 		return ConstructionProposalResponse{}, conflict("construction-proposal", "OUTPUT_NOT_FOUND", "the proposal output is missing from the candidate workspace", nil, nil)
 	}
 	candidateWorkspace.Documents[documentIndex] = candidateDocument
-	preparedCandidate, err := authoringv2.PrepareWorkspaceForCompilation(candidateWorkspace, s.catalog(base.snapshot, request.ExplorerID))
+	preparedCandidate, err := authoringv2.PrepareWorkspaceForCompilation(candidateWorkspace, s.catalog(base.Snapshot, request.ExplorerID))
 	if err != nil {
 		return ConstructionProposalResponse{}, fmt.Errorf("prepare construction candidate workspace: %w", err)
 	}
@@ -607,10 +606,10 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	baseResponse := ConstructionProposalResponse{
 		OutputID: request.OutputID, SnapshotToken: request.SnapshotToken,
-		DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
-		BaseDocumentDigest: base.baseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
+		DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest,
+		BaseDocumentDigest: base.BaseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
 		ChangedStepID: request.ChangedStepID, CandidateConstruction: *candidateDocument.Construction,
-		DependencyImpact: impact, Stages: base.stages,
+		DependencyImpact: impact, Stages: base.Stages,
 		PreviewStatus: "NEEDS_REPAIR",
 		Diagnostics:   diagnostics,
 	}
@@ -618,649 +617,31 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return baseResponse, nil
 	}
 	binding := &explorer.ConstructionProposalBinding{
-		DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest, OutputID: request.OutputID,
+		DraftVersion: base.Owner.DraftVersion, DraftDigest: base.Owner.DraftDigest, OutputID: request.OutputID,
 		ChangedStepID: request.ChangedStepID, RemoveStepIDs: append([]string(nil), impact.RemovedStepIDs...),
-		BaseDocumentDigest: base.baseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
+		BaseDocumentDigest: base.BaseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken, PreviewLimit: request.Limit,
 	}
-	candidateReceipt, err := s.compile(ctx, compileRequest{
+	candidateReceipt, err := s.compile(ctx, CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-proposal-candidate", ConstructionProposal: binding,
 	})
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "construction-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, base.snapshot, &candidateWorkspace); err != nil {
+	if _, err := s.verifyProposalReceipt(ctx, "construction-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, base.Snapshot, &candidateWorkspace); err != nil {
 		return ConstructionProposalResponse{}, err
 	}
 	if len(candidateReceipt.ConstructionStages[request.OutputID]) == 0 {
 		return ConstructionProposalResponse{}, conflict("construction-proposal", "INVALID_COMPILATION_RECEIPT", "the candidate receipt has no stage descriptors for this output", nil, nil)
 	}
 	baseResponse.ProposalID = candidateReceipt.ID
-	if base.receipt != nil {
-		baseResponse.BaseReceiptID = base.receipt.ID
+	if base.Receipt != nil {
+		baseResponse.BaseReceiptID = base.Receipt.ID
 	}
 	baseResponse.Stages = candidateReceipt.ConstructionStages[request.OutputID]
 	baseResponse.PreviewStatus = "PREVIEW_PENDING"
 	return baseResponse, nil
-}
-
-func analyzeConstructionCandidateWithCascade(
-	base authoringv2.Document,
-	candidate authoringv2.Construction,
-	changedStepID string,
-	requestedRemovals []string,
-	baseStages []explorer.ReceiptConstructionStage,
-) (authoringv2.Document, authoringv2.ConstructionImpact, error) {
-	removeStepIDs := append([]string(nil), requestedRemovals...)
-	removed := make(map[string]bool, len(removeStepIDs))
-	for _, stepID := range removeStepIDs {
-		removed[stepID] = true
-	}
-	invalidatedProviders := append([]string(nil), requestedRemovals...)
-	if constructionRelatedExpandTargetChanged(base.Construction, candidate, changedStepID) {
-		invalidatedProviders = append(invalidatedProviders, changedStepID)
-	}
-	seedImpact := authoringv2.ConstructionImpact{RemovedStepIDs: invalidatedProviders}
-	seedImpact = constructionImpactForRemovedRelatedExpandAnchors(baseStages, &candidate, seedImpact)
-	for _, stepID := range constructionStepsToRemoveForMissingInputs(candidate.Steps, seedImpact.MissingInputs, changedStepID, removed) {
-		removed[stepID] = true
-		removeStepIDs = append(removeStepIDs, stepID)
-	}
-
-	for {
-		candidateAttempt := candidate
-		candidateAttempt.Steps = make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
-		for _, step := range candidate.Steps {
-			if !removed[step.ID] {
-				candidateAttempt.Steps = append(candidateAttempt.Steps, step)
-			}
-		}
-		candidateDocument, impact, err := base.AnalyzeConstructionCandidate(candidateAttempt, changedStepID, removeStepIDs)
-		if err != nil {
-			return authoringv2.Document{}, authoringv2.ConstructionImpact{}, err
-		}
-		impact = constructionImpactForRemovedRelatedExpandAnchors(baseStages, candidateDocument.Construction, impact)
-		if !impact.HasMissingInputs() {
-			return candidateDocument, impact, nil
-		}
-
-		newRemovals := constructionStepsToRemoveForMissingInputs(candidateDocument.Construction.Steps, impact.MissingInputs, changedStepID, removed)
-		if len(newRemovals) == 0 {
-			return candidateDocument, impact, nil
-		}
-		for _, stepID := range newRemovals {
-			removed[stepID] = true
-		}
-		removeStepIDs = append(removeStepIDs, newRemovals...)
-	}
-}
-
-func constructionRelatedExpandTargetChanged(base *authoringv2.Construction, candidate authoringv2.Construction, changedStepID string) bool {
-	if base == nil || changedStepID == "" {
-		return false
-	}
-	var baseStep, candidateStep *authoringv2.ConstructionStep
-	for index := range base.Steps {
-		if base.Steps[index].ID == changedStepID {
-			baseStep = &base.Steps[index]
-			break
-		}
-	}
-	for index := range candidate.Steps {
-		if candidate.Steps[index].ID == changedStepID {
-			candidateStep = &candidate.Steps[index]
-			break
-		}
-	}
-	if baseStep == nil || baseStep.Operation.RelatedExpand == nil {
-		return false
-	}
-	if candidateStep == nil || candidateStep.Operation.RelatedExpand == nil {
-		return true
-	}
-	return baseStep.Operation.RelatedExpand.TargetNodeID != candidateStep.Operation.RelatedExpand.TargetNodeID ||
-		baseStep.Operation.RelatedExpand.TargetResourceType != candidateStep.Operation.RelatedExpand.TargetResourceType
-}
-
-func constructionStepsToRemoveForMissingInputs(
-	steps []authoringv2.ConstructionStep,
-	missingInputs []authoringv2.ConstructionDependencyIssue,
-	protectedStepID string,
-	alreadyRemoved map[string]bool,
-) []string {
-	stepsByID := make(map[string]authoringv2.ConstructionStep, len(steps))
-	for _, step := range steps {
-		stepsByID[step.ID] = step
-	}
-	remove := make([]string, 0, len(missingInputs))
-	selected := make(map[string]bool, len(missingInputs))
-	for _, missing := range missingInputs {
-		if missing.StepID == protectedStepID {
-			continue
-		}
-		step, exists := stepsByID[missing.StepID]
-		if !exists {
-			continue
-		}
-		stepID := step.ID
-		if step.OwnerStepID != "" {
-			stepID = step.OwnerStepID
-		}
-		if stepID == protectedStepID || alreadyRemoved[stepID] || selected[stepID] {
-			continue
-		}
-		if _, exists := stepsByID[stepID]; !exists {
-			continue
-		}
-		selected[stepID] = true
-		remove = append(remove, stepID)
-	}
-	return remove
-}
-
-func constructionImpactForRemovedRelatedExpandAnchors(
-	baseStages []explorer.ReceiptConstructionStage,
-	candidate *authoringv2.Construction,
-	impact authoringv2.ConstructionImpact,
-) authoringv2.ConstructionImpact {
-	if candidate == nil || len(impact.RemovedStepIDs) == 0 {
-		return impact
-	}
-	removed := make(map[string]bool, len(impact.RemovedStepIDs))
-	for _, stepID := range impact.RemovedStepIDs {
-		removed[stepID] = true
-	}
-	removedTerminalIdentities := make(map[string]bool)
-	for _, stage := range baseStages {
-		if removed[stage.ID] && stage.Operation == string(recipe.ConstructionRelatedExpandOp) && stage.RelatedExpand != nil {
-			removedTerminalIdentities[stage.RelatedExpand.TerminalIdentityColumn] = true
-		}
-	}
-	if len(removedTerminalIdentities) == 0 {
-		return impact
-	}
-	for _, step := range candidate.Steps {
-		anchorColumnID := ""
-		switch step.Operation.Kind {
-		case authoringv2.ConstructionOperationRelatedField:
-			for _, stage := range baseStages {
-				if stage.ID == step.ID && stage.ActiveRelatedRecord != nil &&
-					removedTerminalIdentities[stage.ActiveRelatedRecord.TerminalIdentityColumn] {
-					anchorColumnID = stage.ActiveRelatedRecord.TerminalIdentityColumn
-					break
-				}
-			}
-		case authoringv2.ConstructionOperationRelatedExpand:
-			if step.Operation.RelatedExpand != nil {
-				anchorColumnID = step.Operation.RelatedExpand.AnchorColumnID
-			}
-		case authoringv2.ConstructionOperationRelatedEligibility:
-			if step.Operation.RelatedEligibility != nil {
-				anchorColumnID = step.Operation.RelatedEligibility.AnchorColumnID
-			}
-		}
-		if anchorColumnID == "" || !removedTerminalIdentities[anchorColumnID] {
-			continue
-		}
-		issue := authoringv2.ConstructionDependencyIssue{StepID: step.ID, ColumnID: anchorColumnID}
-		alreadyReported := false
-		for _, existing := range impact.MissingInputs {
-			if existing == issue {
-				alreadyReported = true
-				break
-			}
-		}
-		if !alreadyReported {
-			impact.MissingInputs = append(impact.MissingInputs, issue)
-		}
-	}
-	return impact
-}
-
-func reauthorizeConstructionRelatedField(
-	ctx context.Context,
-	base constructionBase,
-	step authoringv2.ConstructionStep,
-	related authoringv2.ConstructionRelatedField,
-) error {
-	inputStageID, err := relatedFieldInputStageID(step)
-	if err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
-	}
-	var inputStage *explorer.ReceiptConstructionStage
-	for index := range base.stages {
-		if base.stages[index].ID == inputStageID {
-			inputStage = &base.stages[index]
-			break
-		}
-	}
-	if inputStage == nil {
-		return conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the related field input stage is not in the current compiled output", nil, nil)
-	}
-	active := inputStage.ActiveRelatedRecord
-	if active == nil {
-		return unprocessable("construction-proposal", "NO_ACTIVE_RELATED_RECORD", "the related field input stage does not retain an exact terminal resource identity", nil)
-	}
-	supported := false
-	for _, operation := range inputStage.Capabilities {
-		if operation.Kind == "RELATED_FIELD" {
-			supported = operation.Supported
-			break
-		}
-	}
-	if !supported {
-		return unprocessable("construction-proposal", "NO_ACTIVE_RELATED_RECORD", "the related field input stage cannot project an exact terminal field", nil)
-	}
-	if related.Source.Kind != capability.ConstructionChoiceSourceField || related.Source.NodeID != active.TargetNodeID ||
-		related.Source.ResourceType != active.TargetResourceType || len(related.Source.RepeatedBoundaries) != 0 {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field source does not identify a scalar on the active terminal resource", nil)
-	}
-	choice, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
-	if err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field choice identity is invalid", err)
-	}
-	if choice.SnapshotToken != base.snapshot.Token {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the exact related field for the current authorized snapshot", nil, nil)
-	}
-	choiceSource, ok := choice.Source.(capability.RelatedFieldChoiceSource)
-	if !ok || choiceSource.StageID != inputStageID || choiceSource.CandidateID != related.Source.CandidateID ||
-		choiceSource.NodeID != active.TargetNodeID || choiceSource.ResourceType != active.TargetResourceType ||
-		choiceSource.Path != related.Source.Path || choiceSource.Cardinality != related.Source.Cardinality ||
-		choiceSource.LogicalType != related.Source.LogicalType {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field source differs from its stage-bound server choice", nil)
-	}
-	candidate, found := uniqueCapabilityCandidate(base.snapshot, related.Source.CandidateID)
-	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
-		candidate.FieldPath != related.Source.Path || (candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
-		len(candidate.RepeatedBoundaries) != 0 || !relatedFieldPathExecutable(candidate.FieldPath) ||
-		!relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact scalar candidate is no longer available on the active terminal resource", nil, nil)
-	}
-	proved, err := proveConstructionCandidate(ctx, base.authorized, active.TargetResourceType, candidate, nil)
-	if err != nil || proved.NodeID != active.TargetNodeID || proved.ResourceType != active.TargetResourceType ||
-		proved.FieldPath != related.Source.Path || proved.Cardinality != related.Source.Cardinality || proved.LogicalType != related.Source.LogicalType ||
-		len(proved.RepeatedBoundaries) != 0 || !relatedFieldPathExecutable(proved.FieldPath) ||
-		!relatedFieldLogicalTypeExecutable(proved.LogicalType) {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected scalar field is no longer supported by the compiler", nil, err)
-	}
-	reissued, err := capability.NewConstructionRelatedFieldChoice(base.snapshot.Token, inputStageID, proved)
-	if err != nil || reissued.ChoiceID != related.ChoiceID || reissued.Source.CandidateID != related.Source.CandidateID ||
-		reissued.Source.NodeID != related.Source.NodeID || reissued.Source.ResourceType != related.Source.ResourceType ||
-		reissued.Source.Path != related.Source.Path || reissued.Source.Cardinality != related.Source.Cardinality {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the related field choice could not be reissued from the current authorized candidate", err)
-	}
-	return nil
-}
-
-func constructionCodedGroupChoices(
-	base constructionBase,
-	outputID string,
-	stage explorer.ReceiptConstructionStage,
-) ([]explorer.ReceiptConstructionCodedGroupChoice, error) {
-	if importedSourceRootChoiceInventoryMissing(base) {
-		return []explorer.ReceiptConstructionCodedGroupChoice{}, nil
-	}
-	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" ||
-		!constructionStageSupportsCodedGroup(stage) {
-		return nil, nil
-	}
-	occurrence, err := resolveRowChoiceOccurrence(
-		base.snapshot, base.document.RootResourceType, base.document.Route,
-		authoringv2.RootOccurrenceID, "",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("the direct root occurrence is not available for coded grouping: %w", err)
-	}
-	if len(occurrence.Route) != 0 {
-		return nil, fmt.Errorf("the direct root occurrence unexpectedly includes a route")
-	}
-	index, err := fhirschema.GeneratedIndex()
-	if err != nil {
-		return nil, err
-	}
-	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(base.document.RootResourceType))
-	if err != nil {
-		return nil, err
-	}
-	populatedPaths := make(map[string]struct{})
-	for _, candidate := range base.snapshot.Candidates {
-		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType &&
-			candidate.Observed && candidate.Populated && candidate.ObservedDocumentCount > 0 {
-			populatedPaths[candidate.FieldPath] = struct{}{}
-		}
-	}
-	choices := make([]explorer.ReceiptConstructionCodedGroupChoice, 0, len(paths))
-	for _, path := range paths {
-		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.document.RootResourceType), path)
-		if err != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
-			facts.Shape != fhirschema.RowPathArray || facts.Reference {
-			continue
-		}
-		if _, populated := populatedPaths[path+".code"]; !populated {
-			continue
-		}
-		choice, err := capability.NewConstructionCodedGroupChoice(base.snapshot, outputID, stage.ID, occurrence, capability.RowChoiceFacts{
-			ResourceType: string(facts.ResourceType), CanonicalPath: facts.CanonicalPath, FHIRType: facts.FHIRType,
-			Cardinality: capability.RowChoiceMany, Shape: capability.RowChoiceArray, Reference: facts.Reference,
-			Title: facts.Title, Description: facts.Description,
-		})
-		if err != nil {
-			return nil, err
-		}
-		choices = append(choices, explorer.ReceiptConstructionCodedGroupChoice{
-			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, ResourceType: choice.ResourceType,
-			CodingPath: choice.CodingPath, Label: choice.Label,
-		})
-	}
-	return choices, nil
-}
-
-func reauthorizeConstructionCodedGroup(
-	ctx context.Context,
-	base constructionBase,
-	outputID string,
-	step authoringv2.ConstructionStep,
-	coded authoringv2.ConstructionCodedGroup,
-) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := requireExactIdentity(coded.ChoiceID, "codedGroup.choiceId"); err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "choose a current repeated Coding field before proposing this step", err)
-	}
-	if len(step.Inputs) != 1 || step.Inputs[0].Kind != authoringv2.ConstructionInputSourceProjection ||
-		step.Inputs[0].StepID != "" {
-		return unprocessable("construction-proposal", "DIRECT_SOURCE_STAGE_REQUIRED", "coded grouping is currently available only on the direct source projection stage", nil)
-	}
-	var inputStage *explorer.ReceiptConstructionStage
-	for index := range base.stages {
-		if base.stages[index].ID == recipe.ConstructionSourceProjectionID {
-			inputStage = &base.stages[index]
-			break
-		}
-	}
-	if inputStage == nil || inputStage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedGroup(*inputStage) {
-		return unprocessable("construction-proposal", "CODED_GROUP_UNAVAILABLE", "the direct source stage does not expose executable repeated Coding fields", nil)
-	}
-	if coded.Source.OccurrenceID != authoringv2.RootOccurrenceID || coded.Source.ResourceType != base.document.RootResourceType ||
-		coded.Source.FHIRType != "Coding" || coded.Source.Cardinality != "MANY" || coded.Source.Shape != "ARRAY" || len(coded.Source.Route) != 0 {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source facts must identify a root repeated Coding path with an empty route", nil)
-	}
-	occurrence, err := resolveRowChoiceOccurrence(base.snapshot, base.document.RootResourceType, base.document.Route, coded.Source.OccurrenceID, "")
-	if err != nil || len(occurrence.Route) != 0 {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the root Coding occurrence is no longer available in the authorized snapshot", nil, err)
-	}
-	index, err := fhirschema.GeneratedIndex()
-	if err != nil {
-		return fmt.Errorf("load generated FHIR schema for coded grouping: %w", err)
-	}
-	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(base.document.RootResourceType))
-	if err != nil {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "generated FHIR Coding metadata for the selected root is unavailable", nil, err)
-	}
-	pathAvailable := false
-	for _, path := range paths {
-		if path == coded.Source.CodingPath {
-			pathAvailable = true
-			break
-		}
-	}
-	facts, factErr := index.ResolveRowPath(fhirschema.DefinitionName(base.document.RootResourceType), coded.Source.CodingPath)
-	if !pathAvailable || factErr != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
-		facts.Shape != fhirschema.RowPathArray || facts.Reference {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected Coding path is no longer an executable repeated Coding field", nil, factErr)
-	}
-	identity, err := capability.DecodeConstructionChoiceID(coded.ChoiceID)
-	if err != nil || identity.SnapshotToken != base.snapshot.Token {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload this Coding field from the current authorized snapshot", nil, err)
-	}
-	choiceSource, ok := identity.Source.(capability.CodedGroupChoiceSource)
-	if !ok || identity.Kind != capability.ConstructionChoiceSourceCodedGroup ||
-		choiceSource.OutputID != outputID || choiceSource.StageID != recipe.ConstructionSourceProjectionID ||
-		choiceSource.OccurrenceID != coded.Source.OccurrenceID || choiceSource.NodeID != occurrence.NodeID ||
-		choiceSource.ResourceType != coded.Source.ResourceType || choiceSource.Path != coded.Source.CodingPath ||
-		choiceSource.SchemaDigest != base.snapshot.Identity.SchemaDigest {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source differs from its exact stage-bound server choice", nil)
-	}
-	proved, err := capability.NewConstructionCodedGroupChoice(base.snapshot, outputID, recipe.ConstructionSourceProjectionID, occurrence, capability.RowChoiceFacts{
-		ResourceType: string(facts.ResourceType), CanonicalPath: facts.CanonicalPath, FHIRType: facts.FHIRType,
-		Cardinality: capability.RowChoiceMany, Shape: capability.RowChoiceArray, Reference: facts.Reference,
-		Title: facts.Title, Description: facts.Description,
-	})
-	if err != nil || proved.ChoiceID != coded.ChoiceID || proved.CodingPath != coded.Source.CodingPath ||
-		proved.OccurrenceID != coded.Source.OccurrenceID || proved.ResourceType != coded.Source.ResourceType {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the coded grouping choice cannot be reissued from current generated metadata", err)
-	}
-	return nil
-}
-
-func constructionStageSupportsCodedGroup(stage explorer.ReceiptConstructionStage) bool {
-	for _, operation := range stage.Capabilities {
-		if operation.Kind == string(recipe.ConstructionCodedGroupOp) {
-			return operation.Supported
-		}
-	}
-	return false
-}
-
-func relatedFieldInputStageID(step authoringv2.ConstructionStep) (string, error) {
-	if len(step.Inputs) != 1 {
-		return "", fmt.Errorf("related field requires exactly one input stage")
-	}
-	input := step.Inputs[0]
-	switch input.Kind {
-	case authoringv2.ConstructionInputSourceProjection:
-		return recipe.ConstructionSourceProjectionID, nil
-	case authoringv2.ConstructionInputStepOutput:
-		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
-			return "", fmt.Errorf("related field input step ID must be exact")
-		}
-		return input.StepID, nil
-	default:
-		return "", fmt.Errorf("related field input must be a source or prior construction stage")
-	}
-}
-
-func reauthorizeConstructionRelatedExpand(
-	ctx context.Context,
-	base constructionBase,
-	rootResourceType string,
-	step authoringv2.ConstructionStep,
-	related authoringv2.ConstructionRelatedExpand,
-) error {
-	inputStageID, err := relatedExpandInputStageID(step)
-	if err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
-	}
-	var inputStage *explorer.ReceiptConstructionStage
-	for index := range base.stages {
-		if base.stages[index].ID == inputStageID {
-			inputStage = &base.stages[index]
-			break
-		}
-	}
-	if inputStage == nil {
-		return conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the related expansion input stage is not in the current compiled output", nil, nil)
-	}
-	if !constructionStageSupportsRelatedExpand(*inputStage) {
-		return unprocessable("construction-proposal", "UNSUPPORTED_CONSTRUCTION_OPERATION", "the related expansion input stage does not support this operation", nil)
-	}
-	anchor, err := resolveRelatedExpandAnchor(base.snapshot, *inputStage, rootResourceType, related.AnchorColumnID)
-	if err != nil {
-		return unprocessable("construction-proposal", "NO_SOURCE_ROW_ANCHOR", "the related expansion input stage does not retain the selected exact resource anchor", err)
-	}
-	choice, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
-	if err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion route choice identity is invalid", err)
-	}
-	if choice.SnapshotToken != base.snapshot.Token {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the related expansion route for the current authorized snapshot", nil, nil)
-	}
-	source, ok := choice.Source.(capability.RelatedResourceChoiceSource)
-	if !ok {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion must use an exact related-resource route choice", nil)
-	}
-	if source.StageID != inputStageID || source.AnchorColumnID != related.AnchorColumnID || source.AnchorKind != anchor.Kind ||
-		source.AnchorNodeID != anchor.NodeID || source.AnchorResourceType != anchor.ResourceType ||
-		source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
-		!reflect.DeepEqual(choice.Route, related.Route) {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion anchor, target, input stage, or route differs from its server-issued choice", nil)
-	}
-	resolvedRoute, err := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.NodeID, related.TargetNodeID, related.Route)
-	if err != nil || !reflect.DeepEqual(resolvedRoute, related.Route) {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected related-resource route is no longer available", nil, err)
-	}
-	if !constructionRouteHasCompilerProof(ctx, base.authorized, resolvedRoute) {
-		return unprocessable("construction-proposal", "UNSUPPORTED_CONSTRUCTION_ROUTE", "the selected related-resource route is no longer supported by the compiler", nil)
-	}
-	if related.ContributorRule.Predicate == nil {
-		return nil
-	}
-	return reauthorizeRelatedExpandContributor(ctx, base, anchor.ResourceType, related)
-}
-
-func reauthorizeConstructionRelatedEligibility(
-	ctx context.Context,
-	base constructionBase,
-	rootResourceType string,
-	step authoringv2.ConstructionStep,
-	related authoringv2.ConstructionRelatedEligibility,
-) error {
-
-	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, authoringv2.ConstructionRelatedExpand{
-		AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
-		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
-		Route: related.Route, ContributorRule: related.ContributorRule,
-		ContributorSource: related.ContributorSource, ContributorChoiceID: related.ContributorChoiceID,
-		EmptyPolicy:           authoringv2.ConstructionExpandEmptyExclude,
-		RelatedRecordColumnID: "__related_eligibility_probe",
-	})
-}
-
-func relatedExpandInputStageID(step authoringv2.ConstructionStep) (string, error) {
-	if len(step.Inputs) != 1 {
-		return "", fmt.Errorf("related expansion requires exactly one input stage")
-	}
-	input := step.Inputs[0]
-	switch input.Kind {
-	case authoringv2.ConstructionInputSourceProjection:
-		return recipe.ConstructionSourceProjectionID, nil
-	case authoringv2.ConstructionInputStepOutput:
-		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
-			return "", fmt.Errorf("related expansion input step ID must be exact")
-		}
-		return input.StepID, nil
-	default:
-		return "", fmt.Errorf("related expansion input must be a source or prior construction stage")
-	}
-}
-
-func reauthorizeRelatedExpandContributor(ctx context.Context, base constructionBase, rootResourceType string, related authoringv2.ConstructionRelatedExpand) error {
-	if related.ContributorSource == nil || related.ContributorChoiceID == "" {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor predicate has no exact field choice", nil)
-	}
-	identity, err := capability.DecodeConstructionChoiceID(related.ContributorChoiceID)
-	if err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor choice identity is invalid", err)
-	}
-	if identity.SnapshotToken != base.snapshot.Token {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the related expansion contributor for the current authorized snapshot", nil, nil)
-	}
-	source, ok := identity.Source.(capability.FieldChoiceSource)
-	if !ok {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor must use an exact field choice", nil)
-	}
-	authored := related.ContributorSource
-	expected := capability.FieldChoiceSource{
-		Kind: authored.Kind, CandidateID: authored.CandidateID, NodeID: authored.NodeID, ResourceType: authored.ResourceType,
-		Path: authored.Path, Cardinality: authored.Cardinality, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), authored.RepeatedBoundaries...),
-	}
-	if !reflect.DeepEqual(source, expected) || !reflect.DeepEqual(identity.Route, related.Route) ||
-		source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor does not match the exact target route and field", nil)
-	}
-	form := capability.ConstructionChoiceValue
-	if capability.IsRepeatedCardinality(source.Cardinality) {
-		candidate, found := uniqueCapabilityCandidate(base.snapshot, source.CandidateID)
-		if !found {
-			return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact related expansion contributor is no longer available", nil, nil)
-		}
-		route, routeErr := reauthorizeConstructionRoute(base.snapshot, rootResourceType, candidate.NodeID, identity.Route)
-		if routeErr != nil || !reflect.DeepEqual(route, identity.Route) {
-			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor route is unavailable or changed", routeErr)
-		}
-		provedCandidate, proofErr := proveConstructionCandidate(ctx, base.authorized, rootResourceType, candidate, route)
-		if proofErr != nil {
-			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", proofErr)
-		}
-		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(base.snapshot.Token, route, provedCandidate)
-		if choiceErr != nil {
-			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", choiceErr)
-		}
-		hasSupportedForm := false
-		for _, option := range choice.Options {
-			if option.Support == capability.ConstructionChoiceSupported {
-				form, hasSupportedForm = option.Form, true
-				break
-			}
-		}
-		if !hasSupportedForm {
-			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", nil)
-		}
-		resolved, _, resolveErr := resolveFieldConstructionChoiceFromProvenCandidate(
-			base.catalog, route,
-			authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: form},
-			identity, source, candidate, provedCandidate, choice,
-		)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		if resolved.LogicalType != authored.LogicalType || !reflect.DeepEqual(resolved.Route, related.Route) {
-			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor type or route differs from its current compiler-proved choice", nil)
-		}
-		return nil
-	}
-	resolved, _, err := resolveFieldConstructionChoice(ctx, base.authorized, base.snapshot, base.catalog, rootResourceType,
-		authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: form}, identity, source)
-	if err != nil {
-		return err
-	}
-	if resolved.LogicalType != authored.LogicalType || !reflect.DeepEqual(resolved.Route, related.Route) {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor type or route differs from its current compiler-proved choice", nil)
-	}
-	return nil
-}
-
-func reauthorizeConstructionRelatedSource(ctx context.Context, base constructionBase, rootResourceType string, related authoringv2.ConstructionRelatedSource) error {
-	identity, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
-	if err != nil {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source choice identity is invalid", err)
-	}
-	if identity.SnapshotToken != base.snapshot.Token {
-		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the related source choice for the current authorized snapshot", nil, nil)
-	}
-	source, ok := identity.Source.(capability.FieldChoiceSource)
-	if !ok {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source must use an exact field choice", nil)
-	}
-	authoredSource := capability.FieldChoiceSource{
-		Kind: related.Source.Kind, CandidateID: related.Source.CandidateID, NodeID: related.Source.NodeID,
-		ResourceType: related.Source.ResourceType, Path: related.Source.Path, Cardinality: related.Source.Cardinality,
-		RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), related.Source.RepeatedBoundaries...),
-	}
-	if !reflect.DeepEqual(source, authoredSource) || !reflect.DeepEqual(identity.Route, related.Route) {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source route or field does not match its server-issued choice", nil)
-	}
-	selection := authoringv2.ConstructionChoiceSelection{ChoiceID: related.ChoiceID, Form: related.Form}
-	resolved, _, err := resolveFieldConstructionChoice(ctx, base.authorized, base.snapshot, base.catalog, rootResourceType, selection, identity, source)
-	if err != nil {
-		return err
-	}
-	if resolved.LogicalType != related.Source.LogicalType || !reflect.DeepEqual(resolved.Route, related.Route) {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source type or route differs from the current compiler-proved choice", nil)
-	}
-	return nil
 }
 
 func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {
@@ -1340,45 +721,45 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 		if liveErr != nil {
 			return nil, nil, nil, liveErr
 		}
-		liveBase.document = candidateDocument
-		liveBase.construction = *candidateDocument.Construction
-		liveBase.stages = receipt.ConstructionStages[command.OutputID]
+		liveBase.Document = candidateDocument
+		liveBase.Construction = *candidateDocument.Construction
+		liveBase.Stages = receipt.ConstructionStages[command.OutputID]
 		reauthorized, reauthErr := s.resolveConstructionGroupFieldSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction)
 		if reauthErr != nil || !reflect.DeepEqual(reauthorized, *candidateDocument.Construction) {
 			return nil, nil, nil, conflict("commands", "STALE_GROUP_FIELD_BINDING", "the Group field binding no longer matches the live compiler-resolved source stage", nil, reauthErr)
 		}
 	}
-	if constructionHasFilterSourceInput(*candidateDocument.Construction) {
-		liveBase := constructionBase{
-			document: candidateDocument, construction: *candidateDocument.Construction,
-			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+	if s.config.SourceLanes.ConstructionHasFilterSourceInput(*candidateDocument.Construction) {
+		liveBase := Base{
+			Document: candidateDocument, Construction: *candidateDocument.Construction,
+			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
 		if reauthErr := s.reauthorizeConstructionFilterSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_FILTER_SOURCE_BINDING", "the filter source binding no longer matches the live authorized root scalar field", nil, reauthErr)
 		}
 	}
-	if constructionHasDeriveSourceInput(*candidateDocument.Construction) {
-		liveBase := constructionBase{
-			document: candidateDocument, construction: *candidateDocument.Construction,
-			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+	if s.config.SourceLanes.ConstructionHasDeriveSourceInput(*candidateDocument.Construction) {
+		liveBase := Base{
+			Document: candidateDocument, Construction: *candidateDocument.Construction,
+			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
 		if reauthErr := s.reauthorizeConstructionDeriveSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_DERIVE_SOURCE_BINDING", "the derive source binding no longer matches the live authorized root scalar field", nil, reauthErr)
 		}
 	}
-	if constructionHasUnpivotSourceInput(*candidateDocument.Construction) {
-		liveBase := constructionBase{
-			document: candidateDocument, construction: *candidateDocument.Construction,
-			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+	if s.config.SourceLanes.ConstructionHasUnpivotSourceInput(*candidateDocument.Construction) {
+		liveBase := Base{
+			Document: candidateDocument, Construction: *candidateDocument.Construction,
+			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
 		if reauthErr := s.reauthorizeConstructionUnpivotSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_UNPIVOT_SOURCE_BINDING", "the unpivot source binding no longer matches the live authorized root scalar field", nil, reauthErr)
 		}
 	}
-	if constructionHasExpandSourceInput(*candidateDocument.Construction) {
-		liveBase := constructionBase{
-			document: candidateDocument, construction: *candidateDocument.Construction,
-			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+	if s.config.SourceLanes.ConstructionHasExpandSourceInput(*candidateDocument.Construction) {
+		liveBase := Base{
+			Document: candidateDocument, Construction: *candidateDocument.Construction,
+			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
 		if reauthErr := s.reauthorizeConstructionExpandSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_EXPAND_SOURCE_BINDING", "the expand source binding no longer matches the live authorized root array field", nil, reauthErr)

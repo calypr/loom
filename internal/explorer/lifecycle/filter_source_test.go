@@ -99,11 +99,11 @@ func filterSourceService(t *testing.T) *Service {
 
 func filterSourceBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
 	return constructionBase{
-		document:     filterSourceDocument(),
-		construction: construction,
-		snapshot:     snapshot,
-		authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		stages: []explorer.ReceiptConstructionStage{{
+		Document:     filterSourceDocument(),
+		Construction: construction,
+		Snapshot:     snapshot,
+		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{
 				{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
@@ -376,7 +376,7 @@ func TestConstructionFilterSourceCapabilityRefusesStaleStageAndRowChangingPrefix
 		t.Fatalf("invented stage capability = %#v, want a stale-stage refusal without choices", stale)
 	}
 	blocked := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}})
-	blocked.stages = append(blocked.stages, explorer.ReceiptConstructionStage{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+	blocked.Stages = append(blocked.Stages, explorer.ReceiptConstructionStage{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 	blockedStage, err := service.constructionFilterSourceCapability(context.Background(), blocked, filterSourceOutput, "group-first")
 	if err != nil {
 		t.Fatal(err)
@@ -547,7 +547,7 @@ func TestConstructionFilterSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	candidate.Steps[1].Outputs = append(append([]authoringv2.StageColumn(nil), filterInputs...), filterSourceProjectionColumn())
 
 	base := filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group}})
-	base.stages = append(base.stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
 		ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP",
 		Columns: []explorer.ReceiptConstructionStageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
@@ -742,7 +742,7 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 		t.Helper()
 		base := filterSourceBase(snapshot, construction)
 		if stageID != recipe.ConstructionSourceProjectionID {
-			base.stages = append(base.stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+			base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
 		result, err := service.constructionFilterSourceCapability(context.Background(), base, filterSourceOutput, stageID)
 		if err != nil {
@@ -1359,7 +1359,7 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
 			base := filterSourceBase(row.snapshot, row.construction)
-			base.stages = append(base.stages, row.stages...)
+			base.Stages = append(base.Stages, row.stages...)
 			result, err := row.service.constructionFilterSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("filter source capability: %v", err)

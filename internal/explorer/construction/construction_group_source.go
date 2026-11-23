@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -20,9 +20,9 @@ func (s *Service) constructionSources() constructionRowSources {
 	return constructionRowSources{planner: s.config.RowChoicePlanner, resolver: s.config.RowChoiceResolver}
 }
 
-func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (ConstructionGroupSourceCapability, error) {
+func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Context, base Base, outputID, stageID string) (ConstructionGroupSourceCapability, error) {
 	result := ConstructionGroupSourceCapability{StageID: stageID, Choices: []ConstructionGroupSourceChoice{}}
-	if importedSourceChoiceUnavailable(base.document) {
+	if importedSourceChoiceUnavailable(base.Document) {
 		result.Supported = true
 		return result, nil
 	}
@@ -36,7 +36,7 @@ func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Co
 		result.Reason = "authorized scalar source choices are not configured"
 		return result, nil
 	}
-	choices, err := s.planner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
+	choices, err := s.planner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
 	if err != nil {
 		return result, fmt.Errorf("list authorized row choices for output %q: %w", outputID, err)
 	}
@@ -45,7 +45,7 @@ func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Co
 			choice.Reference || fhirNonGroupableSourcePath(choice.Path) {
 			continue
 		}
-		candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
+		candidate, ok := constructionGroupSourceCandidate(base.Snapshot, choice)
 		if !ok {
 			continue
 		}
@@ -64,10 +64,10 @@ func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Co
 	return result, nil
 }
 
-func (s constructionRowSources) constructionCandidateWithGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest) (authoringv2.Construction, error) {
+func (s constructionRowSources) constructionCandidateWithGroupSource(ctx context.Context, base Base, request ConstructionProposalRequest) (authoringv2.Construction, error) {
 	candidate := request.CandidateConstruction
 	if request.GroupSource == nil && request.GroupSources == nil {
-		candidate.SourceProjections = append([]authoringv2.ConstructionSourceProjection(nil), base.construction.SourceProjections...)
+		candidate.SourceProjections = append([]authoringv2.ConstructionSourceProjection(nil), base.Construction.SourceProjections...)
 		return candidate, nil
 	}
 	if len(candidate.Steps) == 0 || candidate.Steps[0].ID != request.ChangedStepID || candidate.Steps[0].Operation.Kind != authoringv2.ConstructionOperationGroup || candidate.Steps[0].Operation.Group == nil {
@@ -114,20 +114,20 @@ func (s constructionRowSources) constructionCandidateWithGroupSource(ctx context
 	return candidate, nil
 }
 
-func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest, columnID string) (authoringv2.ConstructionSourceProjection, error) {
+func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Context, base Base, request ConstructionProposalRequest, columnID string) (authoringv2.ConstructionSourceProjection, error) {
 	if s.resolver == nil {
 		return authoringv2.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized scalar source choice resolution is not configured", nil)
 	}
 	resolved, err := s.resolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
-		Snapshot: base.snapshot.Clone(), Route: base.document.Route,
+		Snapshot: base.Snapshot.Clone(), Route: base.Document.Route,
 		RowChoiceID: request.GroupSource.RowChoiceID, ExpectedKind: RowChoiceFieldGroup,
 	})
-	if err != nil || validateResolvedRowChoice(base.document.Route, resolved, RowChoiceFieldGroup) != nil || resolved.OccurrenceID != authoringv2.RootOccurrenceID {
+	if err != nil || validateResolvedRowChoice(base.Document.Route, resolved, RowChoiceFieldGroup) != nil || resolved.OccurrenceID != authoringv2.RootOccurrenceID {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_GROUP_SOURCE_CHOICE", "reload row choices and select a current root scalar field", nil, err)
 	}
 	identity, err := capability.DecodeRowChoiceID(request.GroupSource.RowChoiceID)
-	if err != nil || identity.SnapshotToken != base.snapshot.Token || identity.SchemaDigest != base.snapshot.Identity.SchemaDigest ||
+	if err != nil || identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest ||
 		identity.Kind != capability.RowChoiceFieldGroupKey || identity.Occurrence.OccurrenceID != authoringv2.RootOccurrenceID ||
 		identity.Path != resolved.FieldPath || identity.Reference || identity.Cardinality != capability.RowChoiceOne || identity.Shape != capability.RowChoiceScalar {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_GROUP_SOURCE_CHOICE", "the selected source choice does not match the current scalar root field", nil, err)
@@ -138,13 +138,13 @@ func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Conte
 	if canonicalRowPath(resolved.FieldPath) == "resourceType" {
 		return authoringv2.ConstructionSourceProjection{}, unprocessable("construction-proposal", "RESOURCE_METADATA_GROUP_SOURCE_UNSUPPORTED", "the constant FHIR resourceType metadata field cannot be used as a useful grouping key", nil)
 	}
-	rootNode, ok := base.snapshot.Node(identity.Occurrence.NodeID)
-	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.document.RootResourceType {
+	rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
+	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_GROUP_SOURCE_CHOICE", "the selected source choice no longer identifies the authorized root resource", nil, nil)
 	}
 	var candidate *capability.Candidate
-	for index := range base.snapshot.Candidates {
-		current := &base.snapshot.Candidates[index]
+	for index := range base.Snapshot.Candidates {
+		current := &base.Snapshot.Candidates[index]
 		if current.NodeID == rootNode.ID && current.ResourceType == rootNode.ResourceType && canonicalRowPath(current.FieldPath) == resolved.FieldPath {
 			if candidate != nil {
 				return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "AMBIGUOUS_GROUP_SOURCE_FIELD", "the selected scalar field is ambiguous in the current capability snapshot", nil, nil)

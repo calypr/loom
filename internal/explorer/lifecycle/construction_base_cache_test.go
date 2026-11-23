@@ -245,7 +245,7 @@ func TestConstructionBaseCacheReturnsIndependentCopies(t *testing.T) {
 func TestConstructionBaseCacheExpiresEntries(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	service.constructionBaseCache = newConstructionBaseCache(time.Minute, 16, func() time.Time { return now })
+	service.setConstructionBaseCache(newConstructionBaseCache(time.Minute, 16, func() time.Time { return now }))
 	calls := 0
 	configureSnapshotConstructionCompilation(service, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")
@@ -286,8 +286,8 @@ func TestTTLCacheSamplesPutClockWhileLocked(t *testing.T) {
 	var cache *ttlCache[string, string]
 	sampledWhileLocked := false
 	cache = newTTLCache[string, string](time.Minute, 2, func() time.Time {
-		if cache.mu.TryLock() {
-			cache.mu.Unlock()
+		if cache.Mu.TryLock() {
+			cache.Mu.Unlock()
 		} else {
 			sampledWhileLocked = true
 		}
@@ -305,9 +305,9 @@ func TestConstructionBaseCacheSamplesClockBeforeLock(t *testing.T) {
 	var cache *constructionBaseCache
 	sampledUnlocked := false
 	cache = newConstructionBaseCache(time.Minute, 2, func() time.Time {
-		if cache.entries.mu.TryLock() {
+		if cache.Entries.Mu.TryLock() {
 			sampledUnlocked = true
-			cache.entries.mu.Unlock()
+			cache.Entries.Mu.Unlock()
 		}
 		return now
 	})

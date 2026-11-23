@@ -84,11 +84,11 @@ func deriveSourceService(t *testing.T) *Service {
 
 func deriveSourceBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
 	return constructionBase{
-		document:     deriveSourceDocument(),
-		construction: construction,
-		snapshot:     snapshot,
-		authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		stages: []explorer.ReceiptConstructionStage{{
+		Document:     deriveSourceDocument(),
+		Construction: construction,
+		Snapshot:     snapshot,
+		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{
 				{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
@@ -184,11 +184,11 @@ func newDeriveSourceHarness(t *testing.T) *deriveSourcePatientHarness {
 
 func deriveSourcePatientBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
 	return constructionBase{
-		document:     deriveSourcePatientDocument(construction),
-		construction: construction,
-		snapshot:     snapshot,
-		authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		stages: []explorer.ReceiptConstructionStage{{
+		Document:     deriveSourcePatientDocument(construction),
+		Construction: construction,
+		Snapshot:     snapshot,
+		Authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{
 				{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
@@ -437,7 +437,7 @@ func TestConstructionDeriveSourceCannotCrossRowChangingPrefix(t *testing.T) {
 		deriveSourceAddStep(deriveSourceStep, deriveSourceBirth, stepOutputs),
 	}}
 	base := deriveSourcePatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group}})
-	base.stages = append(base.stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
 		ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP",
 		Columns: []explorer.ReceiptConstructionStageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
@@ -642,7 +642,7 @@ func TestConstructionDeriveSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 		t.Helper()
 		base := deriveSourcePatientBase(snapshot, construction)
 		if stageID != recipe.ConstructionSourceProjectionID {
-			base.stages = append(base.stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+			base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
 		result, err := service.constructionDeriveSourceCapability(context.Background(), base, "patients", stageID)
 		if err != nil {
@@ -1134,7 +1134,7 @@ func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
 			base := deriveSourceBase(row.snapshot, row.construction)
-			base.stages = append(base.stages, row.stages...)
+			base.Stages = append(base.Stages, row.stages...)
 			result, err := row.service.constructionDeriveSourceCapability(context.Background(), base, deriveSourceOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("derive source capability: %v", err)

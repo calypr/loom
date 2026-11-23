@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 func (s *Service) resolveConstructionPivotDiscoveries(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	request ConstructionProposalRequest,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, map[string]bool, error) {

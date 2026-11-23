@@ -77,9 +77,9 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		}, ActiveRelatedRecord: active},
 	}
 	base := constructionBase{
-		document: document, construction: construction, snapshot: snapshot,
-		authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		stages:     stages,
+		Document: document, Construction: construction, Snapshot: snapshot,
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Stages:     stages,
 	}
 	selection, err := capability.NewConstructionRelatedFieldChoice(snapshot.Token, helperID, candidateSource)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		PivotSources: []ConstructionPivotSourceSelection{{ChoiceID: selection.ChoiceID, ColumnID: "pivot-input"}},
 	}
 	service := &Service{}
-	prepared, _, err := service.constructionSources().constructionCandidateWithPivotSources(t.Context(), base, request, candidate)
+	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(t.Context(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("prepare related Pivot sources: %v", err)
 	}
@@ -333,8 +333,8 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
 			base := filterSourceBase(row.snapshot, row.construction)
-			base.stages = append(base.stages, row.stages...)
-			result, err := row.service.constructionSources().constructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
+			base.Stages = append(base.Stages, row.stages...)
+			result, err := row.service.constructionSources().ConstructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("pivot source capability: %v", err)
 			}
@@ -412,7 +412,7 @@ func TestConstructionPivotSourceCapabilityNamesInventoryFailureDistinctly(t *tes
 	distinct := map[string]bool{}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
-			result, err := row.service.constructionSources().constructionPivotSourceCapability(context.Background(),
+			result, err := row.service.constructionSources().ConstructionPivotSourceCapability(context.Background(),
 				filterSourceBase(row.snapshot, empty), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 			if row.wantFail {
 				if err == nil {

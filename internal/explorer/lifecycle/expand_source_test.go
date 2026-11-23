@@ -95,10 +95,10 @@ func expandTestProcedureDocument() authoringv2.Document {
 
 func expandTestProcedureBase(snapshot capability.Snapshot, construction authoringv2.Construction) constructionBase {
 	return constructionBase{
-		document:     expandTestProcedureDocument(),
-		construction: construction,
-		snapshot:     snapshot,
-		stages: []explorer.ReceiptConstructionStage{{
+		Document:     expandTestProcedureDocument(),
+		Construction: construction,
+		Snapshot:     snapshot,
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{
 				{ID: "procedure-id", Name: "procedure_id", Label: "Procedure ID", Type: "string"},
@@ -145,10 +145,10 @@ func expandTestPatientBase(snapshot capability.Snapshot, construction authoringv
 		}},
 	}
 	return constructionBase{
-		document:     document,
-		construction: construction,
-		snapshot:     snapshot,
-		stages: []explorer.ReceiptConstructionStage{{
+		Document:     document,
+		Construction: construction,
+		Snapshot:     snapshot,
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}},
 		}},
@@ -377,7 +377,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 				service = expandTestService(expandTestPlanner{choices: row.choices(t, snapshot)})
 			}
 			base := expandTestPatientBase(snapshot, row.construction)
-			base.stages = append(base.stages, row.stages...)
+			base.Stages = append(base.Stages, row.stages...)
 			result, err := service.constructionExpandSourceCapability(context.Background(), base, expandTestOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("expand source capability: %v", err)

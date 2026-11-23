@@ -95,14 +95,14 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
 	}
 	base := constructionBase{
-		explorerID: "explorer-a",
-		document:   authoringv2.Document{Output: authoringv2.Output{ID: "out-observation"}, RootResourceType: "Observation", Rows: authoringv2.RecordsRowDefinition()},
-		construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
+		ExplorerID: "explorer-a",
+		Document:   authoringv2.Document{Output: authoringv2.Output{ID: "out-observation"}, RootResourceType: "Observation", Rows: authoringv2.RecordsRowDefinition()},
+		Construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
 			ID: "coded-pivot", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
 			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCodedPivot, CodedPivot: &prior},
 		}}},
-		snapshot: snapshot, authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		stages: []explorer.ReceiptConstructionStage{{
+		Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedPivotOp), Supported: true}},
 		}},
@@ -119,8 +119,8 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
 	}}}
 
-	candidateConstruction := base.construction
-	candidateConstruction.Steps = append([]authoringv2.ConstructionStep(nil), base.construction.Steps...)
+	candidateConstruction := base.Construction
+	candidateConstruction.Steps = append([]authoringv2.ConstructionStep(nil), base.Construction.Steps...)
 	candidateStep := &candidateConstruction.Steps[0]
 	candidateStep.Operation.CodedPivot = &authoringv2.ConstructionCodedPivot{
 		ConstructionID: "coded-pivot", SourceChoiceID: frameChoice.ChoiceID,

@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"encoding/json"
@@ -44,22 +44,22 @@ type constructionBaseCacheValue struct {
 }
 
 type ttlCacheEntry[V any] struct {
-	value     V
-	expiresAt time.Time
+	Value     V
+	ExpiresAt time.Time
 }
 
 type ttlCache[K comparable, V any] struct {
-	mu      sync.Mutex
-	entries map[K]ttlCacheEntry[V]
-	order   []K
-	max     int
-	ttl     time.Duration
+	Mu      sync.Mutex
+	Entries map[K]ttlCacheEntry[V]
+	Order   []K
+	Max     int
+	TTL     time.Duration
 	now     func() time.Time
 }
 
-func newTTLCache[K comparable, V any](ttl time.Duration, maxEntries int, now func() time.Time, defaultTTL time.Duration, defaultMaxEntries int) *ttlCache[K, V] {
-	if ttl <= 0 {
-		ttl = defaultTTL
+func newTTLCache[K comparable, V any](TTL time.Duration, maxEntries int, now func() time.Time, defaultTTL time.Duration, defaultMaxEntries int) *ttlCache[K, V] {
+	if TTL <= 0 {
+		TTL = defaultTTL
 	}
 	if maxEntries <= 0 {
 		maxEntries = defaultMaxEntries
@@ -68,106 +68,106 @@ func newTTLCache[K comparable, V any](ttl time.Duration, maxEntries int, now fun
 		now = time.Now
 	}
 	return &ttlCache[K, V]{
-		entries: make(map[K]ttlCacheEntry[V], maxEntries),
-		max:     maxEntries,
-		ttl:     ttl,
+		Entries: make(map[K]ttlCacheEntry[V], maxEntries),
+		Max:     maxEntries,
+		TTL:     TTL,
 		now:     now,
 	}
 }
 
 func (c *ttlCache[K, V]) Get(key K) (V, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	entry, ok := c.entries[key]
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+	entry, ok := c.Entries[key]
 	if !ok {
 		var zero V
 		return zero, false
 	}
-	if !c.now().Before(entry.expiresAt) {
+	if !c.now().Before(entry.ExpiresAt) {
 		c.deleteLocked(key)
 		var zero V
 		return zero, false
 	}
-	return entry.value, true
+	return entry.Value, true
 }
 
-func (c *ttlCache[K, V]) Put(key K, value V) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.putLocked(key, value, c.now().Add(c.ttl))
+func (c *ttlCache[K, V]) Put(key K, Value V) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+	c.putLocked(key, Value, c.now().Add(c.TTL))
 }
 
-func (c *ttlCache[K, V]) putExpiringAt(key K, value V, expiresAt time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.putLocked(key, value, expiresAt)
+func (c *ttlCache[K, V]) putExpiringAt(key K, Value V, ExpiresAt time.Time) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+	c.putLocked(key, Value, ExpiresAt)
 }
 
-func (c *ttlCache[K, V]) putLocked(key K, value V, expiresAt time.Time) {
-	if _, exists := c.entries[key]; !exists {
-		for len(c.entries) >= c.max && len(c.order) > 0 {
-			oldest := c.order[0]
-			c.order = c.order[1:]
-			delete(c.entries, oldest)
+func (c *ttlCache[K, V]) putLocked(key K, Value V, ExpiresAt time.Time) {
+	if _, exists := c.Entries[key]; !exists {
+		for len(c.Entries) >= c.Max && len(c.Order) > 0 {
+			oldest := c.Order[0]
+			c.Order = c.Order[1:]
+			delete(c.Entries, oldest)
 		}
-		c.order = append(c.order, key)
+		c.Order = append(c.Order, key)
 	}
-	c.entries[key] = ttlCacheEntry[V]{value: value, expiresAt: expiresAt}
+	c.Entries[key] = ttlCacheEntry[V]{Value: Value, ExpiresAt: ExpiresAt}
 }
 
 func (c *ttlCache[K, V]) Delete(key K) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
 	c.deleteLocked(key)
 }
 
 func (c *ttlCache[K, V]) deleteLocked(key K) {
-	delete(c.entries, key)
-	for index := range c.order {
-		if c.order[index] != key {
+	delete(c.Entries, key)
+	for index := range c.Order {
+		if c.Order[index] != key {
 			continue
 		}
-		c.order = append(c.order[:index], c.order[index+1:]...)
+		c.Order = append(c.Order[:index], c.Order[index+1:]...)
 		return
 	}
 }
 
 type constructionBaseCache struct {
-	entries *ttlCache[constructionBaseCacheKey, constructionBaseCacheValue]
+	Entries *ttlCache[constructionBaseCacheKey, constructionBaseCacheValue]
 }
 
-func newConstructionBaseCache(ttl time.Duration, maxEntries int, now func() time.Time) *constructionBaseCache {
+func newConstructionBaseCache(TTL time.Duration, maxEntries int, now func() time.Time) *constructionBaseCache {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &constructionBaseCache{entries: newTTLCache[constructionBaseCacheKey, constructionBaseCacheValue](ttl, maxEntries, now, defaultConstructionBaseCacheTTL, defaultConstructionBaseCacheEntries)}
+	return &constructionBaseCache{Entries: newTTLCache[constructionBaseCacheKey, constructionBaseCacheValue](TTL, maxEntries, now, defaultConstructionBaseCacheTTL, defaultConstructionBaseCacheEntries)}
 }
 
 func (c *constructionBaseCache) Get(key constructionBaseCacheKey) (constructionBaseCacheValue, bool) {
-	value, ok := c.entries.Get(key)
+	Value, ok := c.Entries.Get(key)
 	if !ok {
 		return constructionBaseCacheValue{}, false
 	}
-	receipt := cloneCachedCompilationReceipt(value.receipt)
-	if value.receipt != nil && receipt == nil {
-		c.entries.Delete(key)
+	receipt := cloneCachedCompilationReceipt(Value.receipt)
+	if Value.receipt != nil && receipt == nil {
+		c.Entries.Delete(key)
 		return constructionBaseCacheValue{}, false
 	}
 	return constructionBaseCacheValue{
 		receipt: receipt,
-		stages:  cloneCachedReceiptConstructionStages(value.stages),
+		stages:  cloneCachedReceiptConstructionStages(Value.stages),
 	}, true
 }
 
-func (c *constructionBaseCache) Put(key constructionBaseCacheKey, value constructionBaseCacheValue) {
-	receipt := cloneCachedCompilationReceipt(value.receipt)
-	if value.receipt != nil && receipt == nil {
+func (c *constructionBaseCache) Put(key constructionBaseCacheKey, Value constructionBaseCacheValue) {
+	receipt := cloneCachedCompilationReceipt(Value.receipt)
+	if Value.receipt != nil && receipt == nil {
 		return
 	}
-	c.entries.putExpiringAt(key, constructionBaseCacheValue{
+	c.Entries.putExpiringAt(key, constructionBaseCacheValue{
 		receipt: receipt,
-		stages:  cloneCachedReceiptConstructionStages(value.stages),
-	}, c.entries.now().Add(c.entries.ttl))
+		stages:  cloneCachedReceiptConstructionStages(Value.stages),
+	}, c.Entries.now().Add(c.Entries.TTL))
 }
 
 func cloneCachedCompilationReceipt(in *explorer.CompilationReceipt) *explorer.CompilationReceipt {

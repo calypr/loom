@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type relatedCodingSelector struct {
 
 func (s *Service) appendRelatedGroupFieldChoices(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	stage explorer.ReceiptConstructionStage,
 	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
 	index *fhirschema.Index,
@@ -42,7 +42,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if err := validateAuthorizedReadScope(base.authorized.Scope, base.snapshot.Identity.AuthorizationScopeDigest); err != nil {
+	if err := validateAuthorizedReadScope(base.Authorized.Scope, base.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return false, conflict("construction-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
 	anchor, err := constructionGroupRelatedAnchorForStage(base, fieldContext)
@@ -55,7 +55,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 	}
 	candidatesByNode := make(map[string][]observedRelatedGroupCandidate)
 	targetSet := make(map[string]struct{})
-	for _, candidate := range base.snapshot.Candidates {
+	for _, candidate := range base.Snapshot.Candidates {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
@@ -63,7 +63,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 			!candidate.Observed || !candidate.Populated || fhirNonGroupableGroupFieldPath(candidate.FieldPath) {
 			continue
 		}
-		node, ok := base.snapshot.Node(candidate.NodeID)
+		node, ok := base.Snapshot.Node(candidate.NodeID)
 		if !ok || node.ResourceType != candidate.ResourceType {
 			continue
 		}
@@ -91,7 +91,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 		if err := ctx.Err(); err != nil {
 			return nil, false, err
 		}
-		resolvedRoute, routeErr := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.nodeID, targetNodeID, route)
+		resolvedRoute, routeErr := reauthorizeConstructionRouteFromAnchor(base.Snapshot, anchor.nodeID, targetNodeID, route)
 		if routeErr != nil {
 			return nil, false, nil
 		}
@@ -99,7 +99,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 		if _, exists := processedRoutes[routeKey]; exists {
 			return resolvedRoute, true, nil
 		}
-		if !constructionRouteHasCompilerProof(ctx, base.authorized, resolvedRoute) {
+		if !constructionRouteHasCompilerProof(ctx, base.Authorized, resolvedRoute) {
 			if err := ctx.Err(); err != nil {
 				return nil, false, err
 			}
@@ -111,7 +111,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 			if err := ctx.Err(); err != nil {
 				return nil, false, err
 			}
-			candidate, proofErr := proveConstructionCandidate(ctx, base.authorized, anchor.resourceType, observed.candidate, resolvedRoute)
+			candidate, proofErr := proveConstructionCandidate(ctx, base.Authorized, anchor.resourceType, observed.candidate, resolvedRoute)
 			if proofErr != nil || candidate.ID != observed.candidate.ID || candidate.NodeID != targetNodeID ||
 				candidate.ResourceType != observed.candidate.ResourceType || canonicalRowPath(candidate.FieldPath) != canonicalRowPath(observed.candidate.FieldPath) ||
 				!candidate.Observed || !candidate.Populated {
@@ -126,7 +126,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				if resolveErr == nil {
 					source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, valueType, "ONE", "SCALAR", "", "")
 					source.TargetGroupStepID = targetGroupStepID
-					choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.snapshot.Token, resolvedRoute, source, candidate)
+					choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.Snapshot.Token, resolvedRoute, source, candidate)
 					if choiceErr == nil {
 						label := firstNonEmpty(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
 						choicesByID[choice.ChoiceID] = ConstructionGroupFieldChoice{
@@ -152,12 +152,12 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				if resolveErr != nil {
 					continue
 				}
-				rowChoice, rowChoiceErr := relatedCodingRowChoice(base.snapshot, anchor.rootRoute, resolvedRoute, related, selector.facts)
+				rowChoice, rowChoiceErr := relatedCodingRowChoice(base.Snapshot, anchor.rootRoute, resolvedRoute, related, selector.facts)
 				if rowChoiceErr != nil {
 					continue
 				}
 				source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, "Coding", "MANY", "CODING_IDENTITY", rowChoice.ChoiceID, selector.path)
-				choice, choiceErr := capability.NewGroupCodingIdentityChoice(base.snapshot.Token, resolvedRoute, source)
+				choice, choiceErr := capability.NewGroupCodingIdentityChoice(base.Snapshot.Token, resolvedRoute, source)
 				if choiceErr != nil {
 					continue
 				}
@@ -198,7 +198,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				return incomplete, err
 			}
 			page, planErr := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
-				Snapshot: base.snapshot, RootNodeID: anchor.nodeID, TargetNodeID: targetNodeID,
+				Snapshot: base.Snapshot, RootNodeID: anchor.nodeID, TargetNodeID: targetNodeID,
 				SourceKey: sourceKey, Cursor: cursor, Limit: capability.ConstructionRouteMaxLimit,
 			})
 			if planErr != nil {
@@ -235,7 +235,7 @@ type savedRelatedGroupRoute struct {
 }
 
 func savedRelatedGroupRoutes(
-	base constructionBase,
+	base Base,
 	groupStepID string,
 	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
 	anchor constructionGroupRelatedAnchor,
@@ -244,9 +244,9 @@ func savedRelatedGroupRoutes(
 		return nil
 	}
 	var group *authoringv2.ConstructionStep
-	for index := range base.construction.Steps {
-		if base.construction.Steps[index].ID == groupStepID {
-			group = &base.construction.Steps[index]
+	for index := range base.Construction.Steps {
+		if base.Construction.Steps[index].ID == groupStepID {
+			group = &base.Construction.Steps[index]
 			break
 		}
 	}
@@ -293,7 +293,7 @@ func savedRelatedGroupRoutes(
 			expectedResourceType != related.TargetResourceType || constructionGroupRelatedRouteKey(steps) == "" {
 			continue
 		}
-		targetNode, ok := base.snapshot.Node(related.TargetNodeID)
+		targetNode, ok := base.Snapshot.Node(related.TargetNodeID)
 		if !ok || targetNode.ResourceType != related.TargetResourceType {
 			continue
 		}
@@ -344,24 +344,24 @@ func firstProvenRelatedGroupRoute(
 }
 
 func groupFieldCompilerContext(
-	base constructionBase,
+	base Base,
 	stage explorer.ReceiptConstructionStage,
 	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
 ) (*facade.CompiledGroupFieldSourceContext, error) {
 	if fieldContext == nil || stage.ID != fieldContext.SourceStageID || fieldContext.SourceShapeID == "" ||
-		base.document.Route.OccurrenceID == "" || base.document.RootResourceType == "" {
+		base.Document.Route.OccurrenceID == "" || base.Document.RootResourceType == "" {
 		return nil, fmt.Errorf("compiler context has incomplete stage or root occurrence facts")
 	}
 	if fieldContext.SourceExpansion != nil {
 		return nil, fmt.Errorf("related Group field choices are not yet supported for an expanded input stage")
 	}
-	if base.document.Route.ResourceType != base.document.RootResourceType {
+	if base.Document.Route.ResourceType != base.Document.RootResourceType {
 		return nil, fmt.Errorf("source document root occurrence resource differs from its root type")
 	}
 	context := &facade.CompiledGroupFieldSourceContext{
 		SourceStageID: fieldContext.SourceStageID, SourceShapeID: fieldContext.SourceShapeID,
 		SourceIdentityColumn: fieldContext.SourceIdentityColumn,
-		RootOccurrenceID:     base.document.Route.OccurrenceID, RootResourceType: base.document.RootResourceType,
+		RootOccurrenceID:     base.Document.Route.OccurrenceID, RootResourceType: base.Document.RootResourceType,
 		FieldOwners: make([]facade.CompiledGroupFieldOwner, 0, len(fieldContext.FieldOwners)),
 	}
 	for _, owner := range fieldContext.FieldOwners {

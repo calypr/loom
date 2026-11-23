@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 func (s *Service) constructionGroupFieldChoices(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID string,
 	stage explorer.ReceiptConstructionStage,
 	semanticChoices []ConstructionSemanticGroupChoice,
@@ -51,8 +51,8 @@ func (s *Service) constructionGroupFieldChoices(
 	if err != nil {
 		return nil, false, unavailable("construction-capabilities", "FHIR_SCHEMA_UNAVAILABLE", "FHIR field metadata is unavailable", err)
 	}
-	candidatesByNode := make(map[string][]capability.Candidate, len(base.snapshot.Nodes))
-	for _, candidate := range base.snapshot.Candidates {
+	candidatesByNode := make(map[string][]capability.Candidate, len(base.Snapshot.Nodes))
+	for _, candidate := range base.Snapshot.Candidates {
 		if !candidate.Observed || !candidate.Populated || fhirNonGroupableGroupFieldPath(candidate.FieldPath) {
 			continue
 		}
@@ -64,7 +64,7 @@ func (s *Service) constructionGroupFieldChoices(
 		if routeErr != nil || occurrence.OccurrenceID != owner.OccurrenceID || occurrence.ResourceType != owner.OwnerResourceType {
 			return nil, false, conflict("construction-capabilities", "STALE_ROUTE", "the compiled Group field owner no longer matches the authorized route", nil, routeErr)
 		}
-		if owner.Role == "ROOT" && (owner.OccurrenceID != base.document.Route.OccurrenceID || owner.ResourceType != base.document.RootResourceType) {
+		if owner.Role == "ROOT" && (owner.OccurrenceID != base.Document.Route.OccurrenceID || owner.ResourceType != base.Document.RootResourceType) {
 			return nil, false, conflict("construction-capabilities", "STALE_ROUTE", "the compiled Group root field owner changed", nil, nil)
 		}
 		for _, candidate := range candidatesByNode[occurrence.NodeID] {
@@ -84,7 +84,7 @@ func (s *Service) constructionGroupFieldChoices(
 				facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || !capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 				continue
 			}
-			proved, proofErr := proveConstructionCandidate(ctx, base.authorized, base.document.RootResourceType, candidate, route)
+			proved, proofErr := proveConstructionCandidate(ctx, base.Authorized, base.Document.RootResourceType, candidate, route)
 			if proofErr != nil || proved.ID != candidate.ID || proved.NodeID != occurrence.NodeID ||
 				proved.ResourceType != owner.OwnerResourceType || canonicalRowPath(proved.FieldPath) != canonicalRowPath(candidate.FieldPath) {
 				continue
@@ -102,7 +102,7 @@ func (s *Service) constructionGroupFieldChoices(
 				CanonicalPath: fieldPath, FHIRType: string(facts.FHIRType),
 				Cardinality: "ONE", Shape: "SCALAR",
 			}
-			choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.snapshot.Token, route, source, proved)
+			choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.Snapshot.Token, route, source, proved)
 			if choiceErr != nil {
 				continue
 			}
@@ -116,12 +116,12 @@ func (s *Service) constructionGroupFieldChoices(
 				OwnerResourceType: owner.OwnerResourceType, CanonicalPath: fieldPath,
 				BoundarySelector: owner.BoundarySelector,
 			}
-			response.InputColumnID = matchedPublicGroupFieldColumn(base.document, stage, owner.OccurrenceID, proved.FieldPath)
+			response.InputColumnID = matchedPublicGroupFieldColumn(base.Document, stage, owner.OccurrenceID, proved.FieldPath)
 			choicesByID[choice.ChoiceID] = response
 		}
 	}
 	if targetGroupStepID == "" && context.SourceExpansion != nil && s.config.RowChoicePlanner != nil {
-		rowChoices, listErr := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
+		rowChoices, listErr := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
 		if listErr != nil {
 			return nil, false, conflict("construction-capabilities", "STALE_ROUTE", "the current Coding row choice could not be resolved", nil, listErr)
 		}
@@ -129,7 +129,7 @@ func (s *Service) constructionGroupFieldChoices(
 		owner, route, routeErr := constructionGroupFieldOwnerRoute(base, context, expansion.OwnerOccurrenceID)
 		observedCoding := false
 		if routeErr == nil {
-			for _, candidate := range base.snapshot.Candidates {
+			for _, candidate := range base.Snapshot.Candidates {
 				if observedGroupCodingSelector(candidate, owner.NodeID, expansion.OwnerResourceType, expansion.Selector) {
 					observedCoding = true
 					break
@@ -153,7 +153,7 @@ func (s *Service) constructionGroupFieldChoices(
 					ValueKind: "CODING_IDENTITY", NodeID: owner.NodeID, CanonicalPath: expansion.Selector,
 					FHIRType: "Coding", Cardinality: "ONE", Shape: "CODING_IDENTITY",
 				}
-				choice, choiceErr := capability.NewGroupCodingIdentityChoice(base.snapshot.Token, route, source)
+				choice, choiceErr := capability.NewGroupCodingIdentityChoice(base.Snapshot.Token, route, source)
 				if choiceErr != nil {
 					continue
 				}
@@ -183,14 +183,14 @@ func (s *Service) constructionGroupFieldChoices(
 	return choices, semanticChoicesIncomplete || relatedChoicesIncomplete, nil
 }
 
-func markSavedGroupFieldChoices(base constructionBase, stageID, groupStepID string, choices []ConstructionGroupFieldChoice) {
+func markSavedGroupFieldChoices(base Base, stageID, groupStepID string, choices []ConstructionGroupFieldChoice) {
 	if groupStepID == "" {
 		return
 	}
 	var selected *authoringv2.ConstructionStep
-	for index := range base.construction.Steps {
-		if base.construction.Steps[index].ID == groupStepID {
-			selected = &base.construction.Steps[index]
+	for index := range base.Construction.Steps {
+		if base.Construction.Steps[index].ID == groupStepID {
+			selected = &base.Construction.Steps[index]
 			break
 		}
 	}
@@ -247,7 +247,7 @@ func sortConstructionGroupFieldChoices(choices []ConstructionGroupFieldChoice) {
 
 func (s *Service) constructionGroupRowValueChoices(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID string,
 	stage explorer.ReceiptConstructionStage,
 	groupStepID string,
@@ -256,9 +256,9 @@ func (s *Service) constructionGroupRowValueChoices(
 		return []ConstructionGroupFieldChoice{}, nil
 	}
 	var target *authoringv2.ConstructionStep
-	for index := range base.construction.Steps {
-		if base.construction.Steps[index].ID == groupStepID {
-			target = &base.construction.Steps[index]
+	for index := range base.Construction.Steps {
+		if base.Construction.Steps[index].ID == groupStepID {
+			target = &base.Construction.Steps[index]
 			break
 		}
 	}
@@ -284,13 +284,13 @@ func (s *Service) constructionGroupRowValueChoices(
 
 func (s *Service) resolveConstructionGroupFieldSources(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID string,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, error) {
 	priorByStep := make(map[string][]authoringv2.ConstructionGroupKey)
 	priorRowValuesByStep := make(map[string][]authoringv2.ConstructionRowValue)
-	for _, step := range base.construction.Steps {
+	for _, step := range base.Construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationGroup && step.Operation.Group != nil {
 			priorByStep[step.ID] = append([]authoringv2.ConstructionGroupKey(nil), step.Operation.Group.Keys...)
 			priorRowValuesByStep[step.ID] = append([]authoringv2.ConstructionRowValue(nil), step.RowValues...)
@@ -308,7 +308,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			}
 			continue
 		}
-		stage := receiptConstructionStageByID(base.stages, inputStageID)
+		stage := receiptConstructionStageByID(base.Stages, inputStageID)
 		if stage == nil || stage.GroupFieldSourceContext == nil || stage.GroupFieldSourceContext.SourceStageID != inputStageID {
 			if constructionStepHasGroupFieldSource(*step) {
 				return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CONTEXT", "the selected Group input stage has no current compiler-issued field context", nil, nil)
@@ -362,7 +362,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 				return candidate, err
 			}
 			identity, decodeErr := capability.DecodeConstructionChoiceID(matching.FieldSource.ChoiceID)
-			if decodeErr != nil || identity.SnapshotToken != base.snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceGroupField || identity.SemanticContextToken != "" || identity.BuildID != "" {
+			if decodeErr != nil || identity.SnapshotToken != base.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceGroupField || identity.SemanticContextToken != "" || identity.BuildID != "" {
 				return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "reload the Group field choice for the current authorized snapshot", nil, decodeErr)
 			}
 			source, sourceOK := identity.Source.(capability.GroupFieldChoiceSource)
@@ -422,7 +422,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 					return candidate, err
 				}
 				identity, decodeErr := capability.DecodeConstructionChoiceID(matching.FieldSource.ChoiceID)
-				if decodeErr != nil || identity.SnapshotToken != base.snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceGroupField || identity.SemanticContextToken != "" || identity.BuildID != "" {
+				if decodeErr != nil || identity.SnapshotToken != base.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceGroupField || identity.SemanticContextToken != "" || identity.BuildID != "" {
 					return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "reload the Group row-value choice for the current authorized snapshot", nil, decodeErr)
 				}
 				source, sourceOK := identity.Source.(capability.GroupFieldChoiceSource)
@@ -613,16 +613,16 @@ func sameConstructionGroupFieldBinding(left, right authoringv2.ConstructionGroup
 }
 
 func constructionGroupFieldOwnerRoute(
-	base constructionBase,
+	base Base,
 	context *explorer.ReceiptConstructionGroupFieldSourceContext,
 	occurrenceID string,
 ) (capability.RowChoiceOccurrence, []capability.ConstructionRouteStep, error) {
-	occurrence, err := resolveRowChoiceOccurrence(base.snapshot, base.document.RootResourceType, base.document.Route, occurrenceID, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, occurrenceID, "")
 	if err != nil {
 		return capability.RowChoiceOccurrence{}, nil, err
 	}
 	if context.SourceExpansion != nil && occurrenceID == context.SourceExpansion.OwnerOccurrenceID {
-		if !compiledGroupRouteMatches(base.document.Route, occurrenceID, context.SourceExpansion.Route, occurrence.Route) {
+		if !compiledGroupRouteMatches(base.Document.Route, occurrenceID, context.SourceExpansion.Route, occurrence.Route) {
 			return capability.RowChoiceOccurrence{}, nil, fmt.Errorf("compiled owner route differs from the saved exact occurrence route")
 		}
 	}
@@ -740,7 +740,7 @@ type constructionGroupRelatedAnchor struct {
 }
 
 func constructionGroupRelatedAnchorForStage(
-	base constructionBase,
+	base Base,
 	context *explorer.ReceiptConstructionGroupFieldSourceContext,
 ) (constructionGroupRelatedAnchor, error) {
 	if context == nil {
@@ -759,11 +759,11 @@ func constructionGroupRelatedAnchorForStage(
 			resourceType: expansion.OwnerResourceType, rootRoute: route,
 		}, nil
 	}
-	rootOccurrence := base.document.Route.OccurrenceID
-	if rootOccurrence == "" || base.document.Route.ResourceType != base.document.RootResourceType {
+	rootOccurrence := base.Document.Route.OccurrenceID
+	if rootOccurrence == "" || base.Document.Route.ResourceType != base.Document.RootResourceType {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("document has no exact compiler-rooted source occurrence")
 	}
-	occurrence, err := resolveRowChoiceOccurrence(base.snapshot, base.document.RootResourceType, base.document.Route, rootOccurrence, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, rootOccurrence, "")
 	if err != nil {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("source root occurrence no longer resolves to one authorized row root: %w", err)
 	}
@@ -772,7 +772,7 @@ func constructionGroupRelatedAnchorForStage(
 	}
 	return constructionGroupRelatedAnchor{
 		occurrenceID: rootOccurrence, nodeID: occurrence.NodeID,
-		resourceType: base.document.RootResourceType, rootRoute: occurrence.Route,
+		resourceType: base.Document.RootResourceType, rootRoute: occurrence.Route,
 	}, nil
 }
 

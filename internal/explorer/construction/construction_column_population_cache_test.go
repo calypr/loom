@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"testing"
@@ -23,22 +23,22 @@ func TestSharedColumnPopulationCacheExpiresBoundsAndScopesEntries(t *testing.T) 
 		t.Fatal("cache entry crossed authorization scope")
 	}
 	now = now.Add(2 * time.Second)
-	if _, ok := cache.Get(key); ok || len(cache.order) != 0 {
-		t.Fatalf("expired cache entry or order retained: %#v", cache.order)
+	if _, ok := cache.Get(key); ok || len(cache.Order) != 0 {
+		t.Fatalf("expired cache entry or order retained: %#v", cache.Order)
 	}
 	cache.Put(key, "POPULATED")
-	if len(cache.order) != 1 {
-		t.Fatalf("expiry/reinsert duplicated cache order: %#v", cache.order)
+	if len(cache.Order) != 1 {
+		t.Fatalf("expiry/reinsert duplicated cache order: %#v", cache.Order)
 	}
 	cache.Put(otherScope, "EMPTY")
 	third := key
 	third.ColumnID = "third"
 	cache.Put(third, "POPULATED")
-	if len(cache.entries) != 2 || len(cache.order) != 2 {
-		t.Fatalf("cache exceeded its bound: entries=%d order=%d", len(cache.entries), len(cache.order))
+	if len(cache.Entries) != 2 || len(cache.Order) != 2 {
+		t.Fatalf("cache exceeded its bound: entries=%d order=%d", len(cache.Entries), len(cache.Order))
 	}
 	cache.Put(columnPopulationCacheKey{ColumnID: "uncacheable"}, "EMPTY")
-	if len(cache.entries) != 2 {
+	if len(cache.Entries) != 2 {
 		t.Fatal("cached result without an exact receipt identity")
 	}
 }

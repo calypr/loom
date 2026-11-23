@@ -79,13 +79,13 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 		t.Fatal(err)
 	}
 	base := constructionBase{
-		snapshot:   snapshot,
-		authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		document: authoringv2.Document{
+		Snapshot:   snapshot,
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
+		Document: authoringv2.Document{
 			RootResourceType: "Observation",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
-		stages: []explorer.ReceiptConstructionStage{{
+		Stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			GroupFieldSourceContext: &explorer.ReceiptConstructionGroupFieldSourceContext{
 				SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "shape-new", SourceIdentityColumn: "_key",
@@ -133,7 +133,7 @@ func TestMarkSavedGroupFieldChoicesUsesExactGroupInputAndOutputKey(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := constructionBase{construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
+	base := constructionBase{Construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
 		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
 		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
 			Keys: []authoringv2.ConstructionGroupKey{{
@@ -257,8 +257,8 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			SourceResourceType: "Patient", TargetResourceType: "Specimen", Label: "subject_Patient", StorageDirection: "INBOUND",
 		}}, candidates, nil)
 	base := constructionBase{
-		snapshot: snapshot, authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
-		document: authoringv2.Document{
+		Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
+		Document: authoringv2.Document{
 			RootResourceType: "Patient",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
@@ -277,7 +277,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].path != "type.coding[]" {
+	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].Path() != "type.coding[]" {
 		t.Fatalf("observed Specimen Coding selectors = %#v, want type.coding[]", got)
 	}
 	choices, incomplete, err := (&Service{}).constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
@@ -326,7 +326,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		t.Fatalf("signed related Coding choice empty policy = %q, want recipe GROUP policy", got)
 	}
 
-	base.stages = []explorer.ReceiptConstructionStage{stage}
+	base.Stages = []explorer.ReceiptConstructionStage{stage}
 	service := &Service{}
 	proposal := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
 		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
@@ -425,8 +425,8 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			ID: "substance-id", NodeID: "substance-node", ResourceType: "Substance", FieldPath: "id",
 			LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true,
 		})
-		base.snapshot = capability.NewSnapshot(seed.Identity, seed.Policy, capability.StatusReady, true, false, nodes, edges, allCandidates, nil)
-		base.authorized.Snapshot = base.snapshot
+		base.Snapshot = capability.NewSnapshot(seed.Identity, seed.Policy, capability.StatusReady, true, false, nodes, edges, allCandidates, nil)
+		base.Authorized.Snapshot = base.Snapshot
 		service := &Service{}
 		canonical, incomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
 		if err != nil || incomplete {
@@ -464,7 +464,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			t.Fatal(err)
 		}
 		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "", "")
-		base.construction = authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
+		base.Construction = authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
 			ID: "saved-group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
 			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
 				Keys: []authoringv2.ConstructionGroupKey{{OutputColumnID: "saved-specimen", FieldSource: constructionGroupFieldBinding(source)}},
@@ -478,7 +478,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		for _, choice := range edited {
 			if choice.MatchedOutputKeyID == "saved-specimen" {
 				matched++
-				if !groupFieldChoiceMatchesBinding(choice, *base.construction.Steps[0].Operation.Group.Keys[0].FieldSource) {
+				if !groupFieldChoiceMatchesBinding(choice, *base.Construction.Steps[0].Operation.Group.Keys[0].FieldSource) {
 					t.Fatal("saved alternate route was rewritten")
 				}
 			}
@@ -525,7 +525,7 @@ func TestConstructionGroupRowValueChoicesSkipCodingRowChoiceDiscovery(t *testing
 			},
 		},
 	}
-	base := constructionBase{construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
+	base := constructionBase{Construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
 		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
 		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{}},
 	}}}}

@@ -8,10 +8,13 @@ import (
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/selection"
 )
@@ -20,8 +23,7 @@ type Service struct {
 	store                 *explorer.Service
 	config                Config
 	now                   func() time.Time
-	constructionBaseCache *constructionBaseCache
-	columnPopulationCache *columnPopulationCache
+	constructionService   *construction.Service
 	interpretationService *interpretation.Service
 	selectionService      *selection.Service
 	explicitGroupService  *explicitgroup.Service
@@ -57,8 +59,6 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		store:                 store,
 		config:                config,
 		now:                   now,
-		constructionBaseCache: newConstructionBaseCache(config.ConstructionBaseCacheTTL, config.ConstructionBaseCacheEntries, now),
-		columnPopulationCache: newColumnPopulationCache(columnPopulationCacheTTL, columnPopulationCacheMaxEntries, now),
 		interpretationService: interpretationService,
 	}
 	selectionService, err := selection.NewService(selection.Config{
@@ -108,7 +108,71 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.rowDefService = rowDefService
+	constructionService, err := service.buildConstructionService()
+	if err != nil {
+		return nil, err
+	}
+	service.constructionService = constructionService
 	return service, nil
+}
+
+func (s *Service) constructionConfig() construction.Config {
+	return construction.Config{
+		Store:                              s.store,
+		Capability:                         s.config.Capability,
+		ConstructionSourceStage:            s.config.ConstructionSourceStage,
+		SelectionMembersCollection:         s.config.SelectionMembersCollection,
+		SemanticInventory:                  s.config.SemanticInventory,
+		ResolveSemanticInventorySelections: s.config.ResolveSemanticInventorySelections,
+		RowChoiceResolver:                  s.config.RowChoiceResolver,
+		RowChoicePlanner:                   s.config.RowChoicePlanner,
+		CompileReceipt:                     s.config.CompileReceipt,
+		Compile: func(ctx context.Context, request construction.CompileRequest) (*explorer.CompilationReceipt, error) {
+			return s.compile(ctx, compileRequest{
+				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
+				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID,
+				ConstructionProposal: request.ConstructionProposal, RowDefinitionProposal: request.RowDefinitionProposal,
+			})
+		},
+		VerifyProposalReceipt: s.verifyProposalReceipt,
+		GetOwner:              s.getOwner,
+		LookupReceipt:         s.lookupReceipt,
+		Preview: func(ctx context.Context, request construction.PreviewRequest) (proposal.PreviewResult, error) {
+			return s.Preview(ctx, PreviewRequest{
+				Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: request.ReceiptID,
+				OutputID: request.OutputID, Limit: request.Limit,
+				AllowSampledAggregatePreview: request.AllowSampledAggregatePreview,
+				SinkFactory:                  request.SinkFactory,
+			})
+		},
+		ScanCategories:               construction.CategoryScanner(s.config.ScanCategories),
+		ScanColumnPopulation:         construction.ColumnPopulationScanner(s.config.ScanColumnPopulation),
+		ConstructionBaseCacheTTL:     s.config.ConstructionBaseCacheTTL,
+		ConstructionBaseCacheEntries: s.config.ConstructionBaseCacheEntries,
+		Now:                          s.now,
+		SourceLanes:                  constructionSourceLanes{service: s},
+		ReauthorizeFrameSourceChoice: func(ctx context.Context, base construction.Base, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (construction.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+			family, route, err := s.reauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
+			return construction.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err
+		},
+	}
+}
+
+func (s *Service) buildConstructionService() (*construction.Service, error) {
+	return construction.NewService(s.constructionConfig())
+}
+
+func (s *Service) syncConstructionService() *construction.Service {
+	if s.constructionService == nil {
+		service, err := s.buildConstructionService()
+		if err != nil {
+			return nil
+		}
+		s.constructionService = service
+	} else {
+		s.constructionService.SetConfig(s.constructionConfig())
+	}
+	return s.constructionService
 }
 
 func (s *Service) buildRowDefService() (*rowdef.Service, error) {

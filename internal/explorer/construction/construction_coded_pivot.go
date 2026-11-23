@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -16,13 +16,13 @@ import (
 
 func (s *Service) resolveConstructionCodedPivotChoices(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	outputID string,
 	candidate authoringv2.Construction,
 ) (authoringv2.Construction, map[string]bool, error) {
 	verified := make(map[string]bool)
 	priorByStep := make(map[string]authoringv2.ConstructionCodedPivot)
-	for _, step := range base.construction.Steps {
+	for _, step := range base.Construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationCodedPivot && step.Operation.CodedPivot != nil {
 			priorByStep[step.ID] = *step.Operation.CodedPivot
 		}
@@ -39,19 +39,19 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 		if len(step.Inputs) != 1 || step.Inputs[0].Kind != authoringv2.ConstructionInputSourceProjection || step.Inputs[0].StepID != "" {
 			return candidate, nil, unprocessable("construction-proposal", "DIRECT_SOURCE_STAGE_REQUIRED", "coded Pivot currently requires the direct source projection stage", nil)
 		}
-		inputStage := constructionSourceStage(base.stages)
+		inputStage := constructionSourceStage(base.Stages)
 		if inputStage == nil || inputStage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedPivot(*inputStage) {
 			return candidate, nil, unprocessable("construction-proposal", "CODED_PIVOT_UNAVAILABLE", "the direct source stage does not support coded Pivot", nil)
 		}
 		identity, err := capability.DecodeConstructionChoiceID(coded.SourceChoiceID)
-		if err != nil || identity.SnapshotToken != base.snapshot.Token {
+		if err != nil || identity.SnapshotToken != base.Snapshot.Token {
 			return candidate, nil, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the coded source for the current authorized snapshot", nil, err)
 		}
-		family, route, err := s.reauthorizeFrameSourceChoice(ctx, base.snapshot.Identity.Project, base.explorerID, base.document.RootResourceType, outputID, coded.SourceChoiceID, base.authorized, identity)
+		family, route, err := s.reauthorizeFrameSourceChoice(ctx, base.Snapshot.Identity.Project, base.ExplorerID, base.Document.RootResourceType, outputID, coded.SourceChoiceID, base.Authorized, identity, base)
 		if err != nil {
 			return candidate, nil, err
 		}
-		if len(route) != 0 || family.Family.ResourceType != base.document.RootResourceType {
+		if len(route) != 0 || family.Family.ResourceType != base.Document.RootResourceType {
 			return candidate, nil, unprocessable("construction-proposal", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
 		}
 		selectedSource, ok := identity.Source.(capability.SemanticFrameChoiceSource)
@@ -109,14 +109,14 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 
 func (s *Service) resolveCodedPivotCategoryChoice(
 	ctx context.Context,
-	base constructionBase,
+	base Base,
 	frame capability.SemanticFrameChoiceSource,
 	frameIdentity capability.ConstructionChoiceIdentity,
 	route []capability.ConstructionRouteStep,
 	choiceID string,
 ) (semantic.Entry, capability.Candidate, error) {
 	identity, err := capability.DecodeConstructionChoiceID(choiceID)
-	if err != nil || identity.SnapshotToken != base.snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemantic {
+	if err != nil || identity.SnapshotToken != base.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemantic {
 		return semantic.Entry{}, capability.Candidate{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload this coded category for the current snapshot", nil, err)
 	}
 	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
@@ -129,16 +129,16 @@ func (s *Service) resolveCodedPivotCategoryChoice(
 	if s.config.ResolveSemanticInventorySelections == nil {
 		return semantic.Entry{}, capability.Candidate{}, unavailable("construction-proposal", "CATALOG_UNAVAILABLE", "semantic inventory reauthorization is not configured", nil)
 	}
-	unrestricted := base.authorized.Scope.Mode == authscope.ReadScopeUnrestricted
+	unrestricted := base.Authorized.Scope.Mode == authscope.ReadScopeUnrestricted
 	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
-		Project: projectid.Legacy(base.snapshot.Identity.Project), DatasetGeneration: base.snapshot.Identity.Generation,
-		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), base.authorized.Scope.AuthResourcePaths...),
+		Project: projectid.Legacy(base.Snapshot.Identity.Project), DatasetGeneration: base.Snapshot.Identity.Generation,
+		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), base.Authorized.Scope.AuthResourcePaths...),
 		References: []semantic.Reference{{ConceptID: source.ConceptID, BindingID: source.BindingID}},
 	})
 	if err != nil {
 		return semantic.Entry{}, capability.Candidate{}, unavailable("construction-proposal", "CATALOG_UNAVAILABLE", "the selected coded category could not be reauthorized", err)
 	}
-	expectedBuildID := semantic.BuildID(projectid.Legacy(base.snapshot.Identity.Project), base.snapshot.Identity.Generation)
+	expectedBuildID := semantic.BuildID(projectid.Legacy(base.Snapshot.Identity.Project), base.Snapshot.Identity.Generation)
 	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete ||
 		resolved.Build.BuildID != expectedBuildID || frameIdentity.BuildID != expectedBuildID || identity.BuildID != expectedBuildID || len(resolved.Entries) != 1 {
 		return semantic.Entry{}, capability.Candidate{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "the semantic inventory for this coded family changed", nil, nil)
@@ -149,16 +149,16 @@ func (s *Service) resolveCodedPivotCategoryChoice(
 		!semanticEntryMatchesFrameFamily(entry, frame.Family) {
 		return semantic.Entry{}, capability.Candidate{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the selected category is no longer a versionless member of this coded family", nil)
 	}
-	candidate, ok := semanticConstructionCandidate(base.snapshot, observation)
+	candidate, ok := semanticConstructionCandidate(base.Snapshot, observation)
 	if !ok || candidate.ID != source.CandidateID || candidate.NodeID != source.NodeID || candidate.FieldPath != source.FieldPath ||
 		candidate.ID != frameIdentityCandidateID(frameIdentity) {
 		return semantic.Entry{}, capability.Candidate{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected category no longer matches its compiler-proved value field", nil, nil)
 	}
-	contextToken, err := semanticInventoryContextToken(base.snapshot, base.explorerID, base.document.RootResourceType, identity.BuildID)
+	contextToken, err := semanticInventoryContextToken(base.Snapshot, base.ExplorerID, base.Document.RootResourceType, identity.BuildID)
 	if err != nil || identity.SemanticContextToken != contextToken {
 		return semantic.Entry{}, capability.Candidate{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload coded categories for the current table root", nil, err)
 	}
-	expected, err := semanticInventoryConstructionChoiceForRoute(base.snapshot, contextToken, identity.BuildID, route, entry, candidate, false)
+	expected, err := semanticInventoryConstructionChoiceForRoute(base.Snapshot, contextToken, identity.BuildID, route, entry, candidate, false)
 	if err != nil || !constructionChoiceIdentityMatches(expected, choiceID, identity) || !reflect.DeepEqual(expected.Source, source) {
 		return semantic.Entry{}, capability.Candidate{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the coded category token does not match current semantic inventory evidence", err)
 	}

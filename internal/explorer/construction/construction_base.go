@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -13,18 +13,18 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-type constructionBase struct {
-	owner           *explorer.Explorer
-	explorerID      string
-	workspace       authoringv2.Workspace
-	document        authoringv2.Document
-	construction    authoringv2.Construction
-	snapshot        capability.Snapshot
-	authorized      ports.AuthorizedCapability
-	catalog         authoringv2.CatalogSnapshot
-	receipt         *explorer.CompilationReceipt
-	stages          []explorer.ReceiptConstructionStage
-	baseDocumentSHA string
+type Base struct {
+	Owner           *explorer.Explorer
+	ExplorerID      string
+	Workspace       authoringv2.Workspace
+	Document        authoringv2.Document
+	Construction    authoringv2.Construction
+	Snapshot        capability.Snapshot
+	Authorized      ports.AuthorizedCapability
+	Catalog         authoringv2.CatalogSnapshot
+	Receipt         *explorer.CompilationReceipt
+	Stages          []explorer.ReceiptConstructionStage
+	BaseDocumentSHA string
 }
 
 type constructionBaseLoader struct {
@@ -33,12 +33,12 @@ type constructionBaseLoader struct {
 	sourceStage                ports.ConstructionSourceStageCompiler
 	selectionMembersCollection string
 	canCompile                 bool
-	compile                    func(context.Context, compileRequest) (*explorer.CompilationReceipt, error)
+	compile                    func(context.Context, CompileRequest) (*explorer.CompilationReceipt, error)
 	verifyProposalReceipt      func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
 	getOwner                   func(context.Context, string, string) (*explorer.Explorer, error)
 }
 
-func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBase, error) {
+func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (Base, error) {
 	loader := constructionBaseLoader{
 		cache: s.constructionBaseCache, capability: s.config.Capability,
 		sourceStage: s.config.ConstructionSourceStage, selectionMembersCollection: s.config.SelectionMembersCollection,
@@ -48,10 +48,10 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	return loader.load(ctx, project, explorerID, snapshotToken, draftVersion, draftDigest, outputID)
 }
 
-func (s constructionBaseLoader) load(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBase, error) {
+func (s constructionBaseLoader) load(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (Base, error) {
 	validation, err := s.validateConstructionBase(ctx, project, explorerID, snapshotToken, draftVersion, draftDigest, outputID)
 	if err != nil {
-		return constructionBase{}, err
+		return Base{}, err
 	}
 	key := constructionBaseCacheKey{
 		Format:                   constructionBaseCacheFormatVersion,
@@ -81,7 +81,7 @@ func (s constructionBaseLoader) load(ctx context.Context, project, explorerID, s
 	}
 	compiled, err := s.compileConstructionBase(ctx, validation)
 	if err != nil {
-		return constructionBase{}, err
+		return Base{}, err
 	}
 	if s.cache != nil {
 		s.cache.Put(key, constructionBaseCacheValue{receipt: compiled.receipt, stages: compiled.stages})
@@ -109,11 +109,11 @@ type constructionBaseCompilation struct {
 	stages  []explorer.ReceiptConstructionStage
 }
 
-func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, stages []explorer.ReceiptConstructionStage) constructionBase {
-	return constructionBase{
-		owner: v.owner, explorerID: v.explorerID, workspace: v.workspace, document: v.document,
-		construction: *v.upgraded.Construction, snapshot: v.snapshot, authorized: v.authorized.Clone(), catalog: v.catalog,
-		receipt: receipt, stages: stages, baseDocumentSHA: v.baseDocumentSHA,
+func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, stages []explorer.ReceiptConstructionStage) Base {
+	return Base{
+		Owner: v.owner, ExplorerID: v.explorerID, Workspace: v.workspace, Document: v.document,
+		Construction: *v.upgraded.Construction, Snapshot: v.snapshot, Authorized: v.authorized.Clone(), Catalog: v.catalog,
+		Receipt: receipt, Stages: stages, BaseDocumentSHA: v.baseDocumentSHA,
 	}
 }
 
@@ -221,7 +221,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 			if err != nil {
 				return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 			}
-			receipt, err := s.compile(ctx, compileRequest{
+			receipt, err := s.compile(ctx, CompileRequest{
 				Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 				RequestID: "construction-capabilities",
 			})
@@ -245,7 +245,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 	if err != nil {
 		return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 	}
-	receipt, err := s.compile(ctx, compileRequest{
+	receipt, err := s.compile(ctx, CompileRequest{
 		Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 		RequestID: "construction-capabilities",
 	})

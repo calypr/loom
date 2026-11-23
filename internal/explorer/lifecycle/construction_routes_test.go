@@ -443,7 +443,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 			Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &contributorValue},
 		}},
 	}
-	base := constructionBase{snapshot: snapshot, authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, catalog: catalog}
+	base := constructionBase{Snapshot: snapshot, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, Catalog: catalog}
 	if err := reauthorizeRelatedExpandContributor(context.Background(), base, "Patient", repeatedRelated); err != nil {
 		t.Fatalf("repeated contributor signed choice reauthorization: %v", err)
 	}

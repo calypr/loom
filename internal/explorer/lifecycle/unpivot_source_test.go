@@ -352,7 +352,7 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
 	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
 	base := deriveSourcePatientBase(snapshot, construction)
-	base.stages = append(base.stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
 		ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
 		Columns: []explorer.ReceiptConstructionStageColumn{
 			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
@@ -422,7 +422,7 @@ func TestConstructionUnpivotSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: group.ID}}
 	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group, melt}}
 	base := deriveSourcePatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{group}})
-	base.stages = append(base.stages, explorer.ReceiptConstructionStage{
+	base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{
 		ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP",
 		Columns: []explorer.ReceiptConstructionStageColumn{
 			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
@@ -446,7 +446,7 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-kinds")
 	service := deriveSourceService(t)
 	base := deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
-	base.stages = []explorer.ReceiptConstructionStage{{
+	base.Stages = []explorer.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 		Columns: []explorer.ReceiptConstructionStageColumn{
 			{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "boolean"},
@@ -500,8 +500,8 @@ func TestConstructionUnpivotSourceRefusesSecondCarrierOfSameField(t *testing.T) 
 		OccurrenceID: authoringv2.RootOccurrenceID,
 		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "active", ProjectionMode: "VALUE"}},
 	})
-	base.document = document
-	base.stages = []explorer.ReceiptConstructionStage{{
+	base.Document = document
+	base.Stages = []explorer.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 		Columns: []explorer.ReceiptConstructionStageColumn{
 			{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "boolean"},
@@ -659,7 +659,7 @@ func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSi
 		t.Helper()
 		base := deriveSourcePatientBase(snapshot, construction)
 		if stageID != recipe.ConstructionSourceProjectionID {
-			base.stages = append(base.stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
+			base.Stages = append(base.Stages, explorer.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
 		result, err := service.constructionUnpivotSourceCapability(context.Background(), base, "patients", stageID)
 		if err != nil {
@@ -1094,7 +1094,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 			}
 			restored := ""
 			restoreBase := deriveSourcePatientBase(harness.snapshot, *savedConstruction)
-			restoreBase.stages = append(restoreBase.stages, explorer.ReceiptConstructionStage{
+			restoreBase.Stages = append(restoreBase.Stages, explorer.ReceiptConstructionStage{
 				ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
 			})
 			restoreCapability, capErr := harness.service.constructionUnpivotSourceCapability(context.Background(), restoreBase, "patients", "derive-base")
@@ -1195,7 +1195,7 @@ func TestConstructionUnpivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t
 			service: deriveSourceService(t),
 			base: func() constructionBase {
 				base := deriveSourceBase(unpivotSourceBSSnapshot("unpivot-source-precise-reach"), rowChanging)
-				base.stages = append(base.stages, blockedStages...)
+				base.Stages = append(base.Stages, blockedStages...)
 				return base
 			}(),
 			outputID: deriveSourceOutput, stageID: "group-first",
