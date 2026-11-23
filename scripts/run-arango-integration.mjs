@@ -182,11 +182,8 @@ profiles.find(p => p.id === 'explorer').alsoRequired = [
 profiles.find(p => p.id === 'compiler').alsoRequired = [
     'TestCategoryPairProjectionPreservesPresenceScopeAndOverflowAgainstArango',
     'TestColumnPopulationMatchesExactArangoStageRows',
-    'TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango',
     'TestCurrentPivotNullMissingPartitionAgainstArango',
     'TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango',
-    'TestGroupRowLineagePartitionsForwardRowsAgainstArango',
-    'TestFilteredSourceCellTraceMatchesForwardValueAgainstArango',
     'TestS04TableReshapeOracleAgainstArango',
     'TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango',
     'TestGroupedPivotReservedPhysicalOutputNameAgainstArango',
@@ -195,7 +192,10 @@ profiles.find(p => p.id === 'compiler').alsoRequired = [
     'TestRelatedStreamingCategoryScanUsesEdgeIndexesAgainstArango',
 ];
 profiles.find(p => p.id === 'compiler').alsoPackages = [
-    { package: './internal/dataframe/compiler/render/aql', required: 'TestScalarSelectorArrayMatchesLegacyAgainstArango' },
+    { package: './internal/dataframe/compiler/celltrace', required: 'TestFilteredSourceCellTraceMatchesForwardValueAgainstArango' },
+    { package: './internal/dataframe/compiler/population', required: 'TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango', alsoRequired: ['TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango'] },
+    { package: './internal/dataframe/compiler/rowlineage', required: 'TestGroupRowLineagePartitionsForwardRowsAgainstArango' },
+    { package: './internal/dataframe/compiler/render/aql', required: 'TestScalarSelectorArrayMatchesLegacyAgainstArango', alsoRequired: ['TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango'] },
 ];
 // Dual-store checkpoints run in the job that owns both services.
 profiles.find(p => p.id === 'explorer-api').skip = '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$';
@@ -278,7 +278,7 @@ export async function runArango(output) {
                 : env;
             await verify(profile, profile.id, profileEnv);
             for (const extra of profile.alsoPackages || []) {
-                await verify({ ...profile, package: extra.package, required: extra.required, alsoRequired: [] }, `${profile.id}-${extra.package.split('/').at(-1)}`, profileEnv);
+                await verify({ ...profile, package: extra.package, required: extra.required, alsoRequired: extra.alsoRequired || [] }, `${profile.id}-${extra.package.split('/').at(-1)}`, profileEnv);
             }
         }
         evidence.failures = failures;

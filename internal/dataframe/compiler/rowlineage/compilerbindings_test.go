@@ -1,0 +1,50 @@
+package rowlineage_test
+
+import (
+	compiler "github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+)
+
+var compileCurrentConstructionOracle = compilerfixtures.OutputCompiler(compiler.CompileRecipeOutputWithPolicy).CompileCurrentConstructionOracle
+
+var currentOracleSource = compilerfixtures.CurrentOracleSource
+
+var executeReshapeOracleQuery = compilerfixtures.ExecuteReshapeOracleQuery
+
+var insertReshapeAgreementFixture = compilerfixtures.InsertReshapeAgreementFixture
+
+var reshapeOracleSourceRows = compilerfixtures.ReshapeOracleSourceRows
+
+type reshapeOracleSourceRow = compilerfixtures.ReshapeOracleSourceRow
+
+var CompileRecipeOutputWithPolicy = compiler.CompileRecipeOutputWithPolicy
+
+var directRelatedExpandOutput = compilerfixtures.DirectRelatedExpandOutput
+
+var lowerConstructionOutput = compilerfixtures.LowerConstructionOutput
+
+var relatedExpandOracleOutput = compilerfixtures.RelatedExpandOracleOutput
+
+var openConstructionReshapeArango = compilerfixtures.OpenConstructionReshapeArango
+
+var executeConstructionOutputError = compilerfixtures.OutputCompiler(compiler.CompileRecipeOutputWithPolicy).ExecuteConstructionOutputError
+
+var insertConstructionReshapeRows = compilerfixtures.InsertConstructionReshapeRows
+
+var constructionNumericEqual = compilerfixtures.ConstructionNumericEqual
+
+var executeConstructionOutput = compilerfixtures.OutputCompiler(compiler.CompileRecipeOutputWithPolicy).ExecuteConstructionOutput
+
+var constructionMissingKeyPolicyOutput = compilerfixtures.ConstructionMissingKeyPolicyOutput
+
+var codedGroupComponent = compilerfixtures.CodedGroupComponent
+
+var constructionCodedGroupTestOutput = compilerfixtures.ConstructionCodedGroupTestOutput
+
+var constructionCountRowsOnlyOutput = compilerfixtures.ConstructionCountRowsOnlyOutput
+
+var constructionOracleOutput = compilerfixtures.ConstructionOracleOutput
+
+var constructionCountRowsGroupPivotLineageOutput = compilerfixtures.ConstructionCountRowsGroupPivotLineageOutput
+
+var constructionSummaryOutput = compilerfixtures.ConstructionSummaryOutput

@@ -20,22 +20,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type reshapeOracleGroupTuple struct {
-	Text    recipe.TableScalar
-	Numeric recipe.TableScalar
-}
-
-type reshapeOracleSourceRow struct {
-	SourceID        string
-	Group           reshapeOracleGroupTuple
-	StringCategory  recipe.TableScalar
-	NumericCategory recipe.TableScalar
-	Number          *float64
-	Flag            bool
-	Text            string
-	Unrelated       string
-}
-
 type reshapeOraclePivotWant struct {
 	GroupText       string
 	GroupNumber     int64
@@ -59,49 +43,6 @@ type reshapeOracleUnpivotWant struct {
 	Key             string
 	Value           any
 	RowID           string
-}
-
-var reshapeOracleSourceRows = []reshapeOracleSourceRow{
-	{
-		SourceID: "alpha-a", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("final"), Numeric: reshapeOracleInteger(1)},
-		StringCategory: reshapeOracleString("alpha"), NumericCategory: reshapeOracleInteger(1), Number: reshapeOracleFloat(2.5),
-		Flag: false, Text: "alpha-a", Unrelated: "keep-alpha-a",
-	},
-	{
-		SourceID: "alpha-b", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("final"), Numeric: reshapeOracleInteger(1)},
-		StringCategory: reshapeOracleString("alpha"), NumericCategory: reshapeOracleInteger(1), Number: reshapeOracleFloat(4.5),
-		Flag: true, Text: "alpha-b", Unrelated: "keep-alpha-b",
-	},
-	{
-		SourceID: "beta", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("final"), Numeric: reshapeOracleInteger(1)},
-		StringCategory: reshapeOracleString("beta"), NumericCategory: reshapeOracleInteger(1), Number: reshapeOracleFloat(3.5),
-		Flag: false, Text: "beta", Unrelated: "keep-beta",
-	},
-	{
-		SourceID: "zero", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("final"), Numeric: reshapeOracleInteger(1)},
-		StringCategory: reshapeOracleString("zero"), NumericCategory: reshapeOracleInteger(1), Number: reshapeOracleFloat(0),
-		Flag: false, Text: "zero", Unrelated: "keep-zero",
-	},
-	{
-		SourceID: "unlisted", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("final"), Numeric: reshapeOracleInteger(1)},
-		StringCategory: reshapeOracleString("unlisted"), NumericCategory: reshapeOracleInteger(1), Number: reshapeOracleFloat(9),
-		Flag: true, Text: "unlisted", Unrelated: "keep-unlisted",
-	},
-	{
-		SourceID: "final-two", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("final"), Numeric: reshapeOracleInteger(2)},
-		StringCategory: reshapeOracleString("alpha"), NumericCategory: reshapeOracleInteger(2), Number: reshapeOracleFloat(12),
-		Flag: true, Text: "final-two", Unrelated: "keep-final-two",
-	},
-	{
-		SourceID: "preliminary-one", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("preliminary"), Numeric: reshapeOracleInteger(1)},
-		StringCategory: reshapeOracleString("alpha"), NumericCategory: reshapeOracleInteger(1), Number: reshapeOracleFloat(8),
-		Flag: false, Text: "preliminary-one", Unrelated: "keep-preliminary-one",
-	},
-	{
-		SourceID: "empty-and-null", Group: reshapeOracleGroupTuple{Text: reshapeOracleString("preliminary"), Numeric: reshapeOracleInteger(2)},
-		StringCategory: reshapeOracleString(""), NumericCategory: reshapeOracleInteger(2), Number: nil,
-		Flag: false, Text: "", Unrelated: "keep-empty-and-null",
-	},
 }
 
 var reshapeOraclePivotSumWant = []reshapeOraclePivotWant{
@@ -519,21 +460,11 @@ func constructionPreviewMultiKeyPivotOutput() recipe.Output {
 	}
 }
 
-func reshapeOracleFloat(value float64) *float64 { return &value }
-
 func reshapeOracleValue(value *float64) any {
 	if value == nil {
 		return nil
 	}
 	return *value
-}
-
-func reshapeOracleString(value string) recipe.TableScalar {
-	return recipe.TableScalar{Kind: recipe.TableScalarString, String: &value}
-}
-
-func reshapeOracleInteger(value int64) recipe.TableScalar {
-	return recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &value}
 }
 
 func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
@@ -850,59 +781,6 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 		t.Fatalf("execute auth-scoped grouped pivot materialization page: %v\n%s", err, page.RowsQuery)
 	}
 	assertAuthScopedPivotRows(t, rows)
-}
-
-func reshapeOracleOutput(name string, reshape *oracleReshape) recipe.Output {
-	output := recipe.Output{
-		Name: name, RootResourceType: "Observation", RowGrain: "observation", RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields: []recipe.Field{
-			{Name: "source_id", Expr: recipe.Expression{Select: "root.id"}},
-			{Name: "group_text", Expr: recipe.Expression{Select: "root.status"}},
-			{Name: "group_number", Expr: recipe.Expression{Select: "root.valueInteger"}},
-			{Name: "string_category", Expr: recipe.Expression{Select: "root.code.text"}},
-			{Name: "numeric_category", Expr: recipe.Expression{Select: "root.valueInteger"}},
-			{Name: "numeric_value", Expr: recipe.Expression{Select: "root.valueQuantity.value"}},
-			{Name: "flag_value", Expr: recipe.Expression{Select: "root.valueBoolean"}},
-			{Name: "text_value", Expr: recipe.Expression{Select: "root.valueString"}},
-			{Name: "unrelated", Expr: recipe.Expression{Select: "root.issued"}},
-		},
-	}
-	return bindOracleCurrentConstruction(output, reshape)
-}
-
-func compileReshapeOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, model.CompiledQuery, error) {
-	output = bindOracleCurrentDerived(output)
-	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-table-reshape-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
-	}
-	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
-	if err != nil {
-		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
-	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
-	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err
-	}
-	return compiled.Outputs[0], query, nil
-}
-
-func executeReshapeOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query model.CompiledQuery) []map[string]any {
-	t.Helper()
-	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
-		rows = append(rows, row)
-		return nil
-	}); err != nil {
-		t.Fatalf("execute compiler-generated reshape query: %v\n%s", err, query.Query)
-	}
-	return rows
 }
 
 func outputColumn(columns []lower.CompiledOutputColumn, name string) any {

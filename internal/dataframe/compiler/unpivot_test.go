@@ -132,20 +132,6 @@ func assertReshapeOracleUnpivotCellTrace(t *testing.T, ctx context.Context, clie
 	}
 }
 
-func reshapeOracleUnpivotOutput(policy recipe.UnpivotNullRowPolicy, constructionID string) recipe.Output {
-	return reshapeOracleOutput("unpivot", &oracleReshape{
-		Kind: oracleReshapeUnpivot,
-		Unpivot: &oracleUnpivot{
-			ConstructionID: constructionID,
-			Inputs: []oracleUnpivotInput{
-				{Column: "group_number", Key: reshapeOracleString("z-integer")},
-				{Column: "numeric_value", Key: reshapeOracleString("a-decimal")},
-			},
-			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: policy,
-		},
-	})
-}
-
 func reshapeOracleUnpivotID(project, constructionID, sourceID, key string) string {
 	return fmt.Sprintf(`[["project","%s"],["_key","%s_%s"],["%s","TABLE_UNPIVOT"],["STRING","%s"]]`, project, project, sourceID, constructionID, key)
 }
@@ -261,16 +247,4 @@ func assertCurrentUnpivotAuthoredSlots(t *testing.T, output lower.CompiledRecipe
 	if !strings.Contains(query, "SORT __loom_construction_final_row.__loom_row_id ASC") {
 		t.Fatalf("current Unpivot lost canonical identity ordering: %s", query)
 	}
-}
-
-func TestCurrentUnpivotPreservesAuthoredSlotsAndCanonicalRendererOrdering(t *testing.T) {
-	compiled, _, err := compileReshapeOracle(reshapeOracleUnpivotOutput(recipe.UnpivotNullPreserve, "s04-unpivot-order"), "project", "generation", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rendered, err := aql.Render(compiled.Plan, aql.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertCurrentUnpivotAuthoredSlots(t, compiled, rendered.Query, rendered.BindVars)
 }

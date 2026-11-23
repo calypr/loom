@@ -14,38 +14,12 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/dataframe/spec"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
-
-func TestRelatedSourceProjectionLivenessForKeylessCount(t *testing.T) {
-	for _, test := range []struct {
-		name        string
-		groupByFlag bool
-		wantMarker  bool
-	}{
-		{name: "unused before related expansion", wantMarker: false},
-		{name: "retained when grouped", groupByFlag: true, wantMarker: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			query := compileRelatedExpandCountQuery(t, relatedExpandCountOutput(test.groupByFlag))
-			for _, marker := range []string{"unused_count_column_marker", "unused_list_column_marker", "unused_presence_column_marker"} {
-				gotMarker := strings.Contains(query.Query, marker)
-				if gotMarker != test.wantMarker {
-					t.Errorf("related source projection %q included = %t, want %t:\n%s", marker, gotMarker, test.wantMarker, query.Query)
-				}
-			}
-			if !strings.Contains(query.Query, "related_expand_records") || !strings.Contains(query.Query, "WITH COUNT INTO") {
-				t.Fatalf("query must retain related expansion and row counting:\n%s", query.Query)
-			}
-		})
-	}
-}
 
 func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
@@ -708,45 +682,6 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 	}
 }
 
-func relatedExpandOracleOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.Output {
-	trueValue := true
-	columns := []recipe.StageColumn{
-		{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
-		{ID: "patient-active", Name: "patient_active", Label: "Active"},
-	}
-	filteredColumns := append([]recipe.StageColumn(nil), columns...)
-	finalColumns := append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{
-		ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: emptyPolicy == recipe.ExpansionPreserveParent,
-	})
-	return recipe.Output{
-		Name: "related_expand_oracle", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields: []recipe.Field{
-			{Name: "patient_id", ColumnID: "patient-id", Label: "Patient ID", Expr: recipe.Expression{Select: "root.id"}},
-			{Name: "patient_active", ColumnID: "patient-active", Label: "Active", Expr: recipe.Expression{Select: "root.active"}},
-		},
-		Construction: &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{
-			{
-				ID: "filter_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-					ColumnID: "patient-active", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
-				}}, Outputs: filteredColumns,
-			},
-			{
-				ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "filter_active"}},
-				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
-					AnchorColumnID: "_key", ChoiceID: "related-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
-					Route: []recipe.ConstructionRelatedRouteStep{{
-						EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
-						FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
-						StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
-					}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: emptyPolicy, RelatedRecordColumnID: "observation-id",
-				}}, Outputs: finalColumns,
-			},
-		}},
-	}
-}
-
 func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project, generation string) (lower.CompiledRecipeOutput, model.CompiledQuery) {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{
@@ -785,109 +720,6 @@ func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *sto
 		t.Fatalf("row lineage returned %d rows, want one result: %#v", len(rows), rows)
 	}
 	return rows[0]
-}
-
-func relatedExpandCountOutput(groupByPresence bool) recipe.Output {
-	sourceField := recipe.Field{Name: "patient_id", ColumnID: "patient-id", Expr: recipe.Expression{Select: "root.id"}}
-	sourceColumn := recipe.StageColumn{ID: sourceField.ColumnID, Name: sourceField.Name}
-	countColumn := recipe.StageColumn{ID: "count-id", Name: "unused_count_column_marker", Type: "integer"}
-	listColumn := recipe.StageColumn{ID: "list-id", Name: "unused_list_column_marker", Type: "string"}
-	presenceColumn := recipe.StageColumn{ID: "presence-id", Name: "unused_presence_column_marker", Type: "boolean"}
-	countColumns := []recipe.StageColumn{sourceColumn, countColumn}
-	listColumns := append(append([]recipe.StageColumn(nil), countColumns...), listColumn)
-	relatedSourceColumns := append(append([]recipe.StageColumn(nil), listColumns...), presenceColumn)
-	expandedColumns := append(append([]recipe.StageColumn(nil), relatedSourceColumns...), recipe.StageColumn{
-		ID: "observation-id", Name: "observation_id", Type: "string",
-	})
-	group := &recipe.ConstructionGroup{
-		ConstructionID: "count_expanded_rows",
-		Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "row-count-id"}},
-	}
-	groupOutputs := []recipe.StageColumn{{ID: "row-count-id", Name: "row_count", Type: "integer"}}
-	if groupByPresence {
-		group.Keys = []recipe.ConstructionGroupKey{{InputColumnID: presenceColumn.ID, OutputColumnID: "presence-group-id"}}
-		groupOutputs = append([]recipe.StageColumn{{ID: "presence-group-id", Name: "presence_group", Type: "boolean"}}, groupOutputs...)
-	}
-	statusSource := recipe.ConstructionRelatedFieldSource{
-		CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation",
-		Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string",
-	}
-	observationRoute := []recipe.ConstructionRelatedRouteStep{{
-		EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
-		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
-		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
-	}}
-	relatedSourceStep := func(id, inputStep, form string, output recipe.StageColumn, outputs []recipe.StageColumn) recipe.ConstructionStep {
-		input := recipe.ConstructionInputRef{Kind: recipe.ConstructionSourceProjectionInput}
-		if inputStep != "" {
-			input = recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: inputStep}
-		}
-		return recipe.ConstructionStep{
-			ID: id, Inputs: []recipe.ConstructionInputRef{input},
-			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
-				AnchorColumnID: "_key", ChoiceID: id + "-route", SourceOccurrenceID: "observation-node",
-				Source: statusSource, Route: observationRoute, ContributorPolicy: "ALL_MATCHES",
-				Form: form, OutputColumnID: output.ID,
-			}},
-			Outputs: outputs,
-		}
-	}
-	return recipe.Output{
-		Name: "related_expand_count", RootResourceType: "Patient", RowGrain: "patient",
-		RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields:           []recipe.Field{sourceField},
-		Construction: &recipe.Construction{
-			Version: 1, SourceColumns: []recipe.StageColumn{sourceColumn},
-			Steps: []recipe.ConstructionStep{
-				relatedSourceStep("count", "", "COUNT", countColumn, countColumns),
-				relatedSourceStep("list", "count", "ALL", listColumn, listColumns),
-				relatedSourceStep("presence", "list", "PRESENCE", presenceColumn, relatedSourceColumns),
-				{
-					ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "presence"}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
-						AnchorColumnID: "_key", ChoiceID: "observation-route", TargetNodeID: "observation-node", TargetResourceType: "Observation",
-						Route: []recipe.ConstructionRelatedRouteStep{{
-							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
-							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
-							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
-						}},
-						ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionExclude, RelatedRecordColumnID: "observation-id",
-					}},
-					Outputs: expandedColumns,
-				},
-				{
-					ID: "count_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: group}, Outputs: groupOutputs,
-				},
-			},
-		},
-	}
-}
-
-func compileRelatedExpandCountQuery(t *testing.T, output recipe.Output) model.CompiledQuery {
-	t.Helper()
-	bindings := recipe.RuntimeBindings{
-		Project: "related-expand-count-project", DatasetGeneration: "related-expand-count-generation",
-		AuthScopeMode: authscope.ReadScopeUnrestricted,
-	}
-	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		t.Fatalf("build related expansion count recipe: %v", err)
-	}
-	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
-	if err != nil {
-		t.Fatalf("resolve related expansion count recipe: %v", err)
-	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatalf("compile related expansion count recipe: %v", err)
-	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatalf("render related expansion count recipe: %v", err)
-	}
-	return query
 }
 
 func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgainstArango(t *testing.T) {
@@ -1026,126 +858,5 @@ func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgains
 	}
 	if !existing["o_match"] || !existing["o_no_match"] || existing["o_null_only"] || existing["o_empty_only"] || existing["o_missing_code"] {
 		t.Fatalf("repeated ANY EXISTS included null/empty/missing values or omitted a populated terminal: %#v", existing)
-	}
-}
-
-func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
-		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
-	}
-	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
-		t.Fatal(err)
-	}
-	project, generation := "loom_repeated_terminal_"+uuid.NewString(), "generation-repeated-terminal"
-	key := func(id string) string { return project + "_" + id }
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		query := "FOR document IN Patient FILTER STARTS_WITH(document._key, @prefix) REMOVE document IN Patient"
-		if err := client.ExecuteAQL(cleanupCtx, query, map[string]any{"prefix": project + "_"}); err != nil {
-			t.Errorf("remove terminal repeated-selector fixtures: %v", err)
-		}
-	}()
-
-	nullGivenElement := map[string]any{"extension": []any{map[string]any{
-		"url": "https://example.org/fhir/StructureDefinition/test", "valueString": "extension-only",
-	}}}
-	givenNames := []any{
-		map[string]any{"given": []any{"alpha", "alpha", nil}, "_given": []any{nil, nil, nullGivenElement}},
-		map[string]any{"given": []any{nil}, "_given": []any{nullGivenElement}},
-		map[string]any{"given": []any{"beta"}},
-	}
-	patientDocument := func(id string, payload map[string]any) json.RawMessage {
-		t.Helper()
-		payload["id"], payload["resourceType"] = id, "Patient"
-		encoded, err := json.Marshal(map[string]any{
-			"_key": key(id), "id": id, "project": project, "project_id": project,
-			"dataset_generation": generation, "resourceType": "Patient",
-			"auth_resource_path": "/allowed", "payload": payload,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return encoded
-	}
-	documents := []json.RawMessage{
-		patientDocument("p_values", map[string]any{"name": givenNames}),
-		patientDocument("p_null", map[string]any{"name": []any{map[string]any{"given": []any{nil}, "_given": []any{nullGivenElement}}}}),
-		patientDocument("p_empty", map[string]any{"name": []any{map[string]any{"given": []any{}}}}),
-		patientDocument("p_missing", map[string]any{"name": []any{map[string]any{"family": "OnlyFamily"}}}),
-	}
-	if err := client.InsertBatchRaw(ctx, "Patient", documents, false, "document"); err != nil {
-		t.Fatalf("insert terminal repeated-selector fixtures: %v", err)
-	}
-
-	selector, err := spec.ParseSelector("name[].given[]")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, mode := range []ir.PhysicalSelectorExecutionMode{ir.PhysicalSelectorGeneric, ir.PhysicalSelectorConditionalArray} {
-		t.Run(string(mode), func(t *testing.T) {
-			plan, err := buildGenericPhysicalPlanWithContext(
-				recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}},
-				recipeplan.ExecutionContext{
-					Project: project, DatasetGeneration: generation, AuthResourcePaths: []string{"/allowed"},
-					AuthScopeMode: authscope.ReadScopeRestricted,
-				},
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			plan.Operations[len(plan.Operations)-1].Return.Projections = []ir.PhysicalProjection{
-				{Name: "_key", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}},
-				{Name: "given_values", Expression: &ir.PhysicalExpression{
-					Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-					Extract: &ir.PhysicalExtract{
-						Source:       ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
-						ResourceType: "Patient", Selector: selector, ExecutionMode: mode,
-					},
-				}},
-			}
-			rendered, err := aql.Render(plan, aql.Options{})
-			if err != nil {
-				t.Fatalf("render %s terminal primitive selector: %v", mode, err)
-			}
-			rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
-			if len(rows) != len(documents) {
-				t.Fatalf("%s terminal primitive query returned %d rows, want %d:\n%s", mode, len(rows), len(documents), rendered.Query)
-			}
-			valuesByKey := make(map[string][]string, len(rows))
-			for _, row := range rows {
-				rowKey, _ := row["_key"].(string)
-				rawValues, ok := row["given_values"].([]any)
-				if !ok {
-					t.Fatalf("%s given_values for %q has type %T: %#v", mode, rowKey, row["given_values"], row)
-				}
-				values := make([]string, 0, len(rawValues))
-				for _, rawValue := range rawValues {
-					value, ok := rawValue.(string)
-					if !ok {
-						t.Fatalf("%s terminal repeated selector retained a null/non-string leaf for %q: %#v", mode, rowKey, rawValues)
-					}
-					values = append(values, value)
-				}
-				valuesByKey[rowKey] = values
-			}
-			assertValues := func(id string, want []string) {
-				t.Helper()
-				got, ok := valuesByKey[key(id)]
-				if !ok || len(got) != len(want) {
-					t.Fatalf("%s values for %s = %#v (present=%t), want %#v", mode, id, got, ok, want)
-				}
-				for index := range want {
-					if got[index] != want[index] {
-						t.Fatalf("%s values for %s = %#v, want %#v", mode, id, got, want)
-					}
-				}
-			}
-			assertValues("p_values", []string{"alpha", "alpha", "beta"})
-			assertValues("p_null", nil)
-			assertValues("p_empty", nil)
-			assertValues("p_missing", nil)
-		})
 	}
 }

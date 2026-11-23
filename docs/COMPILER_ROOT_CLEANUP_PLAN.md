@@ -1,7 +1,7 @@
 # `dataframe/compiler` root package cleanup plan
 
-Status: Phases 0 and 1 complete. Measured after merging the lineage agreement tests
-into the AQL refactor at `3e3d81176`.
+Status: Phases 0 through 2 complete. Phase 3 awaits the fast-path audit.
+Baseline measured after lineage merge `136ba0894`.
 Scope: the root package `internal/dataframe/compiler` only. Its subpackages have their own plans
 (`AQL_RENDER_REFACTOR_PLAN.md`, `AQL_FAST_PATH_AND_LINEAGE_PLAN.md`,
 `COMPILER_REDESIGN_PLAN.md`) or are out of scope.
@@ -230,7 +230,52 @@ rendering.
   - no assertion lines changed (`git diff` filtered to lines containing `t.Fatal`, `t.Error` or
     `want`).
 
+[The migration script](../scripts/compilercleanup/move_tests.py) moves complete
+Go declarations. Run it from the Phase 1 snapshot with `goimports` installed.
+It moved 177 tests to their owners and preserved 185 root tests, including
+cross-package agreement cases. No test was deleted. Shared builders live in
+`internal/testkit/compilerfixtures`. An injected compile function keeps those
+fixtures independent of the root compiler package. Test aliases preserve
+call sites and assertions. The typed category terminal test uses the
+renderer package's existing private bind name and drops its local package
+qualifier.
+
+`go test -list . ./internal/dataframe/...` listed the same 1,253 names.
+A declaration comparison matched all 1,253 bodies after normalizing the one
+renderer qualifier. Git diff on the extracted assertion lines was empty for
+all 7,586 lines. This comparison pairs split-file declarations by test name,
+so relocated lines are compared in their new files.
+
+Three independent same-model review passes checked assertion preservation,
+runner registration and repeatability of the generated move. All prior
+required witnesses remain registered in their destination packages. The
+runner now explicitly verifies the relocated population cases, too. No
+confirmed review findings remained. The initial code generation attempts
+exposed a renderer test import cycle and a mistaken alias of a method as a
+package function. Splitting that renderer file along its package dependency
+boundary and restricting aliases to free functions resolved both.
+
+Phase 2 passed the Go build, full Go suite, comment lint, runner unit tests,
+and `make test-integration` against disposable Arango and ClickHouse.
+The integration runner recorded 40 setup/test profiles, no failures, and an
+unchanged source fingerprint. It explicitly marked six external-data cases
+unverified. All required tests passed.
+
+| Phase | Root source lines before → after | Root test lines before → after |
+| --- | ---: | ---: |
+| 0 | 5,005 → 5,005 | 31,220 → 31,220 |
+| 1 | 5,005 → 4,987 | 31,220 → 31,220 |
+| 2 | 4,987 → 4,987 | 31,220 → 21,052 |
+
+The recipeplan-only cases remain in root under the write restriction on
+`dataframe/recipeplan`. The scan-owned cases move with their private scan
+helpers in Phase 3.
+
 ### Phase 3: extract `compiler/scan` (after the fast-path audit's A4 lands)
+
+Blocked pending a decision to resume the paused fast-path audit. Track A
+has its inventory and the isolated CDA load. A1, A3 and A4 remain pending,
+and the operator previously directed the audit to pause after AQL Phase 4.
 
 - Move the covering-index naming and spec helpers that scan uses into `compiler/model`.
 - Move category scan and column population into `compiler/scan`.
