@@ -65,96 +65,21 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 		config.FileActions = saved.FileActions
 		hasConfig = true
 	}
-	bundle := recipeIdentityMetadata(revision.Recipe)
-	if hasConfig && len(config.Recipe) > 0 {
-		parsed, parseErr := recipe.ParseArchivedMetadata(config.Recipe)
-		if parseErr != nil {
-			return nil, viewerProjectionIntegrity("config.recipe", parseErr)
-		}
-		if len(bundle.Outputs) == 0 {
-			bundle = parsed
-		}
+	inputs, err := prepareViewerProjectionInputs(revision, config, hasConfig)
+	if err != nil {
+		return nil, err
 	}
+	bundle := inputs.bundle
 	if len(bundle.Outputs) == 0 {
-
 		return nil, nil
 	}
-
-	datasetOutputs := make(map[string]DatasetOutput, len(revision.Dataset.Outputs))
-	physicalColumns := make(map[string]map[string]publication.PhysicalColumn, len(revision.Dataset.Outputs))
-	for _, output := range revision.Dataset.Outputs {
-		datasetOutputs[output.Name] = output
-		physicalColumns[output.Name] = make(map[string]publication.PhysicalColumn, len(output.Columns))
-		for _, column := range output.Columns {
-			physicalColumns[output.Name][column.Name] = column
-		}
-	}
-
-	materializations := make(map[string]Materialization, len(revision.Materializations))
-	for _, materialization := range revision.Materializations {
-		outputID := firstNonEmptyString(materialization.OutputID, materialization.Output)
-		if outputID == "" {
-			continue
-		}
-		materializations[outputID] = materialization
-		if physicalColumns[outputID] == nil {
-			physicalColumns[outputID] = map[string]publication.PhysicalColumn{}
-		}
-		for _, column := range materialization.Columns {
-			physicalColumns[outputID][column.Name] = column
-		}
-	}
-	authoritativeColumns := make(map[string]bool, len(physicalColumns))
-	for outputID, columns := range physicalColumns {
-		authoritativeColumns[outputID] = len(columns) > 0
-	}
-
-	emitted := make(map[string]map[string]EmittedColumn)
-	emittedOrder := make(map[string][]string)
-	for _, column := range revision.EmittedColumns {
-		if column.OutputID == "" || column.PublicColumn == "" {
-			continue
-		}
-		if emitted[column.OutputID] == nil {
-			emitted[column.OutputID] = map[string]EmittedColumn{}
-		}
-		if _, exists := emitted[column.OutputID][column.PublicColumn]; !exists {
-			emittedOrder[column.OutputID] = append(emittedOrder[column.OutputID], column.PublicColumn)
-		}
-		emitted[column.OutputID][column.PublicColumn] = column
-
-		if !authoritativeColumns[column.OutputID] {
-			if physicalColumns[column.OutputID] == nil {
-				physicalColumns[column.OutputID] = map[string]publication.PhysicalColumn{}
-			}
-			if _, exists := physicalColumns[column.OutputID][column.PublicColumn]; !exists {
-				physicalColumns[column.OutputID][column.PublicColumn] = publication.PhysicalColumn{
-					Name:        column.PublicColumn,
-					LogicalType: column.LogicalType,
-					ClickHouse:  column.LogicalType,
-				}
-			}
-		}
-	}
-
-	contractColumns := map[string]map[string]PublicOutputColumn{}
-	contractOrder := map[string][]string{}
-	if len(revision.PublicOutputContract) > 0 {
-		contracts, contractErr := DecodePublicOutputContracts(revision.PublicOutputContract)
-		if contractErr != nil {
-			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
-		}
-		if contractErr := contracts.ValidateAgainstMetadata(bundle, revision.EmittedColumns); contractErr != nil {
-			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
-		}
-		for _, output := range contracts.Outputs {
-			contractColumns[output.OutputID] = map[string]PublicOutputColumn{}
-			for _, column := range output.Columns {
-				contractColumns[output.OutputID][column.Column] = column
-				contractOrder[output.OutputID] = append(contractOrder[output.OutputID], column.Column)
-			}
-		}
-	}
+	datasetOutputs := inputs.datasetOutputs
+	physicalColumns := inputs.physicalColumns
+	materializations := inputs.materializations
+	emitted := inputs.emitted
+	emittedOrder := inputs.emittedOrder
+	contractColumns := inputs.contractColumns
+	contractOrder := inputs.contractOrder
 
 	status := firstNonEmptyString(revision.Publication.State, string(revision.Status), ExplorerRuntimeV1NotPublished)
 	publicationState := revision.Publication
@@ -354,6 +279,116 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 	}
 
 	return runtime, nil
+}
+
+type viewerProjectionInputs struct {
+	bundle           recipe.ArchivedMetadata
+	datasetOutputs   map[string]DatasetOutput
+	physicalColumns  map[string]map[string]publication.PhysicalColumn
+	materializations map[string]Materialization
+	emitted          map[string]map[string]EmittedColumn
+	emittedOrder     map[string][]string
+	contractColumns  map[string]map[string]PublicOutputColumn
+	contractOrder    map[string][]string
+}
+
+func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.ConfigV2, hasConfig bool) (viewerProjectionInputs, error) {
+	bundle := recipeIdentityMetadata(revision.Recipe)
+	if hasConfig && len(config.Recipe) > 0 {
+		parsed, parseErr := recipe.ParseArchivedMetadata(config.Recipe)
+		if parseErr != nil {
+			return viewerProjectionInputs{}, viewerProjectionIntegrity("config.recipe", parseErr)
+		}
+		if len(bundle.Outputs) == 0 {
+			bundle = parsed
+		}
+	}
+	if len(bundle.Outputs) == 0 {
+
+		return viewerProjectionInputs{bundle: bundle}, nil
+	}
+
+	datasetOutputs := make(map[string]DatasetOutput, len(revision.Dataset.Outputs))
+	physicalColumns := make(map[string]map[string]publication.PhysicalColumn, len(revision.Dataset.Outputs))
+	for _, output := range revision.Dataset.Outputs {
+		datasetOutputs[output.Name] = output
+		physicalColumns[output.Name] = make(map[string]publication.PhysicalColumn, len(output.Columns))
+		for _, column := range output.Columns {
+			physicalColumns[output.Name][column.Name] = column
+		}
+	}
+
+	materializations := make(map[string]Materialization, len(revision.Materializations))
+	for _, materialization := range revision.Materializations {
+		outputID := firstNonEmptyString(materialization.OutputID, materialization.Output)
+		if outputID == "" {
+			continue
+		}
+		materializations[outputID] = materialization
+		if physicalColumns[outputID] == nil {
+			physicalColumns[outputID] = map[string]publication.PhysicalColumn{}
+		}
+		for _, column := range materialization.Columns {
+			physicalColumns[outputID][column.Name] = column
+		}
+	}
+	authoritativeColumns := make(map[string]bool, len(physicalColumns))
+	for outputID, columns := range physicalColumns {
+		authoritativeColumns[outputID] = len(columns) > 0
+	}
+
+	emitted := make(map[string]map[string]EmittedColumn)
+	emittedOrder := make(map[string][]string)
+	for _, column := range revision.EmittedColumns {
+		if column.OutputID == "" || column.PublicColumn == "" {
+			continue
+		}
+		if emitted[column.OutputID] == nil {
+			emitted[column.OutputID] = map[string]EmittedColumn{}
+		}
+		if _, exists := emitted[column.OutputID][column.PublicColumn]; !exists {
+			emittedOrder[column.OutputID] = append(emittedOrder[column.OutputID], column.PublicColumn)
+		}
+		emitted[column.OutputID][column.PublicColumn] = column
+
+		if !authoritativeColumns[column.OutputID] {
+			if physicalColumns[column.OutputID] == nil {
+				physicalColumns[column.OutputID] = map[string]publication.PhysicalColumn{}
+			}
+			if _, exists := physicalColumns[column.OutputID][column.PublicColumn]; !exists {
+				physicalColumns[column.OutputID][column.PublicColumn] = publication.PhysicalColumn{
+					Name:        column.PublicColumn,
+					LogicalType: column.LogicalType,
+					ClickHouse:  column.LogicalType,
+				}
+			}
+		}
+	}
+
+	contractColumns := map[string]map[string]PublicOutputColumn{}
+	contractOrder := map[string][]string{}
+	if len(revision.PublicOutputContract) > 0 {
+		contracts, contractErr := DecodePublicOutputContracts(revision.PublicOutputContract)
+		if contractErr != nil {
+			return viewerProjectionInputs{}, viewerProjectionIntegrity("publicOutputContract", contractErr)
+		}
+		if contractErr := contracts.ValidateAgainstMetadata(bundle, revision.EmittedColumns); contractErr != nil {
+			return viewerProjectionInputs{}, viewerProjectionIntegrity("publicOutputContract", contractErr)
+		}
+		for _, output := range contracts.Outputs {
+			contractColumns[output.OutputID] = map[string]PublicOutputColumn{}
+			for _, column := range output.Columns {
+				contractColumns[output.OutputID][column.Column] = column
+				contractOrder[output.OutputID] = append(contractOrder[output.OutputID], column.Column)
+			}
+		}
+	}
+
+	return viewerProjectionInputs{
+		bundle: bundle, datasetOutputs: datasetOutputs, physicalColumns: physicalColumns,
+		materializations: materializations, emitted: emitted, emittedOrder: emittedOrder,
+		contractColumns: contractColumns, contractOrder: contractOrder,
+	}, nil
 }
 
 func projectConfigUnavailableViewIDs(diagnostics []Diagnostic) map[string]struct{} {
