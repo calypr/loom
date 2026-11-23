@@ -160,8 +160,7 @@ lint-go-comments:
 	$(GO) run ./cmd/check-go-comments
 
 lint-filenames:
-	@files="$$(rg --files internal | rg '/[^/]*_[^/]*\.go$$' | rg -v '_test\.go$$')"; \
-	if [ -n "$$files" ]; then echo "production filenames contain underscores:"; echo "$$files"; exit 1; fi
+	@python3 scripts/lint_filenames.py
 
 test-go:
 	$(GO) test ./...

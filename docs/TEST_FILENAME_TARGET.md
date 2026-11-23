@@ -1,9 +1,9 @@
 # Test filename targets
 
 Phase 1 covers 704 underscore test files in 67 packages at `1cda1995a`.
-Phase 2 is pending.
+Phase 2 mapped 704 source files into 470 targets. The largest target is 1,487 lines. All 3,323 listed test entries matched their package baselines.
 
-The inventory type-checks production and test variants, including external test packages. Its counts are direct references from test entry points to production declarations. Test helpers are followed for environment evidence and for production references through environment-gated test harnesses. The inventory is generated in `.cache/testnames/`.
+The inventory type-checks production and test variants, including external test packages. Its counts are direct references from test entry points to production declarations. The tool follows package-local test helpers and imported helpers from `internal/testkit` to recover environment lookups and skips. It also records production references used by package-local test helpers. The inventory is generated in `.cache/testnames/`.
 
 The required filename-selector search returned no matches. Integration selection uses Go test entry points. Environment evidence in the map comes from environment lookups and testing skip calls.
 
@@ -128,11 +128,11 @@ The reshape fixtures in `dataframe/compiler/lower` and `dataframe/execution` are
 
 ## Relocations and deferrals
 
-The initial map has no relocations or deferrals.
+The TSV contains zero relocation and defer rows. The allowlist contains only the `path` and `reason` header.
 
 ## Filename lint
 
-The final unit will check internal test stems alongside production filenames. It will exclude testdata and recognized Go OS/architecture suffixes. Each deferred path will have an explicit reason in the lint allowlist.
+The final lint checks internal production and test stems. It excludes testdata and strips recognized Go OS and architecture suffixes before checking the remaining stem. The allowlist is `scripts/filenames/testallowlist.tsv`, with a path and reason for every entry.
 
 ## Phase 1 gate
 
@@ -140,3 +140,127 @@ The final unit will check internal test stems alongside production filenames. It
 - The map validator checks destination spelling, package clauses, source line counts, collisions, and one assignment per test function.
 - Go tool tests, vet, and formatting check the inventory command.
 - Package test lists are captured under `.cache/testnames/baseline/`, with the timing/status line omitted from comparisons.
+
+## Package commits
+
+Each package below matched its sorted baseline test list and passed declaration-token comparison, `go vet`, compile-only `go test`, and the package test suite. The per-unit logs and staged diffs are under `.cache/testnames/units/`.
+
+| Commit | Package | Matched test entries |
+| --- | --- | ---: |
+| `bcccfebb7` | `internal/dataframe/artifactformat` | 9 |
+| `bab3f4d28` | `internal/dataframe/compiler/capability` | 13 |
+| `aef393a70` | `internal/dataframe/compiler/optimize` | 4 |
+| `3de1882e2` | `internal/dataframe/execution/chartifact/arango` | 10 |
+| `501f17ad2` | `internal/dataframe/expression` | 11 |
+| `96468716b` | `internal/dataframe/lineage` | 2 |
+| `351b513cf` | `internal/explorer/constructioninputs` | 9 |
+| `5d88d2947` | `internal/explorer/selection` | 4 |
+| `8c9d6fccb` | `internal/fhir/binding` | 20 |
+| `0d31180c5` | `internal/foundation/httpctx` | 1 |
+| `26087db1f` | `internal/ingest/source` | 8 |
+| `18977c764` | `internal/dataframe/compiler/render/clickhouse` | 18 |
+| `842084a71` | `internal/dataframe/fielddiscovery` | 6 |
+| `5b80aa245` | `internal/dataframe/recipe/arango` | 8 |
+| `882ff4924` | `internal/dataframe/spec` | 3 |
+| `f6c7a5eea` | `internal/explorer/arango/publicationdb` | 7 |
+| `02f6a77c0` | `internal/explorer/proposal` | 4 |
+| `e8d0f8e9d` | `internal/explorer/rowdef` | 6 |
+| `d2ebf54fb` | `internal/semantic/backfill` | 7 |
+| `f33c7c5cb` | `internal/acceptance` | 34 |
+| `984fdd2b8` | `internal/api/http` | 21 |
+| `e11e232be` | `internal/dataset/arango` | 20 |
+| `ac5792d23` | `internal/explorer/arango/capabilitydb` | 13 |
+| `f05646edb` | `internal/explorer/capability` | 30 |
+| `fbb8e8b26` | `internal/explorer/capability/resolver` | 25 |
+| `fc5880ace` | `internal/explorer/semanticauthoring` | 6 |
+| `64058a926` | `internal/catalog` | 12 |
+| `42a8b58dd` | `internal/catalog/arango` | 22 |
+| `d2f9bcea0` | `internal/explorer/projectconfig` | 16 |
+| `d8ea81685` | `internal/fhir/schema` | 33 |
+| `985a82c54` | `internal/ingest/sourceload` | 10 |
+| `c67a75fac` | `internal/dataframe/published` | 38 |
+| `0c5f03d62` | `internal/dataframe/recipe/runtime` | 14 |
+| `7110af77c` | `internal/dataframe/recipeplan` | 48 |
+| `67ec10d04` | `internal/semantic` | 30 |
+| `c867ca6ed` | `internal/api/dataframe/query` | 31 |
+| `bee0dee8a` | `internal/dataframe/publication` | 14 |
+| `15396bd99` | `internal/dataframe/publication/arango` | 19 |
+| `b8b3d7a1b` | `internal/server` | 37 |
+| `288ac7009` | `internal/api/bulk/load` | 51 |
+| `d317e75ef` | `internal/authscope` | 52 |
+| `14142a047` | `internal/dataframe/execution/arango` | 18 |
+| `3279068ba` | `internal/dataset` | 32 |
+| `8c9ab34bb` | `internal/explorer/importedsource` | 28 |
+| `8d88751e6` | `internal/semantic/arango` | 65 |
+| `de52c463e` | `internal/api/dataframe/dataframe` | 50 |
+| `dd5918acf` | `internal/explorer/recipeimport` | 45 |
+| `e226559bf` | `internal/ingest/row` | 30 |
+| `d43ad06a4` | `internal/catalog/fieldprofile` | 73 |
+| `0f1a56dad` | `internal/dataframe/publication/clickhouse` | 23 |
+| `7e6402903` | `internal/dataframe/recipe` | 82 |
+| `3684067bd` | `internal/explorer/compilation` | 104 |
+| `29f271fb1` | `internal/explorer/receipt` | 60 |
+| `f0d2271ce` | `internal/ingest/generation` | 46 |
+| `b8c4350cf` | `internal/explorer/authoringv2` | 178 |
+| `41b900a87` | `internal/store/arango` | 61 |
+| `cc075d6cf` | `internal/explorer` | 83 |
+| `fbff285a3` | `internal/dataframe/compiler/ir` | 54 |
+| `86e87b6f2` | `internal/dataframe/compiler/render/aql` | 79 |
+| `56bcac855` | `internal/explorer/arango` | 71 |
+| `196550315` | `internal/explorer/construction` | 71 |
+| `88806823e` | `internal/explorer/workspace` | 106 |
+| `c672f4155` | `internal/dataframe/execution` | 169 |
+| `ffa694037` | `internal/dataframe/compiler/lower` | 180 |
+| `9cd8fbde2` | `internal/api/explorer` | 138 |
+| `209ab7dd3` | `internal/explorer/lifecycle` | 390 |
+| `a2bda2cc6` | `internal/dataframe/compiler` | 361 |
+
+## Wave verification
+
+The integration checks used disposable localhost ArangoDB 3.12.13 and ClickHouse 25.3 containers. The Wave 1 failure reproduced in the two affected tests on the base test source. The per-wave failures are recorded below.
+
+| Wave | Source snapshot | Command | Exit | Log |
+| ---: | --- | --- | ---: | --- |
+| 1 | `88806823e38a` | `make test-go` | 0 | `.cache/testnames/waves/1/test-go.log` |
+| 1 | `88806823e38a` | `make test-integration` | 2 | `.cache/testnames/waves/1/test-integration.log` |
+| 2 | `c672f4155b82` | `make test-go` | 0 | `.cache/testnames/waves/2/test-go.log` |
+| 2 | `c672f4155b82` | `make test-integration` | 2 | `.cache/testnames/waves/2/test-integration.log` |
+| 3 | `ffa6940376c4` | `make test-go` | 0 | `.cache/testnames/waves/3/test-go.log` |
+| 3 | `ffa6940376c4` | `make test-integration` | 2 | `.cache/testnames/waves/3/test-integration.log` |
+| 4 | `9cd8fbde2dd9` | `make test-go` | 0 | `.cache/testnames/waves/4/test-go.log` |
+| 4 | `9cd8fbde2dd9` | `make test-integration` | 2 | `.cache/testnames/waves/4/test-integration.log` |
+| 5 | `209ab7dd3ee2` | `make test-go` | 0 | `.cache/testnames/waves/5/test-go.log` |
+| 5 | `209ab7dd3ee2` | `make test-integration` | 2 | `.cache/testnames/waves/5/test-integration.log` |
+| 6 | `a2bda2cc6b8b` | `make test-go` | 0 | `.cache/testnames/waves/6/test-go.log` |
+| 6 | `a2bda2cc6b8b` | `make test-integration` | 2 | `.cache/testnames/waves/6/test-integration.log` |
+
+`TestSavedRelatedRouteRowsAgainstArango` returned HTTP 409 (`DRAFT_CONFLICT`) and `TestPublicationRowsAndFreshViewerAgainstArangoClickHouse` returned HTTP 503 (`PERSISTENCE_UNAVAILABLE` from a draft conflict) on both the base test source and the wave snapshots. The base log is `.cache/testnames/waves/base/draft-conflicts.log`. Because the Make target exits after the first group, the other recipes were run separately on the last wave snapshot.
+
+| Supplemental check | Source snapshot | Exit | Log |
+| --- | --- | ---: | --- |
+| publication-reconcile | `a2bda2cc6b8b` | 0 | `.cache/testnames/waves/remainder/publication-reconcile.log` |
+| draft-cas | `a2bda2cc6b8b` | 1 | `.cache/testnames/waves/remainder/draft-cas.log` |
+| profile-driver | `a2bda2cc6b8b` | 1 | `.cache/testnames/waves/remainder/profile-driver.log` |
+
+Publication reconciliation passed. The four draft CAS tests failed on both the final wave and the base test source, with the same draft-conflict behavior. See `.cache/testnames/waves/base/draft-cas.log`.
+
+The profile driver stopped before running profiles because it still selects `./internal/dataframe/recipe/exec/arango`. Its backfill selector also uses the retired `./internal/ingest` package. Both required tests passed when invoked directly in their current packages, `./internal/dataframe/recipe/arango` and `./internal/semantic/backfill`. Those logs are under `.cache/testnames/waves/remainder/`.
+
+## Verification notes
+
+- The six oversized sources were split into whole functions under the strict target cap. The proposed plan had listed the three largest and allowed existing oversized files to keep their size.
+- A fresh tracked-file check caught a formatting difference in `internal/dataframe/execution/scanner_test.go`. Go 1.27 gofmt corrected it, with matching declaration tokens and test list. The final checks were rerun.
+- The first list comparison found the elapsed-time status line in only the baseline. The raw output was retained and the status line removed from both sides. The test names were identical.
+- Go lists a synthetic test binary and black-box tests can import an augmented package. The inventory excludes the binary and loads augmented exports for those tests.
+- The final inventory adds 28 environment records reached through imported test helpers. All actions, destinations, and direct production references match the Phase 1 map.
+- Git detects all 297 standalone moves with `-M`. Merges into an existing destination appear as a source deletion plus a destination edit. One-to-many splits can appear as deletions and additions when similarity falls below the default threshold.
+- Two diagnostic strings in the ClickHouse publication tests reference a former Arango test filename. They are test messages and do not select tests.
+
+## Final checks
+
+- Passed `make lint-filenames`.
+- Passed `make lint-go-comments`.
+- Passed `make test-go`.
+- Passed `python3 scripts/package_audit_verify.py internal --full`.
+- The regenerated package audit has the same dependency and importer columns as the base for all 137 packages.
+- Final command logs are under `.cache/testnames/final/`.

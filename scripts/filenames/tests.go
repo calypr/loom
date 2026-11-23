@@ -38,6 +38,11 @@ type testFunction struct {
 	Env   []string       `json:"env"`
 }
 
+type testHelper struct {
+	pkg  *pkgData
+	decl ast.Node
+}
+
 func runTestInventory(root string) error {
 	module := modulePath(root)
 	packages, err := goList(root, "-export", "-deps", "-test", "-json", "-e", "./internal/...")
@@ -48,6 +53,7 @@ func runTestInventory(root string) error {
 	imp := newExportImporter(token.NewFileSet(), exports)
 	var variants []*pkgData
 	production := map[string]string{}
+	sharedHelpers := map[string]testHelper{}
 	for _, p := range packages {
 		if p.ForTest != "" || strings.HasSuffix(p.ImportPath, ".test") || !strings.HasPrefix(p.ImportPath, module+"/internal/") {
 			continue
@@ -68,6 +74,13 @@ func runTestInventory(root string) error {
 		source := &pkgData{list: p}
 		if err := loadPackage(source, imp, root); err != nil {
 			return err
+		}
+		if strings.HasPrefix(p.ImportPath, module+"/internal/testkit/") {
+			for _, file := range source.files {
+				for obj, decl := range testHelperDeclarations(source, file) {
+					sharedHelpers[symbolKey(obj, module)] = testHelper{pkg: source, decl: decl}
+				}
+			}
 		}
 		for obj := range source.defUnit {
 			key := symbolKey(obj, module)
@@ -93,7 +106,7 @@ func runTestInventory(root string) error {
 		for _, f := range pd.files {
 			path := relPath(root, pd.fset.File(f.Pos()).Name())
 			if strings.HasSuffix(path, "_test.go") {
-				rows[path] = describeTestFile(pd, f, path, module, production)
+				rows[path] = describeTestFile(pd, f, path, module, production, sharedHelpers)
 			}
 		}
 	}
@@ -117,7 +130,7 @@ func runTestInventory(root string) error {
 				return err
 			}
 			pd.checkErr = fmt.Errorf("excluded from the active Go build")
-			row = describeTestFile(pd, f, path, module, production)
+			row = describeTestFile(pd, f, path, module, production, sharedHelpers)
 		}
 		result = append(result, row)
 	}
@@ -133,7 +146,7 @@ func runTestInventory(root string) error {
 	return os.WriteFile(filepath.Join(dir, "inventory.json"), append(data, '\n'), 0o644)
 }
 
-func describeTestFile(pd *pkgData, file *ast.File, path, module string, production map[string]string) testFile {
+func describeTestFile(pd *pkgData, file *ast.File, path, module string, production map[string]string, sharedHelpers map[string]testHelper) testFile {
 	result := testFile{
 		Path: path, Package: file.Name.Name, Lines: pd.fset.File(file.Pos()).LineCount(),
 		Tests: []string{}, Helpers: []string{}, HelperFunctions: map[string]int{},
@@ -149,22 +162,8 @@ func describeTestFile(pd *pkgData, file *ast.File, path, module string, producti
 			if !strings.HasSuffix(pd.fset.File(f.Pos()).Name(), "_test.go") {
 				continue
 			}
-			for _, decl := range f.Decls {
-				switch decl := decl.(type) {
-				case *ast.FuncDecl:
-					declarations[pd.info.Defs[decl.Name]] = decl
-				case *ast.GenDecl:
-					for _, spec := range decl.Specs {
-						if values, ok := spec.(*ast.ValueSpec); ok {
-							for _, name := range values.Names {
-								declarations[pd.info.Defs[name]] = values
-							}
-						}
-					}
-				}
-			}
+			maps.Copy(declarations, testHelperDeclarations(pd, f))
 		}
-		delete(declarations, nil)
 	}
 	for _, decl := range file.Decls {
 		switch decl := decl.(type) {
@@ -185,7 +184,7 @@ func describeTestFile(pd *pkgData, file *ast.File, path, module string, producti
 			}
 			refs := map[string]int{}
 			tags := map[string]bool{}
-			testReferences(pd, decl, module, production, declarations, refs, result.HelperRefs, tags)
+			testReferences(pd, decl, module, production, declarations, sharedHelpers, refs, result.HelperRefs, tags)
 			result.Tests = append(result.Tests, name)
 			result.Functions[name] = testFunction{
 				Lines: lines,
@@ -209,9 +208,29 @@ func describeTestFile(pd *pkgData, file *ast.File, path, module string, producti
 		}
 	}
 	// Essential: helper-only files need environment evidence even without a test entry point.
-	testReferences(pd, file, module, nil, declarations, nil, nil, env)
+	testReferences(pd, file, module, nil, declarations, sharedHelpers, nil, nil, env)
 	result.Env = sortedKeys(env)
 	return result
+}
+
+func testHelperDeclarations(pd *pkgData, file *ast.File) map[types.Object]ast.Node {
+	decls := map[types.Object]ast.Node{}
+	for _, decl := range file.Decls {
+		switch decl := decl.(type) {
+		case *ast.FuncDecl:
+			decls[pd.info.Defs[decl.Name]] = decl
+		case *ast.GenDecl:
+			for _, spec := range decl.Specs {
+				if values, ok := spec.(*ast.ValueSpec); ok {
+					for _, name := range values.Names {
+						decls[pd.info.Defs[name]] = values
+					}
+				}
+			}
+		}
+	}
+	delete(decls, nil)
+	return decls
 }
 
 func goTestName(name string) bool {
@@ -224,10 +243,10 @@ func goTestName(name string) bool {
 	return false
 }
 
-func testReferences(pd *pkgData, node ast.Node, module string, production map[string]string, declarations map[types.Object]ast.Node, refs, helperRefs map[string]int, env map[string]bool) {
+func testReferences(pd *pkgData, node ast.Node, module string, production map[string]string, declarations map[types.Object]ast.Node, sharedHelpers map[string]testHelper, refs, helperRefs map[string]int, env map[string]bool) {
 	seen := map[ast.Node]bool{}
-	var visit func(ast.Node, bool)
-	visit = func(node ast.Node, direct bool) {
+	var visit func(*pkgData, ast.Node, bool)
+	visit = func(current *pkgData, node ast.Node, direct bool) {
 		if seen[node] {
 			return
 		}
@@ -235,17 +254,21 @@ func testReferences(pd *pkgData, node ast.Node, module string, production map[st
 		ast.Inspect(node, func(node ast.Node) bool {
 			switch n := node.(type) {
 			case *ast.Ident:
-				if pd.info == nil {
+				if current.info == nil {
 					break
 				}
-				obj := pd.info.Uses[n]
+				obj := current.info.Uses[n]
 				if decl := declarations[obj]; decl != nil {
-					visit(decl, false)
+					visit(pd, decl, false)
 				}
 				if obj == nil || obj.Pkg() == nil || !productionSymbol(obj) {
 					break
 				}
-				if path := production[symbolKey(obj, module)]; path != "" {
+				key := symbolKey(obj, module)
+				if helper := sharedHelpers[key]; helper.decl != nil {
+					visit(helper.pkg, helper.decl, false)
+				}
+				if path := production[key]; current == pd && path != "" {
 					if direct {
 						refs[path]++
 					} else {
@@ -253,12 +276,12 @@ func testReferences(pd *pkgData, node ast.Node, module string, production map[st
 					}
 				}
 			case *ast.CallExpr:
-				recordTestEnv(pd, n, env)
+				recordTestEnv(current, n, env)
 			}
 			return true
 		})
 	}
-	visit(node, true)
+	visit(pd, node, true)
 }
 
 func productionSymbol(obj types.Object) bool {

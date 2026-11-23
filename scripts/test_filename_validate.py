@@ -98,6 +98,8 @@ def validate(root, map_path, inventory_path):
             errors.append(f"{current}: map line count {line_count} != inventory {entry['lines']}")
         if row["package_clause"] != entry["package_clause"]:
             errors.append(f"{current}: package clause differs from inventory")
+        if row["env"] != ";".join(entry["env"]):
+            errors.append(f"{current}: environment evidence differs from inventory")
         listed_funcs = [name for name in row["test_funcs"].split(";") if name]
         if sorted(listed_funcs) != sorted(entry["test_funcs"]):
             errors.append(f"{current}: test_funcs differs from inventory")
