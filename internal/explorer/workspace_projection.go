@@ -1,50 +1,19 @@
 package explorer
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-type WorkspaceArtifact struct {
-	Kind, Project, ExplorerID, ID string
-	RawDigest, IntentDigest       string
-	SnapshotToken, Generation     string
-	ScopeDigest, ReceiptID        string
-	DraftVersion                  int64
-}
+type WorkspaceArtifact = workspacepkg.Artifact
+type WorkspaceProjection = workspacepkg.Projection
+type WorkspaceProjectionReader = workspacepkg.ProjectionReader
 
-type WorkspaceProjection struct {
-	ID        string
-	Source    WorkspaceArtifact
-	Workspace json.RawMessage
-	Digest    string
-}
-
-type WorkspaceProjectionReader interface {
-	WorkspaceProjection(context.Context, WorkspaceArtifact) (WorkspaceProjection, error)
-}
-
-func workspaceBytesDigest(raw []byte) string {
-
-	if json.Valid(raw) {
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-		var value any
-		if decoder.Decode(&value) == nil {
-			if canonical, err := json.Marshal(value); err == nil {
-				raw = canonical
-			}
-		}
-	}
-	sum := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
+func workspaceBytesDigest(raw []byte) string { return workspacepkg.BytesDigest(raw) }
 
 func RevisionWorkspaceArtifact(revision Revision) WorkspaceArtifact {
 	return WorkspaceArtifact{Kind: "revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
@@ -64,35 +33,6 @@ func DraftWorkspaceArtifact(revision DraftRevision) WorkspaceArtifact {
 		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.DraftConfig), IntentDigest: revision.DraftDigest,
 		SnapshotToken: revision.SnapshotToken, Generation: revision.SourceGeneration,
 		ScopeDigest: revision.AuthorizationScopeDigest, DraftVersion: revision.DraftVersion}
-}
-
-func (source WorkspaceArtifact) Key() string {
-	raw, _ := json.Marshal(source)
-	return "workspace_projection_" + workspaceBytesDigest(raw)[len("sha256:"):]
-}
-
-func (projection WorkspaceProjection) ContentID() string {
-	projection.ID = ""
-	raw, _ := json.Marshal(projection)
-	return workspaceBytesDigest(raw)
-}
-
-func (projection WorkspaceProjection) Validate(source WorkspaceArtifact) (authoringv2.Workspace, error) {
-	if projection.Source != source || projection.ID == "" || projection.ID != projection.ContentID() {
-		return authoringv2.Workspace{}, fmt.Errorf("workspace projection does not match its immutable source")
-	}
-	workspace, err := authoringv2.DecodeCurrentWorkspace(projection.Workspace)
-	if err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("decode workspace projection: %w", err)
-	}
-	if workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
-		return authoringv2.Workspace{}, fmt.Errorf("workspace projection is not current")
-	}
-	digest, err := workspace.Digest()
-	if err != nil || digest != projection.Digest {
-		return authoringv2.Workspace{}, fmt.Errorf("workspace projection digest mismatch")
-	}
-	return workspace, nil
 }
 
 func (s *Service) RevisionWorkspace(ctx context.Context, revision Revision) (authoringv2.Workspace, error) {
