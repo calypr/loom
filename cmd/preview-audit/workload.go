@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -53,6 +54,16 @@ func loadWorkload(path string) (workload, error) {
 }
 
 func (input *workload) render() error {
+	if sequence := input.Plan.StageSequence; sequence != nil && sequence.PreviewLimitBindKey != "" {
+		key := sequence.PreviewLimitBindKey
+		if number, ok := input.Plan.BindVars[key].(json.Number); ok {
+			limit, err := strconv.Atoi(number.String())
+			if err != nil {
+				return fmt.Errorf("preview limit %q must be an integer: %w", key, err)
+			}
+			input.Plan.BindVars[key] = limit
+		}
+	}
 	var options aql.Options
 	switch input.RootIndex {
 	case "":

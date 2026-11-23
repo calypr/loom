@@ -1,6 +1,6 @@
 # AQL fast-path audit and lineage agreement plan
 
-Status: Track A resumed. A1 is implemented and verified on disposable Arango. Workloads, timing, and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Track A resumed. A1 is verified on disposable Arango and A2 captures are ready. CDA timing and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
 
 Precondition: `docs/AQL_RENDER_REFACTOR_PLAN.md` Phases 1 to 4 and
 `docs/EXECUTION_REFACTOR_PLAN.md` are merged. This plan assumes:
@@ -178,6 +178,37 @@ result equivalence before applying the decision rule.
 - Load data into an isolated owned project, following `docs/REAL_DATA_ACCEPTANCE.md`. Never
   touch the canonical `loom-demo` volumes.
 - Record the requests and the dataset identity in this plan.
+
+The first request set was rendered with the preview limit and the same
+project, generation and auth binds on both sides. The isolated CDA Arango
+volume uses database `loom_dev`, project `loom_dev_cda_fhir`, and generation
+`cda-fhir-v1`. The loader reported 2,055,978 records. The earlier 2,055,968
+figure counts newline separators in the 11 source files. These requests
+use an unrestricted read scope on the owned generation.
+
+| Path | Fixture producer | CDA request |
+| --- | --- | --- |
+| 1. Streaming Pivot | `TestStreamingMissingCategoryPivotDirectScalarsPreserveValueSemanticsAgainstArango` | Observation grouped by subject reference and status, sum quantity value by quantity code with missing-category handling. |
+| 2. Two-scan Pivot | `TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstArango` | Observation grouped by subject reference, sum quantity value into the observed quantity-code category. Use the compiler's exact covering-index spec and group-key paths. |
+| 3. Dynamic Pivot | `TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstArango` | Observation grouped by subject reference, with quantity code and value on the same choice arm. Restrict to existing quantities. |
+| 4. Semantic Group | `TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs` | Specimen `type.coding[]` and the CDA system rule. Verify the selected factorization AQL and covering index independently. |
+| 5. Root index | `TestConstructionPreviewCoveringIndexMetadataAndRootHint` | The same Specimen Group with hinted and disabled index choices compared separately to default. |
+| 6. Related Group | `TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango` | Specimen to Patient and Observation via subject edges, group by Patient and append related count. |
+| 7. Group row values | `TestConstructionGroupAllRowValuesUsesStreamingTypedAggregates` | Observation Group with count and all `valueCodeableConcept.coding[].code` values. CDA status yields a single group, so also compare a subject-reference request to exercise the preview window. |
+| 8. Source Group | `TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango` | Specimen subject group over Observation coding expansion through the `specimen_Specimen` route. |
+| 9. Related eligibility count | `TestRelatedEligibilityCountRowsReverseMatchesForwardOnArango` | Patient eligibility via Observation and Specimen, then keyless count. |
+
+Caller-selected captures and their Builder recipe inputs are in
+`/private/tmp/loom-aql-phase0/a2-captures`. The temporary capture source is
+`/private/tmp/loom-aql-phase0/a2_capture_test.go`. Renderer-selected capture
+source is in the throwaway worktree
+`/private/tmp/loom-aql-detector-capture/internal/dataframe/compiler/render/aql/audit_capture_test.go`.
+The normalized per-path query inputs are in
+`/private/tmp/compiler-root-evidence/workloads`. They establish AQL selection.
+Result parity and workload representativeness are separate checks. A1 decodes
+the serialized preview limit back into the integer type expected by the
+renderer. The Two-scan request uses compiler-supplied nested source paths.
+The Dynamic Pivot request uses default index options.
 
 #### A3: measure and decide
 
