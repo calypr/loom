@@ -38,7 +38,7 @@ func TestDynamicPivotPreviewQuerySizeDoesNotScaleWithCategoryCount(t *testing.T)
 		}
 		var preview Preview
 		if dynamic {
-			preview = DynamicCategoryPivotPreview{}
+			preview = TwoScanPivotPreview{}
 		}
 		renderer := physicalPlanRenderer{renderContext: renderContext{
 			bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
@@ -130,7 +130,7 @@ func TestDynamicPivotPreviewBindsMissingCategoryWithPresenceProof(t *testing.T) 
 	}
 	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
-		renderPreview: renderPreview{DynamicCategoryPivotPreview{}},
+		renderPreview: renderPreview{TwoScanPivotPreview{}},
 	}}
 	lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
 	if err != nil {

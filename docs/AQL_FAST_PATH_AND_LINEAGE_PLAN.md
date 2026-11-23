@@ -281,6 +281,15 @@ comparisons agreed. The pre-deletion snapshot at `ebffc5cd2` contains
   - `make test-go`, `make test-integration`;
   - run `python3 scripts/package_audit_verify.py` if a package loses all of its code.
 
+Dynamic Pivot was removed first. The shared dynamic category renderer stays
+until the two-scan removal. The Arango test kept its SUM, MIN, MAX, null
+category, and full-result assertions. The AQL marker assertion was removed
+with operator approval. Build, full Go suite, comment lint, and integration
+passed. The 8,308-record snapshot was unchanged. Production replay matched
+the audited generic AQL, binds, and all 25 CDA rows. The retired comparison
+hit its deadline during that replay. The generic result matched the earlier
+successful digest exactly.
+
 ### Correctness
 
 The fast and generic queries must return the same rows. Compare full result sets when the

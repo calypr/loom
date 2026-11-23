@@ -77,8 +77,6 @@ func (input *workload) render() error {
 		options.Preview = aql.StreamingMissingCategoryPivotPreview{}
 	case "two-scan-pivot":
 		options.Preview = aql.TwoScanPivotPreview{GroupKeySourcePaths: input.GroupKeySourcePaths}
-	case "dynamic-pivot":
-		options.Preview = aql.DynamicCategoryPivotPreview{}
 	case "semantic-group":
 		options.Preview = aql.SemanticGroupProjectionFactorizationPreview{}
 	case "root-index":

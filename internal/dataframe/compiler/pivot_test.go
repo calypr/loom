@@ -230,9 +230,6 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 		}
 		staticRows := executeReshapeOracleQuery(t, ctx, client, compile(0))
 		preview := compile(10)
-		if !strings.Contains(preview.Query, "reshape_category_specs") {
-			t.Fatalf("%s preview did not use dynamic category specs:\n%s", policy, preview.Query)
-		}
 		previewRows := executeReshapeOracleQuery(t, ctx, client, preview)
 		if !reflect.DeepEqual(previewRows, staticRows) {
 			t.Fatalf("%s dynamic preview differs from static full result:\npreview=%#v\nstatic=%#v", policy, previewRows, staticRows)

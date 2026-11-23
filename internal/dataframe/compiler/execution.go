@@ -105,8 +105,6 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		} else {
 			rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name)})
 		}
-	} else if canRenderDynamicCategoryPivotPreview(physical) {
-		rendered, err = aql.Render(physical, aql.Options{Preview: aql.DynamicCategoryPivotPreview{}})
 	} else {
 		rendered, err = aql.Render(physical, aql.Options{})
 	}
@@ -468,18 +466,6 @@ func outputHasCompositeSource(output lower.CompiledRecipeOutput) bool {
 		}
 	}
 	return false
-}
-
-func canRenderDynamicCategoryPivotPreview(physical ir.PhysicalPlan) bool {
-	sequence := physical.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
-		return false
-	}
-	stage := sequence.Stages[0]
-	return stage.ID == sequence.FinalStageID && stage.InputStageID == sequence.SourceStageID &&
-		stage.Kind == ir.PhysicalStagePivotOp && stage.GroupedPivot != nil &&
-		!stage.GroupedPivot.OneInputRowPerGroup && len(stage.GroupedPivot.GroupKeys) > 0
 }
 
 func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {

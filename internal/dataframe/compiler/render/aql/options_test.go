@@ -14,7 +14,6 @@ func TestRenderRejectsUnsupportedPreviewIndexCombinations(t *testing.T) {
 		message string
 	}{
 		{"paging with hint", Options{RootIndex: RootIndexHint("safe"), Preview: RootPageKeysPreview{}}, "root page key preview does not support a root index override"},
-		{"dynamic with hint", Options{RootIndex: RootIndexHint("safe"), Preview: DynamicCategoryPivotPreview{}}, "dynamic category preview does not support a root index override"},
 		{"streaming with disabled index", Options{RootIndex: RootIndexDisabled(), Preview: StreamingMissingCategoryPivotPreview{}}, "streaming missing-category preview does not support a disabled root index"},
 		{"two-scan without hint", Options{Preview: TwoScanPivotPreview{}}, "two-scan preview requires a root index hint"},
 		{"empty index hint", Options{RootIndex: RootIndexHint("")}, "is not a safe index name"},

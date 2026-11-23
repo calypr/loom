@@ -42,7 +42,6 @@ type RootPageKeysPreview struct {
 	BindKey            string
 	RelatedExpandLimit int
 }
-type DynamicCategoryPivotPreview struct{}
 type StreamingMissingCategoryPivotPreview struct{}
 type TwoScanPivotPreview struct{ GroupKeySourcePaths [][]string }
 type SemanticGroupProjectionFactorizationPreview struct{}
@@ -50,7 +49,7 @@ type SemanticGroupProjectionAssessmentPreview struct{}
 
 func Render(plan ir.PhysicalPlan, options Options) (RenderedPhysicalPlan, error) {
 	switch preview := options.Preview.(type) {
-	case RelatedExpandPreview, RootPageKeysPreview, DynamicCategoryPivotPreview,
+	case RelatedExpandPreview, RootPageKeysPreview,
 		StreamingMissingCategoryPivotPreview, TwoScanPivotPreview,
 		SemanticGroupProjectionFactorizationPreview, SemanticGroupProjectionAssessmentPreview:
 		return preview.render(plan, options.RootIndex)
@@ -87,7 +86,7 @@ func (p renderPreview) twoScanPivot() bool {
 
 func (p renderPreview) dynamicPivot() bool {
 	switch p.mode.(type) {
-	case DynamicCategoryPivotPreview, TwoScanPivotPreview:
+	case TwoScanPivotPreview:
 		return true
 	default:
 		return false
@@ -144,24 +143,6 @@ func (p RootPageKeysPreview) render(plan ir.PhysicalPlan, index RootIndex) (Rend
 		previewRootKeyWindowVariable: fmt.Sprintf("SORTED_UNIQUE(@%s)", p.BindKey),
 		renderPreview:                renderPreview{p},
 	})
-}
-
-func (p DynamicCategoryPivotPreview) render(plan ir.PhysicalPlan, index RootIndex) (RenderedPhysicalPlan, error) {
-	if index.kind != 0 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview does not support a root index override")
-	}
-	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a terminal Pivot preview")
-	}
-	stage := sequence.Stages[0]
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a nonunique terminal Pivot")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{renderPreview: renderPreview{p}})
 }
 
 func (p StreamingMissingCategoryPivotPreview) render(plan ir.PhysicalPlan, index RootIndex) (RenderedPhysicalPlan, error) {
