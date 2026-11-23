@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	populationpkg "github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/google/uuid"
 )
@@ -93,7 +94,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 		return PopulationMemberRemovalProposalResponse{}, err
 	}
 	candidateSelection := created.Header
-	if err := validatePopulationRemovalSelection(baseSelection, candidateSelection, request.RemovedMember, snapshot); err != nil {
+	if err := populationpkg.ValidateRemovalSelection(baseSelection, candidateSelection, request.RemovedMember, snapshot); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, conflict("population-member-proposal", "INVALID_CANDIDATE_SELECTION", "the server-created candidate selection failed exact removal validation", nil, err)
 	}
 	routeChoiceID, err := s.populationRemovalRouteChoice(ctx, request, baseDocument, candidateSelection.ID)
@@ -181,41 +182,6 @@ func selectionContainsExactMember(ctx context.Context, store selectionMemberRead
 	return false, fmt.Errorf("selection member lookup exceeded the immutable selection size bound")
 }
 
-func validatePopulationRemovalSelection(base, candidate *explorerselection.SelectionRevision, removed explorerselection.ResourceRef, snapshot capability.Snapshot) error {
-	if base == nil || candidate == nil {
-		return fmt.Errorf("base and candidate selection headers are required")
-	}
-	if err := base.Validate(); err != nil {
-		return err
-	}
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	project, generation, scope := projectid.Canonical(snapshot.Identity.Project), snapshot.Identity.Generation, snapshot.Identity.AuthorizationScopeDigest
-	for name, selection := range map[string]*explorerselection.SelectionRevision{"base": base, "candidate": candidate} {
-		if !selection.Complete || projectid.Canonical(selection.Project) != project || selection.Generation != generation || selection.ScopeDigest != scope {
-			return fmt.Errorf("%s selection is incomplete or outside the authorized project, generation, or scope", name)
-		}
-	}
-	if base.ID == candidate.ID || base.MembershipDigest == candidate.MembershipDigest ||
-		base.Project != candidate.Project || base.Generation != candidate.Generation || base.ScopeDigest != candidate.ScopeDigest || base.ResourceType != candidate.ResourceType {
-		return fmt.Errorf("candidate selection does not retain the exact base selection scope")
-	}
-	removed = removed.Canonical()
-	if err := removed.Validate(project, generation, base.ResourceType); err != nil {
-		return err
-	}
-	if base.MemberCount < 1 || candidate.MemberCount != base.MemberCount-1 {
-		return fmt.Errorf("candidate selection does not remove exactly one member")
-	}
-	if candidate.Source.Kind != explorerselection.SelectionSourceRevision || candidate.Source.RevisionID != base.ID || candidate.Source.Generation != base.Generation ||
-		candidate.Source.ResourceType != base.ResourceType || candidate.Source.MembershipDigest != base.MembershipDigest ||
-		candidate.Rule.Kind != explorerselection.SelectionRuleExplicit || len(candidate.Exclusions) != 1 || candidate.Exclusions[0].Canonical() != removed {
-		return fmt.Errorf("candidate selection provenance does not identify the exact base-minus-member derivation")
-	}
-	return nil
-}
-
 func cloneSelectionHeader(selection *explorerselection.SelectionRevision) *explorerselection.SelectionRevision {
 	if selection == nil {
 		return nil
@@ -233,21 +199,6 @@ func clonePopulationRouteForProposal(route []authoringv2.PopulationRouteStep) []
 	return cloned
 }
 
-func populationRemovalRouteMatches(populationRoute []authoringv2.PopulationRouteStep, signedRoute []capability.ConstructionRouteStep) bool {
-	if len(populationRoute) != len(signedRoute) {
-		return false
-	}
-	for index, step := range populationRoute {
-		signed := signedRoute[index]
-		if step.ResourceType != signed.ToResourceType || step.Relationship != signed.Relationship ||
-			(step.CatalogEdgeID != "" && step.CatalogEdgeID != signed.EdgeID) ||
-			(step.StorageDirection != "" && step.StorageDirection != signed.StorageDirection) {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Service) populationRemovalRouteChoice(ctx context.Context, request PopulationMemberRemovalProposalRequest, document authoringv2.Document, candidateSelectionID string) (string, error) {
 	cursor := ""
 	seenCursors := map[string]bool{}
@@ -260,7 +211,7 @@ func (s *Service) populationRemovalRouteChoice(ctx context.Context, request Popu
 			return "", err
 		}
 		for _, choice := range page.Choices {
-			if populationRemovalRouteMatches(document.Population.Route, choice.Route) {
+			if populationpkg.RemovalRouteMatches(document.Population.Route, choice.Route) {
 				return choice.RouteChoiceID, nil
 			}
 		}
@@ -319,7 +270,7 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if memberReadErr != nil {
 		return nil, nil, persistenceFailure("commands", "the selected resource set could not be inspected", memberReadErr)
 	}
-	if validationErr := validatePopulationRemovalSelection(baseSelection, candidateSelection, binding.RemovedMember, snapshot); validationErr != nil {
+	if validationErr := populationpkg.ValidateRemovalSelection(baseSelection, candidateSelection, binding.RemovedMember, snapshot); validationErr != nil {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the immutable selection revisions no longer prove the exact removed member", nil, validationErr)
 	}
 	if baseSelection.MembershipDigest != binding.BaseMembershipDigest || baseSelection.MemberCount != binding.BaseMemberCount ||
@@ -329,7 +280,7 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 	}
 	identity, decodeErr := capability.DecodePopulationRouteChoiceID(binding.RouteChoiceID)
 	if decodeErr != nil || identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != candidateSelection.ID ||
-		!populationRemovalRouteMatches(baseDocument.Population.Route, identity.Route) {
+		!populationpkg.RemovalRouteMatches(baseDocument.Population.Route, identity.Route) {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the receipt route is not bound to the exact candidate selection and retained table route", nil, decodeErr)
 	}
 	synthetic := authoringv2.Command{Type: authoringv2.CommandSetTablePopulation, OutputID: command.OutputID, SelectionRevisionID: candidateSelection.ID, RouteChoiceID: binding.RouteChoiceID}
@@ -337,7 +288,7 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(preparedRoute) != 1 || !populationRemovalRouteMatches(baseDocument.Population.Route, identity.Route) {
+	if len(preparedRoute) != 1 || !populationpkg.RemovalRouteMatches(baseDocument.Population.Route, identity.Route) {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the retained population route could not be reauthorized exactly", nil, nil)
 	}
 	expectedWorkspace := current
