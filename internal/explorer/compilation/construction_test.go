@@ -7,16 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/viewer"
-
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestRecipeConstructionStepCopiesResolvedFieldSourceForGroupRowValue(t *testing.T) {
@@ -712,5 +709,334 @@ func TestRecipeConstructionMapsTypedGroupAndExpandOperations(t *testing.T) {
 	}
 	if mapped.SourceColumns[2].Name != "resolved_tags" {
 		t.Fatalf("mapped source name = %q, want resolved public emission", mapped.SourceColumns[2].Name)
+	}
+}
+
+func constructionRecipePlanForScalarTest(t *testing.T, operation ws.ConstructionOperation, sources, outputs []recipe.StageColumn) *recipeplan.RecipePlan {
+	t.Helper()
+	mapped, err := recipeConstructionOperation(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "construction-translation",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{
+			{
+				Name:             "patients",
+				RootResourceType: "Patient",
+				RowGrain:         "patient",
+				Construction: &recipe.Construction{
+					Version:       ws.ConstructionVersion,
+					SourceColumns: sources,
+					Steps: []recipe.ConstructionStep{
+						{
+							ID:        "operation",
+							Inputs:    []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+							Operation: mapped,
+							Outputs:   outputs,
+						},
+					},
+				},
+			},
+		},
+	}, recipe.RuntimeBindings{Project: "project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &plan
+}
+
+func TestRecipeConstructionPreservesAuthoredPivotAndUnpivotIdentity(t *testing.T) {
+	zero := int64(0)
+	operation := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationPivot,
+		Pivot: &ws.ConstructionPivot{
+			ConstructionID:   "pivot_construction",
+			GroupKeyIDs:      []string{"cohort_id", "site_id"},
+			CategoryColumnID: "measure_id",
+			ValueColumnID:    "value_id",
+			Categories: []ws.ConstructionPivotCategory{
+				{
+					Key:            ws.TableScalar{Kind: ws.TableScalarInteger, Integer: &zero},
+					OutputColumnID: "baseline_id",
+				},
+			},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateSum,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedExcludeWithEvidence,
+		},
+	}
+	sources := []recipe.StageColumn{
+		{ID: "cohort_id", Name: "cohort", Label: "Cohort", Type: "string"},
+		{ID: "site_id", Name: "site", Label: "Site", Type: "string"},
+		{ID: "measure_id", Name: "measure", Label: "Measure", Type: "integer"},
+		{ID: "value_id", Name: "value", Label: "Value", Type: "integer"},
+	}
+	outputs := []recipe.StageColumn{sources[0], sources[1], {ID: "baseline_id", Name: "baseline", Label: "Baseline", Type: "integer"}}
+	plan := constructionRecipePlanForScalarTest(t, operation, sources, outputs)
+	steps := plan.Outputs[0].Construction.Steps
+	if len(steps) != 1 || steps[0].Operation.Pivot == nil || steps[0].Operation.Unpivot != nil {
+		t.Fatalf("semantic construction union=%#v", steps)
+	}
+	pivot := steps[0].Operation.Pivot
+	if pivot.ConstructionID != "pivot_construction" || !reflect.DeepEqual(pivot.GroupKeyIDs, []string{"cohort_id", "site_id"}) || pivot.CategoryColumnID != "measure_id" || pivot.ValueColumnID != "value_id" || len(pivot.Categories) != 1 || pivot.Categories[0].OutputColumnID != "baseline_id" || pivot.Categories[0].Key.Kind != recipe.TableScalarInteger || pivot.Categories[0].Key.Integer == nil || *pivot.Categories[0].Key.Integer != 0 || pivot.DuplicatePolicy != recipe.PivotDuplicateSum || pivot.MissingCellPolicy != recipe.PivotMissingCellNull || pivot.UnlistedCategoryPolicy != recipe.PivotUnlistedCategoryExcludeWithEvidence {
+		t.Fatalf("semantic pivot lost authored identity/key/policies: %#v", pivot)
+	}
+	if !reflect.DeepEqual(steps[0].Outputs, outputs) {
+		t.Fatalf("pivot names/labels changed: %#v", steps[0].Outputs)
+	}
+	firstKey, secondKey := "first", "second"
+	unpivotOperation := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationUnpivot,
+		Unpivot: &ws.ConstructionUnpivot{
+			ConstructionID: "unpivot_construction",
+			Inputs: []ws.ConstructionUnpivotInput{
+				{
+					ColumnID: "baseline_id",
+					Key:      ws.TableScalar{Kind: ws.TableScalarString, String: &firstKey},
+				},
+				{
+					ColumnID: "followup_id",
+					Key:      ws.TableScalar{Kind: ws.TableScalarString, String: &secondKey},
+				},
+			},
+			KeyOutputColumnID:   "visit_id",
+			ValueOutputColumnID: "result_id",
+			NullRowPolicy:       ws.ConstructionUnpivotPreserve,
+		},
+	}
+	unpivotSources := []recipe.StageColumn{
+		{ID: "baseline_id", Name: "baseline", Label: "Baseline", Type: "integer"},
+		{ID: "followup_id", Name: "followup", Label: "Followup", Type: "integer"},
+	}
+	unpivotOutputs := []recipe.StageColumn{
+		{ID: "visit_id", Name: "visit", Label: "Visit", Type: "string"},
+		{ID: "result_id", Name: "result", Label: "Result", Type: "integer"},
+	}
+	plan = constructionRecipePlanForScalarTest(t, unpivotOperation, unpivotSources, unpivotOutputs)
+	steps = plan.Outputs[0].Construction.Steps
+	unpivot := steps[0].Operation.Unpivot
+	if unpivot == nil || unpivot.ConstructionID != "unpivot_construction" || len(unpivot.Inputs) != 2 || unpivot.Inputs[0].ColumnID != "baseline_id" || unpivot.Inputs[1].ColumnID != "followup_id" || unpivot.Inputs[0].Key.String == nil || *unpivot.Inputs[0].Key.String != "first" || unpivot.Inputs[1].Key.String == nil || *unpivot.Inputs[1].Key.String != "second" || unpivot.KeyOutputColumnID != "visit_id" || unpivot.ValueOutputColumnID != "result_id" || unpivot.NullRowPolicy != recipe.UnpivotNullPreserve || !reflect.DeepEqual(steps[0].Outputs, unpivotOutputs) {
+		t.Fatalf("semantic unpivot lost authored construction/input order/output labels: %#v", steps)
+	}
+
+}
+
+func TestRecipeConstructionPreservesNullAndMissingPivotKeysThroughSemanticPlan(t *testing.T) {
+	operation := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationPivot,
+		Pivot: &ws.ConstructionPivot{
+			ConstructionID:   "pivot_sentinels",
+			GroupKeyIDs:      []string{"cohort_id"},
+			CategoryColumnID: "measure_id",
+			ValueColumnID:    "value_id",
+			Categories: []ws.ConstructionPivotCategory{
+				{Key: ws.TableScalar{Kind: ws.TableScalarNull}, OutputColumnID: "null_id"},
+				{Key: ws.TableScalar{Kind: ws.TableScalarMissing}, OutputColumnID: "missing_id"},
+			},
+			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
+		},
+	}
+	sources := []recipe.StageColumn{
+		{ID: "cohort_id", Name: "cohort", Label: "Cohort", Type: "string"},
+		{ID: "measure_id", Name: "measure", Label: "Measure", Type: "string"},
+		{ID: "value_id", Name: "value", Label: "Value", Type: "integer"},
+	}
+	outputs := []recipe.StageColumn{
+		sources[0],
+		{ID: "null_id", Name: "null_category", Label: "Null", Type: "integer"},
+		{ID: "missing_id", Name: "missing_category", Label: "Missing", Type: "integer"},
+	}
+	mapped, err := recipeConstructionOperation(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := constructionRecipePlanForScalarTest(t, operation, sources, outputs)
+	for _, pivot := range []*recipe.ConstructionPivot{mapped.Pivot, plan.Outputs[0].Construction.Steps[0].Operation.Pivot} {
+		want := []recipe.TableScalarKind{recipe.TableScalarNull, recipe.TableScalarMissing}
+		if pivot == nil || len(pivot.Categories) != len(want) {
+			t.Fatalf("pivot categories=%#v", pivot)
+		}
+		for i, kind := range want {
+			key := pivot.Categories[i].Key
+			if key.Kind != kind || key.String != nil || key.Integer != nil || key.Decimal != nil || key.Boolean != nil {
+				t.Errorf("category %d=%#v, want payload-free %s", i, key, kind)
+			}
+		}
+	}
+}
+
+func TestRecipeConstructionRejectsNullAndMissingUnpivotKeys(t *testing.T) {
+	for _, kind := range []ws.TableScalarKind{ws.TableScalarNull, ws.TableScalarMissing} {
+		t.Run(string(kind), func(t *testing.T) {
+			operation := ws.ConstructionOperation{
+				Kind: ws.ConstructionOperationUnpivot,
+				Unpivot: &ws.ConstructionUnpivot{
+					ConstructionID:      "unpivot_sentinel",
+					Inputs:              []ws.ConstructionUnpivotInput{{ColumnID: "value_id", Key: ws.TableScalar{Kind: kind}}},
+					KeyOutputColumnID:   "name_id",
+					ValueOutputColumnID: "result_id",
+					NullRowPolicy:       ws.ConstructionUnpivotDrop,
+				},
+			}
+			if _, err := recipeConstructionOperation(operation); err == nil {
+				t.Fatalf("%s unpivot key accepted", kind)
+			}
+		})
+	}
+}
+
+func TestRecipeConstructionMapsRepeatedRelatedContributorContract(t *testing.T) {
+	code := "d"
+	source := ws.ConstructionRelatedFieldSource{
+		Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-code",
+		NodeID: "observation", ResourceType: "Observation", Path: "category[].coding[].code",
+		Cardinality: "many", LogicalType: "code",
+		RepeatedBoundaries: []capability.RepeatedBoundary{
+			{Path: "category[]", MaxItems: 2}, {Path: "category[].coding[]", MaxItems: 4},
+		},
+	}
+	authored := ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedExpand, RelatedExpand: &ws.ConstructionRelatedExpand{
+		AnchorColumnID: "_key", ChoiceID: "route-choice", TargetNodeID: "observation", TargetResourceType: "Observation",
+		Route: []capability.ConstructionRouteStep{{
+			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+		}},
+		ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches, Predicate: &ws.ContributorPredicate{
+			CandidateID: source.CandidateID, Operator: ws.ContributorEquals, Quantifier: ws.ContributorAny,
+			Value: &ws.ContributorValue{Kind: ws.ContributorValueCode, Code: &ws.ContributorCode{Code: code}},
+		}},
+		ContributorSource: &source, ContributorChoiceID: "field-choice",
+		EmptyPolicy: ws.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation-id",
+	}}
+	mapped, err := recipeConstructionOperation(authored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped.RelatedExpand == nil || mapped.RelatedExpand.ContributorPredicate == nil || mapped.RelatedExpand.ContributorSource == nil {
+		t.Fatalf("mapped related expansion omitted contributor contract: %#v", mapped.RelatedExpand)
+	}
+	gotSource := mapped.RelatedExpand.ContributorSource
+	wantBoundaries := []recipe.ConstructionRelatedRepeatedBoundary{
+		{Path: "category[]", MaxItems: 2}, {Path: "category[].coding[]", MaxItems: 4},
+	}
+	if !reflect.DeepEqual(gotSource.RepeatedBoundaries, wantBoundaries) || gotSource.Cardinality != "many" || gotSource.Path != source.Path {
+		t.Fatalf("mapped repeated source = %#v, want cardinality/path/boundaries %q %q %#v", gotSource, "many", source.Path, wantBoundaries)
+	}
+	predicate := mapped.RelatedExpand.ContributorPredicate
+	if predicate.Quantifier != recipe.QuantifierAny || predicate.CandidateID != source.CandidateID ||
+		predicate.Operator != recipe.FilterEquals || predicate.Value == nil || predicate.Value.Kind != recipe.FilterCode ||
+		predicate.Value.Code == nil || predicate.Value.Code.Code != code {
+		t.Fatalf("mapped repeated CODE ANY predicate = %#v", predicate)
+	}
+}
+
+func TestRecipeConstructionMapsRelatedSourceRowValuePolicy(t *testing.T) {
+	authored := ws.ConstructionOperation{
+		Kind: ws.ConstructionOperationRelatedSource,
+		RelatedSource: &ws.ConstructionRelatedSource{
+			AnchorColumnID: "__loom_row_id", ChoiceID: "observation-status-choice", SourceOccurrenceID: "observation-node",
+			Source: ws.ConstructionRelatedFieldSource{
+				Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-status", NodeID: "observation-node",
+				ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
+			},
+			Route: []capability.ConstructionRouteStep{{
+				EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorRule: ws.ConstructionRelatedContributorRule{Policy: ws.ConstructionRelatedAllMatches},
+			Form:            capability.ConstructionChoiceAll, RowValuePolicy: ws.ConstructionRowValueOne,
+			OutputColumnID: "related-status",
+		},
+	}
+	mapped, err := recipeConstructionOperation(authored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped.RelatedSource == nil || mapped.RelatedSource.Form != "ALL" ||
+		mapped.RelatedSource.RowValuePolicy != recipe.ConstructionRowValueOne ||
+		mapped.RelatedSource.ContributorPolicy != "ALL_MATCHES" {
+		t.Fatalf("mapped related-source policy = %#v", mapped.RelatedSource)
+	}
+}
+
+func TestRecipeConstructionPreservesPivotDiscoveryAndRefusesUnresolvedCompilation(t *testing.T) {
+	authoredColumns := []ws.Column{
+		{ColumnID: "group_id", Column: "group", Label: "Group", LogicalType: "string"},
+		{ColumnID: "category_id", Column: "category", Label: "Category", LogicalType: "string"},
+		{ColumnID: "amount_id", Column: "amount", Label: "Amount", LogicalType: "decimal"},
+	}
+	authored := &ws.Construction{
+		Version: ws.ConstructionVersion,
+		Steps: []ws.ConstructionStep{{
+			ID: "pivot", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
+				ConstructionID: "pivot", GroupKeyIDs: []string{"group_id"},
+				CategoryColumnID: "category_id", ValueColumnID: "amount_id",
+				Discovery:              &ws.ConstructionPivotDiscovery{MaxCategories: 4},
+				DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
+				MissingCellPolicy:      ws.ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
+			}},
+			Outputs: []ws.StageColumn{{ID: "group_id", Name: "group", Label: "Group", Type: "string"}},
+		}},
+	}
+	if err := authored.Validate(authoredColumns); err != nil {
+		t.Fatalf("validate authored discovery Pivot: %v", err)
+	}
+	emitted := []viewer.EmittedColumn{
+		{EmissionID: "emission-group", AuthoredColumns: []string{"group"}, PublicColumn: "resolved_group"},
+		{EmissionID: "emission-category", AuthoredColumns: []string{"category"}, PublicColumn: "resolved_category"},
+		{EmissionID: "emission-amount", AuthoredColumns: []string{"amount"}, PublicColumn: "resolved_amount"},
+	}
+	operation, err := recipeConstructionOperation(authored.Steps[0].Operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.Pivot == nil || operation.Pivot.Discovery == nil || operation.Pivot.Discovery.MaxCategories != 4 {
+		t.Fatalf("mapped discovery declaration = %#v", operation.Pivot)
+	}
+	if len(operation.Pivot.Categories) != 0 {
+		t.Fatalf("unresolved discovery unexpectedly produced categories: %#v", operation.Pivot.Categories)
+	}
+
+	_, err = recipeConstruction(authored, authoredColumns, emitted)
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "PIVOT_DISCOVERY_UNRESOLVED" {
+		t.Fatalf("unresolved discovery compilation error = %v, want PIVOT_DISCOVERY_UNRESOLVED", err)
+	}
+	if !strings.Contains(compileErr.Message, "must be resolved to concrete categories") {
+		t.Fatalf("unresolved discovery message = %q", compileErr.Message)
+	}
+}
+
+func TestRecipeConstructionStepPreservesWorkspaceOutputInputIdentity(t *testing.T) {
+	step := ws.ConstructionStep{
+		ID: "combine",
+		Inputs: []ws.ConstructionInputRef{
+			{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "grouped_output"},
+			{Kind: ws.ConstructionInputWorkspaceOutput, OutputID: "pivot_output"},
+		},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationCombine, Combine: &ws.ConstructionCombine{
+			Kind: ws.ConstructionCombineAppend,
+			Projections: []ws.ConstructionCombineProjection{
+				{OutputColumnID: "value", InputIndex: 0, InputColumnID: "group_value"},
+				{OutputColumnID: "value", InputIndex: 1, InputColumnID: "pivot_value"},
+			},
+		}},
+		Outputs: []ws.StageColumn{{ID: "value", Name: "value", Type: "string"}},
+	}
+	mapped, err := recipeConstructionStep(step)
+	if err != nil {
+		t.Fatalf("map construction step: %v", err)
+	}
+	if len(mapped.Inputs) != 2 || mapped.Inputs[0] != (recipe.ConstructionInputRef{Kind: recipe.ConstructionWorkspaceOutputInput, OutputID: "grouped_output"}) || mapped.Inputs[1] != (recipe.ConstructionInputRef{Kind: recipe.ConstructionWorkspaceOutputInput, OutputID: "pivot_output"}) {
+		t.Fatalf("mapped workspace output refs = %#v", mapped.Inputs)
 	}
 }
