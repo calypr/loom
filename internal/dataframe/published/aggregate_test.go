@@ -2,9 +2,15 @@ package published
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
+	"github.com/google/uuid"
 )
 
 type aggregateQueryCall struct {
@@ -208,5 +214,153 @@ func TestAggregateDedupFansOutIndependentRows(t *testing.T) {
 	result.Jobs[0].Rows[0]["count"] = int64(9)
 	if result.Jobs[1].Rows[0]["count"] != int64(2) {
 		t.Fatalf("deduplicated aliases share row maps: %#v", result.Jobs)
+	}
+}
+
+func TestAggregateBatchClickHouseIntegration(t *testing.T) {
+	url := os.Getenv("LOOM_CLICKHOUSE_URL")
+	if url == "" {
+		t.Skip("LOOM_CLICKHOUSE_URL is not set")
+	}
+	database := os.Getenv("LOOM_CLICKHOUSE_DATABASE")
+	if database == "" {
+		database = "loom_test"
+	}
+	client, err := storeclickhouse.New(storeclickhouse.Options{
+		URL: url, Database: database,
+		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
+		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
+		Timeout:  10 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx := context.Background()
+	if err := client.EnsureDatabase(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tableA := "loom_aggregate_a_" + uuid.NewString()[:8]
+	defer client.DropTable(ctx, tableA)
+	physicalColumns := []storeclickhouse.Column{
+		{Name: "__loom_row_id", Type: "UInt64"},
+		{Name: "facet", Type: "Nullable(String)"},
+		{Name: "facet_other", Type: "Nullable(String)"},
+		{Name: "value", Type: "Nullable(Float64)"},
+		{Name: "auth_resource_path", Type: "String"},
+	}
+	if err := client.CreateTable(ctx, tableA, physicalColumns); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertRows(ctx, tableA, physicalColumns, []map[string]any{
+		{"__loom_row_id": uint64(1), "facet": "a", "facet_other": "x", "value": 2.0, "auth_resource_path": "allowed"},
+		{"__loom_row_id": uint64(2), "facet": nil, "facet_other": "x", "value": 3.0, "auth_resource_path": "allowed"},
+		{"__loom_row_id": uint64(3), "facet": "secret", "facet_other": "secret", "value": 100.0, "auth_resource_path": "denied"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	columns := []Column{
+		{Name: "__loom_row_id", ClickHouse: "UInt64"},
+		{Name: "facet", ClickHouse: "Nullable(String)"},
+		{Name: "facet_other", ClickHouse: "Nullable(String)"},
+		{Name: "value", ClickHouse: "Nullable(Float64)"},
+		{Name: authResourcePathColumn, ClickHouse: "String"},
+	}
+	dataset := Materialization{ID: "a:Patient", Project: "a", PhysicalTable: tableA, Columns: columns, Selector: DataframeSelector{Recipe: "recipe", Output: "Patient"}}
+	result, err := (&Reader{ClickHouse: client}).ExecuteAggregateBatch(ctx, dataset, AggregateBatchRequest{
+		Jobs: []AggregateJob{
+			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet"}, Operation: "COUNT"},
+			{ID: 2, ResponseMode: AggregateResponseLegacy, Operation: "COUNT"},
+			{ID: 3, ResponseMode: AggregateResponseLegacy, Operation: "SUM", Column: "value"},
+			{ID: 4, ResponseMode: AggregateResponseTerms, Column: "facet", Size: 2},
+			{ID: 5, ResponseMode: AggregateResponseTerms, Column: "facet_other", Size: 1},
+		},
+		Unrestricted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range result.Jobs {
+		if job.Err != nil {
+			t.Fatalf("job %d: %v", job.ID, job.Err)
+		}
+	}
+	if len(result.Jobs[0].Rows) != 3 {
+		t.Fatalf("grouped rows = %#v", result.Jobs[0].Rows)
+	}
+	if got, err := numericCount(result.Jobs[1].Rows[0]["count"]); err != nil || got != 3 {
+		t.Fatalf("ungrouped count = %v, err = %v", result.Jobs[1].Rows, err)
+	}
+	if got := result.Jobs[3]; len(got.Rows) != 2 || got.Truncated || got.MissingCount != 1 {
+		t.Fatalf("facet terms = %#v", got)
+	}
+	if got := result.Jobs[4]; len(got.Rows) != 1 || !got.Truncated || got.MissingCount != 0 || got.Rows[0]["key"] != "x" {
+		t.Fatalf("facet_other terms = %#v", got)
+	}
+}
+
+func TestExecuteAggregateBatchRichShapesShareScans(t *testing.T) {
+	dataset := aggregateTestDataset(1)
+	fake := &aggregateFakeQueryer{rows: [][]map[string]any{
+		{
+			{"__loom_slot": int64(0), "__loom_group_json": "[\"a\"]", "__loom_metric": int64(5)},
+			{"__loom_slot": int64(0), "__loom_group_json": "[\"b\"]", "__loom_metric": int64(3)},
+			{"__loom_slot": int64(0), "__loom_group_json": "[\"c\"]", "__loom_metric": int64(1)},
+		},
+		{{
+			"__loom_0_count": int64(9), "__loom_0_value_count": int64(8), "__loom_0_distinct_count": int64(3),
+			"__loom_0_min": "a", "__loom_0_max": "z", "__loom_0_sum": nil, "__loom_0_avg": nil,
+			"__loom_1_missing_count": int64(1), "__loom_2_missing_count": int64(4),
+		}},
+	}}
+	result, err := (&Reader{ClickHouse: fake}).ExecuteAggregateBatch(context.Background(), dataset, AggregateBatchRequest{
+		Jobs: []AggregateJob{
+			{ID: 1, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 2},
+			{ID: 2, ResponseMode: AggregateResponseStats, Column: "facet_000"},
+			{ID: 3, ResponseMode: AggregateResponseMissing, Column: "facet_000"},
+		},
+		Unrestricted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Statements != 2 || result.GroupingStatements != 1 || result.ScalarStatements != 1 {
+		t.Fatalf("statement counts = %#v", result)
+	}
+	if len(result.Jobs[0].Rows) != 2 || !result.Jobs[0].Truncated || result.Jobs[0].MissingCount != 4 {
+		t.Fatalf("terms result = %#v", result.Jobs[0])
+	}
+	if result.Jobs[1].Rows[0]["distinct_count"] != int64(3) {
+		t.Fatalf("stats result = %#v", result.Jobs[1])
+	}
+	if result.Jobs[2].Rows[0]["missing_count"] != int64(1) {
+		t.Fatalf("missing result = %#v", result.Jobs[2])
+	}
+	if !strings.Contains(fake.calls[0].query, "row_number() OVER") {
+		t.Fatalf("terms statement does not rank in ClickHouse: %s", fake.calls[0].query)
+	}
+}
+
+func TestExecuteAggregateBatchUsesTypedMultiColumnOrdering(t *testing.T) {
+	dataset := aggregateTestDataset(2)
+	fake := &aggregateFakeQueryer{rows: [][]map[string]any{{
+		{"__loom_slot": int64(0), "__loom_group_json": "[10,\"b\"]", "__loom_metric": int64(1)},
+		{"__loom_slot": int64(0), "__loom_group_json": "[2,\"z\"]", "__loom_metric": int64(1)},
+		{"__loom_slot": int64(0), "__loom_group_json": "[2,\"a\"]", "__loom_metric": int64(1)},
+		{"__loom_slot": int64(0), "__loom_group_json": "[null,\"a\"]", "__loom_metric": int64(1)},
+	}}}
+	result, err := (&Reader{ClickHouse: fake}).ExecuteAggregateBatch(context.Background(), dataset, AggregateBatchRequest{
+		Jobs:         []AggregateJob{{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000", "facet_001"}, Operation: "COUNT"}},
+		Unrestricted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := result.Jobs[0].Rows
+	if rows[0]["facet_000"].(json.Number).String() != "2" || rows[0]["facet_001"] != "a" {
+		t.Fatalf("typed ordering = %#v", rows)
+	}
+	if rows[len(rows)-1]["facet_000"] != nil {
+		t.Fatalf("null key did not sort last: %#v", rows)
 	}
 }
