@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -1541,20 +1542,17 @@ func validateConstructionFilter(step ConstructionStep, input map[string]StageCol
 	if _, exists := input[filter.ColumnID]; !exists {
 		return missingConstructionColumn("columnId", filter.ColumnID)
 	}
-	if !oneOf(string(filter.Operator), "EQUALS", "NOT_EQUALS", "IN", "EXISTS", "MISSING", "CONTAINS_TEXT", "GT", "GTE", "LT", "LTE") {
+	if !filter.Operator.Valid() {
 		return fmt.Errorf("unsupported filter operator %q", filter.Operator)
 	}
-	switch filter.Operator {
-	case ConstructionFilterExists, ConstructionFilterMissing:
-		if len(filter.Values) != 0 {
+	countRule := filter.Operator.ValueCountRule()
+	if !countRule.Accepts(len(filter.Values)) {
+		switch countRule {
+		case spec.FilterValueCountNone:
 			return fmt.Errorf("%s does not accept values", filter.Operator)
-		}
-	case ConstructionFilterIn:
-		if len(filter.Values) == 0 {
+		case spec.FilterValueCountOneOrMore:
 			return fmt.Errorf("IN requires at least one value")
-		}
-	default:
-		if len(filter.Values) != 1 {
+		default:
 			return fmt.Errorf("%s requires exactly one value", filter.Operator)
 		}
 	}

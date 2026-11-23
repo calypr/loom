@@ -321,18 +321,16 @@ func validateConstructionFilter(filter ConstructionFilter, path string) error {
 	if !filter.Operator.Valid() {
 		return fmt.Errorf("%s operator %q is unsupported", path, filter.Operator)
 	}
-	if filter.Operator == FilterExists || filter.Operator == FilterMissing {
-		if len(filter.Values) != 0 {
+	countRule := filter.Operator.ValueCountRule()
+	if !countRule.Accepts(len(filter.Values)) {
+		switch countRule {
+		case spec.FilterValueCountNone:
 			return fmt.Errorf("%s operator %s does not accept values", path, filter.Operator)
-		}
-		return nil
-	}
-	if filter.Operator == FilterIn {
-		if len(filter.Values) == 0 {
+		case spec.FilterValueCountOneOrMore:
 			return fmt.Errorf("%s IN requires values", path)
+		default:
+			return fmt.Errorf("%s operator %s requires exactly one value", path, filter.Operator)
 		}
-	} else if len(filter.Values) != 1 {
-		return fmt.Errorf("%s operator %s requires exactly one value", path, filter.Operator)
 	}
 	for index, value := range filter.Values {
 		if err := value.Validate(); err != nil {

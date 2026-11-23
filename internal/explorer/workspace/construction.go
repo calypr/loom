@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -460,19 +461,19 @@ type ConstructionFilter struct {
 	Values   []FilterValue              `json:"values,omitempty"`
 }
 
-type ConstructionFilterOperator string
+type ConstructionFilterOperator = spec.FilterOperator
 
 const (
-	ConstructionFilterEquals      ConstructionFilterOperator = "EQUALS"
-	ConstructionFilterNotEquals   ConstructionFilterOperator = "NOT_EQUALS"
-	ConstructionFilterIn          ConstructionFilterOperator = "IN"
-	ConstructionFilterExists      ConstructionFilterOperator = "EXISTS"
-	ConstructionFilterMissing     ConstructionFilterOperator = "MISSING"
-	ConstructionFilterContains    ConstructionFilterOperator = "CONTAINS_TEXT"
-	ConstructionFilterGreaterThan ConstructionFilterOperator = "GT"
-	ConstructionFilterGreaterEq   ConstructionFilterOperator = "GTE"
-	ConstructionFilterLessThan    ConstructionFilterOperator = "LT"
-	ConstructionFilterLessEq      ConstructionFilterOperator = "LTE"
+	ConstructionFilterEquals      = spec.FilterEquals
+	ConstructionFilterNotEquals   = spec.FilterNotEquals
+	ConstructionFilterIn          = spec.FilterIn
+	ConstructionFilterExists      = spec.FilterExists
+	ConstructionFilterMissing     = spec.FilterMissing
+	ConstructionFilterContains    = spec.FilterContains
+	ConstructionFilterGreaterThan = spec.FilterGreaterThan
+	ConstructionFilterGreaterEq   = spec.FilterGreaterEq
+	ConstructionFilterLessThan    = spec.FilterLessThan
+	ConstructionFilterLessEq      = spec.FilterLessEq
 )
 
 type FilterValue struct {
@@ -486,16 +487,16 @@ type FilterValue struct {
 	DateTime *string                     `json:"dateTime,omitempty"`
 }
 
-type ConstructionFilterValueKind string
+type ConstructionFilterValueKind = spec.FilterValueKind
 
 const (
-	ConstructionFilterString   ConstructionFilterValueKind = "STRING"
-	ConstructionFilterCode     ConstructionFilterValueKind = "CODE"
-	ConstructionFilterBoolean  ConstructionFilterValueKind = "BOOLEAN"
-	ConstructionFilterInteger  ConstructionFilterValueKind = "INTEGER"
-	ConstructionFilterDecimal  ConstructionFilterValueKind = "DECIMAL"
-	ConstructionFilterDate     ConstructionFilterValueKind = "DATE"
-	ConstructionFilterDateTime ConstructionFilterValueKind = "DATE_TIME"
+	ConstructionFilterString   = spec.FilterString
+	ConstructionFilterCode     = spec.FilterCode
+	ConstructionFilterBoolean  = spec.FilterBoolean
+	ConstructionFilterInteger  = spec.FilterInteger
+	ConstructionFilterDecimal  = spec.FilterDecimal
+	ConstructionFilterDate     = spec.FilterDate
+	ConstructionFilterDateTime = spec.FilterDateTime
 )
 
 func (v *FilterValue) UnmarshalJSON(raw []byte) error {

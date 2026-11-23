@@ -66,16 +66,16 @@ func (f Filter) validateAt(path string) error {
 	if f.Quantifier != "" && !f.Quantifier.Valid() {
 		return validationError("invalid_filter_quantifier", path+".quantifier", fmt.Sprintf("unsupported quantifier %q", f.Quantifier))
 	}
-	if f.Operator == FilterExists || f.Operator == FilterMissing {
-		if len(f.Values) != 0 {
-			return validationError("invalid_filter_values", path+".values", "EXISTS and MISSING do not accept values")
+	countRule := f.Operator.ValueCountRule()
+	if !countRule.Accepts(len(f.Values)) {
+		message := "operator requires exactly one value"
+		switch countRule {
+		case spec.FilterValueCountNone:
+			message = "EXISTS and MISSING do not accept values"
+		case spec.FilterValueCountOneOrMore:
+			message = "IN requires at least one value"
 		}
-	} else if f.Operator == FilterIn {
-		if len(f.Values) == 0 {
-			return validationError("invalid_filter_values", path+".values", "IN requires at least one value")
-		}
-	} else if len(f.Values) != 1 {
-		return validationError("invalid_filter_values", path+".values", "operator requires exactly one value")
+		return validationError("invalid_filter_values", path+".values", message)
 	}
 	var kind FilterValueKind
 	for i, value := range f.Values {

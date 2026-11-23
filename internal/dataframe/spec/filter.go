@@ -1,15 +1,15 @@
 package spec
 
 import (
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-)
-
-import (
 	"errors"
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+
 	"strings"
 	"time"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	fhir "github.com/calypr/loom/fhir/model"
 )
@@ -40,6 +40,41 @@ const (
 	FilterDate     FilterValueKind = "DATE"
 	FilterDateTime FilterValueKind = "DATE_TIME"
 )
+
+type FilterValueCountRule uint8
+
+const (
+	FilterValueCountInvalid FilterValueCountRule = iota
+	FilterValueCountExactlyOne
+	FilterValueCountOneOrMore
+	FilterValueCountNone
+)
+
+func (op FilterOperator) ValueCountRule() FilterValueCountRule {
+	switch op {
+	case FilterExists, FilterMissing:
+		return FilterValueCountNone
+	case FilterIn:
+		return FilterValueCountOneOrMore
+	case FilterEquals, FilterNotEquals, FilterContains, FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:
+		return FilterValueCountExactlyOne
+	default:
+		return FilterValueCountInvalid
+	}
+}
+
+func (rule FilterValueCountRule) Accepts(count int) bool {
+	switch rule {
+	case FilterValueCountExactlyOne:
+		return count == 1
+	case FilterValueCountOneOrMore:
+		return count >= 1
+	case FilterValueCountNone:
+		return count == 0
+	default:
+		return false
+	}
+}
 
 type ArrayQuantifier string
 
@@ -97,17 +132,16 @@ func (f TypedFilter) Validate() error {
 		return errors.New("array quantifier is only valid for repeated fields")
 	}
 
-	want := 1
-	if f.Operator == FilterExists || f.Operator == FilterMissing {
-		want = 0
-	} else if f.Operator == FilterIn {
-		if len(f.Values) == 0 {
+	countRule := f.Operator.ValueCountRule()
+	if !countRule.Accepts(len(f.Values)) {
+		switch countRule {
+		case FilterValueCountNone:
+			return fmt.Errorf("operator %s requires 0 value(s), got %d", f.Operator, len(f.Values))
+		case FilterValueCountOneOrMore:
 			return errors.New("IN filter requires at least one value")
+		default:
+			return fmt.Errorf("operator %s requires 1 value(s), got %d", f.Operator, len(f.Values))
 		}
-		want = len(f.Values)
-	}
-	if len(f.Values) != want {
-		return fmt.Errorf("operator %s requires %d value(s), got %d", f.Operator, want, len(f.Values))
 	}
 	if !OperatorSupportsKind(f.Operator, f.FieldKind) {
 		return fmt.Errorf("operator %s is not compatible with %s", f.Operator, f.FieldKind)
@@ -146,13 +180,7 @@ func (f TypedFilter) Validate() error {
 }
 
 func (op FilterOperator) Valid() bool {
-	switch op {
-	case FilterEquals, FilterNotEquals, FilterIn, FilterExists, FilterMissing,
-		FilterContains, FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:
-		return true
-	default:
-		return false
-	}
+	return op.ValueCountRule() != FilterValueCountInvalid
 }
 
 func (kind FilterValueKind) Valid() bool {
