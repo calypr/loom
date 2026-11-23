@@ -302,6 +302,9 @@ func destPath(root, destPkg, destFile, sourceFile string) string {
 	if name == "" {
 		name = filepath.Base(sourceFile)
 	}
+	if filepath.Ext(name) == "" {
+		name += ".go"
+	}
 	if strings.ContainsAny(name, "/\\") {
 		if strings.HasPrefix(name, "internal/") {
 			return filepath.Join(root, filepath.FromSlash(name))

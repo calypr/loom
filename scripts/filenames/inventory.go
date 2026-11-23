@@ -107,7 +107,7 @@ func buildUnits(pd *pkgData, module, short, root string) {
 						}
 						start := ts.Pos()
 						if len(d.Specs) == 1 {
-							start = docStart(d, start)
+							start = docStart(d, d.Pos())
 						}
 						u := &unit{
 							ID:       fmt.Sprintf("%s::type::%s::%s", short, ts.Name.Name, file),
