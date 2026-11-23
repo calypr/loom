@@ -1,23 +1,28 @@
 package compiler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
-
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
@@ -334,5 +339,336 @@ func tumorGroupLivenessOutput(binding *fhirbinding.CorrelatedBinding) recipe.Out
 				Outputs:   groupColumns,
 			}},
 		},
+	}
+}
+
+func TestConstructionPivotSourceProjectionLivenessAgainstBindOnlyArango(t *testing.T) {
+	endpoint := arangotest.Shared(t).URL
+
+	const project, generation = "pivot-source-liveness", "pivot-source-generation"
+	output := pivotSourceLivenessOutput()
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                output.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{output},
+	}
+	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 1 {
+		t.Fatalf("compiled outputs = %d, want one", len(queries))
+	}
+	query := queries[0]
+	if query.PhysicalPlan.StageSequence == nil || query.PhysicalPlan.StageSequence.Stages[0].GroupedPivot == nil {
+		t.Fatal("compiled query does not contain a source Pivot stage")
+	}
+	planBeforeRender := ir.ClonePhysicalPlan(query.PhysicalPlan)
+	if _, err := aql.RenderPhysicalPlan(query.PhysicalPlan); err != nil {
+		t.Fatalf("render compiled Pivot plan: %v", err)
+	}
+	if !reflect.DeepEqual(query.PhysicalPlan, planBeforeRender) {
+		t.Fatal("rendering the Pivot plan mutated its caller-owned plan")
+	}
+
+	records := []map[string]any{
+		pivotSourceLivenessRecord("a-female-1", true, "allowed", map[string]any{"gender": "female", "multipleBirthInteger": 2}),
+		pivotSourceLivenessRecord("a-female-2", true, "allowed", map[string]any{"gender": "female", "multipleBirthInteger": 4}),
+		pivotSourceLivenessRecord("a-male", true, "allowed", map[string]any{"gender": "male", "multipleBirthInteger": 3}),
+		pivotSourceLivenessRecord("a-null", true, "allowed", map[string]any{"gender": nil, "multipleBirthInteger": 5}),
+		pivotSourceLivenessRecord("a-missing", true, "allowed", map[string]any{"multipleBirthInteger": 7}),
+		pivotSourceLivenessRecord("b-female", false, "allowed", map[string]any{"gender": "female", "multipleBirthInteger": 10}),
+		pivotSourceLivenessRecord("b-null", false, "allowed", map[string]any{"gender": nil, "multipleBirthInteger": 6}),
+		pivotSourceLivenessRecord("b-missing", false, "allowed", map[string]any{"multipleBirthInteger": 8}),
+	}
+	foreignProject := pivotSourceLivenessRecord("foreign-project", true, "allowed", map[string]any{"gender": "female", "multipleBirthInteger": 99})
+	foreignProject["project"], foreignProject["project_id"] = "other-project", "other-project"
+	records = append(records, foreignProject)
+	foreignGeneration := pivotSourceLivenessRecord("foreign-generation", true, "allowed", map[string]any{"gender": "female", "multipleBirthInteger": 99})
+	foreignGeneration["dataset_generation"] = "old-generation"
+	records = append(records, foreignGeneration)
+	foreignAuthorization := pivotSourceLivenessRecord("foreign-auth", true, "denied", map[string]any{"gender": "female", "multipleBirthInteger": 99})
+	records = append(records, foreignAuthorization)
+
+	queryText := strings.Replace(query.Query, "FOR root IN @@root_collection", "FOR root IN @records", 1)
+	if queryText == query.Query {
+		t.Fatal("compiled query did not contain its direct root collection scan")
+	}
+	delete(query.BindVars, "@root_collection")
+	query.BindVars["records"] = records
+	query.BindVars["auth_resource_paths_unrestricted"] = false
+	query.BindVars["auth_resource_paths"] = []string{"allowed"}
+	rows := runPivotSourceLivenessBindQuery(t, endpoint, queryText, query.BindVars)
+	for index := range rows {
+		projected := make(map[string]any, 5)
+		for _, name := range []string{"group", "female_amount", "male_amount", "null_amount", "missing_amount"} {
+			projected[name] = rows[index][name]
+		}
+		rows[index] = projected
+	}
+	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["group"]) < fmt.Sprint(rows[j]["group"]) })
+	want := []map[string]any{
+		{"group": false, "female_amount": float64(10), "male_amount": nil, "null_amount": float64(6), "missing_amount": float64(8)},
+		{"group": true, "female_amount": float64(6), "male_amount": float64(3), "null_amount": float64(5), "missing_amount": float64(7)},
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Fatalf("Pivot rows = %#v, want %#v", rows, want)
+	}
+}
+
+func pivotSourceLivenessOutput() recipe.Output {
+	output := constructionPreviewPivotOutput("root.status", false)
+	output.Name = "pivot_source_projection_liveness"
+	output.Fields[0] = recipe.Field{Name: "group", ColumnID: "group_id", Expr: recipe.Expression{Select: "root.active"}}
+	output.Construction.SourceColumns[0] = recipe.StageColumn{ID: "group_id", Name: "group"}
+
+	female, male := "female", "male"
+	pivotStep := &output.Construction.Steps[0]
+	pivot := pivotStep.Operation.Pivot
+	pivot.GroupKeyIDs = []string{"group_id"}
+	pivot.DuplicatePolicy = recipe.PivotDuplicateSum
+	pivot.UnlistedCategoryPolicy = recipe.PivotUnlistedCategoryError
+	pivot.Categories = []recipe.ConstructionPivotCategory{
+		{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &female}, OutputColumnID: "female_amount_id"},
+		{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &male}, OutputColumnID: "male_amount_id"},
+		{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, OutputColumnID: "null_amount_id"},
+		{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, OutputColumnID: "missing_amount_id"},
+	}
+	pivotStep.Outputs = []recipe.StageColumn{
+		{ID: "group_id", Name: "group"},
+		{ID: "female_amount_id", Name: "female_amount"},
+		{ID: "male_amount_id", Name: "male_amount"},
+		{ID: "null_amount_id", Name: "null_amount"},
+		{ID: "missing_amount_id", Name: "missing_amount"},
+	}
+	for index := range 50 {
+		name := fmt.Sprintf("unused_source_%d", index)
+		columnID := name + "_id"
+		output.Fields = append(output.Fields, recipe.Field{Name: name, ColumnID: columnID, Expr: recipe.Expression{Select: "root.active"}})
+		output.Construction.SourceColumns = append(output.Construction.SourceColumns, recipe.StageColumn{ID: columnID, Name: name})
+	}
+	return output
+}
+
+func pivotSourceLivenessRecord(id string, group bool, authPath string, payload map[string]any) map[string]any {
+	resource := map[string]any{"id": id, "resourceType": "Patient", "active": group}
+	for _, field := range []string{"multipleBirthInteger", "gender"} {
+		if value, exists := payload[field]; exists {
+			resource[field] = value
+		}
+	}
+	return map[string]any{
+		"_key": id, "id": id, "project": "pivot-source-liveness", "project_id": "pivot-source-liveness",
+		"dataset_generation": "pivot-source-generation", "resourceType": "Patient", "auth_resource_path": authPath,
+		"payload": resource,
+	}
+}
+
+func runPivotSourceLivenessBindQuery(t *testing.T, endpoint, query string, bindVars map[string]any) []map[string]any {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"query": query, "bindVars": bindVars,
+		"options": map[string]any{"maxRuntime": 8}, "memoryLimit": 268435456,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Timeout: 12 * time.Second}
+	response, err := client.Post(strings.TrimRight(endpoint, "/")+"/_api/cursor", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result struct {
+		Error   bool             `json:"error"`
+		Message string           `json:"errorMessage"`
+		HasMore bool             `json:"hasMore"`
+		Rows    []map[string]any `json:"result"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode Arango response (HTTP %d): %v", response.StatusCode, err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 || result.Error || result.HasMore {
+		t.Fatalf("bind-only Pivot query failed or truncated (HTTP %d): %+v", response.StatusCode, result)
+	}
+	return result.Rows
+}
+
+func livenessTestPlan(t *testing.T) ir.PhysicalPlan {
+	t.Helper()
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []recipeplan.SemanticField{{
+		Name: "id", FieldRef: "Patient.id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar,
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func selectorExpression(variable, field string) ir.PhysicalExpression {
+	return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: variable, Path: []string{"payload", field}}}
+}
+
+func insertExpressionLet(plan *ir.PhysicalPlan, name string, expr ir.PhysicalExpression) {
+	index := len(plan.Operations) - 1
+	op := ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{Variable: name, Expression: expr}}
+	plan.Operations = append(plan.Operations, ir.PhysicalOperation{})
+	copy(plan.Operations[index+1:], plan.Operations[index:])
+	plan.Operations[index] = op
+}
+
+func operationNames(operations []ir.PhysicalOperation) map[string]bool {
+	got := map[string]bool{}
+	for _, op := range operations {
+		if op.ExpressionLet != nil {
+			got[op.ExpressionLet.Variable] = true
+		}
+	}
+	return got
+}
+
+func TestPrunePreviewPartitionPlanDropsUnusedPureLetChain(t *testing.T) {
+	plan := livenessTestPlan(t)
+	root := plan.Operations[0].RootScan.Variable
+	for i := 0; i < 1000; i++ {
+		insertExpressionLet(&plan, fmt.Sprintf("unused_%04d", i), selectorExpression(root, "id"))
+	}
+	before := len(plan.Operations)
+	pruned, ok := prunePreviewPartitionPlan(plan)
+	if !ok {
+		t.Fatal("valid source row plan was not analyzable")
+	}
+	if len(pruned.Operations) != before-1000 {
+		t.Fatalf("operation count=%d, want %d", len(pruned.Operations), before-1000)
+	}
+	if len(plan.Operations) != before {
+		t.Fatal("input plan was mutated")
+	}
+	if err := pruned.Validate(); err != nil {
+		t.Fatalf("pruned plan invalid: %v", err)
+	}
+}
+
+func TestPrunePreviewPartitionPlanKeepsTransitiveLiveLets(t *testing.T) {
+	plan := livenessTestPlan(t)
+	root := plan.Operations[0].RootScan.Variable
+	insertExpressionLet(&plan, "first", selectorExpression(root, "id"))
+	insertExpressionLet(&plan, "second", selectorExpression("first", "value"))
+	terminal := plan.Operations[len(plan.Operations)-1].Return
+	terminal.Projections = append(terminal.Projections, ir.PhysicalProjection{Name: "live_value", Value: ir.PhysicalValue{Variable: "second"}})
+	pruned, ok := prunePreviewPartitionPlan(plan)
+	if !ok {
+		t.Fatal("valid source row plan was not analyzable")
+	}
+	if names := operationNames(pruned.Operations); !names["first"] || !names["second"] {
+		t.Fatalf("live producers removed: %v", names)
+	}
+}
+
+func TestPrunePreviewPartitionPlanKeepsMayFailProducerAndMandatoryFilters(t *testing.T) {
+	plan := livenessTestPlan(t)
+	mayFail := ir.PhysicalExpression{Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Call: &ir.PhysicalCall{Name: "assert", Args: []ir.PhysicalExpression{
+		{Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: "assert_condition"}},
+		{Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: "assert_message"}},
+	}}}
+	plan.BindVars["assert_condition"] = true
+	plan.BindVars["assert_message"] = "bad"
+	insertExpressionLet(&plan, "may_fail", mayFail)
+	beforeFilters := 0
+	for _, op := range plan.Operations {
+		if op.Kind == ir.PhysicalFilterOp {
+			beforeFilters++
+		}
+	}
+	pruned, ok := prunePreviewPartitionPlan(plan)
+	if !ok {
+		t.Fatal("valid source row plan was not analyzable")
+	}
+	if !operationNames(pruned.Operations)["may_fail"] {
+		t.Fatal("unused may-fail producer was removed")
+	}
+	afterFilters := 0
+	for _, op := range pruned.Operations {
+		if op.Kind == ir.PhysicalFilterOp {
+			afterFilters++
+		}
+	}
+	if afterFilters != beforeFilters {
+		t.Fatalf("filters changed: %d -> %d", beforeFilters, afterFilters)
+	}
+}
+
+func TestPrunePreviewPartitionPlanKeepsComplexProducerButPrunesSafeSiblings(t *testing.T) {
+	plan := livenessTestPlan(t)
+	root := plan.Operations[0].RootScan.Variable
+	complex := ir.PhysicalExpression{
+		Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull,
+		Call: &ir.PhysicalCall{Name: "concat", Args: []ir.PhysicalExpression{
+			selectorExpression(root, "id"),
+			{Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: "suffix"}},
+		}},
+	}
+	plan.BindVars["suffix"] = "-x"
+	insertExpressionLet(&plan, "complex", complex)
+	insertExpressionLet(&plan, "simple_unused", selectorExpression(root, "id"))
+	pruned, ok := prunePreviewPartitionPlan(plan)
+	if !ok {
+		t.Fatal("valid plan with a supported complex expression was not analyzable")
+	}
+	names := operationNames(pruned.Operations)
+	if !names["complex"] {
+		t.Fatal("complex producer was removed")
+	}
+	if names["simple_unused"] {
+		t.Fatal("independent safe producer was retained")
+	}
+}
+
+func TestPrunePreviewPartitionPlanDeclinesUnsupportedShape(t *testing.T) {
+	plan := livenessTestPlan(t)
+	plan.StageSequence = &ir.PhysicalStageSequence{}
+	if _, ok := prunePreviewPartitionPlan(plan); ok {
+		t.Fatal("stage sequence unexpectedly accepted")
+	}
+}
+
+func TestPreviewLivenessPreservesCaptureBoundaryAndMetadata(t *testing.T) {
+	expression := ir.PhysicalExpression{Kind: ir.PhysicalCallExpression, Call: &ir.PhysicalCall{Args: []ir.PhysicalExpression{
+		{Kind: ir.PhysicalSubplanExpression, Subplan: &ir.PhysicalSubplan{
+			Captures: []string{"outer"},
+			Return:   ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Value: &ir.PhysicalValue{Variable: "local"}},
+		}},
+		{Kind: ir.PhysicalExtractExpression, Extract: &ir.PhysicalExtract{
+			Source:    ir.PhysicalValue{Variable: "source"},
+			Fallbacks: []ir.PhysicalSelectorFallback{{Source: ir.PhysicalValue{Variable: "fallback"}}},
+			Prepared:  &ir.PhysicalPreparedReference{SetVariable: "prepared"},
+		}},
+		{Kind: ir.PhysicalObjectLookupExpression, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: "object"}},
+	}}}
+	uses := map[string]bool{}
+	if !collectPreviewExpressionUses(expression, uses) {
+		t.Fatal("supported nested expression was not analyzable")
+	}
+	want := map[string]bool{"outer": true, "source": true, "fallback": true, "prepared": true, "object": true}
+	if !reflect.DeepEqual(uses, want) {
+		t.Fatalf("outer dependencies=%v, want %v", uses, want)
+	}
+}
+
+func TestPreviewLivenessDeclinesUnknownNestedExpression(t *testing.T) {
+	expression := ir.PhysicalExpression{Kind: ir.PhysicalCallExpression, Call: &ir.PhysicalCall{Args: []ir.PhysicalExpression{{Kind: "FUTURE_EXPRESSION"}}}}
+	if collectPreviewExpressionUses(expression, map[string]bool{}) {
+		t.Fatal("unknown nested expression was treated as safe for pruning")
 	}
 }

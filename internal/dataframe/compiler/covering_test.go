@@ -1,11 +1,16 @@
 package compiler
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
@@ -13,6 +18,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/google/uuid"
 )
 
 func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
@@ -639,4 +646,649 @@ func constructionPreviewPivotOutput(groupSelector string, priorFilter bool) reci
 			Steps:         steps,
 		},
 	}
+}
+
+func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project, generation := "loom_category_presence_"+uuid.NewString(), "generation-category-presence"
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Patient FILTER document.project == @project REMOVE document IN Patient",
+			map[string]any{"project": project},
+		); err != nil {
+			t.Errorf("remove category presence fixtures: %v", err)
+		}
+	}()
+
+	fixtures := []struct {
+		id      string
+		active  any
+		include bool
+	}{
+		{id: "missing_category", active: true, include: true},
+		{id: "null_category", active: true, include: true},
+		{id: "filtered_out", include: false},
+	}
+	documents := make([]json.RawMessage, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		payload := map[string]any{"resourceType": "Patient", "id": fixture.id}
+		if fixture.include {
+			payload["active"] = fixture.active
+		}
+		if fixture.id == "null_category" {
+			payload["birthDate"] = nil
+		}
+		if fixture.id == "filtered_out" {
+			payload["birthDate"] = "1990-01-01"
+		}
+		document, err := json.Marshal(map[string]any{
+			"_key": project + "_" + fixture.id, "id": fixture.id, "project": project,
+			"project_id": project, "dataset_generation": generation,
+			"resourceType": "Patient", "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Patient", documents, false, "document"); err != nil {
+		t.Fatalf("insert category presence fixtures: %v", err)
+	}
+
+	columns := []recipe.StageColumn{
+		{ID: "patient_id", Name: "patient_id"},
+		{ID: "active_id", Name: "active"},
+		{ID: "birth_date_id", Name: "birth_date"},
+	}
+	makeOutput := func(name, stageID string, operator recipe.FilterOperator) recipe.Output {
+		filter := &recipe.ConstructionFilter{ColumnID: "active_id", Operator: operator}
+		if operator == recipe.FilterEquals {
+			active := true
+			filter.Values = []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}}
+		}
+		return recipe.Output{
+			Name: name, RootResourceType: "Patient", RowGrain: "patient",
+			RootColumnNaming: recipe.RootColumnNamingExact,
+			Fields: []recipe.Field{
+				{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
+				{Name: "active", ColumnID: "active_id", Expr: recipe.Expression{Select: "root.active"}},
+				{Name: "birth_date", ColumnID: "birth_date_id", Expr: recipe.Expression{Select: "root.birthDate"}},
+			},
+			Construction: &recipe.Construction{
+				Version: 1, SourceColumns: columns,
+				Steps: []recipe.ConstructionStep{{
+					ID: stageID, Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: filter},
+					Outputs:   columns,
+				}},
+			},
+		}
+	}
+	compileScan := func(output recipe.Output, stageID string, requireValue bool) CompiledCategoryScanQuery {
+		t.Helper()
+		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+		plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var categoryScan CompiledCategoryScanQuery
+		if requireValue {
+			categoryScan, err = CompileCategoryScanStageRequiringValue(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		} else {
+			categoryScan, err = CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return categoryScan
+	}
+
+	assertMissingAndNull := func(categoryScan CompiledCategoryScanQuery) {
+		t.Helper()
+		rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
+		if len(rows) != 2 {
+			t.Fatalf("category scan returned %d categories, want distinct MISSING and NULL: %#v", len(rows), rows)
+		}
+		seen := map[bool]int{}
+		for _, row := range rows {
+			present, ok := row[categoryScan.PresentColumn].(bool)
+			if !ok {
+				t.Fatalf("category presence = %#v, want bool", row[categoryScan.PresentColumn])
+			}
+			if value, exists := row[categoryScan.ValueColumn]; !exists || value != nil {
+				t.Fatalf("category value = %#v (present=%t), want explicit null payload", value, present)
+			}
+			seen[present]++
+		}
+		if seen[false] != 1 || seen[true] != 1 {
+			t.Fatalf("category presence groups = %#v, want one MISSING and one NULL", seen)
+		}
+	}
+
+	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality", false)
+	rootFilter := "FILTER root.payload.active == @construction_filter_value"
+	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
+	if !strings.Contains(equalityScan.Query, rootFilter) || !strings.Contains(equalityScan.Query, stageFilter) {
+		t.Fatalf("eligible equality should be copied to the root and retained on its stage:\n%s", equalityScan.Query)
+	}
+	if strings.Contains(equalityScan.Query, "MERGE(") || !strings.Contains(equalityScan.Query, "__loom_category_scan_presence") {
+		t.Fatalf("category scan should carry presence in a scalar marker instead of merging row objects:\n%s", equalityScan.Query)
+	}
+	assertMissingAndNull(equalityScan)
+
+	valueScan := compileScan(makeOutput("construction_category_presence_value", "keep_active_value", recipe.FilterEquals), "keep_active_value", true)
+	if !valueScan.Proof.PresenceTracked || !valueScan.Proof.ValuePresenceRequired {
+		t.Fatalf("value-aware category scan proof = %+v, want tracked presence and required value policy", valueScan.Proof)
+	}
+	if !strings.Contains(valueScan.Query, "HAS(") || !strings.Contains(valueScan.Query, "@__loom_category_value_column") {
+		t.Fatalf("value-aware category scan did not carry source presence and filter the selected value:\n%s", valueScan.Query)
+	}
+
+	assertMissingAndNull(valueScan)
+
+	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists", false)
+	if strings.Contains(existsScan.Query, "FILTER root.payload.active") || !strings.Contains(existsScan.Query, "FILTER __loom_construction_input_1.active != null") {
+		t.Fatalf("ineligible EXISTS scan must keep its original staged filter without source pushdown:\n%s", existsScan.Query)
+	}
+	assertMissingAndNull(existsScan)
+}
+
+func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project, generation := "loom_category_root_type_"+uuid.NewString(), "generation-root-type"
+	const allowedPath = "/category/allowed"
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Observation FILTER STARTS_WITH(document._key, @keyPrefix) REMOVE document IN Observation",
+			map[string]any{"keyPrefix": project + "_"},
+		); err != nil {
+			t.Errorf("remove typed root category fixtures: %v", err)
+		}
+	}()
+
+	type fixture struct {
+		id, resourceType, authPath string
+		quantity                   any
+		includeQuantity            bool
+		project, generation        string
+	}
+	fixtures := []fixture{
+		{id: "missing", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation},
+		{id: "null", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": nil}},
+		{id: "string", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "d"}},
+		{id: "string-duplicate", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "d"}},
+		{id: "other-project", resourceType: "Observation", authPath: allowedPath, project: project + "_foreign", generation: generation, includeQuantity: true, quantity: map[string]any{"code": "foreign-project"}},
+		{id: "other-generation", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation + "_foreign", includeQuantity: true, quantity: map[string]any{"code": "foreign-generation"}},
+		{id: "denied-scope", resourceType: "Observation", authPath: "/category/denied", project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "denied"}},
+
+		{id: "wrong-type", resourceType: "Patient", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "wrong-type"}},
+	}
+	documents := make([]json.RawMessage, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		payload := map[string]any{"resourceType": fixture.resourceType, "id": fixture.id}
+		if fixture.includeQuantity {
+			payload["valueQuantity"] = fixture.quantity
+		}
+		document, err := json.Marshal(map[string]any{
+			"_key": project + "_" + fixture.id, "id": fixture.id, "project": fixture.project,
+			"project_id": fixture.project, "dataset_generation": fixture.generation,
+			"resourceType": fixture.resourceType, "auth_resource_path": fixture.authPath, "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
+		t.Fatalf("insert typed root category fixtures: %v", err)
+	}
+
+	columns := []recipe.StageColumn{
+		{ID: "observation_id", Name: "observation_id"},
+		{ID: "category_id", Name: "category"},
+		{ID: "value_id", Name: "value"},
+	}
+	output := recipe.Output{
+		Name: "root_category_shared_index", RootResourceType: "Observation", RowGrain: "observation",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "observation_id", ColumnID: "observation_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.valueQuantity.code"}},
+			{Name: "value", ColumnID: "value_id", Expr: recipe.Expression{Select: "root.valueQuantity.value"}},
+		},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: columns},
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{allowedPath},
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIndexFields := previewQuantityCategoryFields()
+	wantStoredValues := previewQuantityCategoryStoredValues()
+	if scan.CategoryIndex == nil || scan.CategoryIndex.Name != previewCoveringIndexNameWithStoredValues("Observation", wantIndexFields, wantStoredValues) ||
+		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) {
+		t.Fatalf("root quantity category index definition: %+v", scan.CategoryIndex)
+	}
+	if !strings.Contains(scan.Query, "root.resourceType == @__loom_category_resource_type") ||
+		scan.BindVars["__loom_category_resource_type"] != "Observation" {
+		t.Fatalf("root category query omitted exact resource type guard: %s\n%#v", scan.Query, scan.BindVars)
+	}
+	if strings.Contains(scan.Query, "UNION_DISTINCT") || !strings.Contains(scan.Query, "COLLECT ") ||
+		!strings.Contains(scan.Query, "IS_OBJECT(__loom_category_parent)") || !strings.Contains(scan.Query, "HAS(__loom_category_parent") {
+		t.Fatalf("stored-parent category scan did not use one object-presence grouping query:\n%s", scan.Query)
+	}
+	if scan.PreviewCoveringIndex != nil {
+		t.Fatalf("stored-parent category index should suppress the older field-only prewarm: %+v", scan.PreviewCoveringIndex)
+	}
+
+	rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
+	seen := map[string]bool{}
+	for _, row := range rows {
+		present, ok := row[scan.PresentColumn].(bool)
+		if !ok {
+			t.Fatalf("category presence = %#v, want bool", row[scan.PresentColumn])
+		}
+		value, exists := row[scan.ValueColumn]
+		if !exists {
+			t.Fatalf("category row omitted value column: %#v", row)
+		}
+		key := "missing"
+		if present {
+			if value == nil {
+				key = "null"
+			} else if value == "d" {
+				key = "string:d"
+			} else {
+				t.Fatalf("unexpected scoped category: present=%t value=%#v", present, value)
+			}
+		} else if value != nil {
+			t.Fatalf("missing category has value %#v, want null placeholder", value)
+		}
+		seen[key] = true
+	}
+	if len(rows) != 3 || !seen["missing"] || !seen["null"] || !seen["string:d"] {
+		t.Fatalf("typed source categories = %#v, want exactly MISSING, NULL, and string d", rows)
+	}
+}
+
+func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testing.T) {
+	bindings := recipe.RuntimeBindings{Project: "loom_dev_cda_fhir", DatasetGeneration: "cda-fhir-v1"}
+	output := streamingMissingCategoryPivotTestOutput()
+	idColumn := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
+	output.Fields = append([]recipe.Field{{Name: "id", ColumnID: idColumn.ID, Expr: recipe.Expression{Select: "root.id"}}}, output.Fields...)
+	output.Construction.SourceColumns = append([]recipe.StageColumn{idColumn}, output.Construction.SourceColumns...)
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                output.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{output},
+	}
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d, want 1", len(compiled.Outputs))
+	}
+
+	physical, err := optimize.OptimizePhysicalPlanWithPolicy(compiled.Outputs[0].Plan, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical = withoutUnusedTerminalPivotPresenceCompanions(physical)
+	if !canRenderStreamingMissingCategoryPivotPreview(compiled.Outputs[0], bindings, physical) {
+		t.Fatal("full scoped terminal MISSING-category Pivot did not pass the streaming eligibility proof")
+	}
+
+	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := query.PreviewCoveringIndex
+	wantFields := previewQuantityCategoryFields()
+	wantStoredValues := previewQuantityCategoryStoredValues()
+	if index == nil || index.Name != previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
+		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) {
+		t.Fatalf("streaming missing-category Pivot index = %+v, want fields=%v storedValues=%v", index, wantFields, wantStoredValues)
+	}
+	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") {
+		t.Fatalf("query does not stream grouped values through COLLECT AGGREGATE:\n%s", query.Query)
+	}
+	if strings.Contains(query.Query, "INTO __loom_reshape_pivot_group_rows_") {
+		t.Fatalf("query materializes a full group-row array:\n%s", query.Query)
+	}
+	collectAt := strings.Index(query.Query, "COLLECT ")
+	assertAt := strings.Index(query.Query, "FILTER ASSERT(")
+	sortAt := strings.Index(query.Query, "SORT ")
+	limitAt := strings.Index(query.Query, "LIMIT @limit")
+	if collectAt < 0 || assertAt < collectAt || sortAt < assertAt || limitAt < sortAt {
+		t.Fatalf("full-population Pivot assertions/window are out of order: collect=%d assert=%d sort=%d limit=%d\n%s", collectAt, assertAt, sortAt, limitAt, query.Query)
+	}
+	for _, required := range []string{
+		"FILTER root.project == @project",
+		"FILTER root.dataset_generation == @dataset_generation",
+		"FILTER root_scope_allowed == @scope_allowed",
+		"TABLE_PIVOT_UNLISTED_CATEGORY",
+	} {
+		if !strings.Contains(query.Query, required) {
+			t.Fatalf("query lost required full-scope or typed-category clause %q:\n%s", required, query.Query)
+		}
+	}
+	pivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
+	if streamingTestBindKey(query.BindVars, "reshape_category_column", pivot.CategoryColumn) != "" ||
+		streamingTestBindKey(query.BindVars, "reshape_category_presence_column", pivot.CategoryPresenceColumn) != "" {
+		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", query.BindVars)
+	}
+	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
+	presenceValue := streamingTestDirectScalarVariable(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
+	if categoryValue == "" || presenceValue == "" {
+		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, query.Query)
+	}
+	missingMatch := fmt.Sprintf("NOT (%s == true)", presenceValue)
+	nullMatch := fmt.Sprintf("(%s == true AND %s == null)", presenceValue, categoryValue)
+	if !strings.Contains(query.Query, missingMatch) || !strings.Contains(query.Query, nullMatch) {
+		t.Fatalf("MISSING and explicit NULL categories are not distinguished by the presence sidecar: missing=%q null=%q\n%s", missingMatch, nullMatch, query.Query)
+	}
+	if strings.Contains(query.Query, "LET "+pivot.InputRowVariable+" = {") || strings.Contains(query.Query, pivot.InputRowVariable+"[@") {
+		t.Fatalf("direct scalar Pivot retained its temporary input row object or field reads:\n%s", query.Query)
+	}
+
+	canonicalPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
+	if canonicalPivot == nil || len(canonicalPivot.InputProjections) == 0 ||
+		canonicalPivot.InputProjections[0].Value.Variable != compiled.Outputs[0].Plan.StageSequence.Stages[0].InputRowVariable {
+		t.Fatal("streaming render mutated the canonical Pivot input projections")
+	}
+
+	identityOutput := streamingMissingCategoryPivotTestOutput()
+	id := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
+	identityOutput.Fields = append([]recipe.Field{{Name: "id", ColumnID: id.ID, Expr: recipe.Expression{Select: "root.id"}}}, identityOutput.Fields...)
+	identityOutput.Construction.SourceColumns = append([]recipe.StageColumn{id}, identityOutput.Construction.SourceColumns...)
+	identityPivot := identityOutput.Construction.Steps[0].Operation.Pivot
+	identityPivot.Categories = []recipe.ConstructionPivotCategory{identityPivot.Categories[0], identityPivot.Categories[2]}
+	identityPivot.DuplicatePolicy = recipe.PivotDuplicateError
+	identityPivot.MissingCellPolicy = recipe.PivotMissingCellNull
+	identityStep := &identityOutput.Construction.Steps[0]
+	identityOutputs := make([]recipe.StageColumn, 0, len(identityStep.Outputs)-1)
+	for _, column := range identityStep.Outputs {
+		if column.ID != "null_value_id" {
+			identityOutputs = append(identityOutputs, column)
+		}
+	}
+	identityStep.Outputs = identityOutputs
+	identityBundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                identityOutput.Name, TranslationVersion: "test", Outputs: []recipe.Output{identityOutput},
+	}
+	identityPlan, err := recipeplan.BuildRecipePlan(identityBundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityResolved, err := recipeplan.ResolveRecipePlan(identityPlan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityCompiled, err := lower.CompileResolvedRecipePlan(identityResolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outputHasCompositeSource(identityCompiled.Outputs[0]) {
+		t.Fatal("production-shaped Pivot output lost its composite-source classification")
+	}
+	identityBindings := bindings
+	identityBindings.IncludeSourceIdentity = true
+	identityQuery, err := CompileRecipeOutputWithPolicy(identityCompiled.Outputs[0], identityBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(identityQuery.Query, " AGGREGATE ") || strings.Contains(identityQuery.Query, "INTO __loom_reshape_pivot_group_rows_") {
+		t.Fatalf("composite-source ERROR Pivot did not use full-population streaming aggregation:\n%s", identityQuery.Query)
+	}
+	for _, required := range []string{
+		"FILTER root.project == @project",
+		"FILTER root.dataset_generation == @dataset_generation",
+		"FILTER root_scope_allowed == @scope_allowed",
+	} {
+		if !strings.Contains(identityQuery.Query, required) {
+			t.Fatalf("identity-enabled streaming Pivot lost scoped source predicate %q:\n%s", required, identityQuery.Query)
+		}
+	}
+	if strings.Contains(identityQuery.Query, ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("composite-source Pivot acquired a single-root source ID:\n%s", identityQuery.Query)
+	}
+	for _, column := range identityQuery.OutputSchema {
+		if column.Name == ir.PreviewSourceResourceIDColumn {
+			t.Fatalf("composite-source Pivot added internal root-ID schema column: %#v", column)
+		}
+	}
+	errorLimitAt := strings.Index(identityQuery.Query, "LIMIT @limit")
+	for _, code := range []string{"TABLE_PIVOT_CELL_CARDINALITY", "TABLE_PIVOT_UNLISTED_CATEGORY"} {
+		assertAt := strings.Index(identityQuery.Query, code)
+		if assertAt < 0 || errorLimitAt < 0 || assertAt >= errorLimitAt {
+			t.Fatalf("streaming Pivot lost full-population %s check before the preview window: assertion=%d limit=%d\n%s", code, assertAt, errorLimitAt, identityQuery.Query)
+		}
+	}
+	ordinaryIdentityQuery, err := CompileRecipeOutputWithPolicy(identityCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identityQuery.Query != ordinaryIdentityQuery.Query || !reflect.DeepEqual(identityQuery.BindVars, ordinaryIdentityQuery.BindVars) || !reflect.DeepEqual(identityQuery.OutputSchema, ordinaryIdentityQuery.OutputSchema) || !reflect.DeepEqual(identityQuery.RowIdentity, ordinaryIdentityQuery.RowIdentity) {
+		t.Fatal("requesting composite source metadata changed the Pivot query, schema, binds, or stable group identity")
+	}
+
+	assertionOutput := streamingMissingCategoryPivotTestOutput()
+	assertionPivot := assertionOutput.Construction.Steps[0].Operation.Pivot
+	assertionPivot.DuplicatePolicy = recipe.PivotDuplicateError
+	assertionPivot.MissingCellPolicy = recipe.PivotMissingCellError
+	assertionBundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                assertionOutput.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{assertionOutput},
+	}
+	assertionPlan, err := recipeplan.BuildRecipePlan(assertionBundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertionResolved, err := recipeplan.ResolveRecipePlan(assertionPlan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertionOutputs, err := lower.CompileResolvedRecipePlan(assertionResolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertionQuery, err := CompileRecipeOutputWithPolicy(assertionOutputs.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertionLimit := strings.Index(assertionQuery.Query, "LIMIT @limit")
+	for _, code := range []string{"TABLE_PIVOT_CELL_MISSING", "TABLE_PIVOT_CELL_CARDINALITY", "TABLE_PIVOT_UNLISTED_CATEGORY"} {
+		assertion := strings.Index(assertionQuery.Query, code)
+		if assertion < 0 || assertionLimit < 0 || assertion >= assertionLimit {
+			t.Fatalf("full-population %s assertion does not precede preview LIMIT: assertion=%d limit=%d\n%s", code, assertion, assertionLimit, assertionQuery.Query)
+		}
+	}
+}
+
+func streamingMissingCategoryPivotTestOutput() recipe.Output {
+	d := "d"
+	return recipe.Output{
+		Name: "streaming_missing_category", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{
+			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+			{Name: "code", ColumnID: "code_id", Expr: recipe.Expression{Select: "root.valueQuantity.code"}},
+			{Name: "value", ColumnID: "value_id", Expr: recipe.Expression{Select: "root.valueQuantity.value"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "status_id", Name: "status", Type: "string"},
+				{ID: "code_id", Name: "code", Type: "string", Nullable: true},
+				{ID: "value_id", Name: "value", Type: "decimal", Nullable: true},
+			},
+			Steps: []recipe.ConstructionStep{{
+				ID: "pivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+					ConstructionID: "pivot", GroupKeyIDs: []string{"status_id"}, CategoryColumnID: "code_id", ValueColumnID: "value_id",
+					Categories: []recipe.ConstructionPivotCategory{
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, OutputColumnID: "missing_value_id"},
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, OutputColumnID: "null_value_id"},
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &d}, OutputColumnID: "d_value_id"},
+					},
+					DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "status_id", Name: "status", Type: "string"},
+					{ID: "missing_value_id", Name: "missing_value", Type: "decimal", Nullable: true},
+					{ID: "null_value_id", Name: "null_value", Type: "decimal", Nullable: true},
+					{ID: "d_value_id", Name: "d", Type: "decimal", Nullable: true},
+				},
+			}},
+		},
+	}
+}
+
+func TestStreamingMissingCategoryPivotIndexFallsBackWithoutScalarKeyProof(t *testing.T) {
+	bindings := recipe.RuntimeBindings{Project: "loom_dev_cda_fhir", DatasetGeneration: "cda-fhir-v1"}
+	output := streamingMissingCategoryPivotTestOutput()
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                output.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{output},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := optimize.OptimizePhysicalPlanWithPolicy(compiled.Outputs[0].Plan, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical = withoutUnusedTerminalPivotPresenceCompanions(physical)
+	root, sourceReturn, ok := previewCoveringIndexSource(physical)
+	if !ok {
+		t.Fatal("fixture did not produce a direct-root source return")
+	}
+	var status *ir.PhysicalProjection
+	for index := range sourceReturn.Projections {
+		if sourceReturn.Projections[index].Name == "status" {
+			status = &sourceReturn.Projections[index]
+			break
+		}
+	}
+	if status == nil || status.Expression == nil || status.Expression.Extract == nil ||
+		status.Expression.Extract.ExecutionMode != ir.PhysicalSelectorDirectScalar {
+		t.Fatal("fixture status selector has no direct-scalar proof")
+	}
+	status.Expression = nil
+	status.Value = ir.PhysicalValue{Variable: root.Variable, Path: []string{"payload", "status"}}
+	if index := streamingMissingCategoryPivotIndexSpec(physical); index != nil {
+		t.Fatalf("untyped source path was promoted to a scalar index key: %+v", index)
+	}
+}
+
+func streamingTestBindKey(bindVars map[string]any, nameFragment string, expected any) string {
+	for key, value := range bindVars {
+		if strings.Contains(key, nameFragment) && value == expected {
+			return key
+		}
+	}
+	return ""
+}
+
+func streamingTestDirectScalarVariable(query, expressionFragment string) string {
+	for _, line := range strings.Split(query, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "LET __loom_physical_construction_reshape_stream_input_") || !strings.Contains(line, expressionFragment) {
+			continue
+		}
+		let := strings.TrimPrefix(line, "LET ")
+		if variable, _, ok := strings.Cut(let, " = "); ok {
+			return variable
+		}
+	}
+	return ""
 }

@@ -1,9 +1,14 @@
 package compiler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -297,5 +302,147 @@ func TestPhysicalValidationRejectsSourceLimitBeforeReshape(t *testing.T) {
 	}
 	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "LIMIT cannot precede a terminal table reshape") {
 		t.Fatalf("Validate() = %v, want source LIMIT rejection", err)
+	}
+}
+
+func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
+	output := compileWindowExpansionOutput(t)
+	window, err := WithGenericPhysicalExecutionWindow(output.Plan, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unnestIndex, sortIndex, limitIndex, siblingSetIndex := -1, -1, -1, -1
+	var unnest *ir.PhysicalUnnest
+	for index, operation := range window.Operations {
+		if operation.Kind == ir.PhysicalUnnestOp {
+			unnestIndex, unnest = index, operation.Unnest
+		}
+		if operation.Kind == ir.PhysicalSortOp {
+			sortIndex = index
+		}
+		if operation.Kind == ir.PhysicalLimitOp {
+			limitIndex = index
+		}
+		if operation.Kind == ir.PhysicalSetOp && operation.Source.SemanticNode == "focus" {
+			siblingSetIndex = index
+		}
+	}
+	if unnest == nil || unnestIndex >= sortIndex || sortIndex+1 != limitIndex || limitIndex >= siblingSetIndex {
+		t.Fatalf("expanded window positions: unnest=%d sort=%d limit=%d sibling-set=%d", unnestIndex, sortIndex, limitIndex, siblingSetIndex)
+	}
+	sort := window.Operations[sortIndex].Sort
+	wantKeys := ir.PhysicalUnnestSortKeys(*unnest)
+	if len(sort.Keys) != len(wantKeys) {
+		t.Fatalf("sort key count = %d, want %d: %#v", len(sort.Keys), len(wantKeys), sort.Keys)
+	}
+	for index := range wantKeys {
+		if !reflect.DeepEqual(sort.Keys[index], wantKeys[index]) {
+			t.Fatalf("sort key %d = %#v, want %#v", index, sort.Keys[index], wantKeys[index])
+		}
+	}
+	rendered, err := aql.RenderPhysicalPlan(window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := rendered.Query
+	rootRoute := strings.Index(query, "FOR __loom_expansion_edge_1 IN @@expansion_route_1_edge_collection")
+	terminalRoute := strings.Index(query, "FOR __loom_expansion_edge_2 IN @@expansion_route_2_edge_collection")
+	windowSort := strings.Index(query, "SORT root._key ASC, __loom_expansion_edge_1._key ASC, __loom_expansion_edge_2._key ASC, __loom_expansion_node_2._key ASC, __loom_has_expanded_item ASC, position ASC")
+	siblingSet := strings.Index(query, "LET child_set_1 =")
+	if rootRoute < 0 || terminalRoute <= rootRoute || windowSort <= terminalRoute || siblingSet <= windowSort {
+		t.Fatalf("query did not keep owner route, stable expanded window, and unrelated set ordered:\n%s", query)
+	}
+	if strings.Contains(query[:windowSort], "LET child_set_1 =") || strings.Count(query, "FILTER ASSERT(LENGTH(__loom_physical_unnest_source_0) > 0") != 1 {
+		t.Fatalf("selected route was rematerialized or expansion boundary was duplicated:\n%s", query)
+	}
+}
+
+func compileWindowExpansionOutput(t *testing.T) lower.CompiledRecipeOutput {
+	t.Helper()
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "expanded-window", TranslationVersion: "test",
+		Outputs: []recipe.Output{{
+			Name: "ExpandedDocuments", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
+			TraversalColumnNaming: recipe.TraversalColumnNamingAlias,
+			Fields:                []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+			Expand:                &recipe.Expansion{OwnerOccurrenceID: "document-owner", From: recipe.Expression{Select: "document.identifier[]"}, As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionError},
+			Identity:              &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+			Traversals: []recipe.Traversal{
+				{
+					Name: "subject_Patient", OccurrenceID: "specimen-owner", Alias: "specimen", ToResourceType: "Specimen",
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "specimen.id"}}},
+					Traversals: []recipe.Traversal{{
+						Name: "subject_Specimen", OccurrenceID: "document-owner", Alias: "document", ToResourceType: "DocumentReference",
+						Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "document.id"}}},
+					}},
+				},
+				{
+					Name: "focus_Patient", OccurrenceID: "focus-owner", Alias: "focus", ToResourceType: "Observation",
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "focus.id"}}},
+				},
+			},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled.Outputs[0]
+}
+
+func TestCanonicalExecutionPhysicalPlanPreservesValidRelatedCellTrace(t *testing.T) {
+	output := compilePopulationMappingOutput(t, constructionRelatedSourceCellTraceRecipeOutput())
+	physical := ir.ClonePhysicalPlan(output.Plan)
+	var err error
+	physical, err = WithGenericPhysicalExecutionWindow(physical, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage, err := celltrace.ConstructionCellTraceLineage(output, *physical.StageSequence, "observation_status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical.BindVars["cell_trace_offset"] = 0
+	physical.BindVars["cell_trace_limit"] = 10
+	physical.BindVars["cell_trace_fetch_limit"] = 11
+	physical.StageSequence.CellTraceReturn = &ir.PhysicalCellTraceReturn{
+		Construction: lineage, OffsetBindKey: "cell_trace_offset", LimitBindKey: "cell_trace_limit", FetchLimitBindKey: "cell_trace_fetch_limit",
+	}
+	if err := physical.Validate(); err != nil {
+		t.Fatalf("compiled related-source trace fixture is invalid: %v", err)
+	}
+	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
+		t.Fatalf("compiled related-source trace scope is invalid: %v", err)
+	}
+	if lineage.RelatedSource == nil || len(lineage.RelatedSource.Subplan.Operations) == 0 {
+		t.Fatal("fixture lacks its valid related-source subplan")
+	}
+	wantSource := lineage.RelatedSource.Subplan.Operations[0].Source
+	if wantSource == (ir.PhysicalSource{}) {
+		t.Fatal("fixture related-source operation has no nonempty Source metadata")
+	}
+	canonical := ir.CanonicalExecutionPhysicalPlan(physical)
+	gotSource := canonical.StageSequence.CellTraceReturn.Construction.RelatedSource.Subplan.Operations[0].Source
+	if gotSource != wantSource {
+		t.Fatalf("canonicalization changed valid related trace source: got=%+v want=%+v", gotSource, wantSource)
+	}
+	if physical.StageSequence.CellTraceReturn.Construction.RelatedSource.Subplan.Operations[0].Source != wantSource {
+		t.Fatal("canonicalization mutated the validated source plan")
+	}
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	if got, want := hex.EncodeToString(sum[:]), "6f20d9b42c0ed14ccd2bdc1dbbc95cc4ddcf59145180de1f570a8a57d768ffbe"; got != want {
+		t.Fatalf("valid construction related trace canonical fingerprint = %s, want unchanged %s", got, want)
 	}
 }
