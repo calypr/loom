@@ -9,7 +9,7 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-const workspaceProjectionCollection = "loom_explorer_workspace_projections"
+const workspaceProjectionCollection = db.WorkspaceProjectionsCollection
 const workspaceMigrationVersion = "wp18_workspace_v1"
 const workspaceMigrationLedger = "loom_schema_migrations"
 

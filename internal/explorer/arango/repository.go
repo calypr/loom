@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"strings"
 	"time"
 
@@ -50,8 +51,8 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 		if len(draft) == 0 {
 			draft = revision.AuthoringWorkspaceBytes()
 			if len(revision.AuthoringBundle) == 0 {
-				object, _ := auditObject(revision.Config)
-				if !auditWorkspaceShape(object) {
+				object, _ := workspacedb.AuditObject(revision.Config)
+				if !workspacedb.AuditWorkspaceShape(object) {
 					draft = nil
 				}
 			}

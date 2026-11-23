@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
 	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"slices"
 	"strings"
 	"time"
@@ -175,7 +176,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			if err := audit.ObserveWorkspaceAuditDocument(name, raw); err != nil {
 				return err
 			}
-			if _, known := workspaceAuditSlots[name]; !known {
+			if _, known := workspacedb.WorkspaceAuditSlots[name]; !known {
 				return nil
 			}
 			var identity struct {
@@ -206,7 +207,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 				return plan, err
 			}
 			if len(revision.AuthoringBundle) != 0 {
-				if auditNormalizedJSON(revision.Config) != auditNormalizedJSON(revision.AuthoringBundle) {
+				if workspacedb.AuditNormalizedJSON(revision.Config) != workspacedb.AuditNormalizedJSON(revision.AuthoringBundle) {
 					return plan, fmt.Errorf("revision %s contains differing workspace packets; migration refused", entry.Key)
 				}
 				continue
@@ -273,11 +274,11 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		}
 		field := strings.TrimPrefix(entry.Path, "$.")
 		raw := object[field]
-		if text := auditString(raw); text != "" {
+		if text := workspacedb.AuditString(raw); text != "" {
 			raw = json.RawMessage(text)
 		}
 		token := entry.SnapshotToken
-		project, explorerID := auditString(object["project"]), auditString(object["explorerId"])
+		project, explorerID := workspacedb.AuditString(object["project"]), workspacedb.AuditString(object["explorerId"])
 		generation, scope := "", ""
 		switch entry.Collection {
 		case ExplorersCollection:
@@ -293,9 +294,9 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			}
 			generation, scope = history.SourceGeneration, history.AuthorizationScopeDigest
 		case RevisionsCollection, LegacyRepositoryConfigsCollection:
-			revisionID := auditString(object["id"])
+			revisionID := workspacedb.AuditString(object["id"])
 			if entry.Collection == LegacyRepositoryConfigsCollection {
-				revisionID = auditString(object["activeRevisionId"])
+				revisionID = workspacedb.AuditString(object["activeRevisionId"])
 			}
 			revisionDocument, found := documents[RevisionsCollection+"/"+revisionID]
 			if !found {

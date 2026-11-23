@@ -1,8 +1,9 @@
-package arango
+package workspacedb
 
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestWorkspaceAuditCountsEveryAuthoritativeSlotAndSeparatesDiscovery(t *test
 		t.Fatal(err)
 	}
 	report := WorkspaceAuditReport{}
-	for _, fixture := range []struct{ collection, field, digest string }{{ExplorersCollection, "draftConfig", "draftDigest"}, {DraftRevisionsCollection, "draftConfig", "draftDigest"}, {RevisionsCollection, "authoringBundle", "intentDigest"}, {CompilationReceiptsCollection, "normalizedBundle", "intentDigest"}, {LegacyRepositoryConfigsCollection, "workspace", "intentDigest"}} {
+	for _, fixture := range []struct{ collection, field, digest string }{{db.ExplorersCollection, "draftConfig", "draftDigest"}, {db.DraftRevisionsCollection, "draftConfig", "draftDigest"}, {db.RevisionsCollection, "authoringBundle", "intentDigest"}, {db.CompilationReceiptsCollection, "normalizedBundle", "intentDigest"}, {db.LegacyRepositoryConfigsCollection, "workspace", "intentDigest"}} {
 		document, _ := json.Marshal(map[string]any{"_key": "one", fixture.field: json.RawMessage(raw), fixture.digest: digest, "snapshotToken": "pinned-token"})
 		before := append([]byte(nil), document...)
 		if err := report.ObserveWorkspaceAuditDocument(fixture.collection, document); err != nil {
@@ -47,7 +48,7 @@ func TestWorkspaceAuditCountsEveryAuthoritativeSlotAndSeparatesDiscovery(t *test
 		}
 	}
 	presentation := []byte(`{"_key":"config","config":{"apiVersion":"loom.calypr.org/explorer-config/v2","kind":"ExplorerConfig"}}`)
-	if err := report.ObserveWorkspaceAuditDocument(RevisionsCollection, presentation); err != nil {
+	if err := report.ObserveWorkspaceAuditDocument(db.RevisionsCollection, presentation); err != nil {
 		t.Fatal(err)
 	}
 	if report.NonWorkspacePackets != 1 || report.AuthoritativeWorkspaces != 5 {
@@ -67,7 +68,7 @@ func TestWorkspaceAuditReportsNilConstructionDigestWithoutRewriting(t *testing.T
 	}
 	document, _ := json.Marshal(map[string]any{"_key": "old", "draftConfig": json.RawMessage(raw), "draftDigest": legacy})
 	report := WorkspaceAuditReport{}
-	if err := report.ObserveWorkspaceAuditDocument(DraftRevisionsCollection, document); err != nil {
+	if err := report.ObserveWorkspaceAuditDocument(db.DraftRevisionsCollection, document); err != nil {
 		t.Fatal(err)
 	}
 	if len(report.Entries) != 1 {
@@ -82,7 +83,7 @@ func TestWorkspaceAuditReportsLegacySourcesPinnedCatalogAndFutureVersions(t *tes
 	raw := `{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderWorkspace","semanticsVersion":0,"explorer":{"title":"Persisted"},"documents":[{"kind":"ExplorerBuilderDocument","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"names","label":"Names","occurrenceId":"base","source":{"kind":"field","fieldPath":"name[].family","projectionMode":"FIRST"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
 	report := WorkspaceAuditReport{}
 	document, _ := json.Marshal(map[string]any{"_key": "legacy", "workspace": json.RawMessage(raw), "intentDigest": "sha256:prior"})
-	if err := report.ObserveWorkspaceAuditDocument(LegacyRepositoryConfigsCollection, document); err != nil {
+	if err := report.ObserveWorkspaceAuditDocument(db.LegacyRepositoryConfigsCollection, document); err != nil {
 		t.Fatal(err)
 	}
 	entry := report.Entries[0]
@@ -91,7 +92,7 @@ func TestWorkspaceAuditReportsLegacySourcesPinnedCatalogAndFutureVersions(t *tes
 	}
 	raw = strings.Replace(raw, `"semanticsVersion":0`, `"semanticsVersion":999`, 1)
 	document, _ = json.Marshal(map[string]any{"_key": "future", "draftConfig": json.RawMessage(raw)})
-	if err := report.ObserveWorkspaceAuditDocument(ExplorersCollection, document); err != nil {
+	if err := report.ObserveWorkspaceAuditDocument(db.ExplorersCollection, document); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -107,7 +108,7 @@ func TestWorkspaceAuditReportsLegacySourcesPinnedCatalogAndFutureVersions(t *tes
 
 func TestWorkspaceAuditDoesNotSilentlyDropMalformedAuthoritativePackets(t *testing.T) {
 	report := WorkspaceAuditReport{}
-	if err := report.ObserveWorkspaceAuditDocument(ExplorersCollection, []byte(`{"_key":"broken","draftConfig":{"unknown":"old shape"},"draftDigest":"prior"}`)); err != nil {
+	if err := report.ObserveWorkspaceAuditDocument(db.ExplorersCollection, []byte(`{"_key":"broken","draftConfig":{"unknown":"old shape"},"draftDigest":"prior"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if report.AuthoritativeWorkspaces != 1 || report.ByClass["invalid-or-unsupported"] != 1 || report.Entries[0].DigestRelation != "unresolved" {

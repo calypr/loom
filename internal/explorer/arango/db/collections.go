@@ -18,3 +18,5 @@ const (
 
 	LegacyRepositoryConfigsCollection = "loom_repository_explorer_configs"
 )
+
+const WorkspaceProjectionsCollection = "loom_explorer_workspace_projections"

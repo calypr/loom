@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"strconv"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 					if err != nil {
 						return err
 					}
-					matched = auditNormalizedJSON(actual) == auditNormalizedJSON(expected)
+					matched = workspacedb.AuditNormalizedJSON(actual) == workspacedb.AuditNormalizedJSON(expected)
 					return nil
 				})
 			if err != nil {

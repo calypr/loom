@@ -1,9 +1,10 @@
-package arango
+package workspacedb
 
 import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"sort"
 	"strings"
 
@@ -49,13 +50,13 @@ type WorkspaceAuditEntry struct {
 	DigestRelation              string   `json:"digestRelation"`
 }
 
-var workspaceAuditSlots = map[string]map[string]string{
-	ExplorersCollection:               {"draftConfig": "draftDigest"},
-	DraftRevisionsCollection:          {"draftConfig": "draftDigest"},
-	RevisionsCollection:               {"config": "intentDigest", "authoringBundle": "intentDigest"},
-	CompilationReceiptsCollection:     {"normalizedBundle": "intentDigest", "compiledConfig": "intentDigest"},
-	LegacyRepositoryConfigsCollection: {"workspace": "intentDigest"},
-	workspaceProjectionCollection:     {"Workspace": "Digest"},
+var WorkspaceAuditSlots = map[string]map[string]string{
+	db.ExplorersCollection:               {"draftConfig": "draftDigest"},
+	db.DraftRevisionsCollection:          {"draftConfig": "draftDigest"},
+	db.RevisionsCollection:               {"config": "intentDigest", "authoringBundle": "intentDigest"},
+	db.CompilationReceiptsCollection:     {"normalizedBundle": "intentDigest", "compiledConfig": "intentDigest"},
+	db.LegacyRepositoryConfigsCollection: {"workspace": "intentDigest"},
+	db.WorkspaceProjectionsCollection:    {"Workspace": "Digest"},
 }
 
 func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, raw []byte) error {
@@ -80,27 +81,27 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 		r.Collections = append(r.Collections, collection)
 		sort.Strings(r.Collections)
 	}
-	key := auditString(document["_key"])
+	key := AuditString(document["_key"])
 	known := map[string]bool{}
-	for field, digestField := range workspaceAuditSlots[collection] {
+	for field, digestField := range WorkspaceAuditSlots[collection] {
 		packet, present := document[field]
 		if !present || string(packet) == "null" {
 			continue
 		}
 		r.KnownPackets++
-		object, normalized := auditObject(packet)
-		if !auditWorkspaceShape(object) && (field == "config" || field == "compiledConfig") {
+		object, normalized := AuditObject(packet)
+		if !AuditWorkspaceShape(object) && (field == "config" || field == "compiledConfig") {
 			r.NonWorkspacePackets++
 			continue
 		}
 		known["$."+field] = true
 		entry := auditWorkspacePacket(collection, key, "$."+field, normalized, object, true)
-		entry.StoredDigest = auditString(document[digestField])
-		entry.SnapshotToken = auditString(document["snapshotToken"])
+		entry.StoredDigest = AuditString(document[digestField])
+		entry.SnapshotToken = AuditString(document["snapshotToken"])
 		if field == "draftConfig" {
-			entry.SnapshotToken = auditString(document["draftSnapshotToken"])
+			entry.SnapshotToken = AuditString(document["draftSnapshotToken"])
 			if entry.SnapshotToken == "" {
-				entry.SnapshotToken = auditString(document["snapshotToken"])
+				entry.SnapshotToken = AuditString(document["snapshotToken"])
 			}
 		}
 		entry.finishDigestRelation()
@@ -108,9 +109,9 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 	}
 	var discover func(json.RawMessage, string)
 	discover = func(packet json.RawMessage, path string) {
-		object, normalized := auditObject(packet)
+		object, normalized := AuditObject(packet)
 		if object != nil {
-			if !known[path] && auditString(object["apiVersion"]) == authoringv2.APIVersion && auditString(object["kind"]) == authoringv2.WorkspaceKind {
+			if !known[path] && AuditString(object["apiVersion"]) == authoringv2.APIVersion && AuditString(object["kind"]) == authoringv2.WorkspaceKind {
 				entry := auditWorkspacePacket(collection, key, path, normalized, object, false)
 				entry.finishDigestRelation()
 				r.addWorkspaceAuditEntry(entry)
@@ -132,7 +133,7 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 			}
 		}
 	}
-	if auditString(document["apiVersion"]) == authoringv2.APIVersion && auditString(document["kind"]) == authoringv2.WorkspaceKind {
+	if AuditString(document["apiVersion"]) == authoringv2.APIVersion && AuditString(document["kind"]) == authoringv2.WorkspaceKind {
 		packet := make(map[string]json.RawMessage, len(document))
 		for field, value := range document {
 			if field != "_key" && field != "_id" && field != "_rev" {
@@ -167,18 +168,18 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 	return nil
 }
 
-func auditWorkspaceShape(object map[string]json.RawMessage) bool {
+func AuditWorkspaceShape(object map[string]json.RawMessage) bool {
 	if object == nil {
 		return false
 	}
-	if auditString(object["kind"]) == authoringv2.WorkspaceKind {
+	if AuditString(object["kind"]) == authoringv2.WorkspaceKind {
 		return true
 	}
 	_, documents := object["documents"]
 	_, explorer := object["explorer"]
 	return documents && explorer
 }
-func auditObject(raw json.RawMessage) (map[string]json.RawMessage, json.RawMessage) {
+func AuditObject(raw json.RawMessage) (map[string]json.RawMessage, json.RawMessage) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
 		raw = json.RawMessage(text)
@@ -189,7 +190,7 @@ func auditObject(raw json.RawMessage) (map[string]json.RawMessage, json.RawMessa
 	}
 	return object, raw
 }
-func auditString(raw json.RawMessage) string {
+func AuditString(raw json.RawMessage) string {
 	var text string
 	_ = json.Unmarshal(raw, &text)
 	return text
@@ -204,7 +205,7 @@ func containsAuditString(values []string, want string) bool {
 }
 
 func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, object map[string]json.RawMessage, authoritative bool) WorkspaceAuditEntry {
-	entry := WorkspaceAuditEntry{Collection: collection, Key: key, Path: path, Authoritative: authoritative, Immutable: collection == DraftRevisionsCollection || collection == RevisionsCollection || collection == CompilationReceiptsCollection, Features: []string{}}
+	entry := WorkspaceAuditEntry{Collection: collection, Key: key, Path: path, Authoritative: authoritative, Immutable: collection == db.DraftRevisionsCollection || collection == db.RevisionsCollection || collection == db.CompilationReceiptsCollection, Features: []string{}}
 	_ = json.Unmarshal(object["semanticsVersion"], &entry.SemanticsVersion)
 	if entry.SemanticsVersion < authoringv2.CurrentSemanticsVersion {
 		entry.Features = append(entry.Features, "legacy-semantics")
@@ -234,11 +235,11 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 		var columns []map[string]json.RawMessage
 		_ = json.Unmarshal(document["columns"], &columns)
 		for _, column := range columns {
-			source, _ := auditObject(column["source"])
-			aggregate, _ := auditObject(source["aggregate"])
+			source, _ := AuditObject(column["source"])
+			aggregate, _ := AuditObject(source["aggregate"])
 			for feature, present := range map[string]bool{
 				"legacy-flat-source":        source["fieldPath"] != nil || source["projectionMode"] != nil || source["aggregateOperation"] != nil,
-				"legacy-coded-source-kind":  auditString(source["kind"]) == "codingBySystem" || auditString(source["kind"]) == "observationComponentByCode",
+				"legacy-coded-source-kind":  AuditString(source["kind"]) == "codingBySystem" || AuditString(source["kind"]) == "observationComponentByCode",
 				"legacy-aggregate-temporal": aggregate["temporal"] != nil,
 			} {
 				if present && !containsAuditString(entry.Features, feature) {
@@ -291,7 +292,7 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 		return entry
 	}
 	entry.DecodedCanonicalDigest = fmt.Sprintf("sha256:%x", sha256.Sum256(canonical))
-	entry.AlreadyCanonical = auditNormalizedJSON(raw) == auditNormalizedJSON(canonical)
+	entry.AlreadyCanonical = AuditNormalizedJSON(raw) == AuditNormalizedJSON(canonical)
 	sort.Strings(entry.Features)
 	entry.LegacyNilConstructionDigest, err = workspace.LegacyNilConstructionStepsDigest()
 	if err != nil {
@@ -344,7 +345,7 @@ func (r *WorkspaceAuditReport) addWorkspaceAuditEntry(entry WorkspaceAuditEntry)
 	r.Entries = append(r.Entries, entry)
 }
 
-func auditNormalizedJSON(raw []byte) string {
+func AuditNormalizedJSON(raw []byte) string {
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.UseNumber()
 	var value any
