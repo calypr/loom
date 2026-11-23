@@ -1,0 +1,11 @@
+package lifecycle
+
+import "github.com/calypr/loom/internal/explorer/explicitgroup"
+
+type ExplicitGroupRevisionResolveRequest = explicitgroup.ExplicitGroupRevisionResolveRequest
+type ExplicitGroupRevisionListRequest = explicitgroup.ExplicitGroupRevisionListRequest
+type ExplicitGroupRevisionChoice = explicitgroup.ExplicitGroupRevisionChoice
+type ExplicitGroupRevisionProof = explicitgroup.ExplicitGroupRevisionProof
+type ExplicitGroupRevisionResolver = explicitgroup.ExplicitGroupRevisionResolver
+
+var NewRepositoryExplicitGroupRevisionResolver = explicitgroup.NewRepositoryExplicitGroupRevisionResolver
