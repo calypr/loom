@@ -1,4 +1,4 @@
-package lifecycle
+package population
 
 import (
 	"crypto/hmac"
