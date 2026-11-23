@@ -20,7 +20,7 @@ func (s *WorkspaceStore) List(ctx context.Context, project string) ([]explorer.E
 }
 func (s *WorkspaceStore) Get(ctx context.Context, project, id string) (*explorer.Explorer, error) {
 	var out *explorer.Explorer
-	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, true), 1, map[string]any{"@c": db.ExplorersCollection, "key": db.Key(project, id), "project": project}, func(row map[string]any) error {
+	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, true), 1, map[string]any{"@c": db.ExplorersCollection, "key": db.ExplorerKey(project, id), "project": project}, func(row map[string]any) error {
 		v, err := db.DecodeMigrationJSON[explorer.Explorer](row["migrationJSON"])
 		out = &v
 		return err
@@ -34,7 +34,7 @@ func (s *WorkspaceStore) Get(ctx context.Context, project, id string) (*explorer
 	return out, nil
 }
 func (s *WorkspaceStore) Create(ctx context.Context, e explorer.Explorer) (*explorer.Explorer, error) {
-	raw, err := db.Document(e, db.Key(e.Project, e.ExplorerID))
+	raw, err := db.Document(e, db.ExplorerKey(e.Project, e.ExplorerID))
 	if err != nil {
 		return nil, err
 	}

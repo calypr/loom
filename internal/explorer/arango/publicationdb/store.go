@@ -43,4 +43,4 @@ func NewStore(c client) (*Store, error) {
 	}, nil
 }
 
-func explorerDocumentKey(project, id string) string { return "explorer_" + db.Key(project, id) }
+func explorerDocumentKey(project, id string) string { return db.ExplorerKey(project, id) }

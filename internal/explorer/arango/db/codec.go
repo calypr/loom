@@ -68,3 +68,7 @@ func Key(parts ...string) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+func ExplorerKey(project, id string) string {
+	return "explorer_" + Key(project, id)
+}
