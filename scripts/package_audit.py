@@ -167,6 +167,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/explorer/reconcile': 'Run generic ticker-driven reconciliation loops with bounded sweep deadlines.',
  'internal/explorer/rowdef': 'Plan and resolve row-definition choices from authorized capability snapshots.',
  'internal/explorer/rowsource': 'Own derive, expand, filter, and unpivot source DTOs.',
+ 'internal/explorer/semanticauthoring': 'Resolve semantic selection plans and materialize semantic routes for authoring.',
  'internal/explorer/selection': 'Own selection intents, revisions, membership digests, and validation.',
  'internal/explorer/semanticbrowse': 'Own semantic inventory browse and field-presentation DTOs.',
  'internal/explorer/viewer': 'Own Explorer viewer state, runtime DTOs, and shared presentation types.',

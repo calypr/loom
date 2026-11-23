@@ -1,4 +1,4 @@
-package authoringv2
+package semanticauthoring
 
 import (
 	"reflect"

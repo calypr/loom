@@ -1,6 +1,7 @@
-package authoringv2
+package semanticauthoring
 
 import (
+	"github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strconv"
 	"testing"
@@ -92,7 +93,7 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 	}
 
 	identifierPlan := ResolveSemanticSelectionPlan(identifier)
-	if identifierPlan.Source.Kind != SourceIdentifierBySystem || identifierPlan.Source.Lookup == nil || identifierPlan.Source.Lookup.Identifier == nil || identifierPlan.Source.Lookup.Match != "" || identifierPlan.Source.Lookup.Path != "" || identifierPlan.Source.Lookup.Binding != nil || identifierPlan.Source.Lookup.Extension != nil {
+	if identifierPlan.Source.Kind != workspace.SourceIdentifierBySystem || identifierPlan.Source.Lookup == nil || identifierPlan.Source.Lookup.Identifier == nil || identifierPlan.Source.Lookup.Match != "" || identifierPlan.Source.Lookup.Path != "" || identifierPlan.Source.Lookup.Binding != nil || identifierPlan.Source.Lookup.Extension != nil {
 		t.Fatalf("Identifier resolver emitted a legacy or mixed source: %#v", identifierPlan.Source)
 	}
 	if *identifierPlan.Source.Lookup.Identifier != (fhirbinding.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"}) {
@@ -103,11 +104,11 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 		t.Fatalf("Extension resolver lost URL ancestry or exact arm: %#v", extensionPlan.Source)
 	}
 	observationPlan := ResolveSemanticSelectionPlan(observation)
-	if observationPlan.Source == nil || observationPlan.Source.Kind != SourceCodedValue || observationPlan.Source.Lookup == nil || observationPlan.Source.Lookup.Binding == nil || observationPlan.Source.Lookup.Binding.UnitPath != "valueQuantity.unit" || observationPlan.Source.Lookup.Key == nil || observationPlan.Source.Lookup.Key.System != "urn:study" || observationPlan.Source.Lookup.Key.Code != "height" {
+	if observationPlan.Source == nil || observationPlan.Source.Kind != workspace.SourceCodedValue || observationPlan.Source.Lookup == nil || observationPlan.Source.Lookup.Binding == nil || observationPlan.Source.Lookup.Binding.UnitPath != "valueQuantity.unit" || observationPlan.Source.Lookup.Key == nil || observationPlan.Source.Lookup.Key.System != "urn:study" || observationPlan.Source.Lookup.Key.Code != "height" {
 		t.Fatalf("coded value source = %#v", observationPlan.Source)
 	}
 	medicationPlan := ResolveSemanticSelectionPlan(medicationDose)
-	if medicationPlan.Source == nil || medicationPlan.Source.Kind != SourceCodedValue || medicationPlan.Source.Lookup == nil || medicationPlan.Source.Lookup.Binding == nil {
+	if medicationPlan.Source == nil || medicationPlan.Source.Kind != workspace.SourceCodedValue || medicationPlan.Source.Lookup == nil || medicationPlan.Source.Lookup.Binding == nil {
 		t.Fatalf("nested MedicationRequest source = %#v", medicationPlan.Source)
 	}
 	binding := medicationPlan.Source.Lookup.Binding

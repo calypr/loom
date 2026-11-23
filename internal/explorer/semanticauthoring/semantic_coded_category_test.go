@@ -1,4 +1,4 @@
-package authoringv2
+package semanticauthoring
 
 import (
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
@@ -62,13 +62,13 @@ func standaloneCodingCategoryObservation(version string) semantic.Observation {
 }
 
 func TestSemanticCategoryDefaultTitleUsesFieldForGenericSystem(t *testing.T) {
-	if got := semanticCategoryDefaultTitle("Specimen", "Specimen.type.coding[]", "https://cda.readthedocs.io/"); got != "Specimen type" {
+	if got := SemanticCategoryDefaultTitle("Specimen", "Specimen.type.coding[]", "https://cda.readthedocs.io/"); got != "Specimen type" {
 		t.Fatalf("generic system category title = %q", got)
 	}
-	if got := semanticCategoryDefaultTitle("Medication", "Medication.code.coding[]", "https://www.ebi.ac.uk/chembl/compound_name"); got != "Compound name" {
+	if got := SemanticCategoryDefaultTitle("Medication", "Medication.code.coding[]", "https://www.ebi.ac.uk/chembl/compound_name"); got != "Compound name" {
 		t.Fatalf("ChEMBL category title = %q", got)
 	}
-	if got := semanticCategoryDefaultTitle("Specimen", "Specimen.type.coding[]", "https://example.org/my-code-system"); got != "My code system" {
+	if got := SemanticCategoryDefaultTitle("Specimen", "Specimen.type.coding[]", "https://example.org/my-code-system"); got != "My code system" {
 		t.Fatalf("meaningful system-tail title = %q", got)
 	}
 }
