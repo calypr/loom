@@ -249,31 +249,6 @@ type PreviewInterpretationCandidateResult struct {
 	Counts             CandidatePreviewCounts                 `json:"counts"`
 }
 
-type InterpretationLibraryView struct {
-	Library explorer.InterpretationLibrary
-	Head    *explorer.InterpretationRevision
-}
-
-type ListInterpretationLibrariesResult struct {
-	Project   string
-	Libraries []InterpretationLibraryView
-}
-
-type GetInterpretationRevisionRequest struct {
-	Project    string
-	RevisionID string
-}
-
-type CreateInterpretationRevisionRequest struct {
-	Project          string
-	LibraryID        string
-	ParentRevisionID string
-	Applicability    explorer.InterpretationApplicability
-	Rules            []explorer.InterpretationRule
-	Explanation      string
-	Author           string
-}
-
 type PopulationMappingRequest struct {
 	Project    string
 	ExplorerID string

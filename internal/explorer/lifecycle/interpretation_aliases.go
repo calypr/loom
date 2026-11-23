@@ -5,3 +5,7 @@ import "github.com/calypr/loom/internal/explorer/interpretation"
 type ConfiguredColumnContextRequest = interpretation.ConfiguredColumnContextRequest
 type InterpretationRevisionSummary = interpretation.InterpretationRevisionSummary
 type InterpretationLibrarySummary = interpretation.InterpretationLibrarySummary
+type InterpretationLibraryView = interpretation.InterpretationLibraryView
+type ListInterpretationLibrariesResult = interpretation.ListInterpretationLibrariesResult
+type GetInterpretationRevisionRequest = interpretation.GetInterpretationRevisionRequest
+type CreateInterpretationRevisionRequest = interpretation.CreateInterpretationRevisionRequest

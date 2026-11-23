@@ -532,7 +532,7 @@ func (r *Handlers) CreateInterpretationRevision(ctx context.Context, request loo
 		if body.ParentRevisionId != nil {
 			parentRevisionID = *body.ParentRevisionId
 		}
-		value, err := h.application.CreateInterpretationRevision(ctx, lifecycle.CreateInterpretationRevisionRequest{
+		value, err := h.application.InterpretationService().CreateInterpretationRevision(ctx, lifecycle.CreateInterpretationRevisionRequest{
 			Project: project, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
 			Applicability: applicability, Rules: rules, Explanation: body.Explanation,
 			Author: authscope.SubjectFromContext(ctx),
@@ -620,7 +620,7 @@ func (r *Handlers) GetInterpretationRevision(ctx context.Context, request loomap
 		if err := h.authorizeAuthoringRead(ctx, project); err != nil {
 			return result, err
 		}
-		value, err := h.application.GetInterpretationRevision(ctx, lifecycle.GetInterpretationRevisionRequest{Project: project, RevisionID: revisionID})
+		value, err := h.application.InterpretationService().GetInterpretationRevision(ctx, lifecycle.GetInterpretationRevisionRequest{Project: project, RevisionID: revisionID})
 		if err != nil {
 			return result, err
 		}
@@ -639,7 +639,7 @@ func (r *Handlers) ListInterpretationLibraries(ctx context.Context, request loom
 		if err := h.authorizeAuthoringRead(ctx, project); err != nil {
 			return result, err
 		}
-		value, err := h.application.ListInterpretationLibraries(ctx, project)
+		value, err := h.application.InterpretationService().ListInterpretationLibraries(ctx, project)
 		if err != nil {
 			return result, err
 		}
