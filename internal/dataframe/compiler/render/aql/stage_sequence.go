@@ -55,7 +55,6 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		plan, sourcePlan, sequence, options, hasRelatedGroupPreview,
 	)
 	if hasGroupRowValueWindow {
-
 		inlineGroupSourceRow = ""
 	}
 	sourceGroupWindowPlan := ir.PhysicalPlan{}
@@ -87,10 +86,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	reservedVars := stageSequenceVariableNames(plan)
-	for _, name := range []string{"cohort_member", "member", "resource", "selected", "source", "members", "definitions", "all_memberships", "unassigned", "unassigned_records", "unassigned_members", "unassigned_row", "revision", "revision_guard", "selection", "selection_guard", "policy_guard", "rows", "row_value"} {
-		reservedVars[name] = struct{}{}
-	}
+	reservedVars := stageSequenceReservedVariables(plan)
 	groupPreviewFrontier := relatedGroupPreviewFrontier{}
 	if hasRelatedGroupPreview {
 		groupPreviewFrontier, err = renderRelatedGroupPreviewFrontier(plan, sequence, groupPreviewShape, collectionKeys)
@@ -207,8 +203,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			groupPreviewFrontier.boundedVariable, groupPreviewWindow.Query, source.Query,
 		)
 	}
-	bindVars := make(map[string]any, len(source.BindVars)+len(mappingSource.BindVars)+len(groupPreviewWindow.BindVars)+len(groupPreviewFrontier.bindVars)+len(groupRowValueFrontier.bindVars)+len(sourceGroupFrontier.bindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
-	for _, values := range []map[string]any{
+	bindVars, err := mergeStageBindVars(
 		groupKeyQuery.BindVars,
 		source.BindVars,
 		mappingSource.BindVars,
@@ -217,20 +212,11 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		groupRowValueFrontier.bindVars,
 		sourceGroupFrontier.bindVars,
 		runtimePhysicalBindVars(plan.BindVars, collectionKeys),
-	} {
-		if err := mergeRenderedBindVars(bindVars, values); err != nil {
-			return RenderedPhysicalPlan{}, err
-		}
+	)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
 	}
-	presenceMarkerRows := make(map[string]struct{}, len(stages)+1)
-	if options.projectionPresenceMarkerColumn != "" {
-		for _, stage := range stages {
-			if stage.InputRowVariable != "" {
-				presenceMarkerRows[stage.InputRowVariable] = struct{}{}
-			}
-		}
-		presenceMarkerRows["__loom_construction_final_row"] = struct{}{}
-	}
+	presenceMarkerRows := projectionPresenceRows(stages, options.projectionPresenceMarkerColumn)
 	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars:                             bindVars,
 		collectionKeys:                       collectionKeys,
@@ -264,7 +250,6 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if sequence.RowLineageReturn != nil {
 		return renderer.rowLineage().renderConstructionRowLineage(source.Query, stages, *sequence.RowLineageReturn)
 	}
-
 	lines := make([]string, 0, 16)
 	if hasRelatedGroupPreview {
 		lines = append(lines, strings.Split(strings.TrimSuffix(groupPreviewFrontier.query, "\n"), "\n")...)
@@ -322,6 +307,38 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query),
 		PartialValidation: hasRelatedGroupPreview,
 	}, nil
+}
+
+func mergeStageBindVars(groups ...map[string]any) (map[string]any, error) {
+	result := make(map[string]any)
+	for _, values := range groups {
+		if err := mergeRenderedBindVars(result, values); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func projectionPresenceRows(stages []ir.PhysicalConstructionStage, markerColumn string) map[string]struct{} {
+	rows := make(map[string]struct{}, len(stages)+1)
+	if markerColumn == "" {
+		return rows
+	}
+	for _, stage := range stages {
+		if stage.InputRowVariable != "" {
+			rows[stage.InputRowVariable] = struct{}{}
+		}
+	}
+	rows["__loom_construction_final_row"] = struct{}{}
+	return rows
+}
+
+func stageSequenceReservedVariables(plan ir.PhysicalPlan) map[string]struct{} {
+	reserved := stageSequenceVariableNames(plan)
+	for _, name := range []string{"cohort_member", "member", "resource", "selected", "source", "members", "definitions", "all_memberships", "unassigned", "unassigned_records", "unassigned_members", "unassigned_row", "revision", "revision_guard", "selection", "selection_guard", "policy_guard", "rows", "row_value"} {
+		reserved[name] = struct{}{}
+	}
+	return reserved
 }
 
 type stageSourceRenderer struct {
