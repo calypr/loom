@@ -273,9 +273,8 @@ helpers in Phase 3.
 
 ### Phase 3: extract `compiler/scan` (after the fast-path audit's A4 lands)
 
-Blocked pending a decision to resume the paused fast-path audit. Track A
-has its inventory and the isolated CDA load. A1, A3 and A4 remain pending,
-and the operator previously directed the audit to pause after AQL Phase 4.
+The operator resumed the fast-path audit. A1 has a query comparison harness.
+The Phase 3 extraction still depends on A4.
 
 - Move the covering-index naming and spec helpers that scan uses into `compiler/model`.
 - Move category scan and column population into `compiler/scan`.

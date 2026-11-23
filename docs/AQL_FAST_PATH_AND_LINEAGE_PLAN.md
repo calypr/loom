@@ -1,6 +1,6 @@
 # AQL fast-path audit and lineage agreement plan
 
-Status: Track A paused after inventory and the isolated CDA load. Harness, timing, and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Track A resumed. A1 is implemented and verified on disposable Arango. Workloads, timing, and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
 
 Precondition: `docs/AQL_RENDER_REFACTOR_PLAN.md` Phases 1 to 4 and
 `docs/EXECUTION_REFACTOR_PLAN.md` are merged. This plan assumes:
@@ -150,6 +150,26 @@ threshold is borderline and goes to the operator.
   cannot silently measure the wrong query.
 - Commit the harness and the toggle script. Any new fast path must add a harness workload in
   the same change.
+
+Use `go run ./cmd/preview-audit -input workload.json -render-only` to check
+the AQL pair before opening a database. For caller-selected paths, the JSON
+contains `plan`, `mode`, and, when applicable, `rootIndex` and
+`groupKeySourcePaths`. For renderer-selected paths it contains `fast` and
+`generic` query/bind objects emitted from the same input before and after
+using `scripts/aql_audit/toggle_generic_renderer.py` in a throwaway worktree.
+Both forms require `fastContains` and `genericExcludes` AQL witnesses.
+Set `ordered` only for a total result order.
+
+For execution add `-arango`, `-database`, and `-dataset` for the owned
+loopback service. Set the same preview memory and time limits on both
+queries. The report includes the first observed pair, then interleaved
+warm samples with AQL digests, complete result digests, scan counts, memory,
+and Arango's node profiles and indexes. `-generic-first` reverses the
+starting order. The first pair measures the first request in that process.
+It does not clear the server's storage caches. The audit fails on a partial
+cursor, a query error, or any result difference. If the generic path fails
+under the preview budget, use a separate raised-budget pair to check
+result equivalence before applying the decision rule.
 
 #### A2: workloads
 
