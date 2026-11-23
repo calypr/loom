@@ -8,11 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -20,6 +15,9 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *testing.T) {
@@ -170,5 +168,32 @@ func TestUpdateColumnRowValuePolicyCheckerRunsBeforeSave(t *testing.T) {
 	}
 	if fmt.Sprint(order) != "[validate save]" {
 		t.Fatalf("candidate validation/save order = %v", order)
+	}
+}
+
+func TestPreviousDynamicInventoryCompilerReceiptCannotExecute(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	receipt.CompilerContractVersion = "loom.explorer.compiler/v20"
+	var err error
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = receipt.Validate(); err != nil {
+		t.Fatalf("historical generic receipt must remain readable: %v", err)
+	}
+	service := &Service{config: Config{CompileReceipt: func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+		t.Fatal("must reject without recompiling")
+		return nil, nil
+	}}}
+	err = service.validateReceiptRoute(receipt, "project-a", "patients")
+	var typed *ports.Error
+	if !errors.As(err, &typed) || typed.Code != "RECEIPT_RECOMPILE_REQUIRED" {
+		t.Fatalf("historical compiler receipt was executable: %v", err)
 	}
 }

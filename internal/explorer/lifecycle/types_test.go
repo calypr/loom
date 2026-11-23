@@ -1,27 +1,20 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
-	"github.com/calypr/loom/internal/explorer/construction"
-
-	"github.com/calypr/loom/internal/explorer/rowdef"
-
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-
 	"github.com/calypr/loom/internal/authscope"
-
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -29,8 +22,17 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/rowdef"
+	"github.com/calypr/loom/internal/explorer/semanticauthoring"
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testing.T) {
@@ -1080,5 +1082,362 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 	}
 	if store.saveDraftCalls != 0 || string(store.created.DraftConfig) != string(raw) || *workspace.Documents[0].ImportedRecipe != pin {
 		t.Fatal("assessing replacement detached or changed the saved pin")
+	}
+}
+
+func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
+	for _, kind := range []string{"quantity", "codeable concept"} {
+		t.Run(kind, func(t *testing.T) {
+			observation := semanticFrameCompatibilityObservation(kind)
+			currentEntry := semantic.Entry{ConceptID: "concept", BindingID: "current-binding", Observation: observation}
+			currentFamily := semanticFrameCompatibilityFamily(t, currentEntry)
+			priorFamily := currentFamily
+			priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
+			priorFamily.SchemaVersion = semantic.ObservationSchemaVersion - 1
+			priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
+			priorFamily.ValueFallbacks = nil
+			priorFamily.FallbackOnBlankString = false
+
+			projected, plan, ok := semanticEntryForFrameFamily(currentEntry, priorFamily)
+			if !ok || !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
+				t.Fatalf("prior frame did not reauthorize against the exact current inventory: ok=%v plan=%#v family=%#v", ok, plan, priorFamily)
+			}
+			binding := plan.Source.Lookup.Binding
+			if binding.ValuePath != priorFamily.ValuePath || len(binding.ValueFallback) != 0 || binding.FallbackOnBlankString ||
+				projected.Observation.Value.Selector != observation.Value.Selector || len(projected.Observation.Value.FallbackSelectors) != 0 || projected.Observation.Value.FallbackOnBlankString {
+				t.Fatalf("legacy frame did not retain its primary-only binding: binding=%#v projected=%#v", binding, projected.Observation.Value)
+			}
+			if len(observation.Value.FallbackSelectors) > 0 && !observation.Value.FallbackOnBlankString {
+				t.Fatalf("test fixture does not exercise the new opted-in fallback: %#v", observation.Value)
+			}
+
+			if !semanticFrameFamilyMatchesPinnedPrior(currentFamily, priorFamily, observation) {
+				t.Fatal("current family was not recognized as a metadata-only upgrade from the pinned primary-only family")
+			}
+
+			for _, test := range []struct {
+				name   string
+				mutate func(*capability.SemanticFrameFamily)
+			}{
+				{name: "tampered legacy binding id", mutate: func(f *capability.SemanticFrameFamily) { f.BindingID = "not-the-v1-binding" }},
+				{name: "legacy fallback injection", mutate: func(f *capability.SemanticFrameFamily) {
+					f.ValueFallbacks = []string{"valueCodeableConcept.coding[].code"}
+				}},
+				{name: "legacy blank policy injection", mutate: func(f *capability.SemanticFrameFamily) { f.FallbackOnBlankString = true }},
+				{name: "wrong owner", mutate: func(f *capability.SemanticFrameFamily) { f.OwningScope = "component[]" }},
+				{name: "wrong key", mutate: func(f *capability.SemanticFrameFamily) { f.KeyPath = "other.coding[]" }},
+				{name: "wrong value", mutate: func(f *capability.SemanticFrameFamily) { f.ValuePath += ".changed" }},
+				{name: "wrong logical type", mutate: func(f *capability.SemanticFrameFamily) { f.LogicalType = "integer" }},
+				{name: "wrong choice arm", mutate: func(f *capability.SemanticFrameFamily) { f.ChoiceArms = []string{"valueString"} }},
+				{name: "wrong source path", mutate: func(f *capability.SemanticFrameFamily) { f.SourcePath = "other" }},
+				{name: "schema only changed", mutate: func(f *capability.SemanticFrameFamily) {
+					f.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion)
+				}},
+				{name: "unknown old versions", mutate: func(f *capability.SemanticFrameFamily) { f.SchemaVersion--; f.RuleVersion = "1" }},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					changed := priorFamily
+					test.mutate(&changed)
+					if _, _, accepted := semanticEntryForFrameFamily(currentEntry, changed); accepted {
+						t.Fatalf("accepted tampered or unknown legacy frame identity: %#v", changed)
+					}
+					if semanticFrameFamilyMatchesPinnedPrior(currentFamily, changed, observation) {
+						t.Fatalf("accepted tampered pinned identity: %#v", changed)
+					}
+				})
+			}
+
+			changedObservation := observation
+			changedObservation.Key.Version = "2024"
+			changedEntry := currentEntry
+			changedEntry.Observation = changedObservation
+			if _, _, accepted := semanticEntryForFrameFamily(changedEntry, priorFamily); accepted {
+				t.Fatal("accepted a version-specific code for a prior versionless frame")
+			}
+
+			fresh, freshPlan, freshOK := semanticEntryForFrameFamily(currentEntry, currentFamily)
+			if !freshOK || !freshPlan.Readiness.Addable() || !reflect.DeepEqual(fresh.Observation.Value, observation.Value) {
+				t.Fatalf("current frame did not keep current fallback semantics: ok=%v plan=%#v value=%#v", freshOK, freshPlan, fresh.Observation.Value)
+			}
+		})
+	}
+}
+
+func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
+	snapshot := readySnapshot("project-a", "generation-a", "legacy-frame-snapshot", scope)
+	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
+	observation := semanticFrameCompatibilityObservation("codeable concept")
+	entry := semantic.Entry{ConceptID: "stage-concept", BindingID: "current-binding", Observation: observation}
+	currentFamily := semanticFrameCompatibilityFamily(t, entry)
+	priorFamily := currentFamily
+	priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
+	priorFamily.SchemaVersion = semantic.ObservationSchemaVersion - 1
+	priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
+	priorFamily.ValueFallbacks = nil
+	priorFamily.FallbackOnBlankString = false
+	frame, err := ws.NewFrameDefinition(
+		"Stage values", "Stages selected from the existing primary text binding.", priorFamily, nil, capability.ConstructionChoiceValue,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store := legacyFrameCompatibilityStore(t, frame)
+	primary := capability.Candidate{
+		ID: "observation-stage-text", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueCodeableConcept.text", Label: "Stage text", LogicalType: "string", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	fallback := capability.Candidate{
+		ID: "observation-stage-display", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueCodeableConcept.coding[].display", Label: "Stage display", LogicalType: "string", Cardinality: "many",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray, capability.ProjectionFirst},
+	}
+	snapshot.Candidates = []capability.Candidate{primary, fallback}
+	fieldChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogSnapshot := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: "project-a", ExplorerID: "explorer",
+		SourceGeneration: "generation-a", AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		SnapshotToken: snapshot.Token, Complete: true, Nodes: []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		Candidates: []ws.CatalogCandidate{{
+			ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Label: primary.Label, LogicalType: primary.LogicalType,
+			Cardinality: primary.Cardinality, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &fieldChoice,
+		}}, RoutePolicy: ws.RoutePolicy{Unbounded: true},
+	}
+	buildID := semantic.BuildID("project-a", "generation-a")
+	unrelated := entry
+	unrelated.ConceptID = "unrelated-concept"
+	unrelated.BindingID = "unrelated-current-binding"
+	unrelated.Observation.Source.Path = "anotherValue"
+	unrelated.Observation.Source.Canonical = "Observation.anotherValue"
+	resolver := func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" ||
+			options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
+			!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) ||
+			!reflect.DeepEqual(options.References, []semantic.Reference{{ConceptID: entry.ConceptID, BindingID: entry.BindingID}}) {
+			t.Fatalf("category reauthorization changed project/generation/auth/selection scope: %#v", options)
+		}
+		return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
+	}
+	service := newTestService(t, store, Config{
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: func(capability.Snapshot, string) ws.CatalogSnapshot { return catalogSnapshot },
+		},
+		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
+			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" ||
+				options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
+				!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) || options.ResourceType != "Observation" || options.BindingID != "" {
+				t.Fatalf("frame browse lost its exact project/generation/auth/binding scope: %#v", options)
+			}
+			return semantic.Page{
+				State:   semantic.Complete,
+				Build:   semantic.Build{BuildID: buildID, State: semantic.Complete},
+				Entries: []semantic.Entry{entry, unrelated},
+			}, nil
+		},
+		ResolveSemanticInventorySelections: resolver,
+	})
+
+	browsed, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
+		OutputID: "out", FrameID: frame.ID,
+	})
+	if err != nil || browsed.FrameID != frame.ID || len(browsed.Entries) != 1 || browsed.Entries[0].ConstructionChoice == nil {
+		t.Fatalf("legacy category browse = %#v, err=%v", browsed, err)
+	}
+	choiceSource, ok := browsed.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
+	if !ok || browsed.Entries[0].ValueSelector != observation.Value.Selector || choiceSource.ValueSelector != observation.Value.Selector ||
+		choiceSource.SchemaVersion != semantic.ObservationSchemaVersion || choiceSource.RuleVersion != strconv.Itoa(semantic.SemanticObservationRuleVersion) ||
+		len(choiceSource.ValueFallbacks) != 0 || choiceSource.FallbackOnBlankString {
+		t.Fatalf("legacy category choice acquired current fallback behavior: item=%#v source=%#v", browsed.Entries[0], browsed.Entries[0].ConstructionChoice.Source)
+	}
+
+	request := authoringv2.ApplyCommandsRequest{
+		CommandID: "legacy-frame-category", SemanticsVersion: ws.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionChoice, OutputID: "out", InitialPresentation: authoringv2.InitialPresentationTable, Payload: &authoringv2.ConstructionChoicePayload{ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: browsed.Entries[0].ConstructionChoice.ChoiceID, Form: capability.ConstructionChoiceValue, FrameID: frame.ID}}}},
+	}
+	response, err := service.ApplyCommands(context.Background(), "project-a", "explorer", request, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Workspace.Documents) != 1 || len(response.Workspace.Documents[0].Columns) != 1 {
+		t.Fatalf("legacy category edit produced workspace=%#v", response.Workspace)
+	}
+	document := response.Workspace.Documents[0]
+	column := document.Columns[0]
+	if column.FrameID != frame.ID || column.Source.Kind != ws.SourceCodedValue || column.Source.Lookup == nil || column.Source.Lookup.Binding == nil ||
+		column.Source.Lookup.Binding.ValuePath != priorFamily.ValuePath || len(column.Source.Lookup.Binding.ValueFallback) != 0 || column.Source.Lookup.Binding.FallbackOnBlankString ||
+		len(document.Frames) != 1 || document.Frames[0].ID != frame.ID || !reflect.DeepEqual(document.Frames[0].Source, priorFamily) {
+		t.Fatalf("saved category changed the primary-only frame identity: frame=%#v column=%#v", document.Frames, column)
+	}
+}
+
+func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *testing.T) {
+	lookup := &ws.LookupSource{ProjectionMode: "FIRST", Extension: &fhirbinding.ExtensionBinding{
+		OwnerPath: "extension[]", URLPath: []string{"urn:study:stage"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
+	}}
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(),
+		Columns: []ws.Column{{Column: "stage", Label: "Stage", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{
+			Kind: ws.SourceExtensionByURL, Lookup: lookup,
+		}}},
+	}
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"}, Documents: []ws.Document{document},
+		Tabs: []ws.Tab{{ID: "tab-out", Title: "Output", OutputID: "out", Visible: true}},
+	}
+	beforeSource, err := json.Marshal(document.Columns[0].Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := ws.DecodeWorkspace(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Documents) != 1 || len(reloaded.Documents[0].Columns) != 1 {
+		t.Fatalf("existing Extension binding did not reload: %#v", reloaded.Documents)
+	}
+	afterSource, err := json.Marshal(reloaded.Documents[0].Columns[0].Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterSource, beforeSource) {
+		t.Fatalf("existing Extension binding wire identity changed across canonical reload: before=%s after=%s", beforeSource, afterSource)
+	}
+}
+
+func semanticFrameCompatibilityObservation(kind string) semantic.Observation {
+	observation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Observation", Canonical: "Observation.code", Path: "code"},
+		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete,
+		Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
+		Value: semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+	}
+	if kind == "codeable concept" {
+		observation.Value = semantic.Value{
+			Selector: "valueCodeableConcept.text", Type: "string",
+			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
+		}
+		observation.ChoiceArm = "valueCodeableConcept"
+		observation.LogicalType = "string"
+	}
+	return observation
+}
+
+func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capability.SemanticFrameFamily {
+	t.Helper()
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
+		t.Fatalf("semantic compatibility fixture is not compiler-addable: %#v", plan)
+	}
+	binding := plan.Source.Lookup.Binding
+	return capability.SemanticFrameFamily{
+		BindingID: entry.BindingID, ResourceType: entry.Observation.Source.Type,
+		SourcePath: entry.Observation.Source.Path, SourceCanonical: entry.Observation.Source.Canonical, SourceProfile: entry.Observation.Source.Profile,
+		OwningScope: binding.OwnerPath, KeyPath: binding.KeyPath, ValuePath: binding.ValuePath,
+		ValueFallbacks: append([]string(nil), binding.ValueFallback...), FallbackOnBlankString: binding.FallbackOnBlankString,
+		ChoiceArms: append([]string(nil), binding.ChoiceArms...), LogicalType: binding.LogicalType,
+		RuleVersion: entry.Observation.RuleVersion, SchemaVersion: entry.Observation.SchemaVersion,
+	}
+}
+
+func legacyFrameCompatibilityStore(t *testing.T, frame ws.FrameDefinition) *fakeStore {
+	t.Helper()
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"},
+		Documents: []ws.Document{{
+			Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+			Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"},
+			Rows:  ws.RecordsRowDefinition(), Columns: []ws.Column{}, Frames: []ws.FrameDefinition{frame},
+		}},
+		Tabs: []ws.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}},
+	}
+	config, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fakeStore{created: &explorer.Explorer{
+		Project: "project-a", ExplorerID: "explorer", Title: "Builder", ManagementMode: viewer.ManagementInteractive,
+		DraftConfig: config, DraftVersion: 1, DraftDigest: digest,
+	}}
+}
+
+func TestCellTraceValidatesReceiptAndReturnsBoundEvidence(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
+	receipt := nativeReceipt(snapshot)
+	store := &fakeStore{receipt: receipt}
+	config := testConfig(snapshot)
+	config.CellTrace = func(_ context.Context, gotReceipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		if gotReceipt.ID != receipt.ID || bindings.DatasetGeneration != receipt.SourceGeneration || request.Output != "patients" || request.Column != "patient_id" || request.RowID != "row-7" {
+			t.Fatalf("unexpected trace invocation: receipt=%#v bindings=%#v request=%#v", gotReceipt, bindings, request)
+		}
+		return dataframeexecution.CellTraceResult{RowID: request.RowID, Column: request.Column, Value: "Patient/7", Status: dataframeexecution.CellTraceValue, Complete: true}, nil
+	}
+	service := newTestService(t, store, config)
+	result, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-7", Column: "patient_id", Limit: 25})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Binding.ReceiptID != receipt.ID || result.Binding.ScopeDigest != receipt.AuthorizationScopeDigest || result.Trace.Value != "Patient/7" || !result.Trace.Complete {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.Feature.OutputID != "patients" || result.Feature.Column != "patient_id" || result.Feature.AuthoredColumn != "patient_id" || result.Feature.OccurrenceID != "base" || result.Feature.Label != "Patient ID" {
+		t.Fatalf("unexpected feature descriptor: %#v", result.Feature)
+	}
+}
+
+func TestCellTraceMissingRowBecomesTypedNotFound(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
+	receipt := nativeReceipt(snapshot)
+	config := testConfig(snapshot)
+	config.CellTrace = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		return dataframeexecution.CellTraceResult{}, dataframeerrors.Wrap(
+			dataframeexecution.ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest,
+			fmt.Sprintf("published row %q was not found in output %q", request.RowID, request.Output),
+			dataframeerrors.WithDetails(map[string]any{"rowId": request.RowID, "output": request.Output}),
+		)
+	}
+	service := newTestService(t, &fakeStore{receipt: receipt}, config)
+	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-9", Column: "patient_id"})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" || lifecycleErr.Class != ports.ClassNotFound {
+		t.Fatalf("a mistyped rowId must present as a non-server-fault not-found, got %v (%T)", err, err)
+	}
+}
+
+func TestCellTraceRejectsUnknownColumnBeforeExecution(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
+	receipt := nativeReceipt(snapshot)
+	config := testConfig(snapshot)
+	config.CellTrace = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		t.Fatal("trace executor must not run")
+		return dataframeexecution.CellTraceResult{}, nil
+	}
+	service := newTestService(t, &fakeStore{receipt: receipt}, config)
+	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-7", Column: "not_a_column"})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "UNKNOWN_OUTPUT_COLUMN" {
+		t.Fatalf("error = %v", err)
 	}
 }

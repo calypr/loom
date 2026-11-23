@@ -1,14 +1,21 @@
 package lifecycle
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
 	"testing"
 
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func cloneLifecycleTestConstruction(t *testing.T, construction ws.Construction) ws.Construction {
@@ -183,4 +190,135 @@ func relatedExpandRemovalTestStages(t *testing.T, workspace ws.Workspace, output
 		}
 	}
 	return stages
+}
+
+type lifecycleConstructionColumn struct {
+	name, label, logical string
+	nullable             bool
+	construction         string
+}
+
+func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace ws.Workspace) *receiptmodel.CompilationReceipt {
+	receipt := nativeReceipt(snapshot)
+	receipt.IntentDigest, _ = workspace.Digest()
+	receipt.NormalizedBundle, _ = workspace.CanonicalJSON()
+	columns := []lifecycleConstructionColumn{
+		{name: "patient_id", label: "Patient ID", logical: "string"},
+		{name: "category", label: "Category", logical: "string", nullable: true},
+		{name: "value", label: "Value", logical: "decimal", nullable: true},
+		{name: "value_alt", label: "Alternate value", logical: "decimal"},
+		{name: "category_number", label: "Numeric category", logical: "integer"},
+		{name: "category_boolean", label: "Boolean category", logical: "boolean"},
+		{name: "text_value", label: "Text value", logical: "string"},
+		{name: "overflow", label: "Overflow category", logical: "string"},
+	}
+	public := receiptmodel.PublicOutputContract{OutputID: "patients", Columns: make([]receiptmodel.PublicOutputColumn, 0, len(columns))}
+	receipt.EmittedColumns = make([]viewer.EmittedColumn, 0, len(columns))
+	provenance := make(map[string]string, len(columns))
+	for index, column := range columns {
+		constructionID := column.construction
+		public.Columns = append(public.Columns, receiptmodel.PublicOutputColumn{
+			Column: column.name, ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
+			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
+		})
+		receipt.EmittedColumns = append(receipt.EmittedColumns, viewer.EmittedColumn{
+			EmissionID: fmt.Sprintf("em_%02d", index), OutputID: "patients", PublicColumn: column.name,
+			ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
+			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
+		})
+		provenance[column.name] = "EXPLICIT"
+	}
+	contract, _ := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{public}})
+	receipt.PublicOutputContract = contract
+	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
+	receipt.OutputFingerprints = map[string]string{"patients": "fingerprint-" + receipt.IntentDigest}
+	receipt.OutputColumnProvenance = map[string]map[string]string{"patients": provenance}
+	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
+	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
+	return receipt
+}
+
+func lifecycleErrorCode(err error) string {
+	var lifecycleErr *ports.Error
+	if errors.As(err, &lifecycleErr) {
+		return lifecycleErr.Code
+	}
+	return ""
+}
+
+func proposalErrorIs(err error, class ports.ErrorClass, code string) bool {
+	var lifecycleErr *ports.Error
+	return errors.As(err, &lifecycleErr) && lifecycleErr.Class == class && lifecycleErr.Code == code
+}
+
+func lifecycleTestStringScalar(value string) ws.TableScalar {
+	return ws.TableScalar{Kind: ws.TableScalarString, String: &value}
+}
+
+func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
+	reference := semantic.FamilyReference{
+		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
+		SourcePath: sourcePath, System: system, Version: version,
+	}
+	reference.FamilyID = semantic.FamilyID(reference)
+	return semantic.Family{
+		FamilyReference: reference,
+		Source:          semantic.Source{Type: resourceType, Path: sourcePath},
+		KeySelector:     "code.coding[]",
+		Value: semantic.Value{
+			Selector: "code.coding[].display", Type: "string",
+			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
+		},
+		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
+		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
+		Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 2,
+		Examples: []string{"CARBOXYAMIDOTRIAZOLE", "another compound"},
+	}
+}
+
+type libraryRepository struct {
+	library      interpretation.InterpretationLibrary
+	revisions    map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision
+	createSeen   *interpretation.InterpretationRevision
+	createErr    error
+	mutateCreate bool
+}
+
+func (r *libraryRepository) ListInterpretationLibraries(context.Context, string) ([]interpretation.InterpretationLibrary, error) {
+	if r.library.ID == "" {
+		return nil, nil
+	}
+	return []interpretation.InterpretationLibrary{r.library}, nil
+}
+
+func (r *libraryRepository) GetInterpretationRevision(_ context.Context, project string, id interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
+	revision, ok := r.revisions[id]
+	if !ok || revision.Project != project {
+		return nil, explorer.ErrNotFound
+	}
+	return &revision, nil
+}
+
+func (r *libraryRepository) CreateInterpretationRevision(_ context.Context, revision interpretation.InterpretationRevision, expectedParent *interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	if existing, ok := r.revisions[revision.ID]; ok {
+		return &existing, nil
+	}
+	if expectedParent == nil {
+		if r.library.HeadRevisionID != "" {
+			return nil, interpretation.ErrInterpretationParentConflict
+		}
+	} else if r.library.HeadRevisionID != *expectedParent {
+		return nil, interpretation.ErrInterpretationParentConflict
+	}
+	r.createSeen = &revision
+	if r.mutateCreate {
+		revision.Explanation = "mutated by adapter"
+	}
+	r.revisions[revision.ID] = revision
+	r.library.HeadRevisionID = revision.ID
+	r.library.HeadDigest = revision.ContentDigest
+	return &revision, nil
 }

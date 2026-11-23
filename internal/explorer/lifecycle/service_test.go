@@ -1,26 +1,18 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
-
-	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
-	"github.com/calypr/loom/internal/explorer/population"
-
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -33,6 +25,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/population"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/rowdef"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
@@ -1285,5 +1284,159 @@ func TestServiceUsesConfiguredClock(t *testing.T) {
 	service := newTestService(t, &fakeStore{}, Config{Now: func() time.Time { return clock }})
 	if service.now() != clock {
 		t.Fatalf("clock=%v", service.now())
+	}
+}
+
+func TestRowDefinitionProposalProjectsExactCandidateWithoutSaving(t *testing.T) {
+	service, store, snapshot, _ := rowProposalService(t)
+	enableRowDefinitionPreview(service)
+	before := append([]byte(nil), store.created.DraftConfig...)
+	request := rowProposalRequest(store.created, snapshot)
+	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := ws.DecodeWorkspace(store.receipt.NormalizedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(proposal.CandidateDocument, verified.Documents[0]) {
+		t.Fatal("candidate document did not come from the verified receipt")
+	}
+	if proposal.CandidateDocument.Rows.Kind != ws.RowDefinitionExpanded || proposal.CandidateNetwork.SourceRows.Kind != ws.RowDefinitionExpanded || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateNetwork.Owner != "DOCUMENT" {
+		t.Fatalf("candidate source rows missing or stale: %#v", proposal)
+	}
+	identity := proposal.CandidateRowIdentity
+	if identity.OutputID != request.OutputID || len(identity.Stages) != 1 || identity.Stages[0].Identity.Kind != "SOURCE_ITEM" || identity.Stages[0].Identity.ScopePath != "component[]" || identity.Stages[0].Identity.MissingPolicy != string(ws.EmptyCollectionPreserveParent) {
+		t.Fatalf("candidate item identity was guessed from mode: %#v", identity)
+	}
+	if store.saveDraftCalls != 0 || !bytes.Equal(store.created.DraftConfig, before) {
+		t.Fatal("projecting a row proposal saved or rewrote the draft")
+	}
+	applied, err := service.ApplyCommands(context.Background(), "project-a", "patients", rowProposalApplyRequest(store.created, snapshot, proposal.ProposalID, "apply-projection"), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(applied.Workspace.Documents[0], proposal.CandidateDocument) {
+		t.Fatal("projected document differs from receipt-applied document")
+	}
+}
+
+func TestRowDefinitionProposalProjectsNamedGroupAfterSavedFilter(t *testing.T) {
+	service, store, snapshot, workspace := rowProposalService(t)
+	addRowProposalSourceFilter(t, store, workspace)
+	enableRowDefinitionPreview(service)
+	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{}
+	request := rowProposalRequest(store.created, snapshot)
+	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}}
+	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.CandidateDocument.Construction == nil || len(proposal.CandidateDocument.Construction.Steps) != 1 || proposal.CandidateDocument.Construction.Steps[0].ID != "filter_source" || proposal.CandidateDocument.Rows.Groups == nil || proposal.CandidateDocument.Rows.Groups.AfterStepID != "filter_source" {
+		t.Fatalf("candidate dropped downstream work or changed insertion anchor: %#v", proposal.CandidateDocument)
+	}
+	stages := proposal.CandidateRowIdentity.Stages
+	if len(stages) != 3 || stages[1].OperationID != "filter_source" || stages[2].Identity.Kind != "NAMED_GROUP" || stages[2].Identity.InputStageID != "filter_source" || stages[2].Identity.GroupRevisionID != "group-revision-1" || stages[2].Identity.MissingPolicy != string(ws.UnassignedMemberExclude) {
+		t.Fatalf("named group projection lost exact scope or empty policy: %#v", stages)
+	}
+	if store.saveDraftCalls != 0 {
+		t.Fatal("candidate projection saved the draft")
+	}
+}
+
+type importedSourceChoicePlanner struct{ calls int }
+
+func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error) {
+	planner.calls++
+	return nil, errors.New("generic FHIR route planner must not run for imported source choices")
+}
+
+func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*Service, constructionBase) (bool, string, string, int, error)
+	}{
+
+		{name: "filter", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
+			got, err := service.constructionFilterSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
+		}},
+		{name: "derive", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
+			got, err := service.constructionDeriveSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
+		}},
+		{name: "unpivot", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
+			got, err := service.constructionUnpivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
+		}},
+		{name: "expand", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
+			got, err := service.constructionExpandSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			planner := &importedSourceChoicePlanner{}
+			service := &Service{config: Config{RowChoicePlanner: planner}}
+			base := constructionBase{Document: ws.Document{ImportedRecipe: &ws.ImportedRecipeRef{
+				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
+			}, Rows: ws.RecordsRowDefinition(),
+			}}
+			supported, code, reason, choices, err := test.call(service, base)
+			if err != nil {
+				t.Fatalf("capability helper: %v", err)
+			}
+			if !supported || code != "" || reason != "" || choices != 0 {
+				t.Fatalf("imported capability = supported %t code %q reason %q choices %d, want supported with no live-catalog choices", supported, code, reason, choices)
+			}
+			if planner.calls != 0 {
+				t.Fatalf("generic row-choice planner calls = %d, want 0", planner.calls)
+			}
+		})
+	}
+}
+
+func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t *testing.T) {
+	for _, selection := range []rowdef.RowDefinitionSelection{
+		{Kind: rowdef.RowDefinitionSelectionRecords},
+		{Kind: rowdef.RowDefinitionSelectionExpanded, Expanded: &rowdef.ExpandedSelection{RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: ws.EmptyCollectionPreserveParent}},
+		{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-v1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}},
+	} {
+		t.Run(string(selection.Kind), func(t *testing.T) {
+			service, store, snapshot, workspace := rowProposalService(t)
+			workspace.Documents[0].ImportedRecipe = &ws.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
+			for i := range workspace.Documents[0].Columns {
+				column := &workspace.Documents[0].Columns[i]
+				column.Source = ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: column.Column}}
+			}
+			raw, err := workspace.CanonicalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest, err := workspace.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.created.DraftConfig = raw
+			store.created.DraftDigest = digest
+			original := string(raw)
+			version := store.created.DraftVersion
+			compileCalls := 0
+			service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+				compileCalls++
+				t.Error("rejected projected source row edit reached compiler")
+				return nil, nil
+			}
+			request := rowProposalRequest(store.created, snapshot)
+			request.Selection = selection
+			_, err = service.ProposeRowDefinition(context.Background(), request)
+			if lifecycleErrorCode(err) != "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED" {
+				t.Fatalf("got %v; want precise source ownership rejection", err)
+			}
+			if compileCalls != 0 || store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(store.created.DraftConfig) != original {
+				t.Fatal("rejected source rows edit changed saved state")
+			}
+		})
 	}
 }

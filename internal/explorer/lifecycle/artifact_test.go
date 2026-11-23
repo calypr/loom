@@ -4,25 +4,31 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
-
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/artifactformat"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 type artifactBackend struct {
@@ -538,4 +544,454 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+type faultArtifactStore struct {
+	*memoryArtifactStore
+	getErr     error
+	openErr    error
+	openRecord *explorer.ArtifactRecord
+}
+
+func (s *faultArtifactStore) Get(ctx context.Context, id string) (*explorer.ArtifactRecord, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	return s.memoryArtifactStore.Get(ctx, id)
+}
+
+func (s *faultArtifactStore) Open(ctx context.Context, id string) (io.ReadCloser, *explorer.ArtifactRecord, error) {
+	if s.openErr != nil {
+		return nil, nil, s.openErr
+	}
+	if s.openRecord != nil {
+		return nil, s.openRecord, nil
+	}
+	return s.memoryArtifactStore.Open(ctx, id)
+}
+
+type revisionErrorBackend struct {
+	*artifactBackend
+	err error
+}
+
+func (s *revisionErrorBackend) GetRevision(context.Context, string) (*explorer.Revision, error) {
+	return nil, s.err
+}
+
+func artifactOpenRecord(receipt *receiptmodel.CompilationReceipt, snapshotToken string) explorer.ArtifactRecord {
+	record := explorer.ArtifactRecord{
+		Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients",
+		ReceiptID: receipt.ID, ExecutionID: "execution-a", DatasetGeneration: receipt.SourceGeneration,
+		SchemaDigest: "schema-a", AuthorizationScopeDigest: receipt.AuthorizationScopeDigest,
+		SnapshotToken: snapshotToken, IdempotencyKey: "open", State: explorer.ArtifactComplete,
+		ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now(),
+	}
+	record.ID, _ = explorer.ArtifactID(record)
+	return record
+}
+
+func TestOpenArtifactStoreGetFailureIsUnavailable(t *testing.T) {
+	backend, baseStore, _, _, receipt := artifactTestFixture(t)
+	cause := errors.New("artifact store transport failure")
+	store := &faultArtifactStore{memoryArtifactStore: baseStore, getErr: cause}
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: "artifact-missing"})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "ARTIFACT_STORE_UNAVAILABLE" {
+		t.Fatalf("store Get failure = %#v, want unavailable ARTIFACT_STORE_UNAVAILABLE", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("store Get failure lost its cause: %v", err)
+	}
+}
+
+func TestOpenArtifactStoreGetNotFoundIsNotFound(t *testing.T) {
+	backend, store, _, _, receipt := artifactTestFixture(t)
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: "artifact-missing"})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassNotFound || lifecycleErr.Code != "ARTIFACT_NOT_FOUND" {
+		t.Fatalf("store Get ErrNotFound = %#v, want not_found ARTIFACT_NOT_FOUND", err)
+	}
+	if !errors.Is(err, explorer.ErrNotFound) {
+		t.Fatalf("not-found error lost explorer.ErrNotFound: %v", err)
+	}
+}
+
+func TestOpenArtifactStoreGetMissingFileIsNotFound(t *testing.T) {
+	backend, baseStore, _, _, receipt := artifactTestFixture(t)
+	store := &faultArtifactStore{memoryArtifactStore: baseStore, getErr: os.ErrNotExist}
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: "artifact-missing"})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassNotFound || lifecycleErr.Code != "ARTIFACT_NOT_FOUND" {
+		t.Fatalf("store Get os.ErrNotExist = %#v, want not_found ARTIFACT_NOT_FOUND", err)
+	}
+}
+
+func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
+	backend, store, _, snapshot, receipt := artifactTestFixture(t)
+	cause := errors.New("revision store transport failure")
+	record := artifactOpenRecord(receipt, snapshot.Token)
+	store.records[record.ID] = record
+	store.data[record.ID] = []byte("archive")
+	domain, err := explorer.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "REVISION_STORE_UNAVAILABLE" {
+		t.Fatalf("revision lookup failure = %#v, want unavailable REVISION_STORE_UNAVAILABLE", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("revision lookup failure lost its cause: %v", err)
+	}
+}
+
+func TestPrepareArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
+	backend, artifacts, reader, _, receipt := artifactTestFixture(t)
+	cause := errors.New("revision store transport failure")
+	domain, err := explorer.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.PrepareArtifact(context.Background(), ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "revision-failure"})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "REVISION_STORE_UNAVAILABLE" {
+		t.Fatalf("revision lookup failure = %#v, want unavailable REVISION_STORE_UNAVAILABLE", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("revision lookup failure lost its cause: %v", err)
+	}
+}
+
+func TestOpenArtifactStoreOpenFailureIsUnavailable(t *testing.T) {
+	backend, baseStore, _, snapshot, receipt := artifactTestFixture(t)
+	cause := errors.New("archive store transport failure")
+	store := &faultArtifactStore{memoryArtifactStore: baseStore, openErr: cause}
+	record := artifactOpenRecord(receipt, snapshot.Token)
+	store.records[record.ID] = record
+	store.data[record.ID] = []byte("archive")
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "ARTIFACT_STORE_UNAVAILABLE" {
+		t.Fatalf("store Open failure = %#v, want unavailable ARTIFACT_STORE_UNAVAILABLE", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("store Open failure lost its cause: %v", err)
+	}
+}
+
+func TestOpenArtifactIncompleteOpenResultIsUnavailable(t *testing.T) {
+	backend, baseStore, _, snapshot, receipt := artifactTestFixture(t)
+	record := artifactOpenRecord(receipt, snapshot.Token)
+	stale := record
+	stale.State = explorer.ArtifactFailed
+	store := &faultArtifactStore{memoryArtifactStore: baseStore, openRecord: &stale}
+	store.records[record.ID] = record
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "ARTIFACT_UNAVAILABLE" {
+		t.Fatalf("incomplete open result = %#v, want unavailable ARTIFACT_UNAVAILABLE", err)
+	}
+}
+
+func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
+	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
+	raw, err := json.Marshal(receipt.Bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &packet); err != nil {
+		t.Fatal(err)
+	}
+	var outputs []map[string]json.RawMessage
+	if err = json.Unmarshal(packet["outputs"], &outputs); err != nil {
+		t.Fatal(err)
+	}
+	outputs[0]["tableReshape"] = json.RawMessage(`{"kind":"UNPIVOT","unpivot":{"constructionId":"archived-shape","inputs":[{"column":"patient_id","key":{"kind":"STRING","string":"id"}}],"keyOutput":"key","keyLabel":"Key","valueOutput":"value","valueLabel":"Value","nullRowPolicy":"DROP"}}`)
+	packet["outputs"], err = json.Marshal(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err = json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &receipt.Bundle); err != nil {
+		t.Fatal(err)
+	}
+	receipt.RecipeDigest, err = receipt.Bundle.ArchiveDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ResolvedRecipeDigest = receipt.RecipeDigest
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.revision.CompilationReceiptID = receipt.ID
+	backend.revision.Recipe = receipt.Bundle
+	backend.revision.RecipeDigest = receipt.RecipeDigest
+	backend.revision.QualityReports[0].ReceiptID = receipt.ID
+	reader.materialization.ReceiptID = receipt.ID
+	originalReceipt, _ := json.Marshal(receipt)
+	originalRevision, _ := json.Marshal(backend.revision)
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewCalled := false
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader,
+		PreviewReceipt: func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			previewCalled = true
+			return dataframeexecution.PreviewSummary{}, nil
+		},
+		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = receipt.ValidateArchive(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.PrepareArtifact(context.Background(), ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "archived-recipe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, record, err := service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: result.Record.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(opened)
+	opened.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ReceiptID != receipt.ID || record.ExecutionID != "execution-a" || reader.streamCalls != 1 {
+		t.Fatalf("archive identity changed: %+v calls=%d", record, reader.streamCalls)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, member := range archive.File {
+		if member.Name != "manifest.json" {
+			continue
+		}
+		body, err := member.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := io.ReadAll(body)
+		body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields struct {
+			Selection struct {
+				Recipe json.RawMessage `json:"recipe"`
+			} `json:"selection"`
+		}
+		if err = json.Unmarshal(manifest, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(fields.Selection.Recipe, []byte(`"tableReshape"`)) || !bytes.Contains(fields.Selection.Recipe, []byte(`"archived-shape"`)) {
+			t.Fatalf("archive provenance lost retired recipe: %s", fields.Selection.Recipe)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("artifact omitted manifest")
+	}
+	_, err = service.Preview(context.Background(), PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 1})
+	var failure *ports.Error
+	if !errors.As(err, &failure) || failure.Code != "RECEIPT_RECOMPILE_REQUIRED" || previewCalled {
+		t.Fatalf("retired execution outcome=%v callback=%v", err, previewCalled)
+	}
+	afterReceipt, _ := json.Marshal(receipt)
+	afterRevision, _ := json.Marshal(backend.revision)
+	if string(originalReceipt) != string(afterReceipt) || string(originalRevision) != string(afterRevision) {
+		t.Fatal("archive reads rewrote immutable receipt/revision")
+	}
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: "other-project", ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
+	if err == nil {
+		t.Fatal("foreign project read archived artifact")
+	}
+	receipt.Bundle.Outputs[0].Name = "changed"
+	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
+	if err == nil || !strings.Contains(err.Error(), "integrity") {
+		t.Fatalf("tampered archive receipt accepted or misclassified: %v", err)
+	}
+}
+
+func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testing.T) {
+	backend, _, reader, snapshot, receipt := artifactTestFixture(t)
+	raw, err := json.Marshal(receipt.Bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatal(err)
+	}
+	var outputs []map[string]json.RawMessage
+	if err := json.Unmarshal(packet["outputs"], &outputs); err != nil {
+		t.Fatal(err)
+	}
+	outputs[0]["tableReshape"] = json.RawMessage(`{"kind":"UNPIVOT","unpivot":{"constructionId":"archived-shape","inputs":[{"column":"patient_id","key":{"kind":"STRING","string":"id"}}],"keyOutput":"key","keyLabel":"Key","valueOutput":"value","valueLabel":"Value","nullRowPolicy":"DROP"}}`)
+	packet["outputs"], err = json.Marshal(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err = json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &receipt.Bundle); err != nil {
+		t.Fatal(err)
+	}
+	receipt.RecipeDigest, err = receipt.Bundle.ArchiveDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ResolvedRecipeDigest = receipt.RecipeDigest
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.revision.CompilationReceiptID = receipt.ID
+	backend.revision.Recipe = receipt.Bundle
+	backend.revision.RecipeDigest = receipt.RecipeDigest
+	backend.revision.QualityReports[0].ReceiptID = receipt.ID
+	reader.materialization.ReceiptID = receipt.ID
+
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := artifactfs.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{
+		ArtifactStore:   store,
+		PublishedReader: reader,
+		PreviewReceipt: func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			return dataframeexecution.PreviewSummary{}, nil
+		},
+		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.PrepareArtifact(context.Background(), ArtifactRequest{
+		Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "archive-integrity",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, record, err := service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: result.Record.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	archiveBytes, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(archiveBytes)
+	if hex.EncodeToString(digest[:]) != record.ArchiveSHA256 || int64(len(archiveBytes)) != record.Bytes {
+		t.Fatalf("opened artifact bytes do not match its digest/size record: digest=%s record=%s bytes=%d recorded=%d", hex.EncodeToString(digest[:]), record.ArchiveSHA256, len(archiveBytes), record.Bytes)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range archive.File {
+		if member.Name != "manifest.json" {
+			continue
+		}
+		file, err := member.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := io.ReadAll(file)
+		_ = file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(manifest, []byte(`"tableReshape"`)) || !bytes.Contains(manifest, []byte(`"archived-shape"`)) {
+			t.Fatalf("authorized archived-recipe download lost its historical recipe: %s", manifest)
+		}
+		return
+	}
+	t.Fatal("authorized archived-recipe download omitted its manifest")
 }
