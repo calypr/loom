@@ -1,4 +1,4 @@
-package explorer
+package interpretation
 
 import (
 	"crypto/sha256"
