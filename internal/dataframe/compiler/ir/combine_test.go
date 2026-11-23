@@ -138,3 +138,62 @@ func TestPhysicalClickHouseCombineRejectsAQLPayloadAndUnpinnedInputs(t *testing.
 		t.Fatalf("missing ClickHouse payload error = %v", err)
 	}
 }
+
+func TestClickHouseCombineScalarBaseTypeMatchesCombinePolicies(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		type_ string
+		kind  PhysicalCombineKind
+		base  string
+		ok    bool
+	}{
+		{name: "key join string", type_: "String", kind: PhysicalCombineKeyJoin, base: "String", ok: true},
+		{name: "key join nullable string", type_: "Nullable(String)", kind: PhysicalCombineKeyJoin, base: "String", ok: true},
+		{name: "key join date time", type_: "DateTime64(3)", kind: PhysicalCombineKeyJoin, base: "DateTime64(3)", ok: true},
+		{name: "key join rejects UUID", type_: "UUID", kind: PhysicalCombineKeyJoin, ok: false},
+		{name: "key join rejects float", type_: "Float64", kind: PhysicalCombineKeyJoin, ok: false},
+		{name: "membership nullable string", type_: "Nullable(String)", kind: PhysicalCombineMembership, base: "String", ok: true},
+		{name: "membership nullable integer", type_: "Nullable(Int64)", kind: PhysicalCombineMembership, base: "Int64", ok: true},
+		{name: "membership rejects nullable float", type_: "Nullable(Float64)", kind: PhysicalCombineMembership, ok: false},
+		{name: "membership accepts scalar", type_: "String", kind: PhysicalCombineMembership, base: "String", ok: true},
+		{name: "membership rejects nullable array", type_: "Nullable(Array(String))", kind: PhysicalCombineMembership, ok: false},
+		{name: "append nullable float", type_: "Nullable(Float64)", kind: PhysicalCombineAppend, base: "Float64", ok: true},
+		{name: "append UUID", type_: "UUID", kind: PhysicalCombineAppend, base: "UUID", ok: true},
+		{name: "append rejects unsupported decimal", type_: "Decimal64(3)", kind: PhysicalCombineAppend, ok: false},
+		{name: "rejects array", type_: "Array(String)", kind: PhysicalCombineKeyJoin, ok: false},
+		{name: "rejects nullable array", type_: "Nullable(Array(String))", kind: PhysicalCombineKeyJoin, ok: false},
+		{name: "rejects nested nullable", type_: "Nullable(Nullable(String))", kind: PhysicalCombineKeyJoin, ok: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			base, ok := ClickHouseCombineScalarBaseType(test.type_, test.kind)
+			if base != test.base || ok != test.ok {
+				t.Fatalf("ClickHouseCombineScalarBaseType(%q, %q) = (%q, %t), want (%q, %t)", test.type_, test.kind, base, ok, test.base, test.ok)
+			}
+		})
+	}
+}
+
+func TestWorkspaceOutputCombineIsTypedButNotExecutableWithoutCapture(t *testing.T) {
+	combine := PhysicalClickHouseCombine{
+		Kind: PhysicalCombineAppend,
+		Inputs: []PhysicalCombineInputRef{
+			{WorkspaceOutputID: "grouped"},
+			{TableID: "source:1:table", RevisionID: "table-r1", OutputID: "table"},
+		},
+		Projections: []PhysicalCombineProjection{
+			{OutputColumnID: "value", InputIndex: 0, InputColumnID: "group_value"},
+			{OutputColumnID: "value", InputIndex: 1, InputColumnID: "table_value"},
+		},
+		Outputs: []PhysicalCombineOutputColumn{{ID: "value", Name: "value", LogicalType: "string", ClickHouseType: "String"}},
+	}
+	if err := combine.ValidateForWorkspaceCompilation(); err != nil {
+		t.Fatalf("resolver-scoped typed combine rejected: %v", err)
+	}
+	if err := combine.Validate(); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture") {
+		t.Fatalf("ordinary combine validation error = %v", err)
+	}
+	plan := PhysicalPlan{Version: 1, Engine: PhysicalEngineClickHouse, ClickHouseCombine: &combine}
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture") {
+		t.Fatalf("ordinary physical-plan validation error = %v", err)
+	}
+}
