@@ -24,8 +24,13 @@ type CompileRequest struct {
 	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
 }
 
+type Store interface {
+	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
+	RevisionWorkspace(context.Context, explorer.Revision) (authoringv2.Workspace, error)
+}
+
 type Config struct {
-	Store                      *explorer.Service
+	Store                      Store
 	SelectionMembersCollection string
 	Capability                 ports.CapabilityResolver
 
