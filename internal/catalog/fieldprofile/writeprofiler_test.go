@@ -3,13 +3,14 @@ package fieldprofile
 import (
 	"encoding/json"
 	"errors"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -604,4 +605,217 @@ func (b *retentionBudget) usage() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.used
+}
+
+func TestSemanticCodeableConceptDisplayProjection(t *testing.T) {
+	t.Run("text remains preferred", func(t *testing.T) {
+		observation := observeCodeableConceptValue(t, map[string]any{
+			"text":   "Preferred text",
+			"coding": []any{map[string]any{"system": "urn:value", "code": "value", "display": "Coding display"}},
+		})
+		if observation.Value.Selector != "valueCodeableConcept.text" ||
+			!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" ||
+			!reflect.DeepEqual(observation.Examples, []string{"Preferred text"}) {
+			t.Fatalf("text projection = %#v, want text preference, ordered coding fallback, and its example", observation)
+		}
+	})
+
+	t.Run("one coding display", func(t *testing.T) {
+		observation := observeCodeableConceptValue(t, map[string]any{
+			"coding": []any{map[string]any{"system": "urn:value", "code": "value", "display": "Stage I"}},
+		})
+		if observation.Value.Selector != "valueCodeableConcept.text" ||
+			!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" ||
+			!reflect.DeepEqual(observation.Examples, []string{"Stage I"}) {
+			t.Fatalf("single coding display projection = %#v, want text preference, coding fallback, and its example", observation)
+		}
+	})
+
+	t.Run("blank text falls back to all repeated coding displays", func(t *testing.T) {
+		observation := observeCodeableConceptValue(t, map[string]any{
+			"text": "  ",
+			"coding": []any{
+				map[string]any{"system": "urn:value", "code": "first", "display": "Stage I"},
+				map[string]any{"system": "urn:value", "code": "blank", "display": "  "},
+				map[string]any{"system": "urn:value", "code": "second", "display": "Early stage"},
+			},
+		})
+		got := append([]string(nil), observation.Examples...)
+		sort.Strings(got)
+		if observation.Value.Selector != "valueCodeableConcept.text" ||
+			!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" ||
+			!reflect.DeepEqual(got, []string{"Early stage", "Stage I"}) {
+			t.Fatalf("repeated coding display fallback = %#v, want both displays and SUPPORTED", observation)
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		value map[string]any
+	}{
+		{name: "missing displays", value: map[string]any{"coding": []any{map[string]any{"system": "urn:value", "code": "value"}}}},
+		{name: "all displays blank", value: map[string]any{"text": " ", "coding": []any{
+			map[string]any{"system": "urn:value", "code": "first", "display": ""},
+			map[string]any{"system": "urn:value", "code": "second", "display": "  "},
+		}}},
+	} {
+		t.Run(test.name+" remain unsupported", func(t *testing.T) {
+			observation := observeCodeableConceptValue(t, test.value)
+			if observation.Value.Selector != "valueCodeableConcept.text" ||
+				!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
+				!observation.Value.FallbackOnBlankString || observation.Status != semantic.StatusUnsupportedValueProjection || len(observation.Examples) != 0 {
+				t.Fatalf("missing coding display fallback = %#v, want unsupported with no examples", observation)
+			}
+		})
+	}
+}
+
+func TestSemanticCodeableConceptDisplayProjectionWithinExtensionKeepsRelativeExamples(t *testing.T) {
+	profiler := NewProfilerForGeneration("project", "generation", "scope", "Observation", nil)
+	profiler.ObservePayload(map[string]any{
+		"resourceType": "Observation",
+		"extension": []any{map[string]any{
+			"url": "urn:study:stage",
+			"valueCodeableConcept": map[string]any{
+				"text": " ",
+				"coding": []any{
+					map[string]any{"system": "urn:value", "code": "a", "display": "Stage I"},
+					map[string]any{"system": "urn:value", "code": "b", "display": "Stage II"},
+				},
+			},
+		}},
+	}, map[string]float64{})
+	for _, document := range profiler.Documents() {
+		for _, observation := range document.SemanticObservations {
+			if observation.RuleHint != "EXTENSION_URL_VALUE" || observation.Key.Display != "urn:study:stage" {
+				continue
+			}
+			if observation.Status != "SUPPORTED" || observation.Value.Selector != "extension[].valueCodeableConcept.text" ||
+				!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"extension[].valueCodeableConcept.coding[].display"}) ||
+				!observation.Value.FallbackOnBlankString || !reflect.DeepEqual(observation.Examples, []string{"Stage I", "Stage II"}) {
+				t.Fatalf("extension CodeableConcept projection = %#v", observation)
+			}
+			return
+		}
+	}
+	t.Fatal("extension CodeableConcept semantic observation was not retained")
+}
+
+func observeCodeableConceptValue(t *testing.T, value map[string]any) semantic.Observation {
+	t.Helper()
+	p := NewProfilerForGeneration("project", "generation", "scope", "Observation", nil)
+	p.ObservePayload(map[string]any{
+		"resourceType": "Observation",
+		"code": map[string]any{"coding": []any{
+			map[string]any{"system": "urn:study", "code": "stage", "display": "Stage"},
+		}},
+		"valueCodeableConcept": value,
+	}, map[string]float64{})
+	for _, document := range p.Documents() {
+		for _, observation := range document.SemanticObservations {
+			if observation.RuleHint == semantic.RuleHintCodedValueV1 && observation.Key.Code == "stage" {
+				return observation
+			}
+		}
+	}
+	t.Fatal("Observation value was not retained in the semantic catalog")
+	return semantic.Observation{}
+}
+
+func TestProfilerReusesSemanticInventoryBuildIDAcrossContributions(t *testing.T) {
+	const project = "build-id-cache-project"
+	const generation = " generation-7 "
+	const wantBuildID = "f907365e5589904236001b479f85e2995f12f29a4b4dd0feaa2f9cfbb2a19a98"
+	wantKeys := [][]string{
+		{
+			"6e4e9036bcba5a9b1f6fea74196af23462ec1e697a28d2adf04d3a12a48d36f9",
+			"fd97d4dda48225a60663e807f4fd1d8398eb311ca62d721d9327f2213c5dd043",
+		},
+		{
+			"e0dfd1b1eaee2948cbae840492c858c0cbf6b462e800024e4ba931526ba3b683",
+			"528f56d139e40b27140d7ee4b7b21d278abe3673e9be3dca3d354b9a484b45e1",
+		},
+	}
+	profiler := NewProfilerForGenerationWithLimits(project, generation, "scope-a", "Observation", nil, ProfileLimits{})
+	if profiler.semanticInventoryBuildID != wantBuildID {
+		t.Fatalf("profiler cached build ID = %q, want %q", profiler.semanticInventoryBuildID, wantBuildID)
+	}
+
+	for index, sourceID := range []string{"Observations.ndjson#1", "Observations.ndjson#2"} {
+		var contributions []semantic.Contribution
+		err := profiler.ObservePayloadWithInventory(
+			map[string]any{
+				"resourceType": "Observation",
+				"component": []any{
+					inventoryTestComponent(sourceID+"-a", "v1", "label"),
+					inventoryTestComponent(sourceID+"-b", "v1", "label"),
+				},
+			},
+			map[string]float64{},
+			sourceID,
+			func(contribution semantic.Contribution) {
+				contributions = append(contributions, contribution)
+			},
+		)
+		if err != nil {
+			t.Fatalf("observe source %q: %v", sourceID, err)
+		}
+		if len(contributions) != len(wantKeys[index]) {
+			t.Fatalf("source %q contributions = %d, want %d", sourceID, len(contributions), len(wantKeys[index]))
+		}
+		for ordinal, contribution := range contributions {
+			if contribution.Key != wantKeys[index][ordinal] || contribution.Ordinal != ordinal || contribution.SourceKind != semantic.SourceFile {
+				t.Fatalf("source %q contribution identity = key %q ordinal %d source kind %q, want key %q ordinal %d source kind %q", sourceID, contribution.Key, contribution.Ordinal, contribution.SourceKind, wantKeys[index][ordinal], ordinal, semantic.SourceFile)
+			}
+			if contribution.BuildID != wantBuildID {
+				t.Fatalf("source %q contribution build ID = %q, want cached ID %q", sourceID, contribution.BuildID, wantBuildID)
+			}
+		}
+	}
+	if profiler.semanticInventoryBuildID != wantBuildID {
+		t.Fatalf("profiler cached build ID changed after contributions: got %q, want %q", profiler.semanticInventoryBuildID, wantBuildID)
+	}
+}
+
+func TestProfilerDistinctLimitDoesNotLoseFieldCoverage(t *testing.T) {
+	limits := DefaultProfileLimits()
+	limits.MaxDistinctValuesPerField = 1
+	profiler := NewProfilerForGenerationWithLimits("p", "g", "scope", "Patient", nil, limits)
+	profiler.ObservePayload(map[string]any{"id": "one"}, map[string]float64{})
+	profiler.ObservePayload(map[string]any{"id": "two"}, map[string]float64{})
+
+	documents := profiler.Documents()
+	if len(documents) != 1 || documents[0].EnrichmentComplete == nil || !*documents[0].EnrichmentComplete {
+		t.Fatalf("distinct cap field coverage = %#v", documents)
+	}
+	if !documents[0].DistinctTruncated || documents[0].EnrichmentTruncated {
+		t.Fatalf("distinct cap flags = %#v", documents[0])
+	}
+}
+
+func TestProfilerDroppedFieldPathsPersistIncompleteCoverage(t *testing.T) {
+	limits := DefaultProfileLimits()
+	limits.MaxFields = 2
+	source := NewProfilerForGenerationWithLimits("p", "g", "scope", "Patient", nil, limits)
+	source.ObservePayload(map[string]any{"id": "one", "active": true}, map[string]float64{})
+
+	mergedLimits := limits
+	mergedLimits.MaxFields = 1
+	merged := NewProfilerForGenerationWithLimits("p", "g", "scope", "Patient", nil, mergedLimits)
+	if err := merged.Merge(source); err != nil {
+		t.Fatal(err)
+	}
+	documents := merged.Documents()
+	if len(documents) != 1 || documents[0].EnrichmentComplete == nil || *documents[0].EnrichmentComplete || !documents[0].EnrichmentTruncated {
+		t.Fatalf("dropped path flags = %#v", documents)
+	}
+
+	zeroLimits := DefaultProfileLimits()
+	zeroLimits.MaxRetainedBytes = 1
+	zero := NewProfilerForGenerationWithLimits("p", "g", "scope", "Patient", nil, zeroLimits)
+	zero.ObservePayload(map[string]any{"id": "one"}, map[string]float64{})
+	status := zero.Documents()
+	if len(status) != 1 || status[0].RecordType != FieldProfileStatusRecordType || status[0].EnrichmentComplete == nil || *status[0].EnrichmentComplete || !status[0].EnrichmentTruncated {
+		t.Fatalf("zero-row status marker = %#v", status)
+	}
 }

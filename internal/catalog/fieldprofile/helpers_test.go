@@ -2,9 +2,10 @@ package fieldprofile
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/fhir/schema"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/fhir/schema"
 )
 
 type SemanticCodeableConceptTemplate struct {
