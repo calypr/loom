@@ -223,12 +223,11 @@ func (h *pppHarness) dropAndVerifyClickHouse(t *testing.T) {
 }
 
 type pppPublication struct {
-	identity  pubpublication.PublicationIdentity
-	key       string
-	pointer   string
-	outputs   []pubpublication.OutputStream
-	tableName string
-	rows      int
+	identity pubpublication.PublicationIdentity
+	key      string
+	pointer  string
+	outputs  []pubpublication.OutputStream
+	rows     int
 }
 
 func pppNewPublication(label, project string, h *pppHarness) pppPublication {

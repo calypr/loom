@@ -47,7 +47,7 @@ func applyAddRoute(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandI
 	return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
 }
 
-func applyUpdateRouteEdge(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateRouteEdge(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -87,7 +87,7 @@ func applyUpdateRouteEdge(workspace *ws.Workspace, catalog ws.CatalogSnapshot, c
 	return result, nil
 }
 
-func applySetRouteMatchMode(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetRouteMatchMode(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -102,7 +102,7 @@ func applySetRouteMatchMode(workspace *ws.Workspace, catalog ws.CatalogSnapshot,
 	return result, nil
 }
 
-func applyRemoveRoute(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRemoveRoute(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {

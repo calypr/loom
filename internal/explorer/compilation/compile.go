@@ -139,7 +139,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	if err := validateResolvedInterpretationCoverage(project, snapshot, workspace, resolvedInputs); err != nil {
 		return WorkspaceResult{}, fail("intent", "INTERPRETATION_INPUT_MISMATCH", "$.resolvedInputs.interpretations", err.Error(), nil, err)
 	}
-	if err := validateResolvedImportedRecipeCoverage(workspace, wire, resolvedInputs); err != nil {
+	if err := validateResolvedImportedRecipeCoverage(workspace, resolvedInputs); err != nil {
 		return WorkspaceResult{}, fail("intent", "IMPORTED_RECIPE_INPUT_MISMATCH", "$.resolvedInputs.importedRecipes", err.Error(), nil, err)
 	}
 	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
@@ -539,7 +539,7 @@ func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool
 	return ResolvedPopulation{}, false
 }
 
-func validateResolvedImportedRecipeCoverage(workspace ws.Workspace, catalog ws.CatalogSnapshot, inputs ResolvedInputs) error {
+func validateResolvedImportedRecipeCoverage(workspace ws.Workspace, inputs ResolvedInputs) error {
 	expected := make(map[ws.ImportedRecipeRef]struct{})
 	for _, document := range workspace.Documents {
 		if document.ImportedRecipe == nil {

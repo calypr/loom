@@ -128,7 +128,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 	} else if intents.semanticCommand {
 		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			return s.prepareSemanticSelections(ctx, project, explorerID, authorized, workspace, catalog, commands)
+			return s.prepareSemanticSelections(ctx, explorerID, authorized, workspace, commands)
 		}
 	} else if intents.constructionChoiceCommand {
 		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
@@ -166,7 +166,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			if len(commands) != 1 {
 				return nil, support.Malformed("commands", "frame source changes must contain exactly one command", nil)
 			}
-			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, catalog, commands[0], intents.frameSourceIdentity)
+			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, commands[0], intents.frameSourceIdentity)
 		}
 	} else if intents.rowChangeReplacementCommand {
 		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
@@ -306,7 +306,7 @@ func checkRowChangeReplacementResult(workspace ws.Workspace, receipt *receiptmod
 	return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement removed its output", nil, nil)
 }
 
-func (s *Service) prepareSemanticSelections(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareSemanticSelections(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if s.config.ResolveSemanticInventorySelections == nil {
 		return nil, support.Unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}

@@ -14,7 +14,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	compilerIR "github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -1429,7 +1428,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 	}
 	foundCohortStage := false
 	for _, stage := range resolved.Compiled.Outputs[0].Plan.StageSequence.Stages {
-		foundCohortStage = foundCohortStage || stage.Kind == compilerIR.PhysicalStageCohortGroupOp
+		foundCohortStage = foundCohortStage || stage.Kind == ir.PhysicalStageCohortGroupOp
 	}
 	if !foundCohortStage {
 		t.Fatal("composition did not insert its typed COHORT_GROUP stage")

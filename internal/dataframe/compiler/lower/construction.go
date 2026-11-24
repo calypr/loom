@@ -306,11 +306,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
 	}
 	presenceCategoryIDs := constructionPivotCategoryColumnIDs(construction)
-	var err error
-	sourceSchema, err = attachConstructionSourcePresenceCompanions(plan, sourceSchema, presenceCategoryIDs)
-	if err != nil {
-		return nil, nil, "", err
-	}
+	sourceSchema = attachConstructionSourcePresenceCompanions(plan, sourceSchema, presenceCategoryIDs)
 	resolvedSource, err := resolveConstructionSourceSchema(plan, construction.SourceColumns, sourceSchema, outputName)
 	if err != nil {
 		return nil, nil, "", err

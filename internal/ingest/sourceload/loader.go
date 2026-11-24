@@ -125,7 +125,7 @@ func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySource
 func canonicalizeSourceLoadPlan(plan SourceLoadPlan) (SourceLoadPlan, SourceManifest, string, error) {
 	manifest := SourceManifest{Repository: plan.Repository, Commit: plan.Commit, Files: make([]SourceFile, len(plan.Files))}
 	for i, file := range plan.Files {
-		manifest.Files[i] = SourceFile{Path: file.Path, SHA256: file.SHA256}
+		manifest.Files[i] = SourceFile(file)
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -141,7 +141,7 @@ func canonicalizeSourceLoadPlan(plan SourceLoadPlan) (SourceLoadPlan, SourceMani
 	plan.Repository, plan.Commit = canonical.Repository, canonical.Commit
 	plan.Files = make([]SourceManifestFile, len(canonical.Files))
 	for i, file := range canonical.Files {
-		plan.Files[i] = SourceManifestFile{Path: file.Path, SHA256: file.SHA256}
+		plan.Files[i] = SourceManifestFile(file)
 	}
 	plan.AuthResourcePath = strings.TrimSpace(plan.AuthResourcePath)
 	return plan, canonical, hash, nil

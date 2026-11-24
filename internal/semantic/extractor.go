@@ -363,7 +363,7 @@ func (run *semanticObservationRun) emitIdentifierScope(
 	value := semanticUseJSONNumber(valueFact.Value)
 	keyFact, _ := directSemanticFact(scope, association.keyMember)
 	system := stringValue(keyFact.Value)
-	logicalType := semanticGeneratedValueType(run.resourceType, valueFact.CanonicalPath, value, semanticValueType(value))
+	logicalType := semanticGeneratedValueType(run.resourceType, valueFact.CanonicalPath, semanticValueType(value))
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion,
 		Source: Source{
@@ -597,7 +597,7 @@ func semanticUseJSONNumber(value any) any {
 func semanticChoiceValueFromFact(resourceType string, fact *MemberFact) (semanticChoiceValue, bool) {
 	value := semanticUseJSONNumber(fact.Value)
 	selector := fact.Element.Name
-	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, value, semanticValueType(value))
+	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, semanticValueType(value))
 	status := "SUPPORTED"
 	var fallbackSelectors []string
 	fallbackOnBlankString := false
@@ -605,7 +605,7 @@ func semanticChoiceValueFromFact(resourceType string, fact *MemberFact) (semanti
 		projection, projected := semanticValueProjectionAssociations[fact.ReferencedType]
 		if projected {
 			selector = appendSemanticPath(selector, projection.selector)
-			valueType = semanticGeneratedValueType(resourceType, appendSemanticPath(fact.CanonicalPath, projection.selector), value, projection.logicalType)
+			valueType = semanticGeneratedValueType(resourceType, appendSemanticPath(fact.CanonicalPath, projection.selector), projection.logicalType)
 			status = semanticProjectionStatusWithFallback(object, projection.selector, projection.fallbackSelectors, projection.fallbackOnBlankString)
 			fallbackSelectors = prefixSemanticPaths(fact.Element.Name, projection.fallbackSelectors)
 			fallbackOnBlankString = projection.fallbackOnBlankString

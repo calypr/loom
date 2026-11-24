@@ -13,8 +13,6 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
-
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -482,7 +480,7 @@ func (s *Service) DraftRevisionWorkspace(ctx context.Context, revision DraftRevi
 	return s.artifactWorkspace(ctx, DraftWorkspaceArtifact(revision), revision.DraftConfig)
 }
 
-func (s *Service) artifactWorkspace(ctx context.Context, source workspacepkg.Artifact, raw []byte) (ws.Workspace, string, error) {
+func (s *Service) artifactWorkspace(ctx context.Context, source ws.Artifact, raw []byte) (ws.Workspace, string, error) {
 	workspace, err := ws.DecodeCurrentWorkspace(raw)
 	if err == nil && workspace.SemanticsVersion == ws.CurrentSemanticsVersion {
 		digest, digestErr := workspace.Digest()
@@ -494,7 +492,7 @@ func (s *Service) artifactWorkspace(ctx context.Context, source workspacepkg.Art
 		digest, err := converted.Digest()
 		return converted, digest, err
 	}
-	reader, ok := s.store.(workspacepkg.ProjectionReader)
+	reader, ok := s.store.(ws.ProjectionReader)
 	if !ok {
 		return ws.Workspace{}, "", fmt.Errorf("immutable workspace requires its stored migration projection")
 	}

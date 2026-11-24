@@ -309,11 +309,9 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 				}
 			}
 		}
-		many := []string{"a", "b", missingID, wrongGenerationID, wrongProjectID}
+		many := []string{"a", "b"}
 		if !filtered {
 			many = []string{"a", "b", filteredID, missingID, wrongGenerationID, wrongProjectID}
-		} else {
-			many = []string{"a", "b"}
 		}
 		want := map[string][]string{"many": many, "one": {"c"}, "no_matches": {"no_observation"}, "zero": {}, "__loom_unassigned__": {"unassigned"}}
 		if !reflect.DeepEqual(ids, want) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/authoringcore"
-	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -64,7 +63,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err != nil || workspaceDigest != owner.DraftDigest {
 		return PopulationMemberRemovalProposalResponse{}, support.Conflict("population-member-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	documentIndex := construction.ConstructionDocumentIndex(workspace, request.OutputID)
+	documentIndex := workspace.DocumentIndex(request.OutputID)
 	if documentIndex < 0 {
 		return PopulationMemberRemovalProposalResponse{}, support.Unprocessable("population-member-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify one saved table", nil)
 	}
@@ -258,7 +257,7 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the saved draft no longer matches the proposal base", nil, err)
 	}
-	baseIndex := construction.ConstructionDocumentIndex(current, command.OutputID)
+	baseIndex := current.DocumentIndex(command.OutputID)
 	if baseIndex < 0 {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}

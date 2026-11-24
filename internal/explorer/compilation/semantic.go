@@ -42,7 +42,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
-	occurrences, order, err := resolveSemanticRoute(document, snapshot)
+	occurrences, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return Result{}, err
 	}
@@ -181,7 +181,6 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err != nil {
 		return Result{}, fail("lower", "RECIPE_DIGEST_FAILED", "$.recipe", "recipe digest could not be calculated", nil, err)
 	}
-	_ = order
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
 }
 
@@ -293,13 +292,12 @@ func presentationColumn(source ws.Column, sourceOrder, order int, emission viewe
 	return result
 }
 
-func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, []string, error) {
+func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, error) {
 	byType := map[string][]capability.Node{}
 	for _, node := range snapshot.Nodes {
 		byType[node.ResourceType] = append(byType[node.ResourceType], node)
 	}
 	result := map[string]semanticOccurrence{}
-	order := []string{}
 	var walk func(ws.RouteNode, *semanticOccurrence, string, int, map[string]bool) error
 	walk = func(route ws.RouteNode, parent *semanticOccurrence, path string, depth int, usedEdges map[string]bool) error {
 		if snapshot.Policy.Route.MaxHops > 0 && depth > snapshot.Policy.Route.MaxHops {
@@ -356,7 +354,6 @@ func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (m
 		}
 		current := semanticOccurrence{node: route, graph: graph, edge: edge}
 		result[route.OccurrenceID] = current
-		order = append(order, route.OccurrenceID)
 		children := append([]ws.RouteNode(nil), route.Children...)
 		sort.SliceStable(children, func(i, j int) bool { return children[i].OccurrenceID < children[j].OccurrenceID })
 		for i := range children {
@@ -367,9 +364,9 @@ func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (m
 		return nil
 	}
 	if err := walk(document.Route, nil, "$.route", 0, map[string]bool{}); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return result, order, nil
+	return result, nil
 }
 
 func semanticRouteEdgeMatches(snapshot capability.Snapshot, parent capability.Node, child ws.RouteNode, edge capability.Edge) bool {

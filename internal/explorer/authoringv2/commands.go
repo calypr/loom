@@ -1088,34 +1088,34 @@ func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID
 		case CommandCreateTable:
 			return applyCreateTable(workspace, catalog, commandID, index, command)
 		case CommandDuplicateTable:
-			return applyDuplicateTable(workspace, catalog, commandID, index, command)
+			return applyDuplicateTable(workspace, commandID, index, command)
 		case CommandDeleteTable:
-			return applyDeleteTable(workspace, catalog, commandID, index, command)
+			return applyDeleteTable(workspace, command)
 		case CommandRenameTable:
-			return applyRenameTable(workspace, catalog, commandID, index, command)
+			return applyRenameTable(workspace, command)
 		case CommandReorderTables:
-			return applyReorderTables(workspace, catalog, commandID, index, command)
+			return applyReorderTables(workspace, command)
 		case CommandSetTableRoot:
-			return applySetTableRoot(workspace, catalog, commandID, index, command)
+			return applySetTableRoot(workspace, catalog, command)
 		case CommandSetTablePopulation:
-			return applySetTablePopulation(workspace, catalog, commandID, index, command)
+			return applySetTablePopulation(workspace, catalog, command)
 		case CommandClearTablePopulation:
-			return applyClearTablePopulation(workspace, catalog, commandID, index, command)
+			return applyClearTablePopulation(workspace, command)
 		}
 	case *RowPayload:
 		if command.Type == CommandApplyTableRootRebase {
-			return applyApplyTableRootRebase(workspace, catalog, commandID, index, command)
+			return applyApplyTableRootRebase(workspace, catalog, command)
 		}
 	case *RoutePayload:
 		switch command.Type {
 		case CommandAddRoute:
 			return applyAddRoute(workspace, catalog, commandID, index, command)
 		case CommandUpdateRouteEdge:
-			return applyUpdateRouteEdge(workspace, catalog, commandID, index, command)
+			return applyUpdateRouteEdge(workspace, catalog, command)
 		case CommandSetRouteMatchMode:
-			return applySetRouteMatchMode(workspace, catalog, commandID, index, command)
+			return applySetRouteMatchMode(workspace, command)
 		case CommandRemoveRoute:
-			return applyRemoveRoute(workspace, catalog, commandID, index, command)
+			return applyRemoveRoute(workspace, command)
 		}
 	case *ColumnPayload:
 		switch command.Type {
@@ -1124,38 +1124,38 @@ func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID
 		case CommandAddColumnSource:
 			return applyAddColumnSource(workspace, catalog, commandID, index, command)
 		case CommandUpdateColumn:
-			return applyUpdateColumn(workspace, catalog, commandID, index, command)
+			return applyUpdateColumn(workspace, command)
 		case CommandUpdateConstructionOutput:
-			return applyUpdateConstructionOutput(workspace, catalog, commandID, index, command)
+			return applyUpdateConstructionOutput(workspace, command)
 		case CommandUpdateColumnTransformation:
-			return applyUpdateColumnTransformation(workspace, catalog, commandID, index, command)
+			return applyUpdateColumnTransformation(workspace, catalog, command)
 		case CommandSetColumnContributor:
-			return applySetColumnContributor(workspace, catalog, commandID, index, command)
+			return applySetColumnContributor(workspace, catalog, command)
 		case CommandClearColumnContributor:
-			return applyClearColumnContributor(workspace, catalog, commandID, index, command)
+			return applyClearColumnContributor(workspace, command)
 		case CommandApplyInterpretationCandidate:
-			return applyApplyInterpretationCandidate(workspace, catalog, commandID, index, command)
+			return applyApplyInterpretationCandidate(workspace, command)
 		case CommandUpdateColumnSource:
-			return applyUpdateColumnSource(workspace, catalog, commandID, index, command)
+			return applyUpdateColumnSource(workspace, catalog, command)
 		case CommandUpdateColumnRowValuePolicy:
-			return applyUpdateColumnRowValuePolicy(workspace, catalog, commandID, index, command)
+			return applyUpdateColumnRowValuePolicy(workspace, command)
 		case CommandRemoveColumn:
-			return applyRemoveColumn(workspace, catalog, commandID, index, command)
+			return applyRemoveColumn(workspace, command)
 		case CommandRemoveProjectedField:
-			return applyRemoveProjectedField(workspace, catalog, commandID, index, command)
+			return applyRemoveProjectedField(workspace, command)
 		}
 	case *ProposalPayload:
 		switch command.Type {
 		case CommandApplyColumnPolicyProposal:
 			return applyApplyColumnPolicyProposal(workspace, catalog, commandID, index, command)
 		case CommandApplyRowDefinitionProposal:
-			return applyApplyRowDefinitionProposal(workspace, catalog, commandID, index, command)
+			return applyApplyRowDefinitionProposal(workspace, command)
 		case CommandApplyPopulationMemberProposal:
-			return applyApplyPopulationMemberProposal(workspace, catalog, commandID, index, command)
+			return applyApplyPopulationMemberProposal(workspace, command)
 		case CommandApplyConstructionProposal:
-			return applyApplyConstructionProposal(workspace, catalog, commandID, index, command)
+			return applyApplyConstructionProposal(workspace, command)
 		case CommandRestoreDraftRevision:
-			return applyRestoreDraftRevision(workspace, catalog, commandID, index, command)
+			return applyRestoreDraftRevision(workspace, command)
 		}
 	case *SemanticPayload:
 		if command.Type == CommandAddSemanticSelections {
@@ -1168,12 +1168,12 @@ func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID
 	case *FramePayload:
 		switch command.Type {
 		case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
-			return applySetFrameSourceVariants(workspace, catalog, commandID, index, command)
+			return applySetFrameSourceVariants(workspace, command)
 		}
 	case *ImportedSourcePayload:
 		switch command.Type {
 		case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
-			return applyUpdateImportedSourceStepVariants(workspace, catalog, commandID, index, command)
+			return applyUpdateImportedSourceStepVariants(workspace, command)
 		}
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)

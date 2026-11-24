@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/rowsource"
 )
 
-func sourceLaneRequest(request ConstructionProposalRequest) rowsource.ProposalRequest {
+func (request ConstructionProposalRequest) RowSourceRequest() rowsource.ProposalRequest {
 	return rowsource.ProposalRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 		ChangedStepID: request.ChangedStepID,
@@ -23,12 +23,8 @@ func (s *Service) constructionFilterSourceCapability(ctx context.Context, base B
 	return s.sourceLanes().ConstructionFilterSourceCapability(ctx, base, outputID, stageID)
 }
 
-func (s *Service) resolveConstructionFilterSource(ctx context.Context, base Base, request ConstructionProposalRequest, acceptedStageID string, selection ConstructionFilterSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.sourceLanes().ResolveConstructionFilterSource(ctx, base, sourceLaneRequest(request), acceptedStageID, selection)
-}
-
 func (s *Service) constructionCandidateWithFilterSources(ctx context.Context, base Base, request ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.sourceLanes().ConstructionCandidateWithFilterSources(ctx, base, sourceLaneRequest(request), candidate)
+	return s.sourceLanes().ConstructionCandidateWithFilterSources(ctx, base, request.RowSourceRequest(), candidate)
 }
 
 func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
@@ -39,12 +35,8 @@ func (s *Service) constructionDeriveSourceCapability(ctx context.Context, base B
 	return s.sourceLanes().ConstructionDeriveSourceCapability(ctx, base, outputID, stageID)
 }
 
-func (s *Service) resolveConstructionDeriveSource(ctx context.Context, base Base, request ConstructionProposalRequest, acceptedStageID string, selection ConstructionDeriveSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.sourceLanes().ResolveConstructionDeriveSource(ctx, base, sourceLaneRequest(request), acceptedStageID, selection)
-}
-
 func (s *Service) constructionCandidateWithDeriveSources(ctx context.Context, base Base, request ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.sourceLanes().ConstructionCandidateWithDeriveSources(ctx, base, sourceLaneRequest(request), candidate)
+	return s.sourceLanes().ConstructionCandidateWithDeriveSources(ctx, base, request.RowSourceRequest(), candidate)
 }
 
 func (s *Service) reauthorizeConstructionDeriveSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
@@ -55,12 +47,8 @@ func (s *Service) constructionExpandSourceCapability(ctx context.Context, base B
 	return s.sourceLanes().ConstructionExpandSourceCapability(ctx, base, outputID, stageID)
 }
 
-func (s *Service) resolveConstructionExpandSource(ctx context.Context, base Base, request ConstructionProposalRequest, acceptedStageID string, selection ConstructionExpandSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.sourceLanes().ResolveConstructionExpandSource(ctx, base, sourceLaneRequest(request), acceptedStageID, selection)
-}
-
 func (s *Service) constructionCandidateWithExpandSources(ctx context.Context, base Base, request ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.sourceLanes().ConstructionCandidateWithExpandSources(ctx, base, sourceLaneRequest(request), candidate)
+	return s.sourceLanes().ConstructionCandidateWithExpandSources(ctx, base, request.RowSourceRequest(), candidate)
 }
 
 func (s *Service) reauthorizeConstructionExpandSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
@@ -71,12 +59,8 @@ func (s *Service) constructionUnpivotSourceCapability(ctx context.Context, base 
 	return s.sourceLanes().ConstructionUnpivotSourceCapability(ctx, base, outputID, stageID)
 }
 
-func (s *Service) resolveConstructionUnpivotSource(ctx context.Context, base Base, request ConstructionProposalRequest, acceptedStageID string, selection ConstructionUnpivotSourceSelection) (ws.ConstructionSourceProjection, error) {
-	return s.sourceLanes().ResolveConstructionUnpivotSource(ctx, base, sourceLaneRequest(request), acceptedStageID, selection)
-}
-
 func (s *Service) constructionCandidateWithUnpivotSources(ctx context.Context, base Base, request ConstructionProposalRequest, candidate ws.Construction) (ws.Construction, error) {
-	return s.sourceLanes().ConstructionCandidateWithUnpivotSources(ctx, base, sourceLaneRequest(request), candidate)
+	return s.sourceLanes().ConstructionCandidateWithUnpivotSources(ctx, base, request.RowSourceRequest(), candidate)
 }
 
 func (s *Service) reauthorizeConstructionUnpivotSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {

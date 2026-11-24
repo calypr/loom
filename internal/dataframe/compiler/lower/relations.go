@@ -201,7 +201,6 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedEligibility(
 	step recipe.ConstructionStep,
 	related recipe.ConstructionRelatedEligibility,
 	input map[string]CompiledOutputColumn,
-	outputs map[string]recipe.StageColumn,
 	inputRow, inputIdentity, rootResourceType string,
 	stepIndex int,
 ) (ir.PhysicalFilter, []ir.PhysicalOperation, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
@@ -426,7 +425,6 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 	step recipe.ConstructionStep,
 	related recipe.ConstructionRelatedExpand,
 	input map[string]CompiledOutputColumn,
-	outputs map[string]recipe.StageColumn,
 	inputRow, inputIdentity, rootResourceType string,
 	stepIndex int,
 ) (ir.PhysicalStageRelatedExpand, []ir.PhysicalProjection, []CompiledOutputColumn, error) {

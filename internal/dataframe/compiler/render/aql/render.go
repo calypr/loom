@@ -226,7 +226,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		lines = append(lines, line...)
 	}
 	for index, unnest := range layout.unnests {
-		line, err := renderer.renderUnnest(unnest, "  ", index, 0)
+		line, err := renderer.renderUnnest(unnest, "  ", index)
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render unnest %d: %w", index+1, err)
 		}

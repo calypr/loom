@@ -133,7 +133,7 @@ func (s *Service) Run(ctx context.Context, input dataframemodel.FhirDataframeInp
 	preparationStarted := s.clockNow()
 	bundle, err := RecipeBundleFromInput(normalizedInput)
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project:           normalizedInput.Project,

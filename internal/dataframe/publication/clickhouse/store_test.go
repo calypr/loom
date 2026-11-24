@@ -16,8 +16,7 @@ import (
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
-	pubpublished "github.com/calypr/loom/internal/dataframe/published"
+	publishedpkg "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataset"
 	datasetstore "github.com/calypr/loom/internal/dataset/arango"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -282,20 +281,20 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 }
 
 type uprReader interface {
-	CurrentProjectDataset(ctx context.Context, project string, selector dataframepublished.DataframeSelector) (dataframepublished.Materialization, error)
-	CurrentProjectDatasets(ctx context.Context, project string) ([]dataframepublished.Materialization, error)
-	Page(ctx context.Context, materialization dataframepublished.Materialization, req dataframepublished.PageRequest) (dataframepublished.Page, error)
+	CurrentProjectDataset(ctx context.Context, project string, selector publishedpkg.DataframeSelector) (publishedpkg.Materialization, error)
+	CurrentProjectDatasets(ctx context.Context, project string) ([]publishedpkg.Materialization, error)
+	Page(ctx context.Context, materialization publishedpkg.Materialization, req publishedpkg.PageRequest) (publishedpkg.Page, error)
 }
 
-func uprNewReader(h *uprHarness) *dataframepublished.Reader {
-	return &dataframepublished.Reader{
+func uprNewReader(h *uprHarness) *publishedpkg.Reader {
+	return &publishedpkg.Reader{
 		ClickHouse: h.ch,
 		Catalog:    h.registry,
 	}
 }
 
-func uprPageRequest() dataframepublished.PageRequest {
-	return dataframepublished.PageRequest{Unrestricted: true, First: 5}
+func uprPageRequest() publishedpkg.PageRequest {
+	return publishedpkg.PageRequest{Unrestricted: true, First: 5}
 }
 
 func uprErrChain(err error) string {
@@ -309,7 +308,7 @@ func uprErrChain(err error) string {
 	return strings.Join(parts, " <- ")
 }
 
-func uprMaterializationDigest(value dataframepublished.Materialization) string {
+func uprMaterializationDigest(value publishedpkg.Materialization) string {
 	return fmt.Sprintf("{ID=%q Name=%q PhysicalTable=%q State=%q}", value.ID, value.Name, value.PhysicalTable, value.State)
 }
 
@@ -396,10 +395,10 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	}
 	_ = h.registry.ReleaseBundleLease(ctx, e2Key, "upr-precheck")
 
-	selector := dataframepublished.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
+	selector := publishedpkg.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, e2Project, selector)
-	if err != nil || baselineMat.PhysicalTable != e2Table || baselineMat.State != dataframepublished.StateReady {
+	if err != nil || baselineMat.PhysicalTable != e2Table || baselineMat.State != publishedpkg.StateReady {
 		t.Fatalf("E2 resolvability precondition: mat=%s err=%v", uprMaterializationDigest(baselineMat), err)
 	}
 	baselinePage, baseErr := reader.Page(ctx, baselineMat, uprPageRequest())
@@ -448,7 +447,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	var (
 		wg          sync.WaitGroup
 		resolveErr  error
-		resolvedMat dataframepublished.Materialization
+		resolvedMat publishedpkg.Materialization
 		race        pageOutcome
 	)
 	wg.Add(2)
@@ -599,7 +598,7 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	_ = h.registry.ReleaseBundleLease(ctx, key, "owner")
 
 	victimID := mustE2ID(t, h, key)
-	selector := dataframepublished.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
+	selector := publishedpkg.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, proj, selector)
 	if err != nil || baselineMat.PhysicalTable != table {
@@ -615,7 +614,7 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	sweepDone := make(chan struct{})
 	var (
 		wg          sync.WaitGroup
-		resolvedMat dataframepublished.Materialization
+		resolvedMat publishedpkg.Materialization
 		resolveErr  error
 		racePhase   string
 		raceRows    int
@@ -704,7 +703,7 @@ func (h *uprHarness) buildRunningExec(spec uprExecSpec, owner, table string) pub
 		State: pubpublication.BundleRunning,
 		Outputs: []pubpublication.BundleOutputRecord{{
 			Name: spec.output, PhysicalTable: table,
-			Selector: dataframepublished.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
+			Selector: publishedpkg.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
 			RowCount: 3, ByteCount: 300,
 			State:      pubpublication.BundlePublished,
 			VerifiedAt: &verified,
@@ -763,7 +762,7 @@ func mustE2ID(t *testing.T, h *uprHarness, key string) string {
 	return exec.ID
 }
 
-var _ uprReader = (*dataframepublished.Reader)(nil)
+var _ uprReader = (*publishedpkg.Reader)(nil)
 
 const rdlDatabasePrefix = "loom_verify_rdl_"
 
@@ -1125,7 +1124,7 @@ RETURN {active: LENGTH(FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin),
 	return active
 }
 
-func rdlMaterializationDigest(values []pubpublished.Materialization) string {
+func rdlMaterializationDigest(values []publishedpkg.Materialization) string {
 	parts := make([]string, 0, len(values))
 	for _, value := range values {
 		parts = append(parts, fmt.Sprintf("{Name=%q ID=%q PhysicalTable=%q State=%q}", value.Name, value.ID, value.PhysicalTable, value.State))
@@ -1165,7 +1164,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 	}
 	rdlCreateAndActivateRelease(t, ctx, lifecycle, projectActive, genActive, pubActive.ID, selectorActive)
 
-	reader := &pubpublished.Reader{Catalog: registry, ActiveReleaseResolver: lifecycle}
+	reader := &publishedpkg.Reader{Catalog: registry, ActiveReleaseResolver: lifecycle}
 	list, err := reader.CurrentProjectDatasets(ctx, projectActive)
 	if err != nil || len(list) != 1 || list[0].ID != pubActive.ID+":out-a" || list[0].PhysicalTable != specActive.table {
 		t.Fatalf("E1 healthy baseline broken: list=%s err=%v", rdlMaterializationDigest(list), err)

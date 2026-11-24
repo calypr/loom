@@ -56,15 +56,15 @@ type projectAccess struct {
 	unrestricted      bool
 }
 
-func (s *Service) authorizeProject(_ context.Context, principal *authscope.Principal, project string) (projectAccess, error) {
+func (s *Service) authorizeProject(_ context.Context, principal *authscope.Principal, project string) error {
 	project = canonicalProjectID(project)
 	if project == "" {
-		return projectAccess{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
-		return projectAccess{}, mapReaderError(err)
+		return mapReaderError(err)
 	}
-	return projectAccess{}, nil
+	return nil
 }
 
 func (s *Service) authorizeMaterialization(ctx context.Context, principal *authscope.Principal, value dfmaterialization.Materialization) (projectAccess, error) {
@@ -106,7 +106,7 @@ func (s *Service) currentProjectDataset(ctx context.Context, project string, sel
 		return dfmaterialization.Materialization{}, projectAccess{}, err
 	}
 	project = canonicalProjectID(project)
-	if _, err := s.authorizeProject(ctx, principal, project); err != nil {
+	if err := s.authorizeProject(ctx, principal, project); err != nil {
 		return dfmaterialization.Materialization{}, projectAccess{}, err
 	}
 	value, err := s.reader.CurrentProjectDataset(ctx, legacyProjectID(project), selector)

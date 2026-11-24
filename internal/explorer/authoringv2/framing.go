@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func (c *Command) ResolveFrameSource(frame ws.FrameDefinition) error {
@@ -16,7 +14,7 @@ func (c *Command) ResolveFrameSource(frame ws.FrameDefinition) error {
 		return fmt.Errorf("resolved frame source: %w", err)
 	}
 	cloned := frame
-	cloned.Route = workspacepkg.CloneFrameRoute(frame.Route)
+	cloned.Route = ws.CloneFrameRoute(frame.Route)
 	cloned.Source.ChoiceArms = append([]string(nil), frame.Source.ChoiceArms...)
 	cloned.Source.ValueFallbacks = append([]string(nil), frame.Source.ValueFallbacks...)
 	c.resolvedFrame = &cloned
@@ -67,7 +65,7 @@ func applyFrameSourceCommand(workspace *ws.Workspace, command Command) (CommandR
 		}
 	}
 	frame := *command.resolvedFrame
-	frame.Route = workspacepkg.CloneFrameRoute(frame.Route)
+	frame.Route = ws.CloneFrameRoute(frame.Route)
 	frame.Source.ChoiceArms = append([]string(nil), frame.Source.ChoiceArms...)
 	frame.Source.ValueFallbacks = append([]string(nil), frame.Source.ValueFallbacks...)
 	document.Frames = append(document.Frames, frame)

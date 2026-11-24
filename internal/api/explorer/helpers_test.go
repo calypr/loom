@@ -26,8 +26,6 @@ func newTestExplorerStore() *testExplorerStore {
 	return explorerfixtures.NewStore()
 }
 
-var testExplorerKey = explorerfixtures.Key
-
 type compilerTestRegistry = recipetest.Registry
 
 func testAuthoringV2CapabilitySnapshot() capability.Snapshot {

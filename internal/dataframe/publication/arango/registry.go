@@ -71,10 +71,6 @@ func (r *Registry) SaveExecution(ctx context.Context, execution publication.Bund
 		return err
 	}
 	doc["_key"] = execution.ID
-	data, err = json.Marshal(doc)
-	if err != nil {
-		return err
-	}
 	saved, err := arangostore.QueryHasRow(ctx, r.client, `LET lease = DOCUMENT(@@leases, @leaseKey)
 FILTER lease != null
   AND lease.ownerId == @owner

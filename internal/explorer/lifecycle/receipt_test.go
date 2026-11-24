@@ -45,12 +45,8 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := workspace.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
 	migration := migrateStoredWorkspaceFixture(t, draft, setup.Config.Capability.Catalog(snapshot, store.created.ExplorerID))
-	workspace, draft, digest = migration.Workspace, migration.CanonicalJSON, migration.MigratedCanonicalDigest
+	workspace, draft, digest := migration.Workspace, migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	store.created.DraftConfig, store.created.DraftDigest = draft, digest
 	originalConfig, version := append([]byte(nil), draft...), store.created.DraftVersion
 

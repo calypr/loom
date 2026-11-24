@@ -41,7 +41,7 @@ func lowerConstructionRelatedField(
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("active terminal record identity is absent from the input schema")
 	}
 	declaration, ok := outputByID[related.OutputColumnID]
-	if !ok || declaration.Nullable == false {
+	if !ok || !declaration.Nullable {
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field output must exist and be nullable")
 	}
 	if declaration.Type != "" && declaration.Type != "INFER" && declaration.Type != source.LogicalType {

@@ -136,7 +136,7 @@ func ResolveWorkspaceInterpretations(project string, workspace ws.Workspace, sna
 }
 
 func ResolveInterpretationCandidate(document ws.Document, column ws.Column, snapshot capability.Snapshot) (interpretationCandidateResolution, error) {
-	occurrences, _, err := resolveSemanticRoute(document, snapshot)
+	occurrences, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve occurrence %q: %w", column.OccurrenceID, err)
 	}

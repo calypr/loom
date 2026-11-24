@@ -190,7 +190,7 @@ func constructionWorkspaceInputs(base Base, targetOutputID string) ([]Constructi
 }
 
 func constructionCapabilitiesWorkspace(workspace ws.Workspace, targetOutputID string) (ws.Workspace, error) {
-	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
+	if workspace.DocumentIndex(targetOutputID) < 0 {
 		return ws.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
 	}
 	blocked, err := workspaceOutputConsumerClosure(workspace, targetOutputID)
@@ -236,7 +236,7 @@ func constructionCapabilitiesWorkspace(workspace ws.Workspace, targetOutputID st
 }
 
 func workspaceOutputConsumerClosure(workspace ws.Workspace, targetOutputID string) (map[string]struct{}, error) {
-	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
+	if workspace.DocumentIndex(targetOutputID) < 0 {
 		return nil, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
 	}
 	blocked := map[string]struct{}{targetOutputID: {}}
@@ -290,20 +290,6 @@ func constructionCombineCompatibilityKeys(logicalType, cardinality string, nulla
 		appendKey = logical + ":" + base
 	}
 	return joinKey, appendKey
-}
-
-func constructionDocumentIndex(workspace ws.Workspace, outputID string) int {
-	index := -1
-	for candidate := range workspace.Documents {
-		if workspace.Documents[candidate].Output.ID != outputID {
-			continue
-		}
-		if index >= 0 {
-			return -1
-		}
-		index = candidate
-	}
-	return index
 }
 
 func constructionWorkspaceCandidateDigest(workspace ws.Workspace) (string, error) {
@@ -498,7 +484,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 			return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
 		}
 		groupFieldChoices, groupFieldChoicesIncomplete, err = s.constructionGroupFieldChoices(
-			ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
+			ctx, base, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
 		)
 		if err != nil {
 			return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
@@ -760,7 +746,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	candidateWorkspace := base.Workspace
 	candidateWorkspace.Documents = append([]ws.Document(nil), base.Workspace.Documents...)
-	documentIndex := constructionDocumentIndex(candidateWorkspace, request.OutputID)
+	documentIndex := candidateWorkspace.DocumentIndex(request.OutputID)
 	if documentIndex < 0 {
 		return ConstructionProposalResponse{}, conflict("construction-proposal", "OUTPUT_NOT_FOUND", "the proposal output is missing from the candidate workspace", nil, nil)
 	}
@@ -840,7 +826,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	if currentDigest != binding.DraftDigest {
 		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the saved draft no longer matches the proposal base", nil, nil)
 	}
-	baseIndex := constructionDocumentIndex(current, command.OutputID)
+	baseIndex := current.DocumentIndex(command.OutputID)
 	if baseIndex < 0 {
 		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}
@@ -856,7 +842,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	candidateIndex := constructionDocumentIndex(candidate, command.OutputID)
+	candidateIndex := candidate.DocumentIndex(command.OutputID)
 	if candidateIndex < 0 || candidateIndex != baseIndex {
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt does not contain the requested output in its saved position", nil, nil)
 	}
@@ -1046,7 +1032,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 	if err != nil || baseDigest != owner.DraftDigest {
 		return ConstructionChoiceProposalResponse{}, conflict("construction-choice-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	if constructionDocumentIndex(workspace, request.OutputID) < 0 {
+	if workspace.DocumentIndex(request.OutputID) < 0 {
 		return ConstructionChoiceProposalResponse{}, unprocessable("construction-choice-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify one saved table", nil)
 	}
 

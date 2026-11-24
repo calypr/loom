@@ -1075,11 +1075,11 @@ func TestImportedRecipeRejectsStalePinnedSourceAndEditedInputs(t *testing.T) {
 	ref := ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
 	workspace := ws.Workspace{Documents: []ws.Document{{ImportedRecipe: &ref, Rows: ws.RecordsRowDefinition()}}, SemanticsVersion: ws.CurrentSemanticsVersion}
 	input := ResolvedImportedRecipe{Reference: ref, Bundle: bundle, ResolvedBundle: bundle}
-	if err := validateResolvedImportedRecipeCoverage(workspace, ws.CatalogSnapshot{}, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err != nil {
+	if err := validateResolvedImportedRecipeCoverage(workspace, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err != nil {
 		t.Fatalf("valid pin rejected: %v", err)
 	}
 	input.Bundle.Outputs[0].RowGrain = "CHANGED"
-	if err := validateResolvedImportedRecipeCoverage(workspace, ws.CatalogSnapshot{}, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err == nil {
+	if err := validateResolvedImportedRecipeCoverage(workspace, ResolvedInputs{ImportedRecipes: []ResolvedImportedRecipe{input}}); err == nil {
 		t.Fatal("stale pinned source accepted")
 	}
 }

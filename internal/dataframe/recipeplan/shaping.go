@@ -534,7 +534,7 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			}
 		}
 		if input.Where != nil {
-			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")
+			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, input.Where, path+".where")
 			if typedErr != nil {
 				return nil, typedErr
 			}
@@ -599,11 +599,11 @@ func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []re
 			semanticSlice.Fields = append(semanticSlice.Fields, semanticField)
 		}
 		if input.Where != nil {
-			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")
+			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, input.Where, path+".where")
 			if typedErr != nil {
 				return nil, typedErr
 			}
-			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
+			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, input.Where, path+".where")
 			if err != nil {
 				return nil, err
 			}
@@ -654,7 +654,7 @@ func recipeNodeSelector(resourceType, alias string, scope scopeFrame, input reci
 	return selector, nil
 }
 
-func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.Selector, string, spec.FilterValueKind, error) {
+func lowerRecipePredicate(resourceType, alias string, input *recipe.Filter, path string) (*spec.Selector, string, spec.FilterValueKind, error) {
 	if input == nil {
 		return nil, "", "", nil
 	}
@@ -699,7 +699,7 @@ func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *r
 	}
 }
 
-func lowerRecipeTypedPredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.TypedFilter, error) {
+func lowerRecipeTypedPredicate(resourceType, alias string, input *recipe.Filter, path string) (*spec.TypedFilter, error) {
 	if input == nil {
 		return nil, nil
 	}

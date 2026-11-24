@@ -140,7 +140,7 @@ func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability
 		return rowSourceSkipObserved
 	case len(found.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(found.Cardinality):
 		return rowSourceSkipRoute
-	case !containsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
+	case !hasScalarSourceProjectionMode(found.ProjectionModes):
 		return rowSourceSkipInventory
 	case !capability.IsSupportedConstructionSourceType(found.LogicalType):
 		return rowSourceSkipType

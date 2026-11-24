@@ -79,7 +79,7 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	requireTyped("CompileResolvedBundle", err)
 	_, err = engine.resolveEntry(context.Background(), recipe.Entry{Bundle: bundle, Digest: "digest"}, blank)
 	requireTyped("resolveEntry(unexported)", err)
-	if _, err := engine.compileResolvedBundle(context.Background(), bundle, blank, "digest"); err == nil {
+	if _, err := engine.compileResolvedBundle(bundle, blank, "digest"); err == nil {
 		t.Fatal("compileResolvedBundle accepted blank")
 	} else {
 		requireTyped("compileResolvedBundle(unexported)", err)

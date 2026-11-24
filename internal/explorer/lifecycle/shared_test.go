@@ -122,7 +122,7 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 	cleared := rs05SeedCleared()
 	base := filterSourceBase(snapshot, durable)
 
-	preparedA, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(filterSourceProposalRequest(rs05FilterID, nil)), rs05CloneConstruction(cleared))
+	preparedA, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest(rs05FilterID, nil).RowSourceRequest(), rs05CloneConstruction(cleared))
 	if err != nil {
 		t.Fatalf("prepare filter (no filterSources) failed: %v", err)
 	}
@@ -130,8 +130,9 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 
 	clearedB := rs05CloneConstruction(cleared)
 	clearedB.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
-	preparedB, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(filterSourceProposalRequest(rs05FilterID,
-		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)})), clearedB)
+	preparedB, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		clearedB)
 	if err != nil {
 		t.Fatalf("prepare filter with signed filterSource failed: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves(t *testing.T) {
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:xop", OutputID: filterSourceOutput,
 		ChangedStepID: rs05FilterID,
 	}
-	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(request), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate)
 	if err != nil {
 		t.Fatalf("filter prepare with foreign pivot-two: %v", err)
 	}
@@ -173,8 +174,9 @@ func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 
 	clearedForFilter := rs05CloneConstruction(cleared)
 	clearedForFilter.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
-	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(filterSourceProposalRequest(rs05FilterID,
-		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)})), clearedForFilter)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		clearedForFilter)
 	if err != nil {
 		t.Fatalf("prepare filter against cleared durable: %v", err)
 	}
@@ -202,8 +204,9 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 			rs05PivotStep(rs05OtherPivotID, "public-key"),
 		},
 	}
-	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction), rowsourceProposalRequestForTest(filterSourceProposalRequest(rs05FilterID,
-		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)})), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction), filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		candidate)
 	if err != nil {
 		t.Fatalf("filter SET while the other pivot source was cleared: %v", err)
 	}
@@ -523,7 +526,7 @@ func TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput(t *testing.T) {
 	cleared := rs05SeedCleared()
 	cleared.Steps = append(cleared.Steps, rs05DeriveLaneStep(9))
 
-	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, rowsourceProposalRequestForTest(rs05DeriveRequest(rs05DeriveID)), rs05CloneConstruction(cleared))
+	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, rs05DeriveRequest(rs05DeriveID).RowSourceRequest(), rs05CloneConstruction(cleared))
 	if err != nil {
 		t.Fatalf("derive preparation after the pivot clear: %v", err)
 	}
@@ -551,8 +554,9 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing
 			rs05DeriveLaneStep(2),
 		},
 	}
-	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction), rowsourceProposalRequestForTest(filterSourceProposalRequest(rs05FilterID,
-		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)})), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction), filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		candidate)
 	if err != nil {
 		t.Fatalf("filter SET while the derive source was cleared: %v", err)
 	}
@@ -683,9 +687,11 @@ func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing
 	candidate.Steps[0].Operation.Derive.Left = left
 	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
 
-	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, rowsourceProposalRequestForTest(deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
+	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
-	})), candidate)
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("derive SET while the foreign Filter source was cleared: %v", err)
 	}
@@ -731,9 +737,11 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
-	prepared, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, rowsourceProposalRequestForTest(unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
+	prepared, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
-	})), candidate)
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("unpivot SET while the foreign Filter source was cleared: %v", err)
 	}
@@ -767,9 +775,11 @@ func TestXopPortDeriveSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	candidate.Steps[0].Operation.Derive.Left = left
 	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
 
-	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, rowsourceProposalRequestForTest(deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
+	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
 		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
-	})), candidate)
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("derive SET with a partially carried Pivot chain: %v", err)
 	}
@@ -820,9 +830,11 @@ func TestXopPortUnpivotSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
-	prepared, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, rowsourceProposalRequestForTest(unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
+	prepared, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
 		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
-	})), candidate)
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("unpivot SET with a partially carried Pivot chain: %v", err)
 	}
@@ -885,7 +897,7 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 		request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 			filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 		})
-		_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(request), candidate)
+		_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate)
 		if code := fs1r6LaneCode(err); code != "FILTER_SOURCE_CANNOT_CROSS_STAGE" {
 			t.Fatalf("pivot-first signed filter slot on the pivot's field: code=%q err=%v, want FILTER_SOURCE_CANNOT_CROSS_STAGE refusal (never silent accept, never catch-all 500)", code, err)
 		}
@@ -923,7 +935,7 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 			OutputID: filterSourceOutput, ChangedStepID: "melt-step",
 			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: filterSourceRowChoice(t, snapshot, filterSourceField).ChoiceID, ColumnID: "melt_slot"}},
 		}
-		_, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, rowsourceProposalRequestForTest(request), candidate)
+		_, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, request.RowSourceRequest(), candidate)
 		if code := fs1r6LaneCode(err); code != "UNPIVOT_SOURCE_CANNOT_CROSS_STAGE" {
 			t.Fatalf("pivot-first signed melt input on the pivot's field: code=%q err=%v, want UNPIVOT_SOURCE_CANNOT_CROSS_STAGE refusal", code, err)
 		}
@@ -962,7 +974,7 @@ func TestFS1ForwardAndReverseSignedCarrierCollisionRefusedNamed(t *testing.T) {
 			request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 				filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 			})
-			_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(request), candidate)
+			_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate)
 			if code := fs1r6LaneCode(err); code != "FILTER_SOURCE_FIELD_ALREADY_PROJECTED" {
 				t.Fatalf("%s: code=%q err=%v, want the named FILTER_SOURCE_FIELD_ALREADY_PROJECTED refusal in both arrival directions", row.order, code, err)
 			}
@@ -989,7 +1001,7 @@ func TestFS1LegitNonCollisionReverseOrderStillAccepted(t *testing.T) {
 	request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 		filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 	})
-	if _, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, rowsourceProposalRequestForTest(request), candidate); err != nil {
+	if _, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate); err != nil {
 		t.Fatalf("distinct-field reverse-order signed slot must stay accepted, got %v", err)
 	}
 }

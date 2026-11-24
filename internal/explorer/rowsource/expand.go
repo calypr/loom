@@ -423,13 +423,13 @@ func (s *Service) ResolveConstructionExpandSource(
 ) (ws.ConstructionSourceProjection, error) {
 	identity, err := capability.DecodeRowChoiceID(selection.ChoiceID)
 	if err != nil {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_EXPAND_SOURCE_CHOICE", "the selected expand source field choice is invalid", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_EXPAND_SOURCE_CHOICE", "the selected expand source field choice is invalid", err)
 	}
 	if s.config.RowChoiceResolver == nil {
 		return ws.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized expand source choice resolution is not configured", nil)
 	}
 	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_EXPAND_SOURCE_CHOICE", "reload the current populated root array field choice", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_EXPAND_SOURCE_CHOICE", "reload the current populated root array field choice", nil)
 	}
 	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
@@ -441,15 +441,15 @@ func (s *Service) ResolveConstructionExpandSource(
 		identity.Path != resolved.ScopePath || identity.Reference ||
 		identity.Cardinality != capability.RowChoiceMany || identity.Shape != capability.RowChoiceArray ||
 		resolved.OccurrenceID != ws.RootOccurrenceID {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_EXPAND_SOURCE_CHOICE", "reload the current populated root array field choice", nil, resolveErr)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_EXPAND_SOURCE_CHOICE", "reload the current populated root array field choice", resolveErr)
 	}
 	rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
 	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_EXPAND_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_EXPAND_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil)
 	}
 	candidate, ok := expandSourceBackingCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.ScopePath)
 	if !ok {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_EXPAND_SOURCE_FIELD", "the selected root field is not a populated direct array source field", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_EXPAND_SOURCE_FIELD", "the selected root field is not a populated direct array source field", nil)
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
 	if err != nil {
@@ -459,17 +459,17 @@ func (s *Service) ResolveConstructionExpandSource(
 	facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootNode.ResourceType), resolved.ScopePath)
 	if err != nil || facts.CanonicalPath != resolved.ScopePath || facts.Shape != fhirschema.RowPathArray ||
 		facts.Cardinality != fhirschema.RowCardinalityMany || facts.Reference || facts.FHIRType != identity.FHIRType {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_EXPAND_SOURCE_SCHEMA", "the selected field no longer matches generated array FHIR metadata", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("STALE_EXPAND_SOURCE_SCHEMA", "the selected field no longer matches generated array FHIR metadata", err)
 	}
 	elementType := candidate.LogicalType
 	if strings.TrimSpace(elementType) == "" {
 		elementType = facts.FHIRType
 	}
 	if !expandSourceElementFHIRTypeIsAdmissible(facts.FHIRType) {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_EXPAND_SOURCE_FIELD", "the selected root array holds object or Coding element values that the Expand step cannot flatten to a scalar item column", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_EXPAND_SOURCE_FIELD", "the selected root array holds object or Coding element values that the Expand step cannot flatten to a scalar item column", nil)
 	}
 	if !expandSourceElementLogicalTypeIsAdmissible(elementType) {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_EXPAND_SOURCE_FIELD", "the selected root array element is not a primitive logical type the construction recipe can declare", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_EXPAND_SOURCE_FIELD", "the selected root array element is not a primitive logical type the construction recipe can declare", nil)
 	}
 	label := constructionFieldDisplayLabel(base.Document.RootResourceType, facts.CanonicalPath, candidate.Label)
 	return ws.ConstructionSourceProjection{
@@ -494,32 +494,30 @@ func (s *Service) ConstructionCandidateWithExpandSources(
 	}
 	expand := candidate.Steps[changedIndex].Operation.Expand
 	if expand == nil {
-		return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_REQUIRES_EXPAND", "expandSources can only be applied to an Expand step", nil)
+		return ws.Construction{}, unprocessable("EXPAND_SOURCE_REQUIRES_EXPAND", "expandSources can only be applied to an Expand step", nil)
 	}
 	if len(request.ExpandSources) == 0 {
 		cleared, err := clearConstructionExpandOwnedSources(base.Construction, candidate, request.ChangedStepID)
 		if err != nil {
-			return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+			return ws.Construction{}, unprocessable("EXPAND_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
 
 		return repairSignedExpandFields(base.Construction, cleared, nil), nil
 	}
 	acceptedStageID := constructionStepInputStageID(candidate.Steps[changedIndex])
 	if acceptedStageID == "" {
-		return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_STAGE_UNAVAILABLE", "the Expand input stage cannot be resolved", nil)
+		return ws.Construction{}, unprocessable("EXPAND_SOURCE_STAGE_UNAVAILABLE", "the Expand input stage cannot be resolved", nil)
 	}
 	if _, found := constructionReceiptStage(base.Stages, acceptedStageID); !found {
-		return ws.Construction{}, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the expand source choices are not bound to an accepted stage", nil, nil)
+		return ws.Construction{}, conflict("STALE_STAGE_REFERENCE", "the expand source choices are not bound to an accepted stage", nil)
 	}
 	inputIDs := expandInputColumnIDs(expand)
 	if len(request.ExpandSources) != 1 || len(inputIDs) != 1 {
-		return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_COLUMN_MISMATCH",
-			fmt.Sprintf("expandSources carries %d selections but the edited Expand step consumes one array input column", len(request.ExpandSources)), nil)
+		return ws.Construction{}, unprocessable("EXPAND_SOURCE_COLUMN_MISMATCH", fmt.Sprintf("expandSources carries %d selections but the edited Expand step consumes one array input column", len(request.ExpandSources)), nil)
 	}
 	for _, selection := range request.ExpandSources {
 		if !containsConstructionColumnIDLocal(inputIDs, selection.ColumnID) {
-			return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_COLUMN_MISMATCH",
-				fmt.Sprintf("expandSources columnId %q is not the input column of the edited Expand step", selection.ColumnID), nil)
+			return ws.Construction{}, unprocessable("EXPAND_SOURCE_COLUMN_MISMATCH", fmt.Sprintf("expandSources columnId %q is not the input column of the edited Expand step", selection.ColumnID), nil)
 		}
 	}
 
@@ -565,8 +563,7 @@ func (s *Service) ConstructionCandidateWithExpandSources(
 
 	for _, projection := range resolved {
 		if constructionRootFieldAlreadyProjected(base.Document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
-			return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_FIELD_ALREADY_PROJECTED",
-				fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this expand input", projection.FieldPath), nil)
+			return ws.Construction{}, unprocessable("EXPAND_SOURCE_FIELD_ALREADY_PROJECTED", fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this expand input", projection.FieldPath), nil)
 		}
 	}
 
@@ -575,7 +572,7 @@ func (s *Service) ConstructionCandidateWithExpandSources(
 	for index := 0; index < changedIndex; index++ {
 		step := &steps[index]
 		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
-			return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_CANNOT_CROSS_STAGE", "a selected root array field cannot be carried through an earlier row-changing operation into the Expand input", nil)
+			return ws.Construction{}, unprocessable("EXPAND_SOURCE_CANNOT_CROSS_STAGE", "a selected root array field cannot be carried through an earlier row-changing operation into the Expand input", nil)
 		}
 		outputs := make([]ws.StageColumn, 0, len(step.Outputs)+len(resolved))
 		for _, output := range step.Outputs {
@@ -610,7 +607,7 @@ func (s *Service) ConstructionCandidateWithExpandSources(
 	candidate.Steps, candidate.SourceProjections = steps, projections
 	candidate = repairSignedExpandFields(base.Construction, candidate, resolved)
 	if err := validateExpandSourceColumns(candidate.Steps, request.ChangedStepID, request.ExpandSources, resolved); err != nil {
-		return ws.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_COLUMN_MISMATCH", err.Error(), err)
+		return ws.Construction{}, unprocessable("EXPAND_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, nil
 }

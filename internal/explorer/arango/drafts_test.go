@@ -28,7 +28,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
-	storepkg "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -409,11 +408,11 @@ type draftHistoryClient struct {
 	owner       map[string]any
 	revisions   map[string]map[string]any
 	calls       []queryCall
-	transaction storepkg.TransactionCollections
+	transaction store.TransactionCollections
 	loseCAS     bool
 }
 
-func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
+func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections store.TransactionCollections, fn store.TransactionFunc) error {
 	previousOwner := maps.Clone(c.owner)
 	previousRevisions := make(map[string]map[string]any, len(c.revisions))
 	for id, revision := range c.revisions {
@@ -428,7 +427,7 @@ func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections st
 	return err
 }
 
-func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	visit = storedJSONVisitorForTest(query, visit)
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	collection, _ := binds["@c"].(string)

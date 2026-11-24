@@ -130,7 +130,7 @@ func (s constructionRowSources) constructionPivotSourceCapability(
 		for _, candidate := range base.Snapshot.Candidates {
 			if candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType || !candidate.Populated ||
 				(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
-				len(candidate.RepeatedBoundaries) != 0 || !containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+				len(candidate.RepeatedBoundaries) != 0 || !hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
 				!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
 				continue
 			}
@@ -293,7 +293,6 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 		}
 	}
 
-	pivot := &steps[pivotIndex]
 	pivotAnchor := ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}
 	if anchorStageID != recipe.ConstructionSourceProjectionID {
 		pivotAnchor = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: anchorStageID}
@@ -340,7 +339,7 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 		authorizedHelpers[helperID] = true
 	}
 
-	pivot = &steps[pivotIndex]
+	pivot := &steps[pivotIndex]
 	pivot.Inputs = []ws.ConstructionInputRef{pivotAnchor}
 	steps = append(steps[:pivotIndex], append(inserted, steps[pivotIndex:]...)...)
 	candidate.Steps = steps
@@ -379,7 +378,7 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 		}
 		candidate, found := uniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
 		if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
-			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+			!hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
 			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 			return resolvedConstructionPivotSource{}, unprocessable("construction-proposal", "UNSUPPORTED_PIVOT_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
 		}
@@ -419,7 +418,7 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
 		candidate.FieldPath != source.Path || candidate.LogicalType != source.LogicalType || !candidate.Populated ||
 		(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") || len(candidate.RepeatedBoundaries) != 0 ||
-		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+		!hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
 		!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
 		return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_CHOICE", "the selected scalar is no longer available on the active related resource", nil, nil)
 	}

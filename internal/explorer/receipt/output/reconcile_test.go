@@ -22,7 +22,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 	"github.com/calypr/loom/internal/testkit/recipetest"
-	receipttest "github.com/calypr/loom/internal/testkit/recipetest"
 )
 
 func TestReconcileFinalOutputMetadataUsesCompilerSchemaTypes(t *testing.T) {
@@ -153,10 +152,10 @@ func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *test
 }
 
 func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testing.T) {
-	document := receipttest.StageFixture("patients", []ws.StageColumn{{ID: "score", Name: "score", Label: "Score", Type: "decimal"}, {ID: "patient_count", Name: "patient_count", Label: "Patient count", Type: "integer"}})
-	receipttest.AppendDeriveFixture(&document, "same_input", ws.StageColumn{ID: "same_result", Name: "same_result", Label: "Same result", Type: "decimal"}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("score"), ws.ConstructionMissingInputError)
-	receipttest.AppendDeriveFixture(&document, "ordered_inputs", ws.StageColumn{ID: "ordered_result", Name: "ordered_result", Label: "Ordered result", Type: "decimal"}, ws.ConstructionDerivedSubtract, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("patient_count"), ws.ConstructionMissingInputError)
-	workspace := receipttest.StageWorkspace(document)
+	document := recipetest.StageFixture("patients", []ws.StageColumn{{ID: "score", Name: "score", Label: "Score", Type: "decimal"}, {ID: "patient_count", Name: "patient_count", Label: "Patient count", Type: "integer"}})
+	recipetest.AppendDeriveFixture(&document, "same_input", ws.StageColumn{ID: "same_result", Name: "same_result", Label: "Same result", Type: "decimal"}, ws.ConstructionDerivedAdd, recipetest.ColumnOperand("score"), recipetest.ColumnOperand("score"), ws.ConstructionMissingInputError)
+	recipetest.AppendDeriveFixture(&document, "ordered_inputs", ws.StageColumn{ID: "ordered_result", Name: "ordered_result", Label: "Ordered result", Type: "decimal"}, ws.ConstructionDerivedSubtract, recipetest.ColumnOperand("score"), recipetest.ColumnOperand("patient_count"), ws.ConstructionMissingInputError)
+	workspace := recipetest.StageWorkspace(document)
 
 	_, columns, err := AuthoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
 	if err != nil {
@@ -792,14 +791,14 @@ func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T
 func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	one := int64(1)
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "pivoted"}, {Name: "unpivoted"}}}
-	pivoted := receipttest.StageFixture("pivoted", []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "kind", Name: "kind", Label: "Kind", Type: "string"}, {ID: "value", Name: "value", Label: "Value", Type: "decimal"}})
+	pivoted := recipetest.StageFixture("pivoted", []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "kind", Name: "kind", Label: "Kind", Type: "string"}, {ID: "value", Name: "value", Label: "Value", Type: "decimal"}})
 	category := "systolic"
 	pivoted.Construction.Steps = []ws.ConstructionStep{{ID: "pivot_vitals", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{ConstructionID: "pivot_vitals", GroupKeyIDs: []string{"patient_id"}, CategoryColumnID: "kind", ValueColumnID: "value", Categories: []ws.ConstructionPivotCategory{{Key: ws.TableScalar{Kind: "STRING", String: &category}, OutputColumnID: "systolic"}}, DuplicatePolicy: ws.ConstructionPivotDuplicateError, MissingCellPolicy: ws.ConstructionPivotMissingNull, UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError}}, Outputs: []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "systolic", Name: "systolic", Label: "Systolic", Type: "decimal", Nullable: true}}}}
-	receipttest.AppendDeriveFixture(&pivoted, "adjust_systolic", ws.StageColumn{ID: "adjusted_systolic", Name: "adjusted_systolic", Label: "Adjusted systolic", Type: "decimal", Nullable: true}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("systolic"), receipttest.IntegerOperand(&one), ws.ConstructionMissingInputError)
-	unpivoted := receipttest.StageFixture("unpivoted", []ws.StageColumn{{ID: "height", Name: "height", Label: "Height", Type: "decimal"}, {ID: "weight", Name: "weight", Label: "Weight", Type: "decimal"}})
+	recipetest.AppendDeriveFixture(&pivoted, "adjust_systolic", ws.StageColumn{ID: "adjusted_systolic", Name: "adjusted_systolic", Label: "Adjusted systolic", Type: "decimal", Nullable: true}, ws.ConstructionDerivedAdd, recipetest.ColumnOperand("systolic"), recipetest.IntegerOperand(&one), ws.ConstructionMissingInputError)
+	unpivoted := recipetest.StageFixture("unpivoted", []ws.StageColumn{{ID: "height", Name: "height", Label: "Height", Type: "decimal"}, {ID: "weight", Name: "weight", Label: "Weight", Type: "decimal"}})
 	height, weight := "height", "weight"
 	unpivoted.Construction.Steps = []ws.ConstructionStep{{ID: "unpivot_vitals", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}}, Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationUnpivot, Unpivot: &ws.ConstructionUnpivot{ConstructionID: "unpivot_vitals", Inputs: []ws.ConstructionUnpivotInput{{ColumnID: "height", Key: ws.TableScalar{Kind: "STRING", String: &height}}, {ColumnID: "weight", Key: ws.TableScalar{Kind: "STRING", String: &weight}}}, KeyOutputColumnID: "measure_name", ValueOutputColumnID: "measure_value", NullRowPolicy: ws.ConstructionUnpivotDrop}}, Outputs: []ws.StageColumn{{ID: "measure_name", Name: "measure_name", Label: "Measure", Type: "string"}, {ID: "measure_value", Name: "measure_value", Label: "Value", Type: "decimal", Nullable: true}}}}
-	workspace := receipttest.StageWorkspace(pivoted, unpivoted)
+	workspace := recipetest.StageWorkspace(pivoted, unpivoted)
 
 	emitted := []viewer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
@@ -859,8 +858,8 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 }
 
 func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexecution.Resolved) {
-	document := receipttest.StageFixture("patients", []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}, {ID: "score", Name: "score", Label: "Authored score", Type: "decimal"}, {ID: "stale", Name: "stale", Label: "Stale", Type: "string"}})
-	receipttest.AppendDeriveFixture(&document, "scale_score", ws.StageColumn{ID: "scaled_score", Name: "scaled_score", Label: "Scaled score", Type: "decimal", Nullable: true}, ws.ConstructionDerivedMultiply, receipttest.ColumnOperand("score"), receipttest.DecimalOperand(float64Pointer(2)), ws.ConstructionMissingInputPropagateNull)
+	document := recipetest.StageFixture("patients", []ws.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}, {ID: "score", Name: "score", Label: "Authored score", Type: "decimal"}, {ID: "stale", Name: "stale", Label: "Stale", Type: "string"}})
+	recipetest.AppendDeriveFixture(&document, "scale_score", ws.StageColumn{ID: "scaled_score", Name: "scaled_score", Label: "Scaled score", Type: "decimal", Nullable: true}, ws.ConstructionDerivedMultiply, recipetest.ColumnOperand("score"), recipetest.DecimalOperand(float64Pointer(2)), ws.ConstructionMissingInputPropagateNull)
 
 	policy := &viewer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []viewer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
 	emitted := []viewer.EmittedColumn{
@@ -881,7 +880,7 @@ func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexec
 			{EmissionID: "emit_stale", PublicColumn: "stale", Label: "Stale", Visible: true, Order: 50, PhysicalOrder: 2},
 		}}},
 		IdentityMappings: []receiptmodel.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score", "emit_stale"}}},
-		Workspace:        receipttest.StageWorkspace(document),
+		Workspace:        recipetest.StageWorkspace(document),
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,

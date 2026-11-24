@@ -6,8 +6,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/selection"
 )
 
-const selectionBatchSize = 256
-
 const (
 	DefaultSelectionMaxRows     = selection.DefaultSelectionMaxRows
 	DefaultSelectionMaxBytes    = selection.DefaultSelectionMaxBytes

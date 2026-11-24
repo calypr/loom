@@ -682,7 +682,7 @@ func (r *physicalPlanRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (str
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
-func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
+func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal int) ([]string, error) {
 	source, err := r.renderUnnestSource(unnest)
 	if err != nil {
 		return nil, fmt.Errorf("unnest source: %w", err)
@@ -690,16 +690,12 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 	if unnest.Owner.RootVariable == "" || unnest.Owner.OwnerVariable == "" || unnest.OutputVariable == "" || unnest.HasItemVariable == "" {
 		return nil, fmt.Errorf("unnest requires root, owner, output, and item-discriminator variables")
 	}
-	baseIndent := indent
-	if depth > 0 {
-		baseIndent = strings.Repeat("  ", depth+1)
-	}
 	lines := make([]string, 0, len(unnest.Owner.Route)*8+6)
 	parentVariable := unnest.Owner.RootVariable
 	for routeIndex, step := range unnest.Owner.Route {
-		lines = append(lines, r.renderTraversalScan(step.Traversal, parentVariable, baseIndent)...)
+		lines = append(lines, r.renderTraversalScan(step.Traversal, parentVariable, indent)...)
 		for scopeIndex, operation := range step.Scope {
-			rendered, err := r.renderScopeOperation(operation, baseIndent+"  ")
+			rendered, err := r.renderScopeOperation(operation, indent+"  ")
 			if err != nil {
 				return nil, fmt.Errorf("owner route step %d scope operation %d: %w", routeIndex, scopeIndex, err)
 			}
@@ -714,8 +710,8 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 	sourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_source_%d", ordinal))
 
 	lines = append(lines,
-		fmt.Sprintf("%sLET %s = %s", baseIndent, rawSourceVariable, source),
-		fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, rawSourceVariable, rawSourceVariable),
+		fmt.Sprintf("%sLET %s = %s", indent, rawSourceVariable, source),
+		fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", indent, sourceVariable, rawSourceVariable, rawSourceVariable),
 	)
 	if unnest.EmptyPolicy == ir.PhysicalUnnestError {
 		errorBindKey := fmt.Sprintf("unnest_error_occurrence_%d", ordinal)
@@ -725,29 +721,29 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 		}
 		r.bindVars[errorBindKey] = occurrenceID
 		message := fmt.Sprintf("CONCAT(\"%s: row expansion occurrence \", @%s, \" has no items for owner \", %s._key)", dataframeerrors.CodeConstructionExpansionEmpty, errorBindKey, unnest.Owner.OwnerVariable)
-		lines = append(lines, fmt.Sprintf("%sFILTER ASSERT(LENGTH(%s) > 0, %s)", baseIndent, sourceVariable, message))
+		lines = append(lines, fmt.Sprintf("%sFILTER ASSERT(LENGTH(%s) > 0, %s)", indent, sourceVariable, message))
 	}
 	indexVariable := r.newInternalVariable(fmt.Sprintf("unnest_index_%d", ordinal))
 	indices := fmt.Sprintf("LENGTH(%s) == 0 ? [] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
 	if unnest.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
 		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
 	}
-	lines = append(lines, fmt.Sprintf("%sFOR %s IN (%s)", baseIndent, indexVariable, indices))
+	lines = append(lines, fmt.Sprintf("%sFOR %s IN (%s)", indent, indexVariable, indices))
 	itemSource := fmt.Sprintf("%s[%s]", sourceVariable, indexVariable)
 	carrierVariable := ""
 	if len(unnest.Ancestors) > 0 {
 		carrierVariable = r.newInternalVariable(fmt.Sprintf("unnest_lineage_item_%d", ordinal))
-		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s", baseIndent, carrierVariable, indexVariable, itemSource))
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s", indent, carrierVariable, indexVariable, itemSource))
 		itemSource = carrierVariable + ".item"
 	}
 	item := fmt.Sprintf("%s == null ? null : %s", indexVariable, itemSource)
-	lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.OutputVariable, item))
-	lines = append(lines, fmt.Sprintf("%sLET %s = %s != null", baseIndent, unnest.HasItemVariable, indexVariable))
+	lines = append(lines, fmt.Sprintf("%sLET %s = %s", indent, unnest.OutputVariable, item))
+	lines = append(lines, fmt.Sprintf("%sLET %s = %s != null", indent, unnest.HasItemVariable, indexVariable))
 	for index, ancestor := range unnest.Ancestors {
-		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s.ancestor_%d", baseIndent, ancestor.Variable, carrierVariable, carrierVariable, index))
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s.ancestor_%d", indent, ancestor.Variable, carrierVariable, carrierVariable, index))
 	}
 	if unnest.Ordinality != "" {
-		lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.Ordinality, indexVariable))
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s", indent, unnest.Ordinality, indexVariable))
 	}
 	return lines, nil
 }
@@ -815,7 +811,7 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 			if operation.Unnest == nil {
 				return nil, fmt.Errorf("set operation %d: unnest payload is missing", opIndex+1)
 			}
-			rendered, err := r.renderUnnest(*operation.Unnest, indent+"  ", opIndex+1, 0)
+			rendered, err := r.renderUnnest(*operation.Unnest, indent+"  ", opIndex+1)
 			if err != nil {
 				return nil, fmt.Errorf("set operation %d: %w", opIndex+1, err)
 			}
@@ -961,7 +957,7 @@ func (r *physicalPlanRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string,
 			if operation.Unnest == nil {
 				return nil, fmt.Errorf("shared subset operation %d: unnest payload is missing", index)
 			}
-			rendered, err := r.renderUnnest(*operation.Unnest, "      ", index, 0)
+			rendered, err := r.renderUnnest(*operation.Unnest, "      ", index)
 			if err != nil {
 				return nil, fmt.Errorf("shared subset operation %d: %w", index, err)
 			}

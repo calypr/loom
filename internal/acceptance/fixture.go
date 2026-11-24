@@ -678,12 +678,12 @@ func RefreshLock(ctx context.Context, endpoint, studyID, path string, client *ht
 			resources[typ] = append(resources[typ], items...)
 		}
 	}
-	lock := FixtureLock{Version: 1, Endpoint: endpoint, Study: identityFor("ResearchStudy", study), Selection: SelectionRule{ResourceType: "Patient", Search: "part-of-study=ResearchStudy/" + studyID, Order: "id ascending", Limit: limits.Patients}, Resources: make(map[string][]ResourceLock, len(resources)), Counts: make(map[string]int, len(resources)), Format: "canonical-ndjson-v1"}
+	lock := FixtureLock{Version: 1, Endpoint: endpoint, Study: identityFor(study), Selection: SelectionRule{ResourceType: "Patient", Search: "part-of-study=ResearchStudy/" + studyID, Order: "id ascending", Limit: limits.Patients}, Resources: make(map[string][]ResourceLock, len(resources)), Counts: make(map[string]int, len(resources)), Format: "canonical-ndjson-v1"}
 	for typ, items := range resources {
 		lock.Resources[typ] = []ResourceLock{}
 		seen := map[string]bool{}
 		for _, item := range items {
-			identity := identityFor(typ, item)
+			identity := identityFor(item)
 			if identity.ID == "" || seen[identity.ID] {
 				continue
 			}
@@ -700,7 +700,7 @@ func RefreshLock(ctx context.Context, endpoint, studyID, path string, client *ht
 	return lock, nil
 }
 
-func identityFor(typ string, payload []byte) ResourceLock {
+func identityFor(payload []byte) ResourceLock {
 	canonical := canonicalJSON(payload)
 	var value struct {
 		ID   string `json:"id"`

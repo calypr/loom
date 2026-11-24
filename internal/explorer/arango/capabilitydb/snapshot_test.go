@@ -17,7 +17,6 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/capability"
 	store "github.com/calypr/loom/internal/store/arango"
-	storepkg "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -349,11 +348,11 @@ type capabilitySnapshotClient struct {
 	row   map[string]any
 }
 
-func (c *capabilitySnapshotClient) WithTransaction(ctx context.Context, _ storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
+func (c *capabilitySnapshotClient) WithTransaction(ctx context.Context, _ store.TransactionCollections, fn store.TransactionFunc) error {
 	return fn(ctx, c)
 }
 
-func (c *capabilitySnapshotClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *capabilitySnapshotClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	if query == capabilitySnapshotGetByIdentityAQL && c.row != nil {
 		storedIdentity, _ := c.row["identity"].(map[string]any)

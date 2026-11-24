@@ -23,8 +23,6 @@ var reshapeOracleSourceRows = compilerfixtures.ReshapeOracleSourceRows
 
 var compilePopulationMappingOutput = compilerfixtures.CompilePopulationMappingOutput
 
-var constructionCountRowsGroupPivotLineageOutput = compilerfixtures.ConstructionCountRowsGroupPivotLineageOutput
-
 var constructionOracleOutput = compilerfixtures.ConstructionOracleOutput
 
 var lowerConstructionOutput = compilerfixtures.LowerConstructionOutput

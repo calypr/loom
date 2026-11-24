@@ -120,7 +120,7 @@ func semanticProjectionStatus(value map[string]any, path string) string {
 	return "SUPPORTED"
 }
 
-func semanticGeneratedValueType(resourceType, path string, value any, fallback string) string {
+func semanticGeneratedValueType(resourceType, path string, fallback string) string {
 	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, path)
 	if ok && metadata.Primitive != fhirschema.PrimitiveUnknown {
 		return string(metadata.Primitive)

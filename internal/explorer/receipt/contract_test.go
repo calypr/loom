@@ -31,7 +31,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
-	receipttest "github.com/calypr/loom/internal/testkit/recipetest"
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
 )
 
@@ -99,8 +98,8 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	*document = started
-	receipttest.AppendDeriveFixture(document, "scale_patient_count", ws.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, ws.ConstructionDerivedMultiply, receipttest.ColumnOperand(document.Columns[1].ColumnID), receipttest.IntegerOperand(&two), ws.ConstructionMissingInputError)
-	receipttest.AppendDeriveFixture(document, "add_one", ws.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("scaled_patient_count"), receipttest.IntegerOperand(&one), ws.ConstructionMissingInputError)
+	recipetest.AppendDeriveFixture(document, "scale_patient_count", ws.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, ws.ConstructionDerivedMultiply, recipetest.ColumnOperand(document.Columns[1].ColumnID), recipetest.IntegerOperand(&two), ws.ConstructionMissingInputError)
+	recipetest.AppendDeriveFixture(document, "add_one", ws.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, ws.ConstructionDerivedAdd, recipetest.ColumnOperand("scaled_patient_count"), recipetest.IntegerOperand(&one), ws.ConstructionMissingInputError)
 
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:  recipetest.Registry{},
@@ -129,7 +128,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		t.Fatalf("validate reconciled public output contract: %v", err)
 	}
 	wantColumns := []string{"c_patient", "patient_count", "scaled_patient_count", "doubled_patient_count"}
-	if got := receipttest.EmittedPublicColumnNames(receipt.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
+	if got := recipetest.EmittedPublicColumnNames(receipt.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("receipt public columns = %#v, want %#v", got, wantColumns)
 	}
 	scaled := receipt.EmittedColumns[2]

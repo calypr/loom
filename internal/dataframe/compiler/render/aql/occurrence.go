@@ -16,10 +16,10 @@ func stageOutputColumnID(columns []ir.PhysicalStageColumn, name string) string {
 	return ""
 }
 
-func indentLines(lines []string, prefix string) []string {
+func indentLines(lines []string) []string {
 	indented := make([]string, len(lines))
 	for index, line := range lines {
-		indented[index] = prefix + strings.TrimLeft(line, " \t")
+		indented[index] = "  " + strings.TrimLeft(line, " \t")
 	}
 	return indented
 }
@@ -131,11 +131,11 @@ func (r *physicalPlanRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		"LET " + selected + " = FIRST(",
 		"  FOR " + input + " IN (\n" + indentQuery(selectedInput, "    ") + "\n  )",
 	}
-	selectedLines = append(selectedLines, indentLines(keyLines, "  ")...)
+	selectedLines = append(selectedLines, indentLines(keyLines)...)
 	selectedLines = append(selectedLines,
 		fmt.Sprintf("  LET %s = %s[@%s]", codingMembership, input, codingMembershipBind),
 	)
-	selectedLines = append(selectedLines, indentLines(codingIdentityMembershipTypeAssertions(codingMembership), "  ")...)
+	selectedLines = append(selectedLines, indentLines(codingIdentityMembershipTypeAssertions(codingMembership))...)
 	selectedLines = append(selectedLines,
 		fmt.Sprintf("  LET %s = %s", codingInputTuple, codingIdentityTupleExpression(codingMembership)),
 	)
@@ -192,12 +192,12 @@ func (r *physicalPlanRenderer) renderRelatedCodingIdentityGroupRowLineage(
 		"  FILTER " + selected + " != null",
 		fmt.Sprintf("  LET %s = %s[@%s]", contributorMembership, contributor, contributorMembershipBind),
 	}
-	pageLines = append(pageLines, indentLines(codingIdentityMembershipTypeAssertions(contributorMembership), "  ")...)
+	pageLines = append(pageLines, indentLines(codingIdentityMembershipTypeAssertions(contributorMembership))...)
 	pageLines = append(pageLines, fmt.Sprintf("  LET %s = %s", contributorTuple, codingIdentityTupleExpression(contributorMembership)))
 	if contributorMissingFilter != "" {
 		pageLines = append(pageLines, "  "+contributorMissingFilter)
 	}
-	pageLines = append(pageLines, indentLines(mapStrings(contributorFilters, "FILTER "), "  ")...)
+	pageLines = append(pageLines, indentLines(mapStrings(contributorFilters, "FILTER "))...)
 	pageLines = append(pageLines,
 		"  FILTER "+contributorTuple+" == "+selected+"."+selectedTuple,
 		"  SORT "+contributor+"[@"+occurrenceBind+"] ASC",

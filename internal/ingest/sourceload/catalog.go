@@ -52,13 +52,10 @@ func (p *RepositorySourceLoader) finalizeSourceLoadCandidate(ctx context.Context
 	if err != nil {
 		return 0, err
 	}
-	selectedTypes := make([]string, 0, len(record.Plan.Files))
 	for _, file := range record.Plan.Files {
-		resourceType, err := canonicalSourceResourceType(file.Path)
-		if err != nil {
+		if _, err := canonicalSourceResourceType(file.Path); err != nil {
 			return 0, err
 		}
-		selectedTypes = append(selectedTypes, resourceType)
 	}
 	if err := p.rebuildCandidateRelationshipCatalog(ctx, record); err != nil {
 		return 0, err

@@ -119,14 +119,6 @@ func compileOutputColumnRequiringValue(output lower.CompiledRecipeOutput, column
 	return compileCategoryScan(output, output.OutputSchema, column, value, "", column.ID, value.Name, maxValues, policy, true)
 }
 
-func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
-	return compileCategoryScanStageWithValuePolicy(output, stageID, categoryColumnID, valueColumnID, maxValues, policy, false)
-}
-
-func CompileCategoryScanStageRequiringValue(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
-	return compileCategoryScanStageWithValuePolicy(output, stageID, categoryColumnID, valueColumnID, maxValues, policy, true)
-}
-
 func compileCategoryScanStageWithValuePolicy(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy, requireValue bool) (CompiledCategoryScanQuery, error) {
 	stage, found := compiledStageByID(output.Stages, stageID)
 	if !found {
@@ -218,7 +210,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	var query string
 	var bindVars map[string]any
 	var overflowWitness *CategoryOverflowWitness
-	categoryIndex := categoryScanCategoryIndexSpec(physical, column)
+	var categoryIndex *model.PreviewCoveringIndexSpec
 	relatedQuery, relatedBinds, relatedIndex, relatedEligible, relatedErr :=
 		compileRelatedCategoryScan(physical, stageID, categoryColumnID, valueColumnID, column, valueColumn, maxValues)
 	if relatedErr != nil {

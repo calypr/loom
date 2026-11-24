@@ -1151,14 +1151,13 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	if err := validateConstructionSourceProjections(c, sourceColumns); err != nil {
 		return err
 	}
-	source, err := sourceStageColumns(sourceColumns)
-	if err != nil {
+	if _, err := sourceStageColumns(sourceColumns); err != nil {
 		return err
 	}
 	if len(c.Steps) == 0 {
 		return nil
 	}
-	source, err = constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, c.Steps[0].inputColumnIDs(), c.Steps[0].Outputs)
+	source, err := constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, c.Steps[0].inputColumnIDs(), c.Steps[0].Outputs)
 	if err != nil {
 		return fmt.Errorf("source projection: %w", err)
 	}

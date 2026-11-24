@@ -105,7 +105,7 @@ const relatedCategoryLimitBind = "__loom_category_limit"
 
 const relatedCategoryMaxValues = 256
 
-func renderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCategoryScan, targetCollectionBind string) (string, error) {
+func renderRelatedCategoryScan(scan ir.PhysicalRelatedCategoryScan, targetCollectionBind string) (string, error) {
 	hops := flattenRelatedCategoryHops(scan.Hops)
 	if len(hops) == 0 {
 		return "", fmt.Errorf("related category scan requires traversal hops")
@@ -196,7 +196,7 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCate
 	return strings.Join(lines, "\n") + "\n", nil
 }
 
-func renderRelatedCategoryStreamingScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCategoryScan, targetCollectionBind string) (string, error) {
+func renderRelatedCategoryStreamingScan(scan ir.PhysicalRelatedCategoryScan, targetCollectionBind string) (string, error) {
 	if len(scan.Hops) != 2 || len(scan.Hops[0]) != 1 || len(scan.Hops[1]) != 1 {
 		return "", fmt.Errorf("streaming related category scan requires two single-hop stages")
 	}
@@ -593,12 +593,12 @@ func RenderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCate
 	}
 	var query string
 	if scan.Streaming {
-		query, err = renderRelatedCategoryStreamingScan(plan, scan, targetCollectionBind)
+		query, err = renderRelatedCategoryStreamingScan(scan, targetCollectionBind)
 	} else {
 		if scan.IndexName == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("related category scan index hint is required")
 		}
-		query, err = renderRelatedCategoryScan(plan, scan, targetCollectionBind)
+		query, err = renderRelatedCategoryScan(scan, targetCollectionBind)
 	}
 	if err != nil {
 		return RenderedPhysicalPlan{}, err

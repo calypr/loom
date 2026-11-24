@@ -278,7 +278,7 @@ func constructionCodedGroupChoices(
 	}
 	occurrence, err := resolveRowChoiceOccurrence(
 		base.Snapshot, base.Document.RootResourceType, base.Document.Route,
-		ws.RootOccurrenceID, "",
+		ws.RootOccurrenceID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("the direct root occurrence is not available for coded grouping: %w", err)
@@ -358,7 +358,7 @@ func reauthorizeConstructionCodedGroup(
 		coded.Source.FHIRType != "Coding" || coded.Source.Cardinality != "MANY" || coded.Source.Shape != "ARRAY" || len(coded.Source.Route) != 0 {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source facts must identify a root repeated Coding path with an empty route", nil)
 	}
-	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, coded.Source.OccurrenceID, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, coded.Source.OccurrenceID)
 	if err != nil || len(occurrence.Route) != 0 {
 		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the root Coding occurrence is no longer available in the authorized snapshot", nil, err)
 	}

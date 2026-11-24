@@ -283,7 +283,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].path != "type.coding[]" {
 		t.Fatalf("observed Specimen Coding selectors = %#v, want type.coding[]", got)
 	}
-	choices, incomplete, err := (&Service{}).constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
+	choices, incomplete, err := (&Service{}).constructionGroupFieldChoices(context.Background(), base, stage, nil, false, "", "")
 	if err != nil {
 		t.Fatalf("issue related Group choices: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		base.Snapshot = capability.NewSnapshot(seed.Identity, seed.Policy, capability.StatusReady, true, false, nodes, edges, allCandidates, nil)
 		base.Authorized.Snapshot = base.Snapshot
 		service := &Service{}
-		canonical, incomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
+		canonical, incomplete, err := service.constructionGroupFieldChoices(context.Background(), base, stage, nil, false, "", "")
 		if err != nil || incomplete {
 			t.Fatalf("canonical discovery: incomplete=%t error=%v", incomplete, err)
 		}
@@ -466,14 +466,14 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		if err != nil {
 			t.Fatal(err)
 		}
-		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "", "")
+		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "")
 		base.Construction = ws.Construction{Steps: []ws.ConstructionStep{{
 			ID: "saved-group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
 			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
 				Keys: []ws.ConstructionGroupKey{{OutputColumnID: "saved-specimen", FieldSource: constructionGroupFieldBinding(source)}},
 			}},
 		}}}
-		edited, _, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "saved-group")
+		edited, _, err := service.constructionGroupFieldChoices(context.Background(), base, stage, nil, false, "", "saved-group")
 		if err != nil {
 			t.Fatal(err)
 		}

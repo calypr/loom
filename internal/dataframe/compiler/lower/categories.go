@@ -17,7 +17,7 @@ func lowerConstructionCodedPivot(
 	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
 	input map[string]CompiledOutputColumn,
-	inputIdentity, rootResourceType, inputRow string,
+	inputIdentity, rootResourceType string,
 	usedVariables map[string]bool,
 	stepIndex int,
 ) (ir.PhysicalGroupedPivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {

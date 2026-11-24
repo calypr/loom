@@ -288,11 +288,11 @@ func validateResolvedSchema(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 			}
 			seenNames[column.Name] = true
 		}
-		if _, ok := inputColumnByName(input, "__loom_row_id"); !ok {
+		if !inputColumnByName(input, "__loom_row_id") {
 			return fmt.Errorf("resolved ClickHouse input %d is missing its stable row identity", inputIndex)
 		}
 		if !input.Unrestricted {
-			if _, ok := inputColumnByName(input, "auth_resource_path"); !ok {
+			if !inputColumnByName(input, "auth_resource_path") {
 				return fmt.Errorf("resolved restricted ClickHouse input %d is missing auth_resource_path", inputIndex)
 			}
 		}
@@ -566,13 +566,13 @@ func resolvedColumnByID(input ir.ResolvedClickHouseTable, id string) ir.Resolved
 	return ir.ResolvedClickHouseColumn{}
 }
 
-func inputColumnByName(input ir.ResolvedClickHouseTable, name string) (ir.ResolvedClickHouseColumn, bool) {
+func inputColumnByName(input ir.ResolvedClickHouseTable, name string) bool {
 	for _, column := range input.Columns {
 		if column.Name == name {
-			return column, true
+			return true
 		}
 	}
-	return ir.ResolvedClickHouseColumn{}, false
+	return false
 }
 
 func inputColumnByID(input ir.ResolvedClickHouseTable, id string) (ir.ResolvedClickHouseColumn, bool) {

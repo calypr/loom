@@ -160,9 +160,9 @@ func constructionPresenceCompanionName(outputName, columnID string) string {
 	return "__loom_presence_" + hex.EncodeToString(digest[:8])
 }
 
-func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, categoryIDs map[string]bool) ([]CompiledOutputColumn, error) {
+func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, categoryIDs map[string]bool) []CompiledOutputColumn {
 	if plan == nil || len(categoryIDs) == 0 {
-		return schema, nil
+		return schema
 	}
 	projections := map[string]ir.PhysicalProjection{}
 	returnIndex := -1
@@ -178,7 +178,7 @@ func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []
 		}
 	}
 	if returnIndex < 0 {
-		return schema, nil
+		return schema
 	}
 	result := append([]CompiledOutputColumn(nil), schema...)
 	for index := range result {
@@ -203,7 +203,7 @@ func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []
 			Name: companion, Hidden: true, Presence: &presence, PresenceOutput: true,
 		})
 	}
-	return result, nil
+	return result
 }
 
 func cloneConstructionPresencePaths(paths [][]string) [][]string {

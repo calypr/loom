@@ -7,8 +7,6 @@ import (
 	"fmt"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
-
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 const tableShapeWorkspaceMigrationVersion = "wp17_tableshape_v1"
@@ -27,7 +25,7 @@ func (target workspaceMigrationTarget) version() string {
 	return workspaceMigrationVersion
 }
 
-func (target workspaceMigrationTarget) projectionKey(source workspacepkg.Artifact) string {
+func (target workspaceMigrationTarget) projectionKey(source ws.Artifact) string {
 	if target == tableShapeConstructionTarget {
 		return source.Key() + "_wp17"
 	}
@@ -41,7 +39,7 @@ func (target workspaceMigrationTarget) migrate(raw []byte, catalog ws.CatalogSna
 	return ws.MigrateStoredWorkspace(raw, catalog)
 }
 
-func (target workspaceMigrationTarget) validateProjection(projection workspacepkg.Projection, source workspacepkg.Artifact) error {
+func (target workspaceMigrationTarget) validateProjection(projection ws.Projection, source ws.Artifact) error {
 	if target == workspaceEncodingTarget {
 		if projection.Source != source || projection.ID == "" || projection.ID != projection.ContentID() {
 			return fmt.Errorf("workspace projection does not match its immutable source")

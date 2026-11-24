@@ -153,7 +153,7 @@ func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Conte
 		}
 	}
 	if candidate == nil || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
-		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+		!hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_GROUP_SOURCE_FIELD", "the selected root field does not support a scalar VALUE projection", nil)
 	}
@@ -186,7 +186,7 @@ func constructionGroupSourceCandidate(snapshot capability.Snapshot, choice capab
 		candidate, found = current, true
 	}
 	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
-		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+		!hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return capability.Candidate{}, false
 	}
@@ -206,9 +206,9 @@ func fhirNonGroupableGroupFieldPath(path string) bool {
 	return path == "resourceType" || (fhirIdentifierPath(path) && path != "id")
 }
 
-func containsSourceProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
+func hasScalarSourceProjectionMode(modes []capability.ProjectionMode) bool {
 	for _, mode := range modes {
-		if mode == want {
+		if mode == capability.ProjectionScalar {
 			return true
 		}
 	}

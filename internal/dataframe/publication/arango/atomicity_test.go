@@ -16,7 +16,7 @@ import (
 
 const patDatabasePrefix = "loom_verify_patom_"
 
-var patAbortError = errors.New("injected abort after successful publish statement")
+var errPATAbort = errors.New("injected abort after successful publish statement")
 
 func patOpen(t *testing.T) (*storearango.Client, *pubarango.Registry) {
 	t.Helper()
@@ -117,7 +117,7 @@ RETURN {updated: true}`, 32, map[string]interface{}{
 		now := time.Now().UTC()
 		published.PublishedAt = &now
 		published.UpdatedAt = now
-		if err := abortRegistry.PublishExecution(ctx, published.Name, "", published); !errors.Is(err, patAbortError) {
+		if err := abortRegistry.PublishExecution(ctx, published.Name, "", published); !errors.Is(err, errPATAbort) {
 			t.Fatalf("expected the injected abort to surface, got %v", err)
 		}
 		state, pointerErr := patObserve(ctx, t, registry, execution.ID, execution.Name)
@@ -204,7 +204,7 @@ func (a *patTxAborter) WithTransaction(ctx context.Context, collections storeara
 			if err := fn(txCtx, tx); err != nil {
 				return err
 			}
-			return patAbortError
+			return errPATAbort
 		})
 	}
 	return a.Client.WithTransaction(ctx, collections, fn)

@@ -20,7 +20,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -441,7 +440,7 @@ func workspaceMigrationCollectionCount(t *testing.T, ctx context.Context, client
 	return count
 }
 
-func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection workspacepkg.Projection) error {
+func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection ws.Projection) error {
 	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
 }
 

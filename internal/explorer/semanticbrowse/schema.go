@@ -305,10 +305,3 @@ func (b *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 }
 
 type SchemaFieldCursor = schemaFieldCursor
-
-func EncodeSchemaFieldCursor(cursor SchemaFieldCursor) (string, error) {
-	return encodeSchemaFieldCursor(cursor)
-}
-func DecodeSchemaFieldCursor(value string) (SchemaFieldCursor, error) {
-	return decodeSchemaFieldCursor(value)
-}

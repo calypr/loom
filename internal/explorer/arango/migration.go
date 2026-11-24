@@ -10,8 +10,6 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
-
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -44,7 +42,7 @@ type workspaceMigrationDocument struct {
 type workspaceMigrationPlan struct {
 	report       WorkspaceMigrationReport
 	owners       []workspaceOwnerMigration
-	projections  []workspacepkg.Projection
+	projections  []ws.Projection
 	repositories []workspaceRepositoryMigration
 }
 
@@ -156,13 +154,13 @@ UPDATE d WITH {workspace:@workspace, intentDigest:@digest} IN @@c RETURN NEW`, 1
 	return plan.report, nil
 }
 
-func newWorkspaceProjection(source workspacepkg.Artifact, migrated ws.StoredWorkspaceMigration) workspacepkg.Projection {
-	projection := workspacepkg.Projection{Source: source, Workspace: append([]byte(nil), migrated.CanonicalJSON...), Digest: migrated.MigratedCanonicalDigest}
+func newWorkspaceProjection(source ws.Artifact, migrated ws.StoredWorkspaceMigration) ws.Projection {
+	projection := ws.Projection{Source: source, Workspace: append([]byte(nil), migrated.CanonicalJSON...), Digest: migrated.MigratedCanonicalDigest}
 	projection.ID = projection.ContentID()
 	return projection
 }
 
-func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, projection workspacepkg.Projection, target workspaceMigrationTarget) error {
+func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, projection ws.Projection, target workspaceMigrationTarget) error {
 	if err := target.validateProjection(projection, projection.Source); err != nil {
 		return err
 	}
@@ -170,12 +168,12 @@ func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, p
 	if err != nil {
 		return err
 	}
-	var stored *workspacepkg.Projection
+	var stored *ws.Projection
 	if err := query.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": workspaceProjectionCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		return err
 	}
 	if err := query.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(projection.Source)}, func(row map[string]any) error {
-		value, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["migrationJSON"])
+		value, err := db.DecodeMigrationJSON[ws.Projection](row["migrationJSON"])
 		stored = &value
 		return err
 	}); err != nil {
@@ -271,7 +269,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			continue
 		}
 		if slices.Contains(names, workspaceProjectionCollection) && (entry.Collection == DraftRevisionsCollection || entry.Collection == RevisionsCollection) {
-			var source workspacepkg.Artifact
+			var source ws.Artifact
 			if entry.Collection == DraftRevisionsCollection {
 				history, err := db.Decode[explorer.DraftRevision](document.raw)
 				if err != nil {
@@ -288,7 +286,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			found := false
 			err := client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
 				map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(source)}, func(row map[string]any) error {
-					projection, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["migrationJSON"])
+					projection, err := db.DecodeMigrationJSON[ws.Projection](row["migrationJSON"])
 					if err != nil {
 						return err
 					}

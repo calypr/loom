@@ -169,7 +169,7 @@ func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, fmt.Errorf("digest resolved bundle: %w", err)
 	}
-	return e.compileResolvedBundle(ctx, bundle, bindings, digest)
+	return e.compileResolvedBundle(bundle, bindings, digest)
 }
 
 func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
@@ -200,10 +200,10 @@ func (e *Engine) resolveEntry(ctx context.Context, entry recipe.Entry, bindings 
 			return Resolved{}, fmt.Errorf("resolve recipe schema: %w", err)
 		}
 	}
-	return e.compileResolvedBundle(ctx, bundle, bindings, storedRecipeDigest)
+	return e.compileResolvedBundle(bundle, bindings, storedRecipeDigest)
 }
 
-func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
+func (e *Engine) compileResolvedBundle(bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}

@@ -41,16 +41,6 @@ type healthResult struct {
 	httpStatus              int
 }
 
-type errorEnvelope struct {
-	Error errorBody `json:"error"`
-}
-
-type errorBody struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id,omitempty"`
-}
-
 func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 	if cfg.Authenticator == nil {
 		cfg.Authenticator = authscope.BearerTokenAuthenticator{}

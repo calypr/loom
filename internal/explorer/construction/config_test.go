@@ -382,7 +382,7 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 	if err != nil {
 		t.Fatalf("semantic group choices on empty imported root: %v", err)
 	}
-	group, groupIncomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "MedicationAdministration", stage, semantic, incomplete, "", "")
+	group, groupIncomplete, err := service.constructionGroupFieldChoices(context.Background(), base, stage, semantic, incomplete, "", "")
 	if err != nil {
 		t.Fatalf("Group field choices on empty imported root: %v", err)
 	}

@@ -399,12 +399,8 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 			if err != nil {
 				t.Fatal(err)
 			}
-			digest, err := workspace.Digest()
-			if err != nil {
-				t.Fatal(err)
-			}
 			migration := migrateStoredWorkspaceFixture(t, draft, setup.Config.Capability.Catalog(snapshot, store.created.ExplorerID))
-			draft, digest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
+			draft, digest := migration.CanonicalJSON, migration.MigratedCanonicalDigest
 			store.created.DraftConfig, store.created.DraftDigest = draft, digest
 			originalConfig, originalVersion, originalDigest := string(draft), store.created.DraftVersion, digest
 			compileReceipt := setup.Config.CompileReceipt

@@ -114,9 +114,6 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	if identity.Project == "" || identity.Generation == "" {
 		return b.failed(identity, "INVALID_SNAPSHOT_IDENTITY", "project and generation are required"), fmt.Errorf("project and generation are required")
 	}
-	if b.Complete == false && !b.Truncated {
-
-	}
 	diags := []Diagnostic{}
 	if !b.Evidence.ResourcesAvailable || !b.Evidence.RelationshipsAvailable || !b.Evidence.FieldsAvailable || b.Compiler.Node == nil || b.Compiler.Edge == nil || b.Compiler.Candidate == nil {
 		return b.failedWith(identity, diags, "MISSING_CAPABILITY_DEPENDENCY", "resource, relationship, field, and compiler callbacks are required"), fmt.Errorf("capability dependencies are incomplete")

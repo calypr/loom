@@ -40,12 +40,9 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 				return nil, fmt.Errorf("group row value output %q collides with an existing group column", field.Name)
 			}
 			seen[field.Name] = true
-			cardinality := field.Expr.Type.Cardinality
-			nullable := cardinality.Optional()
+			cardinality, nullable := expression.OptionalOne, true
 			if selected.Policy == recipe.ConstructionRowValueAll {
 				cardinality, nullable = expression.Many, false
-			} else {
-				cardinality, nullable = expression.OptionalOne, true
 			}
 			columns = append(columns, CompiledOutputColumn{
 				ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),

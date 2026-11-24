@@ -584,7 +584,7 @@ func TestRelatedExpandContributorQuantifierMatchesSourceCardinality(t *testing.T
 		}},
 		Outputs: inputColumns,
 	}
-	if err := validateConstructionRelatedEligibility(eligibilityStep, input, inputColumns); err == nil || !strings.Contains(err.Error(), "one exact scalar field") {
+	if err := validateConstructionRelatedEligibility(eligibilityStep, inputColumns); err == nil || !strings.Contains(err.Error(), "one exact scalar field") {
 		t.Fatalf("related eligibility accepted repeated contributor source: %v", err)
 	}
 	scalarEligibility := *eligibilityStep.Operation.RelatedEligibility
@@ -594,7 +594,7 @@ func TestRelatedExpandContributorQuantifierMatchesSourceCardinality(t *testing.T
 	scalarEligibility.ContributorSource = &eligibilitySource
 	scalarEligibility.ContributorRule.Predicate = &ContributorPredicate{CandidateID: "observation-code", Operator: ContributorExists}
 	eligibilityStep.Operation.RelatedEligibility = &scalarEligibility
-	if err := validateConstructionRelatedEligibility(eligibilityStep, input, inputColumns); err != nil {
+	if err := validateConstructionRelatedEligibility(eligibilityStep, inputColumns); err != nil {
 		t.Fatalf("existing scalar eligibility contributor rejected: %v", err)
 	}
 

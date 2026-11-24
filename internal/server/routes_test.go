@@ -19,7 +19,7 @@ import (
 
 func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
 	want := map[string]bool{}
-	spec, err := loomapi.GetSwagger()
+	spec, err := loomapi.GetSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
 }
 
 func TestOpenAPIOperationsDeclareExplicitResponses(t *testing.T) {
-	spec, err := loomapi.GetSwagger()
+	spec, err := loomapi.GetSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestOpenAPIOperationsDeclareExplicitResponses(t *testing.T) {
 }
 
 func TestOpenAPIDocumentsOperationSpecificFailureStatuses(t *testing.T) {
-	spec, err := loomapi.GetSwagger()
+	spec, err := loomapi.GetSpec()
 	if err != nil {
 		t.Fatal(err)
 	}

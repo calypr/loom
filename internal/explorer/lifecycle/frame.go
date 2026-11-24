@@ -19,7 +19,6 @@ func (s *Service) prepareFrameSourceCommand(
 	project, explorerID string,
 	authorized ports.AuthorizedCapability,
 	workspace ws.Workspace,
-	catalogSnapshot ws.CatalogSnapshot,
 	command authoringv2.Command,
 	identity capability.ConstructionChoiceIdentity,
 ) ([]authoringv2.Command, error) {

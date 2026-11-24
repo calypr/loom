@@ -441,11 +441,10 @@ func ensureGroupRelatedOccurrenceAdapter(
 			Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
 		})
 	}
-	outputs := map[string]recipe.StageColumn{outputID: {ID: outputID, Name: outputID, Type: "string", Nullable: related.EmptyPolicy == recipe.ExpansionPreserveParent}}
 	syntheticStep := recipe.ConstructionStep{ID: fmt.Sprintf("group_related_%d", stepIndex)}
 	lowerer := constructionLowerer{plan: plan, policy: policy, usedVariables: usedVariables}
 	physical, _, _, err := lowerer.lowerConstructionRelatedExpand(
-		syntheticStep, relatedExpand, input, outputs, stage.InputRowVariable,
+		syntheticStep, relatedExpand, input, stage.InputRowVariable,
 		context.SourceIdentityColumn, context.RootResourceType, stepIndex,
 	)
 	if err != nil {

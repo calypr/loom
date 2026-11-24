@@ -739,7 +739,7 @@ func validatePhysicalGroupRelatedOccurrenceAdapter(group PhysicalStageGroup, sta
 	if adapter == nil || adapter.RouteID == "" || adapter.RelatedRecords.RouteID != adapter.RouteID ||
 		adapter.RelatedRecords.Multiplicity != "DISTINCT_TARGET_PER_INPUT" ||
 		len(adapter.RelatedRecords.Route) == 0 ||
-		adapter.RelatedRecords.RelatedRecords.Unique != true || adapter.RelatedRecords.RelatedRecords.Sort == nil ||
+		!adapter.RelatedRecords.RelatedRecords.Unique || adapter.RelatedRecords.RelatedRecords.Sort == nil ||
 		adapter.RelatedRecords.EmptyPolicy == "" {
 		return fmt.Errorf("missing or incomplete exact route adapter")
 	}

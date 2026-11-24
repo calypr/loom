@@ -27,9 +27,7 @@ import (
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	"github.com/calypr/loom/internal/projectid"
-	projectstore "github.com/calypr/loom/internal/store/arango"
 	store "github.com/calypr/loom/internal/store/arango"
-	storepkg "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/google/uuid"
 )
@@ -224,7 +222,7 @@ func TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstA
 	assertProjectConfigSuperseded(t, ctx, explorers, "revision-b-default")
 }
 
-func projectConfigPublicationDB(t *testing.T) (context.Context, *projectstore.Client, *Store, *datasetarango.Store) {
+func projectConfigPublicationDB(t *testing.T) (context.Context, *store.Client, *Store, *datasetarango.Store) {
 	t.Helper()
 	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
 	if endpoint == "" {
@@ -233,7 +231,7 @@ func projectConfigPublicationDB(t *testing.T) (context.Context, *projectstore.Cl
 	database := "loom_test_project_configs_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	client, err := projectstore.Open(ctx, endpoint, database)
+	client, err := store.Open(ctx, endpoint, database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,10 +254,10 @@ func projectConfigPublicationDB(t *testing.T) (context.Context, *projectstore.Cl
 			t.Errorf("private project config database cleanup status=%d", response.StatusCode)
 		}
 	})
-	collections := append([]projectstore.CollectionSpec{}, BootstrapSpec().Collections...)
+	collections := append([]store.CollectionSpec{}, BootstrapSpec().Collections...)
 	collections = append(collections, datasetarango.BootstrapSpec().Collections...)
 	collections = append(collections, publicationarango.BootstrapSpec().Collections...)
-	if err := client.Bootstrap(ctx, projectstore.BootstrapSpec{Collections: collections}); err != nil {
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
 	explorers, err := New(client)
@@ -281,7 +279,7 @@ func projectConfigTestBundle(name, translation string) recipe.Bundle {
 	}
 }
 
-func projectConfigPublishRequest(t *testing.T, ctx context.Context, client *projectstore.Client, generations *datasetarango.Store, project, generation, executionID string, bundle recipe.Bundle, commit string, expectedRevision int64, configs ...explorer.ProjectConfigPublication) explorer.ProjectConfigPublishRequest {
+func projectConfigPublishRequest(t *testing.T, ctx context.Context, client *store.Client, generations *datasetarango.Store, project, generation, executionID string, bundle recipe.Bundle, commit string, expectedRevision int64, configs ...explorer.ProjectConfigPublication) explorer.ProjectConfigPublishRequest {
 	t.Helper()
 	now := time.Now().UTC()
 	if err := projectConfigStageGeneration(ctx, generations, project, generation); err != nil {
@@ -318,7 +316,7 @@ func projectConfigStageGeneration(ctx context.Context, generations *datasetarang
 	return err
 }
 
-func projectConfigSeedExecution(t *testing.T, ctx context.Context, client *projectstore.Client, project, generation, id string, bundle recipe.Bundle, at time.Time) publicationdata.BundleExecution {
+func projectConfigSeedExecution(t *testing.T, ctx context.Context, client *store.Client, project, generation, id string, bundle recipe.Bundle, at time.Time) publicationdata.BundleExecution {
 	t.Helper()
 	digest, err := bundle.Digest()
 	if err != nil {
@@ -1110,11 +1108,11 @@ type revisionClient struct {
 	doc map[string]any
 }
 
-func (c *revisionClient) WithTransaction(ctx context.Context, _ storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
+func (c *revisionClient) WithTransaction(ctx context.Context, _ store.TransactionCollections, fn store.TransactionFunc) error {
 	return fn(ctx, c)
 }
 
-func (c *revisionClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *revisionClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	if strings.Contains(query, "RETURN {new: NEW, old: OLD}") {
 		incoming := binds["doc"].(map[string]any)
 		if c.doc == nil {
@@ -1159,11 +1157,11 @@ func TestInsertRevisionRejectsChangedImmutableContent(t *testing.T) {
 
 type activationClient struct{ calls []queryCall }
 
-func (c *activationClient) WithTransaction(ctx context.Context, _ storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
+func (c *activationClient) WithTransaction(ctx context.Context, _ store.TransactionCollections, fn store.TransactionFunc) error {
 	return fn(ctx, c)
 }
 
-func (c *activationClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *activationClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	if strings.Contains(query, "RETURN {manifest:") {
 		return visit(compositeActivationRow())

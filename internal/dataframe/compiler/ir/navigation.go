@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-const genericPhysicalExecutionLimitBind = "limit"
-
 func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTraversal) error {
 	if traversal.Direction != PhysicalInbound && traversal.Direction != PhysicalOutbound {
 		return fmt.Errorf("generic navigation traversal direction must be INBOUND or OUTBOUND, got %q", traversal.Direction)

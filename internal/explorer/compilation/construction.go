@@ -603,10 +603,7 @@ func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.Cons
 		if authored.Combine == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("combine payload is required")
 		}
-		mapped, err := recipeConstructionCombine(authored.Combine)
-		if err != nil {
-			return recipe.ConstructionOperation{}, err
-		}
+		mapped := recipeConstructionCombine(authored.Combine)
 		operation.Combine = mapped
 
 	default:
@@ -674,7 +671,7 @@ func recipeConstructionGroup(group *ws.ConstructionGroup) (*recipe.ConstructionG
 	return mapped, nil
 }
 
-func recipeConstructionCombine(combine *ws.ConstructionCombine) (*recipe.ConstructionCombine, error) {
+func recipeConstructionCombine(combine *ws.ConstructionCombine) *recipe.ConstructionCombine {
 	mapped := &recipe.ConstructionCombine{
 		Kind:             recipe.ConstructionCombineKind(combine.Kind),
 		Keys:             make([]recipe.ConstructionCombineKey, 0, len(combine.Keys)),
@@ -693,7 +690,7 @@ func recipeConstructionCombine(combine *ws.ConstructionCombine) (*recipe.Constru
 			OutputColumnID: projection.OutputColumnID, InputIndex: projection.InputIndex, InputColumnID: projection.InputColumnID,
 		})
 	}
-	return mapped, nil
+	return mapped
 }
 
 func recipeConstructionGroupFieldSource(

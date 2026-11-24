@@ -32,10 +32,6 @@ func ConstructionChoiceSupports(choice capability.ConstructionChoice, form capab
 	return constructionChoiceSupports(choice, form)
 }
 
-func ConstructionDocumentIndex(workspace ws.Workspace, outputID string) int {
-	return constructionDocumentIndex(workspace, outputID)
-}
-
 func ProveConstructionCandidate(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType string, candidate capability.Candidate, route []capability.ConstructionRouteStep) (capability.Candidate, error) {
 	return proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
 }

@@ -471,10 +471,12 @@ func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(
 	carrier := deriveSourceLiteralOnlyStep(expandTestCarrier, append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))
 	carrier.Operation.Derive.OutputColumnID = "derived_total"
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier}}
-	unchanged, err := service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(construction.ConstructionProposalRequest{
+	unchanged, err := service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		ChangedStepID: expandTestCarrier, CandidateConstruction: candidate,
 		ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}},
-	}), candidate)
+	}.RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("expand channel for a non-expand change: %v", err)
 	}
@@ -484,9 +486,11 @@ func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(
 
 	step := expandTestExpandStep(expandTestInput, expandTestCarrier)
 	withExpand := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, step}}
-	untouched, err := service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(construction.ConstructionProposalRequest{
+	untouched, err := service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		ChangedStepID: expandTestStep, CandidateConstruction: withExpand,
-	}), withExpand)
+	}.RowSourceRequest(),
+
+		withExpand)
 	if err != nil {
 		t.Fatalf("nil expand channel: %v", err)
 	}
@@ -501,10 +505,12 @@ func TestConstructionExpandSourceCandidatePrepRequiresExpandPayload(t *testing.T
 	step.Operation.Expand = nil
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}}
 	_, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(),
-		expandTestPatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion}), rowsourceProposalRequestForTest(construction.ConstructionProposalRequest{
+		expandTestPatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion}), construction.ConstructionProposalRequest{
 			ChangedStepID: expandTestStep, CandidateConstruction: candidate,
 			ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}},
-		}), candidate)
+		}.RowSourceRequest(),
+
+		candidate)
 	if err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_REQUIRES_EXPAND" {
 		t.Fatalf("nil expand payload error = %v, want EXPAND_SOURCE_REQUIRES_EXPAND", err)
 	}
@@ -525,10 +531,12 @@ func TestConstructionExpandSourceCandidatePrepClearsChannelAndSignedPayload(t *t
 		ID: expandTestInput, Name: ws.ConstructionSourceProjectionName(expandTestInput), Label: "Photo attachment", Type: "string",
 	})
 	cleared, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(),
-		expandTestPatientBase(harness.snapshot, saved), rowsourceProposalRequestForTest(construction.ConstructionProposalRequest{
+		expandTestPatientBase(harness.snapshot, saved), construction.ConstructionProposalRequest{
 			ChangedStepID: expandTestStep, CandidateConstruction: saved,
 			ExpandSources: []rowsource.ConstructionExpandSourceSelection{},
-		}), saved)
+		}.RowSourceRequest(),
+
+		saved)
 	if err != nil {
 		t.Fatalf("clear the expand source channel: %v", err)
 	}
@@ -558,13 +566,13 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 			{ChoiceID: "row-choice-b", ColumnID: "extra_column"},
 		}}
 	}
-	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(twoSelections()), twoSelections().CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, twoSelections().RowSourceRequest(), twoSelections().CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
 		t.Fatalf("two selections error = %v, want EXPAND_SOURCE_COLUMN_MISMATCH", err)
 	}
 
 	wrongColumn := twoSelections()
 	wrongColumn.ExpandSources = []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: "not_the_input"}}
-	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(wrongColumn), wrongColumn.CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, wrongColumn.RowSourceRequest(), wrongColumn.CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
 		t.Fatalf("foreign columnId error = %v, want EXPAND_SOURCE_COLUMN_MISMATCH", err)
 	}
 
@@ -573,7 +581,7 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 	orphanCandidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{orphan}}
 	orphanRequest := construction.ConstructionProposalRequest{ChangedStepID: expandTestStep, CandidateConstruction: orphanCandidate,
 		ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}}}
-	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(orphanRequest), orphanCandidate); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_STAGE_UNAVAILABLE" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, orphanRequest.RowSourceRequest(), orphanCandidate); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_STAGE_UNAVAILABLE" {
 		t.Fatalf("unresolvable input stage error = %v, want EXPAND_SOURCE_STAGE_UNAVAILABLE", err)
 	}
 
@@ -582,7 +590,7 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 	carrierless := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{expandTestExpandStep(expandTestInput, expandTestCarrier)}}
 	carrierlessRequest := construction.ConstructionProposalRequest{ChangedStepID: expandTestStep, CandidateConstruction: carrierless,
 		ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}}}
-	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(carrierlessRequest), carrierless); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, carrierlessRequest.RowSourceRequest(), carrierless); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("unbound stage error = %v, want STALE_STAGE_REFERENCE", err)
 	}
 }
@@ -625,10 +633,12 @@ func TestProposeConstructionExpandSourceRefusesClientAuthoredLaneFacts(t *testin
 		SourceProjections: []ws.ConstructionSourceProjection{clientProjection},
 	}
 
-	out, err := expandTestService(t, nil).rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, rowsourceProposalRequestForTest(construction.ConstructionProposalRequest{
+	out, err := expandTestService(t, nil).rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: "explorer-a", OutputID: "procedures",
 		ChangedStepID: expandTestStep, CandidateConstruction: candidate,
-	}), candidate)
+	}.RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		return
 	}

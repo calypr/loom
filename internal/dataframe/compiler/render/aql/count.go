@@ -9,8 +9,8 @@ import (
 )
 
 func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (RenderedPhysicalPlan, bool, error) {
-	if stage, sourceProjection, rootVariable, ok := terminalRelatedEligibilityCategoryScanOnly(plan, sequence, options); ok {
-		return renderRelatedEligibilityCategoryScan(plan, sequence, options, stage, sourceProjection, rootVariable)
+	if stage, sourceProjection, _, ok := terminalRelatedEligibilityCategoryScanOnly(plan, sequence, options); ok {
+		return renderRelatedEligibilityCategoryScan(plan, options, stage, sourceProjection)
 	}
 	if !terminalRelatedEligibilityCountRowsOnly(plan, sequence, options) {
 		return RenderedPhysicalPlan{}, false, nil
@@ -288,7 +288,7 @@ func stageOutputProjection(projections []ir.PhysicalProjection, name string) (ir
 	return ir.PhysicalProjection{}, false
 }
 
-func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions, stage ir.PhysicalConstructionStage, sourceProjection ir.PhysicalProjection, rootVariable string) (RenderedPhysicalPlan, bool, error) {
+func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, options physicalRenderOptions, stage ir.PhysicalConstructionStage, sourceProjection ir.PhysicalProjection) (RenderedPhysicalPlan, bool, error) {
 	reverse, ok, err := buildRelatedEligibilityReverseFrontier(plan, stage, "related_category_", "__loom_related_category_terminal_collection")
 	if err != nil || !ok {
 		return RenderedPhysicalPlan{}, false, err
@@ -466,7 +466,7 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 
 func hasStageIdentity(columns []ir.PhysicalStageColumn, name string) bool {
 	for _, column := range columns {
-		if column.Name == name {
+		if column.Name == "_key" {
 			return column.Internal && column.Identity && column.Kind == "string" && column.Cardinality == "required_one"
 		}
 	}

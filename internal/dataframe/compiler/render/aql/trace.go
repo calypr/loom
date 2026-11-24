@@ -259,10 +259,7 @@ func (r *physicalPlanRenderer) renderReshapeTraceContributors(lineage ir.Physica
 		}
 		switch source.Kind {
 		case ir.PhysicalCellTracePivotGroupKey:
-			query, queryErr := r.renderPivotGroupKeyTraceQuery(source)
-			if queryErr != nil {
-				return "", "", false, "", queryErr
-			}
+			query := r.renderPivotGroupKeyTraceQuery(source)
 			queries = append(queries, query)
 		case ir.PhysicalCellTracePivotCell:
 			query, queryErr := r.renderPivotCellTraceQuery(source, terminal)
@@ -294,7 +291,7 @@ contributorsReady:
 	return page, status, false, omission, nil
 }
 
-func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalCellTraceReshapeSource) (string, error) {
+func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalCellTraceReshapeSource) string {
 	item := r.newInternalVariable("trace_pivot_group_key_source")
 	rows := source.GroupRowsVariable
 	if source.OneInputRowPerGroup {
@@ -308,7 +305,7 @@ func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalC
 	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
 	value := fmt.Sprintf("%s[@%s]", item, columnBind)
 	document := fmt.Sprintf("%s[@%s]", item, documentBind)
-	return fmt.Sprintf("(FOR %s IN %s FILTER %s[@%s] == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, rows, item, presenceBind, document, document, value), nil
+	return fmt.Sprintf("(FOR %s IN %s FILTER %s[@%s] == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, rows, item, presenceBind, document, document, value)
 }
 
 func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellTraceReshapeSource, terminal ir.PhysicalCellTraceReturn) (string, error) {

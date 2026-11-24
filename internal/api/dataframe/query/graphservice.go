@@ -167,18 +167,18 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	}
 	bundle, err := RecipeBundleFromInput(prepared)
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation,
 		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode,
 		PreviewLimit: normalized.Limit + 1}
 	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 	runtimeResult, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {
@@ -212,12 +212,12 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	}
 	bundle, err := RecipeBundleFromInput(prepared)
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation, AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode, PreviewLimit: normalized.Limit + 1}
 	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 
 	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())

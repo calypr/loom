@@ -678,8 +678,8 @@ func routePathToOccurrence(root ws.RouteNode, occurrenceID string) ([]ws.RouteNo
 	return support.RoutePathToOccurrence(root, occurrenceID)
 }
 
-func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
-	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, expectedNodeID)
+func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID string) (capability.RowChoiceOccurrence, error) {
+	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, "")
 }
 
 func validateResolvedRowChoice(route ws.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {

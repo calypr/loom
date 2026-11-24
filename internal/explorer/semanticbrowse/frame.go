@@ -301,10 +301,6 @@ func (browse *Service) frameSourceOptionForRoute(
 	}, true
 }
 
-func invalidFrameSource(message string) error {
-	return support.Unprocessable("frame-source", "INVALID_FRAME_SOURCE", message, nil)
-}
-
 func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []FrameSourceFamilyCandidate {
 	byFamily := make(map[string]FrameSourceFamilyCandidate)
 	for _, entry := range entries {
@@ -453,11 +449,4 @@ func FrameSourceDescription(family capability.SemanticFrameFamily, route []capab
 
 func FrameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []FrameSourceFamilyCandidate {
 	return frameSourceFamilies(snapshot, entries)
-}
-
-func SupportedFrameForms(options []capability.ConstructionChoiceOption) []FrameSourceForm {
-	return supportedFrameForms(options)
-}
-func PreservingFrameDefault(forms []FrameSourceForm) (capability.ConstructionChoiceForm, bool) {
-	return preservingFrameDefault(forms)
 }

@@ -1,15 +1,11 @@
 package workspace
 
 import (
-	"encoding/json"
-
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func StrictDecode(raw []byte, target any) error { return strictDecode(raw, target) }
-
-func CanonicalTransformPath(value string) string { return canonicalTransformPath(value) }
 
 func CloneRowDefinition(rows RowDefinition) (RowDefinition, error) { return cloneRowDefinition(rows) }
 
@@ -63,10 +59,6 @@ func RouteSubtreeUsesCatalogEdge(route RouteNode, nodeID, edgeID string, catalog
 
 func ResolveCatalogRouteEdge(catalog CatalogSnapshot, parentNodeID string, parent, child RouteNode) (CatalogEdge, error) {
 	return resolveCatalogRouteEdge(catalog, parentNodeID, parent, child)
-}
-
-func MarshalStrict(value any) (json.RawMessage, error) {
-	return json.Marshal(value)
 }
 
 type StoredTableShape = storedTableShape

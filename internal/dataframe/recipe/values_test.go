@@ -265,5 +265,3 @@ func validateArchiveReshapeBundle(reshape archivedTableReshape) error {
 		}},
 	}).ValidateArchive()
 }
-
-func int64Pointer(value int64) *int64 { return &value }

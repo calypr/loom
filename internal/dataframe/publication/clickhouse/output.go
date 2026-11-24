@@ -61,7 +61,7 @@ func validateBundleColumn(column publication.PhysicalColumn) error {
 
 func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(value) }
 
-func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error) {
+func toColumns(columns []publication.LogicalColumn) []clickhouse.Column {
 	result := make([]clickhouse.Column, 0, len(columns))
 	for _, column := range columns {
 		kind := strings.ToLower(strings.TrimSpace(column.Kind))
@@ -98,7 +98,7 @@ func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error)
 		}
 		result = append(result, clickhouse.Column{Name: column.Name, Type: columnType, LogicalType: logicalType})
 	}
-	return result, nil
+	return result
 }
 
 func allOutputsQueryable(outputs []publication.BundleOutputRecord) bool {

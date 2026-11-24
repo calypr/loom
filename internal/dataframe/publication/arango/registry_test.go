@@ -20,7 +20,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataset"
 	datasetstore "github.com/calypr/loom/internal/dataset/arango"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	store "github.com/calypr/loom/internal/store/arango"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/calypr/loom/internal/testkit/arangotest"
@@ -54,7 +53,6 @@ type rrdHarness struct {
 	dangle            publication.BundleExecution
 	healthyTable      string
 	dangleTable       string
-	midSeamList       []published.Materialization
 	midSeamErrChain   string
 	midSeamHealthyIDs []string
 	stageErr          error
@@ -543,14 +541,14 @@ func (c publishCaptureClient) InsertBatchRaw(context.Context, string, []json.Raw
 	return nil
 }
 
-func (c publishCaptureClient) WithTransaction(ctx context.Context, collections arangostore.TransactionCollections, fn arangostore.TransactionFunc) error {
+func (c publishCaptureClient) WithTransaction(ctx context.Context, collections store.TransactionCollections, fn store.TransactionFunc) error {
 	if len(collections.Write) != 3 || collections.Write[0] != BundleExecutionsCollection || collections.Write[1] != BundlePointersCollection || collections.Write[2] != BundleLeasesCollection {
 		c.testing.Fatalf("publish transaction must declare executions+pointers+leases as write collections, got %#v", collections)
 	}
 	return fn(ctx, c)
 }
 
-func (c publishCaptureClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+func (c publishCaptureClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit store.RowVisitor) error {
 	for _, fragment := range []string{"LET lease = DOCUMENT(@@leases, @leaseKey)", "lease.ownerId == @owner", "lease.expiresAt >= @now"} {
 		if !strings.Contains(query, fragment) {
 			c.testing.Fatalf("publication query lacks lease guard %q", fragment)
@@ -597,7 +595,7 @@ func (c saveExecutionClient) InsertBatchRaw(context.Context, string, []json.RawM
 	return nil
 }
 
-func (c saveExecutionClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+func (c saveExecutionClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit store.RowVisitor) error {
 	for _, fragment := range []string{"LET lease = DOCUMENT(@@leases, @leaseKey)", "lease.ownerId == @owner", "lease.expiresAt >= @now", "UPSERT {_key: @executionKey}"} {
 		if !strings.Contains(query, fragment) {
 			return errors.New("fenced execution query is missing " + fragment)
@@ -639,7 +637,7 @@ func (c *legacyExecutionClient) InsertBatchRaw(context.Context, string, []json.R
 	return nil
 }
 
-func (c *legacyExecutionClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+func (c *legacyExecutionClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit store.RowVisitor) error {
 	if strings.Contains(query, "UPSERT {_key: @executionKey}") {
 		if bindVars["owner"] != "publisher-a" {
 			return errors.New("legacy recovery did not use the active lease owner")
@@ -689,7 +687,7 @@ func (c *executionPageClient) InsertBatchRaw(context.Context, string, []json.Raw
 	return nil
 }
 
-func (c *executionPageClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+func (c *executionPageClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit store.RowVisitor) error {
 	if !strings.Contains(query, "SORT doc.updatedAt ASC, doc._key ASC") || !strings.Contains(query, "LIMIT @limit") {
 		return errors.New("execution page query is not stably ordered and bounded")
 	}
@@ -766,7 +764,7 @@ func (c *executionReadPinConflictClient) InsertBatchRaw(context.Context, string,
 	return nil
 }
 
-func (c *executionReadPinConflictClient) QueryRows(ctx context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+func (c *executionReadPinConflictClient) QueryRows(ctx context.Context, query string, _ int, bindVars map[string]interface{}, visit store.RowVisitor) error {
 	for _, fragment := range []string{"LET state = DOCUMENT(@@collection, @stateKey)", "FILTER cleanup == null OR cleanup.expiresAt < @now", "UPSERT {_key: @stateKey}", "RETURN {claimed: true}"} {
 		if !strings.Contains(query, fragment) {
 			return errors.New("execution read pin query lost full state arbitration: " + fragment)

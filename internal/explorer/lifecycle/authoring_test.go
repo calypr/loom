@@ -796,7 +796,7 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 	store := setup.Store
 	snapshot := setup.Snapshot
 	catalog := setup.Catalog
-	snapshot, catalog = addParallelObservationRoute(setup.Config, snapshot, catalog)
+	snapshot, _ = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	service := newTestServiceFromSetup(t, setup)
 	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
@@ -903,7 +903,7 @@ func TestConstructionChoiceRejectsAmbiguousLegacyPrefix(t *testing.T) {
 	store := setup.Store
 	snapshot := setup.Snapshot
 	catalog := setup.Catalog
-	snapshot, catalog = addParallelObservationRoute(setup.Config, snapshot, catalog)
+	snapshot, _ = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	setSavedConstructionRoute(t, store, ws.RouteNode{
 		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient",
 		Children: []ws.RouteNode{{OccurrenceID: "legacy-observation", ResourceType: "Observation", Relationship: "subject_Patient"}},

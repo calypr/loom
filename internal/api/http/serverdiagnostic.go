@@ -15,18 +15,6 @@ import (
 	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 )
 
-func diagnosticErrorAttrs(err error) []any {
-	if err == nil {
-		return []any{"success", true}
-	}
-	attrs := []any{"success", false, "error_type", fmt.Sprintf("%T", err)}
-	if code := diagnosticErrorCode(err); code != "" {
-		attrs = append(attrs, "error_code", code)
-	}
-	attrs = append(attrs, "cause", diagnosticErrorCause(err))
-	return attrs
-}
-
 func diagnosticErrorCause(err error) string {
 	return httpctx.CapCause(httpctx.RedactCause(diagnosticErrorCauseValue(err)))
 }

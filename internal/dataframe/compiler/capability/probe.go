@@ -212,7 +212,7 @@ func ProbeProjection(ctx context.Context, request CandidateRequest, options ...O
 	if mode == "" {
 		mode = defaultProjection(prepared.repeated)
 	}
-	_, rendered, err := compileCandidate(ctx, prepared, mode, nil, nil, optionsFor(options))
+	rendered, err := compileCandidate(ctx, prepared, mode, nil, nil, optionsFor(options))
 	if err != nil {
 		return Result{}, err
 	}
@@ -238,7 +238,7 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	metadata := CandidateCapability{ResourceType: prepared.resourceType, FieldRef: prepared.fieldRef, Selector: prepared.selector.CanonicalPath(), FieldKind: fieldKind, Primitive: prepared.primitive, Cardinality: prepared.cardinality, Repeated: prepared.repeated}
 	projectionModes := []spec.ProjectionMode{spec.ProjectionScalar, spec.ProjectionFirst, spec.ProjectionArray, spec.ProjectionDistinctArray}
 	for _, mode := range projectionModes {
-		if _, _, err := compileCandidate(ctx, prepared, mode, nil, nil, optionsValue); err == nil {
+		if _, err := compileCandidate(ctx, prepared, mode, nil, nil, optionsValue); err == nil {
 			metadata.ProjectionModes = append(metadata.ProjectionModes, mode)
 		}
 	}
@@ -250,12 +250,12 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 		if !ok {
 			continue
 		}
-		if _, _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), &filter, nil, optionsValue); err == nil {
+		if _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), &filter, nil, optionsValue); err == nil {
 			metadata.FilterOperators = append(metadata.FilterOperators, operator)
 		}
 	}
 	for _, operation := range []recipe.AggregateOperation{recipe.AggregateCount, recipe.AggregateCountDistinct, recipe.AggregateExists, recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax} {
-		if _, _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, &Chart{Operation: operation}, optionsValue); err == nil {
+		if _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, &Chart{Operation: operation}, optionsValue); err == nil {
 			metadata.ChartOperations = append(metadata.ChartOperations, operation)
 		}
 	}
@@ -269,7 +269,7 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 		if operation == recipe.AggregateContainsAll {
 			chart.RequiredValues = []string{"__loom_probe_value__"}
 		}
-		if _, _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, chart, optionsValue); err == nil {
+		if _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, chart, optionsValue); err == nil {
 			metadata.ValueAggregateOperations = append(metadata.ValueAggregateOperations, operation)
 		}
 	}
@@ -286,7 +286,7 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 		filterCopy.FieldKind = filterKindForPrimitive(prepared.primitive)
 		filter = &filterCopy
 	}
-	_, rendered, err := compileCandidate(ctx, prepared, mode, filter, chart, optionsValue)
+	rendered, err := compileCandidate(ctx, prepared, mode, filter, chart, optionsValue)
 	if err != nil {
 		return Result{}, err
 	}
@@ -418,12 +418,12 @@ func routedRoot(rootResourceType, resourceType string, route []Traversal) (*reci
 	return &root, current, canonicalResource, nil
 }
 
-func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec.ProjectionMode, filter *Filter, chart *Chart, options Options) (ir.PhysicalPlan, Rendered, error) {
+func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec.ProjectionMode, filter *Filter, chart *Chart, options Options) (Rendered, error) {
 	if err := contextErr(ctx); err != nil {
-		return ir.PhysicalPlan{}, Rendered{}, err
+		return Rendered{}, err
 	}
 	if err := validateCandidateProjection(prepared, mode); err != nil {
-		return ir.PhysicalPlan{}, Rendered{}, err
+		return Rendered{}, err
 	}
 	fieldType := expression.Type{Kind: expression.KindObject, Cardinality: expression.OptionalOne}
 	if prepared.primitive != fhirschema.PrimitiveUnknown {
@@ -446,20 +446,20 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 	if filter != nil {
 		typed, err := typedFilter(prepared, *filter)
 		if err != nil {
-			return ir.PhysicalPlan{}, Rendered{}, err
+			return Rendered{}, err
 		}
 		target.Filters = []spec.TypedFilter{typed}
 	}
 	if chart != nil {
 		if chart.Operation == "" {
-			return ir.PhysicalPlan{}, Rendered{}, fmt.Errorf("chart operation is required")
+			return Rendered{}, fmt.Errorf("chart operation is required")
 		}
 		selector := prepared.selector
 		target.Aggregates = []recipeplan.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector, RequiredValues: append([]string(nil), chart.RequiredValues...)}}
 	}
 	output := recipeplan.OutputPlan{RootResourceType: root.ResourceType, Root: root}
-	physical, rendered, err := compile(ctx, prepared.scope, output, options)
-	return physical, rendered, err
+	_, rendered, err := compile(ctx, prepared.scope, output, options)
+	return rendered, err
 }
 
 func validateCandidateProjection(prepared preparedCandidate, mode spec.ProjectionMode) error {

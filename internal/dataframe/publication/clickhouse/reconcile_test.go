@@ -13,20 +13,16 @@ import (
 	"time"
 
 	publication "github.com/calypr/loom/internal/dataframe/publication"
-	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	pubpublished "github.com/calypr/loom/internal/dataframe/published"
+	publishedpkg "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataset"
 	storearango "github.com/calypr/loom/internal/store/arango"
-	"github.com/calypr/loom/internal/store/clickhouse"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 const (
 	artifactExportHorizon = 24 * time.Hour
-
-	productionFirstTickBound = 30 * time.Second
 )
 
 type ecwPinCall struct {
@@ -123,13 +119,15 @@ type ecwClickHouse struct {
 	dropped []string
 }
 
-func (c *ecwClickHouse) CreateTable(context.Context, string, []clickhouse.Column) error { return nil }
-
-func (c *ecwClickHouse) InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error {
+func (c *ecwClickHouse) CreateTable(context.Context, string, []storeclickhouse.Column) error {
 	return nil
 }
 
-func (c *ecwClickHouse) VerifyOutput(context.Context, string, []clickhouse.Column, int64) error {
+func (c *ecwClickHouse) InsertRows(context.Context, string, []storeclickhouse.Column, []map[string]any) error {
+	return nil
+}
+
+func (c *ecwClickHouse) VerifyOutput(context.Context, string, []storeclickhouse.Column, int64) error {
 	return nil
 }
 
@@ -176,8 +174,8 @@ func ecwSetup(t *testing.T) (*storearango.Client, *pubarango.Registry, context.C
 	return client, registry, ctx, database.Name[len("loom_verify_ecw_"):]
 }
 
-func ecwExecution(tag, suffix, physicalTable string, updatedAt time.Time, published bool) pubpublication.BundleExecution {
-	identity := pubpublication.BundleIdentity{
+func ecwExecution(tag, suffix, physicalTable string, updatedAt time.Time, published bool) publication.BundleExecution {
+	identity := publication.BundleIdentity{
 		Name: "ecw-" + tag, TranslationVersion: "1", OutputName: "main",
 		Project: "loom_verify", DatasetGeneration: "ecw-" + tag + "-" + suffix,
 		RecipeDigest: "r-" + tag + "-" + suffix, SchemaDigest: "s-" + tag + "-" + suffix,
@@ -185,24 +183,24 @@ func ecwExecution(tag, suffix, physicalTable string, updatedAt time.Time, publis
 		ScopeDigest: "sc-" + tag + "-" + suffix, EngineVersion: "1",
 	}
 	verifiedAt := updatedAt.Add(-time.Hour)
-	state := pubpublication.BundleFailed
+	state := publication.BundleFailed
 	if published {
-		state = pubpublication.BundlePublished
+		state = publication.BundlePublished
 	}
-	return pubpublication.BundleExecution{
+	return publication.BundleExecution{
 		ID: "ecw-" + tag + "-" + suffix, Key: identity.Key(), BundleIdentity: identity,
 		State: state,
-		Outputs: []pubpublication.BundleOutputRecord{{
+		Outputs: []publication.BundleOutputRecord{{
 			Name: "main", PhysicalTable: physicalTable, RowCount: 5,
-			State: pubpublication.BundlePublished, VerifiedAt: &verifiedAt,
-			Columns: []pubpublication.PhysicalColumn{{Name: "value", ClickHouse: "Int64"}},
+			State: publication.BundlePublished, VerifiedAt: &verifiedAt,
+			Columns: []publication.PhysicalColumn{{Name: "value", ClickHouse: "Int64"}},
 		}},
 		CreatedAt: updatedAt,
 		UpdatedAt: updatedAt,
 	}
 }
 
-func ecwUpsertWithLease(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution, leaseOwner string) {
+func ecwUpsertWithLease(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec publication.BundleExecution, leaseOwner string) {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, exec.Key, leaseOwner, time.Now().UTC().Add(2*time.Minute))
 	if err != nil || !acquired {
@@ -269,14 +267,14 @@ func ecwHasOwner(owners []string, owner string) bool {
 	return false
 }
 
-func ecwStartExactExport(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution, readerID string, horizon, renewalInterval time.Duration) (*ecwCatalog, *ecwQueryer, context.CancelFunc, <-chan error, time.Time) {
+func ecwStartExactExport(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec publication.BundleExecution, readerID string, horizon, renewalInterval time.Duration) (*ecwCatalog, *ecwQueryer, context.CancelFunc, <-chan error, time.Time) {
 	t.Helper()
 	catalog := &ecwCatalog{Registry: registry}
 	queryer := &ecwQueryer{started: make(chan struct{}), hold: make(chan struct{})}
-	reader := &pubpublished.Reader{Catalog: catalog, ClickHouse: queryer}
+	reader := &publishedpkg.Reader{Catalog: catalog, ClickHouse: queryer}
 	pinExpiresAt := time.Now().UTC().Add(horizon)
 
-	request := pubpublished.ExactExportRequest{
+	request := publishedpkg.ExactExportRequest{
 		ExecutionID:        exec.ID,
 		OutputID:           "main",
 		Project:            exec.Project,
@@ -355,7 +353,7 @@ func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.
 	}
 
 	staleX := x
-	staleX.State = pubpublication.BundleFailed
+	staleX.State = publication.BundleFailed
 	staleX.UpdatedAt = base.Add(-70 * time.Minute)
 	ecwUpsertWithLease(t, registry, ctx, staleX, "ecw-failed")
 	y := ecwExecution("Y", suffix, yTable, base.Add(-40*time.Minute), false)
@@ -468,7 +466,7 @@ func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 	}
 
 	staleX := x
-	staleX.State = pubpublication.BundleFailed
+	staleX.State = publication.BundleFailed
 	staleX.UpdatedAt = base.Add(-70 * time.Minute)
 	ecwUpsertWithLease(t, registry, ctx, staleX, "ecw-failed")
 	y := ecwExecution("Y", suffix, yTable, base.Add(-40*time.Minute), false)
@@ -498,14 +496,11 @@ func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 }
 
 func TestToColumnsStoresLogicalObjectsAsLosslessJSONText(t *testing.T) {
-	got, err := toColumns([]publication.LogicalColumn{
+	got := toColumns([]publication.LogicalColumn{
 		{Name: "profile", Kind: "object", Nullable: true},
 		{Name: "owners", Kind: "object", Repeated: true},
 		{Name: "label", Kind: "string"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	want := []storeclickhouse.Column{
 		{Name: "profile", Type: "Nullable(String)", LogicalType: "object"},
 		{Name: "owners", Type: "Array(Nullable(String))", LogicalType: "object"},
@@ -968,7 +963,6 @@ type tocFakeCatalog struct {
 	states     map[string]*tocExecState
 	race       func()
 	raceRan    bool
-	dropped    []string
 	savedFence []string
 }
 
@@ -1236,15 +1230,15 @@ func (c *tocFakeClickHouse) DropTable(ctx context.Context, table string) error {
 	return nil
 }
 
-func (c *tocFakeClickHouse) CreateTable(context.Context, string, []clickhouse.Column) error {
+func (c *tocFakeClickHouse) CreateTable(context.Context, string, []storeclickhouse.Column) error {
 	return nil
 }
 
-func (c *tocFakeClickHouse) InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error {
+func (c *tocFakeClickHouse) InsertRows(context.Context, string, []storeclickhouse.Column, []map[string]any) error {
 	return nil
 }
 
-func (c *tocFakeClickHouse) VerifyOutput(context.Context, string, []clickhouse.Column, int64) error {
+func (c *tocFakeClickHouse) VerifyOutput(context.Context, string, []storeclickhouse.Column, int64) error {
 	return nil
 }
 

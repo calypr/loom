@@ -756,7 +756,7 @@ func TestCompileParallelSemanticRoutesUsesPinnedCatalogEdges(t *testing.T) {
 			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
-	occurrences, _, err := resolveSemanticRoute(document, snapshot)
+	occurrences, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}

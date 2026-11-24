@@ -169,24 +169,6 @@ func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceTy
 	return route, nil
 }
 
-func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapability, root, terminal string, route []capability.ConstructionRouteStep) bool {
-	compilerRoute := make([]facade.Traversal, 0, len(route))
-	for _, step := range route {
-		match := spec.TraversalMatchOptional
-		if step.MatchMode == string(spec.TraversalMatchRequired) {
-			match = spec.TraversalMatchRequired
-		}
-		traversal := facade.Traversal{FromResourceType: step.FromResourceType, EdgeLabel: step.Relationship, ToResourceType: step.ToResourceType, MatchMode: match}
-		proof, err := facade.ProbeTraversal(ctx, facade.TraversalRequest{Scope: constructionCompilerScope(authorized), RootResourceType: step.FromResourceType, Traversal: traversal})
-		if err != nil || proof.Traversal == nil || string(proof.Traversal.StorageDirection) != step.StorageDirection {
-			return false
-		}
-		compilerRoute = append(compilerRoute, traversal)
-	}
-	_, err := facade.ProbeCandidate(ctx, facade.CandidateRequest{Scope: constructionCompilerScope(authorized), RootResourceType: root, ResourceType: terminal, FieldRef: terminal + ".id", Selector: "id", Route: compilerRoute})
-	return err == nil
-}
-
 var _ = authscope.ReadScopeUnrestricted
 var _ = projectid.Canonical
 var _ = semanticauthoring.SemanticReadinessUnsupported

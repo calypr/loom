@@ -25,7 +25,6 @@ type evidenceClient struct {
 	queries          []string
 	vars             []map[string]any
 	rows             map[string][]map[string]any
-	rowsByCollection map[string][]map[string]any
 	collections      map[string]bool
 	collectionChecks []string
 	collectionErr    error

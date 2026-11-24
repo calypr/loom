@@ -28,7 +28,7 @@ func BuildRecipePlan(bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Rec
 	}
 	plan := RecipePlan{Version: 1, RecipeDigest: digest, TranslationVersion: bundle.TranslationVersion, Bindings: cloneBindings(bindings), Outputs: make([]OutputPlan, 0, len(bundle.Outputs))}
 	for index, output := range bundle.Outputs {
-		compiled, err := buildRecipeOutput(output, bindings)
+		compiled, err := buildRecipeOutput(output)
 		if err != nil {
 			return RecipePlan{}, fmt.Errorf("outputs[%d] %s: %w", index, output.Name, err)
 		}

@@ -29,7 +29,7 @@ func (p *RepositorySourceLoader) Begin(ctx context.Context, project, operationID
 			return SourceLoadStatus{}, err
 		}
 	}
-	canonical, manifest, _, err := canonicalizeSourceLoadPlan(plan)
+	canonical, _, _, err := canonicalizeSourceLoadPlan(plan)
 	if err != nil {
 		return SourceLoadStatus{}, &SourcePublishConflictError{Reason: "source-load plan is invalid"}
 	}
@@ -59,7 +59,7 @@ func (p *RepositorySourceLoader) Begin(ctx context.Context, project, operationID
 		if existing.Project != project || existing.OperationID != operationID || existing.PlanHash != planHash {
 			return SourceLoadStatus{}, &SourcePublishConflictError{Reason: "operation ID is already bound to another source-load plan"}
 		}
-		if err := p.ensureSourceLoadCandidate(ctx, &existing, manifest); err != nil {
+		if err := p.ensureSourceLoadCandidate(ctx, &existing); err != nil {
 			return SourceLoadStatus{}, err
 		}
 		return sourceLoadStatus(existing), nil
@@ -123,7 +123,7 @@ RETURN {created: true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key"
 		}
 		record = existing
 	}
-	if err := p.ensureSourceLoadCandidate(ctx, &record, manifest); err != nil {
+	if err := p.ensureSourceLoadCandidate(ctx, &record); err != nil {
 		return SourceLoadStatus{}, err
 	}
 	return sourceLoadStatus(record), nil
@@ -272,7 +272,7 @@ func (p *RepositorySourceLoader) Status(ctx context.Context, project, operationI
 	return sourceLoadStatus(record), nil
 }
 
-func (p *RepositorySourceLoader) ensureSourceLoadCandidate(ctx context.Context, record *sourceLoadRecord, manifest SourceManifest) error {
+func (p *RepositorySourceLoader) ensureSourceLoadCandidate(ctx context.Context, record *sourceLoadRecord) error {
 	if record.CopyComplete {
 		return nil
 	}

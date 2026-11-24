@@ -8,7 +8,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
@@ -288,21 +287,21 @@ func TestNextTableOrderIncludesGeneratedGroupColumns(t *testing.T) {
 	}
 }
 
-type storedTableShape = workspace.StoredTableShape
+type storedTableShape = ws.StoredTableShape
 
-type storedTableReshape = workspace.StoredTableReshape
+type storedTableReshape = ws.StoredTableReshape
 
-type storedPivotConstruction = workspace.StoredPivotConstruction
+type storedPivotConstruction = ws.StoredPivotConstruction
 
-type storedPivotCategory = workspace.StoredPivotCategory
+type storedPivotCategory = ws.StoredPivotCategory
 
-type storedUnpivotConstruction = workspace.StoredUnpivotConstruction
+type storedUnpivotConstruction = ws.StoredUnpivotConstruction
 
-type storedUnpivotInput = workspace.StoredUnpivotInput
+type storedUnpivotInput = ws.StoredUnpivotInput
 
-type storedDerivedConstruction = workspace.StoredDerivedConstruction
+type storedDerivedConstruction = ws.StoredDerivedConstruction
 
-type storedArithmeticOperand = workspace.StoredArithmeticOperand
+type storedArithmeticOperand = ws.StoredArithmeticOperand
 
 const (
 	tableShapeSemanticsVersion              = 9

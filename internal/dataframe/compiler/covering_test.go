@@ -120,7 +120,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 		t.Fatal(err)
 	}
 	if bindings.IncludeSourceIdentity {
-		physical, _, err = withPreviewSourceResourceID(compiled.Outputs[0], physical)
+		physical, _ = withPreviewSourceResourceID(compiled.Outputs[0], physical)
 		if err != nil {
 			t.Fatal(err)
 		}

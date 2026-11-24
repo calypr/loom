@@ -74,7 +74,7 @@ func aggregateSource(dataset Materialization, req AggregateBatchRequest, stateme
 	}
 	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), dataset.PhysicalTable)
 	args := make([]any, 0)
-	if !req.Unrestricted && hasColumn(dataset.Columns, authResourcePathColumn) {
+	if !req.Unrestricted && hasAuthResourcePathColumn(dataset.Columns) {
 		query += " WHERE `auth_resource_path` IN ?"
 		args = append(args, req.AuthResourcePaths)
 	} else if !req.Unrestricted {

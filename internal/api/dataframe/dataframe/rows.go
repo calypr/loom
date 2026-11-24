@@ -19,7 +19,7 @@ func (s *Service) ProjectDatasets(ctx context.Context, projectID string) ([]dfma
 		return nil, err
 	}
 	projectID = canonicalProjectID(projectID)
-	if _, err := s.authorizeProject(ctx, principal, projectID); err != nil {
+	if err := s.authorizeProject(ctx, principal, projectID); err != nil {
 		return nil, err
 	}
 	values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))

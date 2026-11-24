@@ -253,7 +253,7 @@ func constructionGroupFieldOwnerRoute(
 	context *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	occurrenceID string,
 ) (capability.RowChoiceOccurrence, []capability.ConstructionRouteStep, error) {
-	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, occurrenceID, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, occurrenceID)
 	if err != nil {
 		return capability.RowChoiceOccurrence{}, nil, err
 	}
@@ -399,7 +399,7 @@ func constructionGroupRelatedAnchorForStage(
 	if rootOccurrence == "" || base.Document.Route.ResourceType != base.Document.RootResourceType {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("document has no exact compiler-rooted source occurrence")
 	}
-	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, rootOccurrence, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, rootOccurrence)
 	if err != nil {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("source root occurrence no longer resolves to one authorized row root: %w", err)
 	}
@@ -510,7 +510,6 @@ func matchedPublicGroupFieldColumn(
 func (s *Service) constructionGroupFieldChoices(
 	ctx context.Context,
 	base Base,
-	outputID string,
 	stage receiptmodel.ReceiptConstructionStage,
 	semanticChoices []ConstructionSemanticGroupChoice,
 	semanticChoicesIncomplete bool,
@@ -700,7 +699,7 @@ func (s *Service) constructionGroupRowValueChoices(
 	if !ok || inputStageID != stage.ID {
 		return nil, conflict("construction-capabilities", "STALE_GROUP_STEP_INPUT", "row-value choices must use the exact Group input stage", nil, nil)
 	}
-	choices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, stage, nil, false, groupStepID, "")
+	choices, _, err := s.constructionGroupFieldChoices(ctx, base, stage, nil, false, groupStepID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -747,7 +746,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			continue
 		}
 		groupRelatedRouteID := ""
-		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, *stage, nil, false, "", step.ID)
+		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, *stage, nil, false, "", step.ID)
 		if err != nil {
 			return candidate, err
 		}

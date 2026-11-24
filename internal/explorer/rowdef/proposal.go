@@ -92,7 +92,7 @@ func CheckRowDefinitionProposalResult(workspace ws.Workspace, receipt *receiptmo
 	return nil
 }
 
-func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string) (ws.Document, error) {
+func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string) error {
 	baseWithoutRows := base
 	candidateWithoutRows := candidate
 	baseWithoutRows.Documents = append([]ws.Document(nil), base.Documents...)
@@ -109,22 +109,22 @@ func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string)
 		}
 	}
 	if baseDocument < 0 || candidateDocument < 0 || baseDocument != candidateDocument {
-		return ws.Document{}, fmt.Errorf("output %q is missing or moved in the candidate workspace", outputID)
+		return fmt.Errorf("output %q is missing or moved in the candidate workspace", outputID)
 	}
 	if reflect.DeepEqual(base.Documents[baseDocument].Rows, candidate.Documents[candidateDocument].Rows) {
-		return ws.Document{}, fmt.Errorf("candidate row definition does not change output %q", outputID)
+		return fmt.Errorf("candidate row definition does not change output %q", outputID)
 	}
 	for index := range base.Documents {
 		if index != baseDocument && !reflect.DeepEqual(base.Documents[index].Rows, candidate.Documents[index].Rows) {
-			return ws.Document{}, fmt.Errorf("candidate changes rows for output %q outside the requested output", base.Documents[index].Output.ID)
+			return fmt.Errorf("candidate changes rows for output %q outside the requested output", base.Documents[index].Output.ID)
 		}
 		baseWithoutRows.Documents[index].Rows = ws.RowDefinition{}
 		candidateWithoutRows.Documents[index].Rows = ws.RowDefinition{}
 	}
 	if !reflect.DeepEqual(baseWithoutRows, candidateWithoutRows) {
-		return ws.Document{}, fmt.Errorf("candidate changes authoring fields outside Document.Rows")
+		return fmt.Errorf("candidate changes authoring fields outside Document.Rows")
 	}
-	return candidate.Documents[candidateDocument], nil
+	return nil
 }
 
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
@@ -199,7 +199,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	if _, err := rowDefinitionWorkspaceChange(comparisonBase, candidateWorkspace, request.OutputID); err != nil {
+	if err := rowDefinitionWorkspaceChange(comparisonBase, candidateWorkspace, request.OutputID); err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
 	candidateDigest, err := candidateWorkspace.Digest()
@@ -429,7 +429,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if err != nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be canonicalized for the proposal", nil, err)
 	}
-	if _, err := rowDefinitionWorkspaceChange(comparisonBase, candidate, command.OutputID); err != nil {
+	if err := rowDefinitionWorkspaceChange(comparisonBase, candidate, command.OutputID); err != nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the candidate receipt no longer changes only the requested table rows", nil, err)
 	}
 	if _, err := s.resolveExplicitGroupRevisionForRows(ctx, project, explorerID, command.OutputID, snapshot, *candidateDocument, candidateDocument.Rows, receipt); err != nil {

@@ -449,13 +449,13 @@ func TestSourceFileLostReceiptAcknowledgementPreservesAcceptedRows(t *testing.T)
 		upstream.Header = r.Header.Clone()
 		response, err := http.DefaultClient.Do(upstream)
 		if err != nil {
-			http.Error(w, "test proxy backend failed", 502)
+			http.Error(w, "test proxy backend failed", http.StatusBadGateway)
 			return
 		}
 		defer response.Body.Close()
 		responseBody, err := io.ReadAll(response.Body)
 		if err != nil {
-			http.Error(w, "test proxy backend response failed", 502)
+			http.Error(w, "test proxy backend response failed", http.StatusBadGateway)
 			return
 		}
 		if response.StatusCode < 300 && bytes.Contains(body, []byte("file_claims: UNSET")) && dropped.CompareAndSwap(false, true) {

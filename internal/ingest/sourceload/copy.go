@@ -80,8 +80,8 @@ func copyEdgeDocument(project, generation, sourceGeneration string, selectedType
 		from, fromOK := doc["logical_from"].(string)
 		to, toOK := doc["logical_to"].(string)
 		if !fromOK || from == "" || !toOK || to == "" {
-			from, fromOK = doc["_from"].(string)
-			to, toOK = doc["_to"].(string)
+			from, _ = doc["_from"].(string)
+			to, _ = doc["_to"].(string)
 			if sourceGeneration != "" {
 				fromCollection, _, fromPathOK := strings.Cut(from, "/")
 				toCollection, _, toPathOK := strings.Cut(to, "/")

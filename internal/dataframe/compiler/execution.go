@@ -63,11 +63,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	}
 	includePreviewSourceID := false
 	if bindings.IncludeSourceIdentity {
-		var err error
-		physical, includePreviewSourceID, err = withPreviewSourceResourceID(output, physical)
-		if err != nil {
-			return model.CompiledQuery{}, fmt.Errorf("add preview source identity projection: %w", err)
-		}
+		physical, includePreviewSourceID = withPreviewSourceResourceID(output, physical)
 	}
 	if limit > 0 {
 		physical = withConstructionPreviewRootIDFilter(output, physical)
@@ -226,10 +222,7 @@ func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOu
 		}
 		sourceProjectionNames[projection.Name] = struct{}{}
 	}
-	if !streamingPivotInputProjectsSourceRows(*pivot, stage.InputRowVariable, sourceProjectionNames) {
-		return false
-	}
-	return true
+	return streamingPivotInputProjectsSourceRows(*pivot, stage.InputRowVariable, sourceProjectionNames)
 }
 
 func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputRowVariable string, sourceNames map[string]struct{}) bool {
@@ -340,9 +333,9 @@ func filterPresenceProjections(projections []ir.PhysicalProjection, presenceName
 	return filtered
 }
 
-func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {
+func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.PhysicalPlan) (ir.PhysicalPlan, bool) {
 	if plan.Engine == ir.PhysicalEngineClickHouse || outputHasCompositeSource(output) {
-		return plan, false, nil
+		return plan, false
 	}
 	rootVariable := ""
 	for _, operation := range plan.Operations {
@@ -352,7 +345,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 		}
 	}
 	if rootVariable == "" {
-		return plan, false, nil
+		return plan, false
 	}
 	projection := ir.PhysicalProjection{
 		Name: ir.PreviewSourceResourceIDColumn, Hidden: true,
@@ -368,7 +361,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 		operation.Return.Projections = appendUniqueProjection(operation.Return.Projections, projection)
 	}
 	if !returnFound {
-		return plan, false, nil
+		return plan, false
 	}
 	if sequence := plan.StageSequence; sequence != nil {
 		sourceColumn := ir.PhysicalStageColumn{
@@ -412,7 +405,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 			})
 		}
 	}
-	return plan, true, nil
+	return plan, true
 }
 
 func appendUniqueUnpivotOutput(outputs []ir.PhysicalUnpivotOutput, candidate ir.PhysicalUnpivotOutput) []ir.PhysicalUnpivotOutput {

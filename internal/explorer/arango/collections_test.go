@@ -19,7 +19,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/explorer/viewer"
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -262,7 +261,7 @@ func wp17LegacyReceipt(t *testing.T, owner explorer.Explorer, workspace []byte, 
 	return receipt
 }
 
-func wp17InsertBaseProjection(t *testing.T, ctx context.Context, client *store.Client, source workspacepkg.Artifact, raw []byte) workspacepkg.Projection {
+func wp17InsertBaseProjection(t *testing.T, ctx context.Context, client *store.Client, source ws.Artifact, raw []byte) ws.Projection {
 	t.Helper()
 	base, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
@@ -293,7 +292,7 @@ func wp17AssertOwnerHistoryProjection(t *testing.T, ctx context.Context, client 
 	}
 }
 
-func wp17AssertConstructionProjection(t *testing.T, ctx context.Context, client *store.Client, adapter *Store, source workspacepkg.Artifact, expected []byte, base workspacepkg.Projection) {
+func wp17AssertConstructionProjection(t *testing.T, ctx context.Context, client *store.Client, adapter *Store, source ws.Artifact, expected []byte, base ws.Projection) {
 	t.Helper()
 	constructionKey := tableShapeConstructionTarget.projectionKey(source)
 	construction := wp17ReadProjection(t, ctx, client, constructionKey)
@@ -316,11 +315,11 @@ func wp17AssertConstructionProjection(t *testing.T, ctx context.Context, client 
 	}
 }
 
-func wp17ReadProjection(t *testing.T, ctx context.Context, client *store.Client, key string) workspacepkg.Projection {
+func wp17ReadProjection(t *testing.T, ctx context.Context, client *store.Client, key string) ws.Projection {
 	t.Helper()
-	var result *workspacepkg.Projection
+	var result *ws.Projection
 	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceProjectionCollection, "key": key}, func(row map[string]any) error {
-		value, err := db.Decode[workspacepkg.Projection](row)
+		value, err := db.Decode[ws.Projection](row)
 		result = &value
 		return err
 	}); err != nil {
@@ -609,7 +608,7 @@ func TestTableShapeMigrationLargeIntegerProjectionAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := workspacepkg.Artifact{Kind: "draft-revision", Project: "precision", ExplorerID: "precision", ID: "history", RawDigest: "original", IntentDigest: migrated.OriginalCanonicalDigest}
+	source := ws.Artifact{Kind: "draft-revision", Project: "precision", ExplorerID: "precision", ID: "history", RawDigest: "original", IntentDigest: migrated.OriginalCanonicalDigest}
 	projection := newWorkspaceProjection(source, migrated)
 	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{workspaceProjectionCollectionSpec()}}); err != nil {
 		t.Fatal(err)

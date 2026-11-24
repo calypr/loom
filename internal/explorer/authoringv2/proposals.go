@@ -11,7 +11,7 @@ func applyApplyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogS
 	return applyColumnPolicyProposal(workspace, catalog, commandID, index, command)
 }
 
-func applyApplyInterpretationCandidate(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyInterpretationCandidate(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column()) == "" ||
 		command.InterpretationCandidate() == nil ||
@@ -42,7 +42,7 @@ func applyApplyInterpretationCandidate(workspace *ws.Workspace, catalog ws.Catal
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applyApplyRowDefinitionProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyRowDefinitionProposal(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if command.resolvedRowDefinition == nil {
 		return result, fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL has no lifecycle-resolved row definition")
@@ -62,7 +62,7 @@ func applyApplyRowDefinitionProposal(workspace *ws.Workspace, catalog ws.Catalog
 	return result, nil
 }
 
-func applyApplyPopulationMemberProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyPopulationMemberProposal(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if !command.resolvedPopulationSet || command.resolvedPopulation == nil {
 		return result, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL has no lifecycle-resolved population")
@@ -80,7 +80,7 @@ func applyApplyPopulationMemberProposal(workspace *ws.Workspace, catalog ws.Cata
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 }
 
-func applyApplyConstructionProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyConstructionProposal(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if !command.resolvedConstructionSet || command.resolvedConstruction == nil || command.resolvedConstructionRows == nil {
 		return result, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL has no lifecycle-resolved construction")
@@ -111,7 +111,7 @@ func applyApplyConstructionProposal(workspace *ws.Workspace, catalog ws.CatalogS
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 }
 
-func applyRestoreDraftRevision(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRestoreDraftRevision(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if command.resolvedDraftRevision == nil {
 		return result, fmt.Errorf("RESTORE_DRAFT_REVISION has no lifecycle-resolved draft revision")

@@ -127,7 +127,7 @@ func (r *ScopeResolver) ResolveReadScope(ctx context.Context, principal *Princip
 }
 
 func (r *ScopeResolver) ResolveReadScopeForGeneration(ctx context.Context, principal *Principal, project, datasetGeneration string, requested []string) (ReadScope, error) {
-	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionRead, "*")
+	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionRead)
 	if err != nil {
 		return ReadScope{}, err
 	}
@@ -170,7 +170,7 @@ func (r *ScopeResolver) ResolveReadScopeForGeneration(ctx context.Context, princ
 }
 
 func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal, project, authResourcePath string) error {
-	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionWrite, "*")
+	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionWrite)
 	if err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal
 }
 
 func (r *ScopeResolver) AuthorizeReadProject(ctx context.Context, principal *Principal, project string) error {
-	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionRead, "*")
+	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionRead)
 	if err != nil {
 		return err
 	}
@@ -220,7 +220,7 @@ func (r *ScopeResolver) AuthorizeReadProject(ctx context.Context, principal *Pri
 }
 
 func (r *ScopeResolver) ResolveWriteScopeForGeneration(ctx context.Context, principal *Principal, project, datasetGeneration string, requested []string) (ReadScope, error) {
-	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionWrite, "*")
+	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionWrite)
 	if err != nil {
 		return ReadScope{}, err
 	}
@@ -263,7 +263,7 @@ func (r *ScopeResolver) ResolveWriteScopeForGeneration(ctx context.Context, prin
 	return ReadScope{AuthResourcePaths: effective, Mode: ReadScopeRestricted}, nil
 }
 
-func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Principal, method Permission, service string) ([]string, bool, error) {
+func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Principal, method Permission) ([]string, bool, error) {
 	if principal == nil {
 		if r.resourceAccess != nil {
 			return []string{}, true, nil
@@ -274,7 +274,7 @@ func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Princ
 		if r.resourceAccess == nil {
 			return nil, true, fmt.Errorf("%w: Fence resource access client is not configured", ErrAuthorizationBackendUnavailable)
 		}
-		resources, err := r.resourceAccess.GetAllowedResources(ctx, auth, string(method), service)
+		resources, err := r.resourceAccess.GetAllowedResources(ctx, auth, string(method), "*")
 		if err != nil {
 			return nil, true, err
 		}

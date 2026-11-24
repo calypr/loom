@@ -327,7 +327,7 @@ func findLifecycleColumn(document ws.Document, columnID string) bool {
 }
 
 func cloneLifecycleDocument(t *testing.T, document ws.Document) ws.Document {
-	return constructionfixtures.CloneDocument(t, document)
+	return constructionfixtures.CloneJSON(t, document)
 }
 
 func TestReviewProjectedRemovalCandidateCASFailure(t *testing.T) {

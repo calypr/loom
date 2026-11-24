@@ -181,8 +181,6 @@ func filterSourceProjectionColumn() ws.StageColumn {
 	}
 }
 
-func filterSourceBool(value bool) *bool { return &value }
-
 func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path string) capability.RowChoice {
 	return constructionfixtures.FilterSourceRowChoice(t, snapshot, filterSourceDocument(), path)
 }

@@ -669,7 +669,7 @@ func defaultArtifactREADME(request ArtifactRequest) string {
 
 func writeArtifactMember(ctx context.Context, archive *zip.Writer, name string, write func(io.Writer) error) (ArtifactMember, error) {
 	header := &zip.FileHeader{Name: name, Method: zip.Store}
-	header.SetModTime(time.Unix(0, 0).UTC())
+	header.Modified = time.Unix(0, 0).UTC()
 	header.SetMode(0644)
 	entry, err := archive.CreateHeader(header)
 	if err != nil {

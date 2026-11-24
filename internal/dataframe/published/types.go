@@ -10,8 +10,6 @@ import (
 type State string
 
 const authResourcePathColumn = "auth_resource_path"
-const projectIDColumn = "project_id"
-
 const StateReady State = "READY"
 
 type Column struct {

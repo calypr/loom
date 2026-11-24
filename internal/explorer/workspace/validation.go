@@ -796,17 +796,17 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		if step.Operation.Group == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Expand != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionGroup(step, input, inputColumns)
+		return validateConstructionGroup(step, input)
 	case ConstructionOperationCodedGroup:
 		if step.Operation.CodedGroup == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionCodedGroup(step, input, inputColumns)
+		return validateConstructionCodedGroup(step, input)
 	case ConstructionOperationCodedPivot:
 		if step.Operation.CodedPivot == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionCodedPivot(step, input, inputColumns)
+		return validateConstructionCodedPivot(step, inputColumns)
 	case ConstructionOperationExpand:
 		if step.Operation.Expand == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Group != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -830,7 +830,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		if step.Operation.RelatedEligibility == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionRelatedEligibility(step, input, inputColumns)
+		return validateConstructionRelatedEligibility(step, inputColumns)
 	case ConstructionOperationRelatedField:
 		if step.Operation.RelatedField == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -841,7 +841,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	}
 }
 
-func validateConstructionRelatedEligibility(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionRelatedEligibility(step ConstructionStep, inputColumns []StageColumn) error {
 	related := step.Operation.RelatedEligibility
 	if !requiredID(related.AnchorColumnID) {
 		return fmt.Errorf("relatedEligibility.anchorColumnId must identify a retained row resource")
@@ -1365,7 +1365,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	return validateDeclaredOutputIDs(step.Outputs, want)
 }
 
-func validateConstructionCodedPivot(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionCodedPivot(step ConstructionStep, inputColumns []StageColumn) error {
 	pivot := step.Operation.CodedPivot
 	if pivot == nil || !sameOperationID(step.ID, pivot.ConstructionID) {
 		return fmt.Errorf("coded pivot constructionId must equal step id")
@@ -1654,7 +1654,7 @@ func validateConstructionUnpivot(step ConstructionStep, input map[string]StageCo
 	return validateDeclaredOutputIDs(step.Outputs, want)
 }
 
-func validateConstructionGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionGroup(step ConstructionStep, input map[string]StageColumn) error {
 	group := step.Operation.Group
 	if !sameOperationID(step.ID, group.ConstructionID) {
 		return fmt.Errorf("group constructionId must equal step id")
@@ -1784,7 +1784,7 @@ func validateConstructionGroupSemanticCategory(category ConstructionGroupSemanti
 	return nil
 }
 
-func validateConstructionCodedGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionCodedGroup(step ConstructionStep, input map[string]StageColumn) error {
 	group := step.Operation.CodedGroup
 	if !sameOperationID(step.ID, group.ConstructionID) {
 		return fmt.Errorf("codedGroup constructionId must equal step id")

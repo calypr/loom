@@ -251,13 +251,13 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	document.ArchiveRetiredShape = nil
 	workspace := base.Workspace
 	workspace.Documents = append([]ws.Document(nil), base.Workspace.Documents...)
-	documentIndex := constructionDocumentIndex(workspace, request.OutputID)
+	documentIndex := workspace.DocumentIndex(request.OutputID)
 	if documentIndex < 0 {
 		return Base{}, "", conflict("construction-category-discovery", "OUTPUT_NOT_FOUND", "the output is missing from the candidate workspace", nil, nil)
 	}
 	workspace.Documents[documentIndex] = document
 	if _, err := workspace.Digest(); err != nil {
-		return Base{}, "", failureDetails(ports.ClassUnprocessable, "construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE",
+		return Base{}, "", failureDetails(ports.ClassUnprocessable, "INVALID_CONSTRUCTION_CANDIDATE",
 			"the temporary category input construction is invalid", nil, err)
 	}
 	receipt, err := s.compile(ctx, authoringcore.CompileRequest{
@@ -529,7 +529,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 		message := dataframeerrors.PublicMessage(err)
 		details := userErr.Details()
 		if dataframeerrors.IsFeatureResolutionCode(code) {
-			return failureDetails(ports.ClassUnprocessable, stage, code, message, details, cause)
+			return failureDetails(ports.ClassUnprocessable, code, message, details, cause)
 		}
 		switch dataframeerrors.ErrorCode(code) {
 		case dataframeerrors.CodeSchemaConflict,
@@ -540,20 +540,20 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 			dataframeerrors.CodeGenerationActivationUnknown,
 			dataframeerrors.CodeRecipeContractViolation,
 			dataframeerrors.CodeDynamicSchemaDrift:
-			return failureDetails(ports.ClassConflict, stage, code, message, details, cause)
+			return failureDetails(ports.ClassConflict, code, message, details, cause)
 		case dataframeerrors.CodeForbidden, dataframeerrors.CodeUnauthorizedProject:
-			return failureDetails(ports.ClassForbidden, stage, code, message, details, cause)
+			return failureDetails(ports.ClassForbidden, code, message, details, cause)
 		case dataframeerrors.CodeDatasetNotFound,
 			dataframeerrors.CodeNoActiveGeneration,
 			dataframeerrors.CodeRecipeNotFound,
 			dataframeerrors.CodeRecipeExecutionNotFound:
-			return failureDetails(ports.ClassNotFound, stage, code, message, details, cause)
+			return failureDetails(ports.ClassNotFound, code, message, details, cause)
 		case dataframeerrors.CodeBackendUnavailable,
 			dataframeerrors.CodeReceiptStoreUnavailable,
 			dataframeerrors.CodeQueryMemoryLimitExceeded,
 			dataframeerrors.CodeQueryResourceLimitExceeded,
 			dataframeerrors.CodeQueryBackendOutOfMemory:
-			return failureDetails(ports.ClassUnavailable, stage, code, message, details, cause)
+			return failureDetails(ports.ClassUnavailable, code, message, details, cause)
 		case dataframeerrors.CodeClientCanceled,
 			dataframeerrors.CodePreviewTimeout,
 			dataframeerrors.CodePreviewResponseTooLarge,
@@ -563,7 +563,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 			return err
 		}
 		if dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)) {
-			return failureDetails(ports.ClassUnavailable, stage, code, message, details, cause)
+			return failureDetails(ports.ClassUnavailable, code, message, details, cause)
 		}
 
 		return err

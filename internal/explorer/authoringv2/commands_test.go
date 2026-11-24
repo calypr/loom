@@ -1020,7 +1020,7 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 	if err := json.Unmarshal(rawSource, &decodedSource); err != nil {
 		t.Fatal(err)
 	}
-	workspaceA, addedA, err := ApplyCommands(workspaceA, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdA[0].OutputID, Title: "Count", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}}}}})
+	_, addedA, err := ApplyCommands(workspaceA, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdA[0].OutputID, Title: "Count", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceAggregate, Aggregate: &ws.AggregateSource{Operation: "COUNT"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

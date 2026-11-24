@@ -64,10 +64,7 @@ func renderGraphPhysicalPlan(plan ir.PhysicalPlan, collectionKeys map[string]str
 	for _, line := range inner {
 		lines = append(lines, "  "+line)
 	}
-	result, err := r.renderGraphReturn(*last.GraphReturn, rows)
-	if err != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("render graph return: %w", err)
-	}
+	result := r.renderGraphReturn(*last.GraphReturn, rows)
 	lines = append(lines, result...)
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
@@ -145,7 +142,7 @@ func (r *physicalPlanRenderer) renderPathExtend(extend ir.PhysicalPathExtend, in
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderGraphReturn(graph ir.PhysicalGraphReturn, rows string) ([]string, error) {
+func (r *physicalPlanRenderer) renderGraphReturn(graph ir.PhysicalGraphReturn, rows string) []string {
 	all := r.newInternalVariable("all_paths")
 	path := r.newInternalVariable("path")
 	group := r.newInternalVariable("path_group")
@@ -164,5 +161,5 @@ func (r *physicalPlanRenderer) renderGraphReturn(graph ir.PhysicalGraphReturn, r
 		fmt.Sprintf("    LIMIT @%s", graph.LimitBindKey),
 		fmt.Sprintf("    RETURN UNSET(%s, \"terminal\", \"__loom_path_identity\", \"__loom_route_order\")", row),
 	}
-	return lines, nil
+	return lines
 }

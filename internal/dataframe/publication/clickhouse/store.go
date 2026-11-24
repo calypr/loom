@@ -84,14 +84,7 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 		return nil, err
 	}
 	for _, schema := range schemas {
-		columns, err := toColumns(schema.Columns)
-		if err != nil {
-			cause := fmt.Errorf("output %q schema: %w", schema.Name, err)
-			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
-			abortErr := tx.Abort(cleanupCtx, cause)
-			cancel()
-			return nil, errors.Join(cause, abortErr)
-		}
+		columns := toColumns(schema.Columns)
 		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
 			cause := fmt.Errorf("output %q create: %w", schema.Name, err)
 			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)

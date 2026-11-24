@@ -210,7 +210,7 @@ func resolveRelatedGroupSource(
 func groupFieldSourceChoiceFromRelated(
 	fieldContext *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	related recipe.ConstructionGroupRelatedOccurrenceFieldSource,
-	sourceShapeID, nodeID, fhirType, cardinality, shape, rowChoiceID, codingSelector string,
+	sourceShapeID, nodeID, fhirType, cardinality, shape, rowChoiceID string,
 ) capability.GroupFieldChoiceSource {
 	steps := make([]capability.GroupFieldRelatedRouteStep, len(related.Route))
 	for index, hop := range related.Route {
@@ -400,7 +400,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				valueType := string(observed.scalarFacts.FHIRType)
 				related, sourceShapeID, resolveErr := resolveRelatedGroupSource(compilerContext, "SCALAR", anchor, resolvedRoute, valueType, candidate.ID, candidate.FieldPath, "", "")
 				if resolveErr == nil {
-					source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, valueType, "ONE", "SCALAR", "", "")
+					source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, valueType, "ONE", "SCALAR", "")
 					source.TargetGroupStepID = targetGroupStepID
 					choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.Snapshot.Token, resolvedRoute, source, candidate)
 					if choiceErr == nil {
@@ -432,7 +432,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				if rowChoiceErr != nil {
 					continue
 				}
-				source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, "Coding", "MANY", "CODING_IDENTITY", rowChoice.ChoiceID, selector.path)
+				source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, "Coding", "MANY", "CODING_IDENTITY", rowChoice.ChoiceID)
 				choice, choiceErr := capability.NewGroupCodingIdentityChoice(base.Snapshot.Token, resolvedRoute, source)
 				if choiceErr != nil {
 					continue

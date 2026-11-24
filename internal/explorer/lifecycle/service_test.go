@@ -116,7 +116,6 @@ func (fakeSelectionStore) CleanupSelectionStaging(context.Context, time.Time, in
 
 type fakeStore struct {
 	explorer.ExplorerStore
-	fakeRevisionStore
 	fakeSelectionStore
 	listValues         []explorer.Explorer
 	state              viewer.ExplorerStateV1

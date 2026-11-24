@@ -56,26 +56,26 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 		if sourceLoadSelectsType(record.Plan.Files, resourceType) {
 			continue
 		}
-		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, record.Generation, copyVertexDocument(resourceType, record.Project, record.Generation, identityFormat)); err != nil {
+		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, copyVertexDocument(resourceType, record.Project, record.Generation, identityFormat)); err != nil {
 			return fmt.Errorf("copy source generation resource %s: %w", resourceType, err)
 		}
 	}
-	if err := p.copySourceCollection(ctx, bootstrap.EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
+	if err := p.copySourceCollection(ctx, bootstrap.EdgeCollection, record.SourceGeneration, record.Project, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
 		return fmt.Errorf("copy source generation edges: %w", err)
 	}
-	if err := p.copySourceCollection(ctx, fieldprofile.FieldCatalogCollection, record.SourceGeneration, record.Project, record.Generation, copyCatalogDocument(fieldprofile.FieldCatalogCollection, record.Project, record.Generation, selectedTypes)); err != nil {
+	if err := p.copySourceCollection(ctx, fieldprofile.FieldCatalogCollection, record.SourceGeneration, record.Project, copyCatalogDocument(fieldprofile.FieldCatalogCollection, record.Project, record.Generation, selectedTypes)); err != nil {
 		return fmt.Errorf("copy source generation field catalog: %w", err)
 	}
-	if err := p.copySourceCollection(ctx, semantic.Collection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryDocument(record.Project, record.Generation, selectedTypes)); err != nil {
+	if err := p.copySourceCollection(ctx, semantic.Collection, record.SourceGeneration, record.Project, copySemanticInventoryDocument(record.Project, record.Generation, selectedTypes)); err != nil {
 		return fmt.Errorf("copy source generation semantic inventory: %w", err)
 	}
-	if err := p.copySourceCollection(ctx, semantic.EntryCollection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryEntryDocument(record.Project, record.Generation, selectedTypes, copyCurrentFileEntries)); err != nil {
+	if err := p.copySourceCollection(ctx, semantic.EntryCollection, record.SourceGeneration, record.Project, copySemanticInventoryEntryDocument(record.Project, record.Generation, selectedTypes, copyCurrentFileEntries)); err != nil {
 		return fmt.Errorf("copy source generation semantic inventory entries: %w", err)
 	}
 	return nil
 }
 
-func (p *RepositorySourceLoader) copySourceCollection(ctx context.Context, collection, sourceGeneration, project, targetGeneration string, transform sourceCopyTransform) error {
+func (p *RepositorySourceLoader) copySourceCollection(ctx context.Context, collection, sourceGeneration, project string, transform sourceCopyTransform) error {
 	exists, err := p.client.CollectionExists(ctx, collection)
 	if err != nil {
 		return err

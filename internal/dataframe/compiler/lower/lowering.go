@@ -121,7 +121,6 @@ func (lowerer *constructionLowerer) lowerRelatedSourceStage(step recipe.Construc
 
 func (lowerer *constructionLowerer) lowerRelatedExpandStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
-	outputByID := work.outputByID
 	inputRow := work.physical.InputRowVariable
 	inputIdentity := work.input.identity
 	rootResourceType := work.input.rootResourceType
@@ -131,7 +130,7 @@ func (lowerer *constructionLowerer) lowerRelatedExpandStage(step recipe.Construc
 		return fmt.Errorf("related expansion payload is required")
 	}
 	physicalExpand, projections, compiled, err := lowerer.lowerConstructionRelatedExpand(
-		step, *related, inputByID, outputByID, inputRow, inputIdentity,
+		step, *related, inputByID, inputRow, inputIdentity,
 		rootResourceType, index,
 	)
 	if err != nil {
@@ -145,7 +144,6 @@ func (lowerer *constructionLowerer) lowerRelatedExpandStage(step recipe.Construc
 
 func (lowerer *constructionLowerer) lowerRelatedEligibilityStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
-	outputByID := work.outputByID
 	inputRow := work.physical.InputRowVariable
 	inputIdentity := work.input.identity
 	rootResourceType := work.input.rootResourceType
@@ -155,7 +153,7 @@ func (lowerer *constructionLowerer) lowerRelatedEligibilityStage(step recipe.Con
 		return fmt.Errorf("related eligibility payload is required")
 	}
 	physicalFilter, derivedLets, projections, compiled, err := lowerer.lowerConstructionRelatedEligibility(
-		step, *related, inputByID, outputByID, inputRow, inputIdentity,
+		step, *related, inputByID, inputRow, inputIdentity,
 		rootResourceType, index,
 	)
 	if err != nil {
@@ -276,7 +274,6 @@ func (lowerer *constructionLowerer) lowerPivotStage(step recipe.ConstructionStep
 
 func (lowerer *constructionLowerer) lowerCodedPivotStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
-	inputRow := work.physical.InputRowVariable
 	inputIdentity := work.input.identity
 	rootResourceType := work.input.rootResourceType
 	index := work.input.index
@@ -285,7 +282,7 @@ func (lowerer *constructionLowerer) lowerCodedPivotStage(step recipe.Constructio
 		return fmt.Errorf("coded Pivot payload is required")
 	}
 	physicalPivot, projections, compiled, err := lowerConstructionCodedPivot(
-		lowerer.plan, *codedPivot, step.RowValues, step.Outputs, inputByID, inputIdentity, rootResourceType, inputRow, lowerer.usedVariables, index,
+		lowerer.plan, *codedPivot, step.RowValues, step.Outputs, inputByID, inputIdentity, rootResourceType, lowerer.usedVariables, index,
 	)
 	if err != nil {
 		return err

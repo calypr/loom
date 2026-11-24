@@ -20,7 +20,7 @@ import (
 )
 
 func ConstructionStageDescriptors(workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
-	index := documentIndex(workspace, outputID)
+	index := workspace.DocumentIndex(outputID)
 	if index < 0 {
 		return nil
 	}
@@ -110,7 +110,7 @@ func ConstructionStageDescriptors(workspace ws.Workspace, outputID string) []rec
 func RelatedExpandRemovalStages(t *testing.T, workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
 	t.Helper()
 	stages := ConstructionStageDescriptors(workspace, outputID)
-	index := documentIndex(workspace, outputID)
+	index := workspace.DocumentIndex(outputID)
 	if index < 0 || workspace.Documents[index].Construction == nil {
 		t.Fatal("related expansion test workspace has no construction")
 	}
@@ -255,20 +255,6 @@ func LifecycleConstructionReceipt(snapshot capability.Snapshot, workspace ws.Wor
 	return receipt
 }
 
-func documentIndex(workspace ws.Workspace, outputID string) int {
-	index := -1
-	for candidate := range workspace.Documents {
-		if workspace.Documents[candidate].Output.ID != outputID {
-			continue
-		}
-		if index >= 0 {
-			return -1
-		}
-		index = candidate
-	}
-	return index
-}
-
 func CodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
 	reference := semantic.FamilyReference{
 		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
@@ -327,26 +313,13 @@ func SemanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capabi
 	}
 }
 
-func CloneConstruction(t *testing.T, construction ws.Construction) ws.Construction {
+func CloneJSON[T any](t *testing.T, value T) T {
 	t.Helper()
-	raw, err := json.Marshal(construction)
+	raw, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var clone ws.Construction
-	if err := json.Unmarshal(raw, &clone); err != nil {
-		t.Fatal(err)
-	}
-	return clone
-}
-
-func CloneDocument(t *testing.T, document ws.Document) ws.Document {
-	t.Helper()
-	raw, err := json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var clone ws.Document
+	var clone T
 	if err := json.Unmarshal(raw, &clone); err != nil {
 		t.Fatal(err)
 	}

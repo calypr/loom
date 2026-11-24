@@ -172,7 +172,7 @@ func TestConstructionEditCascadeKeepsChangedStepWhenItsOwnInputIsMissing(t *test
 }
 
 func cloneLifecycleTestConstruction(t *testing.T, construction ws.Construction) ws.Construction {
-	return constructionfixtures.CloneConstruction(t, construction)
+	return constructionfixtures.CloneJSON(t, construction)
 }
 
 func constructionWithoutStep(construction ws.Construction, stepID string) ws.Construction {

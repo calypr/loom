@@ -345,7 +345,7 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 	if !constructionChoicesMatchSnapshot(identities, snapshot.Token) || catalogSnapshot.SnapshotToken != snapshot.Token {
 		return nil, conflict("commands", "STALE_CONSTRUCTION_CHOICE", "the construction choice does not match the current authorized snapshot", nil, nil)
 	}
-	semanticEntries, semanticFamilies, buildID, err := s.resolveConstructionChoiceSemantics(ctx, project, authorized, identities)
+	semanticEntries, semanticFamilies, buildID, err := s.resolveConstructionChoiceSemantics(ctx, authorized, identities)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +410,7 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 	return commands, nil
 }
 
-func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]semantic.Entry, map[string]semantic.Family, string, error) {
+func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]semantic.Entry, map[string]semantic.Family, string, error) {
 	references := make([]semantic.Reference, 0, len(identities))
 	familyReferences := make([]semantic.FamilyReference, 0, len(identities))
 	seen := make(map[string]struct{}, len(identities))

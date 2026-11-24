@@ -7,7 +7,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func applyUpdateImportedSourceStepVariants(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateImportedSourceStepVariants(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	position := documentIndex(workspace, command.OutputID)
 	if position < 0 || command.resolvedImportedDocument == nil {
@@ -25,6 +25,6 @@ func applyUpdateImportedSourceStepVariants(workspace *ws.Workspace, catalog ws.C
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 }
 
-func applySetFrameSourceVariants(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetFrameSourceVariants(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	return applyFrameSourceCommand(workspace, command)
 }
