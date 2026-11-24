@@ -276,8 +276,10 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 		return nil, err
 	}
 	commands := cloneAuthoringCommands(request.Commands)
-	prepared := authoringv2.CommandsWithoutResolution(commands)
-	if prepare != nil {
+	var prepared []authoringv2.PreparedCommand
+	if prepare == nil {
+		prepared = authoringv2.CommandsWithoutResolution(commands)
+	} else {
 		prepared, err = prepare(ctx, workspace, commands)
 		if err != nil {
 			return nil, err

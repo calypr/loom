@@ -29,6 +29,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/explorer/proposal"
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/projectid"
@@ -389,7 +390,7 @@ func (r *Handlers) TraceExplorerCell(ctx context.Context, request loomapi.TraceE
 		if body == nil {
 			return result, explorer.MalformedRouteError("trace", errors.New("receiptId, outputId, rowId, and column are required"))
 		}
-		request := lifecycle.CellTraceRequest{
+		request := receiptapi.CellTraceRequest{
 			Project: project, ExplorerID: explorerID,
 			ReceiptID: body.ReceiptId, OutputID: body.OutputId,
 			RowID: body.RowId, Column: body.Column,
@@ -400,7 +401,7 @@ func (r *Handlers) TraceExplorerCell(ctx context.Context, request loomapi.TraceE
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.CellTrace(ctx, request)
+		value, err := h.cellTrace.CellTrace(ctx, request)
 		if err != nil {
 			return result, err
 		}

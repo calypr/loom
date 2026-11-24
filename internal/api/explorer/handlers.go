@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/projectconfig"
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 )
 
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
@@ -18,6 +19,7 @@ type Handlers struct {
 	views              *projectconfig.Service
 	application        *lifecycle.Service
 	owners             lifecycle.OwnerServices
+	cellTrace          *receiptapi.CellTraceService
 	constructionInputs constructioninputs.Catalog
 	authorizeExecution func(context.Context, string) error
 }
@@ -27,6 +29,7 @@ type Config struct {
 	AuthorizeRead      func(context.Context, *authscope.Principal, string) error
 	Explorers          *explorer.Service
 	Application        *lifecycle.Service
+	CellTrace          *receiptapi.CellTraceService
 	Revisions          explorer.RevisionReader
 	ViewBuilder        explorer.ViewBuilderRepository
 	ConstructionInputs constructioninputs.Catalog
@@ -39,6 +42,7 @@ func NewHandlers(config Config) *Handlers {
 		authorizeRead:      config.AuthorizeRead,
 		views:              projectconfig.New(config.Explorers, config.Revisions, config.ViewBuilder),
 		application:        config.Application,
+		cellTrace:          config.CellTrace,
 		constructionInputs: config.ConstructionInputs,
 		authorizeExecution: config.AuthorizeExecution,
 	}

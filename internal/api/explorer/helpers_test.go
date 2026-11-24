@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -72,7 +73,8 @@ func registerGeneratedExplorerTestRoutes(t testing.TB, router fiber.Router, auth
 	dependencies := explorerDependenciesForTest(backing...)
 	config = lifecycleConfigForTest(config, dependencies)
 	application := newTestLifecycleApplication(t, service, config)
-	handlers := NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Application: application, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder})
+	cellTrace := testCellTraceService(application, config)
+	handlers := NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Application: application, CellTrace: cellTrace, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder})
 	loomapi.RegisterHandlersWithOptions(router, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
 }
 
@@ -95,7 +97,15 @@ func newExplorerHTTPHandlers(t testing.TB, authorizer authscope.Authorizer, auth
 	dependencies := explorerDependenciesForTest(backing...)
 	config = lifecycleConfigForTest(config, dependencies)
 	application := newTestLifecycleApplication(t, service, config)
-	return NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Application: application, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder})
+	cellTrace := testCellTraceService(application, config)
+	return NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Application: application, CellTrace: cellTrace, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder})
+}
+
+func testCellTraceService(application *lifecycle.Service, config lifecycle.Config) *receiptapi.CellTraceService {
+	return receiptapi.NewCellTraceService(receiptapi.CellTraceServiceConfig{
+		Reader: application.OwnerServices().Core, ForExecution: config.Capability.ForExecution,
+		SelectionMembersCollection: config.SelectionMembersCollection, Executor: config.CellTrace,
+	})
 }
 
 func newTestLifecycleApplication(t testing.TB, store *explorer.Service, config lifecycle.Config) *lifecycle.Service {

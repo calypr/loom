@@ -192,6 +192,11 @@ func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authsc
 	if err != nil {
 		return nil, fmt.Errorf("create Explorer lifecycle application: %w", err)
 	}
+	owners := application.OwnerServices()
+	cellTrace := receiptapi.NewCellTraceService(receiptapi.CellTraceServiceConfig{
+		Reader: owners.Core, ForExecution: lifecycleConfig.Capability.ForExecution,
+		SelectionMembersCollection: lifecycleConfig.SelectionMembersCollection, Executor: lifecycleConfig.CellTrace,
+	})
 	readRecipeExecution := recipeexec.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
 	var constructionInputsReader constructioninputs.ExactReader
 	if materializationReader != nil {
@@ -207,6 +212,7 @@ func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authsc
 		},
 		Explorers:          explorerService,
 		Application:        application,
+		CellTrace:          cellTrace,
 		Revisions:          storage.explorerRevisions,
 		ViewBuilder:        storage.explorerViewBuilder,
 		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, storage.explorerRevisions),
