@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql/internal/aqlsyntax"
 	"strconv"
 	"strings"
 
@@ -126,11 +127,11 @@ func (r *physicalPlanRenderer) renderDirectScalarFromStoredParent(extract *ir.Ph
 		}
 		path = append(path, step.Field)
 	}
-	if !aqlPathHasPrefix(path, r.storedPresenceParentPath) {
+	if !aqlsyntax.PathHasPrefix(path, r.storedPresenceParentPath) {
 		return "", false
 	}
-	parent := renderAQLPropertyPath(r.rootVariable, r.storedPresenceParentPath)
-	return renderAQLPropertyPath("FIRST(["+parent+"])", path[len(r.storedPresenceParentPath):]), true
+	parent := aqlsyntax.RenderPropertyPath(r.rootVariable, r.storedPresenceParentPath)
+	return aqlsyntax.RenderPropertyPath("FIRST(["+parent+"])", path[len(r.storedPresenceParentPath):]), true
 }
 
 func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
@@ -139,7 +140,7 @@ func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
 
 func (r *physicalPlanRenderer) flattenTerminalRepeatedValues(values string) string {
 	flatValues := "FLATTEN(" + values + ", 1)"
-	valueVariable := r.newInternalVariable("selector_terminal_value")
+	valueVariable := r.navigation().newInternalVariable("selector_terminal_value")
 	return fmt.Sprintf("(FOR %s IN %s FILTER %s != null RETURN %s)", valueVariable, flatValues, valueVariable, valueVariable)
 }
 
@@ -177,7 +178,7 @@ func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.Physica
 	}
 	ruleBindKey := r.newInternalBindKey("unit_rules")
 	r.bindVars[ruleBindKey] = unitRuleBindings(normalization.Rules)
-	item := r.newInternalVariable("unit_item")
+	item := r.navigation().newInternalVariable("unit_item")
 	itemSource := item + ".payload"
 	if !setSource {
 		itemSource = item
@@ -194,8 +195,8 @@ func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.Physica
 	if err != nil {
 		return "", fmt.Errorf("unit code selector: %w", err)
 	}
-	value := r.newInternalVariable("unit_value")
-	rule := r.newInternalVariable("unit_rule")
+	value := r.navigation().newInternalVariable("unit_value")
+	rule := r.navigation().newInternalVariable("unit_rule")
 	lines := []string{
 		"(FOR " + item + " IN " + items,
 		"  FOR " + value + " IN FLATTEN(" + valueValues + ")",
@@ -397,9 +398,9 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 		var err error
 		if projection.PresenceOutput {
 			if projection.Name == r.storedPresenceOutputName {
-				value, err = r.renderProjectionPresenceOnStoredParent(*projection.Presence)
+				value, err = r.tableShape().renderProjectionPresenceOnStoredParent(*projection.Presence)
 			} else {
-				value, err = r.renderProjectionPresence(*projection.Presence)
+				value, err = r.tableShape().renderProjectionPresence(*projection.Presence)
 			}
 		} else if projection.Expression != nil {
 			value, err = r.renderExpression(*projection.Expression)
@@ -417,7 +418,7 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 					if marker, ok := r.passThroughPresenceMarker(projection); ok {
 						present = marker
 					} else {
-						present, err = r.renderProjectionPresence(*projection.Presence)
+						present, err = r.tableShape().renderProjectionPresence(*projection.Presence)
 						if err != nil {
 							return "", fmt.Errorf("render projection presence for %q: %w", projection.Name, err)
 						}
@@ -460,65 +461,9 @@ func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, erro
 	if len(value.Path) == 0 {
 		return value.Variable, nil
 	}
-	if value.Variable == r.rootVariable && aqlPathHasPrefix(value.Path, r.storedPresenceParentPath) {
-		parent := renderAQLPropertyPath(value.Variable, r.storedPresenceParentPath)
-		return renderAQLPropertyPath("FIRST(["+parent+"])", value.Path[len(r.storedPresenceParentPath):]), nil
+	if value.Variable == r.rootVariable && aqlsyntax.PathHasPrefix(value.Path, r.storedPresenceParentPath) {
+		parent := aqlsyntax.RenderPropertyPath(value.Variable, r.storedPresenceParentPath)
+		return aqlsyntax.RenderPropertyPath("FIRST(["+parent+"])", value.Path[len(r.storedPresenceParentPath):]), nil
 	}
-	return renderAQLPropertyPath(value.Variable, value.Path), nil
-}
-
-func aqlPathHasPrefix(path, prefix []string) bool {
-	if len(prefix) == 0 || len(path) < len(prefix) {
-		return false
-	}
-	for index := range prefix {
-		if path[index] != prefix[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func renderAQLPropertyPath(base string, path []string) string {
-	var expression strings.Builder
-	expression.WriteString(base)
-	for _, segment := range path {
-		if isSafeAQLPropertyIdentifier(segment) {
-			expression.WriteByte('.')
-			expression.WriteString(segment)
-			continue
-		}
-		expression.WriteByte('[')
-		expression.WriteString(strconv.Quote(segment))
-		expression.WriteByte(']')
-	}
-	return expression.String()
-}
-
-func isSafeAQLPropertyIdentifier(segment string) bool {
-	if len(segment) == 0 || !isAQLIdentifierStart(segment[0]) {
-		return false
-	}
-	for index := 1; index < len(segment); index++ {
-		char := segment[index]
-		if !isAQLIdentifierStart(char) && (char < '0' || char > '9') {
-			return false
-		}
-	}
-	_, reserved := aqlReservedWords[strings.ToUpper(segment)]
-	return !reserved
-}
-
-func isAQLIdentifierStart(char byte) bool {
-	return char == '_' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'
-}
-
-var aqlReservedWords = map[string]struct{}{
-	"AGGREGATE": {}, "ALL": {}, "ALL_SHORTEST_PATHS": {}, "AND": {}, "ANY": {}, "ASC": {},
-	"COLLECT": {}, "DESC": {}, "DISTINCT": {}, "FALSE": {}, "FILTER": {}, "FOR": {},
-	"GRAPH": {}, "IN": {}, "INBOUND": {}, "INSERT": {}, "INTO": {}, "K_PATHS": {},
-	"K_SHORTEST_PATHS": {}, "LET": {}, "LIKE": {}, "LIMIT": {}, "NONE": {}, "NOT": {},
-	"NULL": {}, "OR": {}, "OUTBOUND": {}, "REMOVE": {}, "REPLACE": {}, "RETURN": {},
-	"SHORTEST_PATH": {}, "SORT": {}, "TRUE": {}, "UPDATE": {}, "UPSERT": {}, "WINDOW": {},
-	"WITH": {}, "CURRENT": {}, "NEW": {}, "OLD": {},
+	return aqlsyntax.RenderPropertyPath(value.Variable, value.Path), nil
 }

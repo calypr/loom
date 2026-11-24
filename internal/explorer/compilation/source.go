@@ -1,0 +1,88 @@
+package compilation
+
+import (
+	"fmt"
+	"strings"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
+
+type SourceRowDescriptor struct {
+	ResourceType   string
+	PhysicalColumn string
+}
+
+func ResolveAddressableSourceRow(workspace ws.Workspace, contract receiptmodel.PublicOutputContract, emitted []viewer.EmittedColumn) (SourceRowDescriptor, error) {
+	if err := workspace.Validate(); err != nil {
+		return SourceRowDescriptor{}, fmt.Errorf("authoring workspace: %w", err)
+	}
+	for _, document := range workspace.Documents {
+		if document.Output.ID == contract.OutputID {
+			return resolveAddressableDocumentSourceRow(document, contract, emitted)
+		}
+	}
+	return SourceRowDescriptor{}, fmt.Errorf("authoring workspace has no output %q", contract.OutputID)
+}
+
+func resolveAddressableDocumentSourceRow(document ws.Document, contract receiptmodel.PublicOutputContract, emitted []viewer.EmittedColumn) (SourceRowDescriptor, error) {
+	if err := document.Validate(); err != nil {
+		return SourceRowDescriptor{}, fmt.Errorf("authoring document: %w", err)
+	}
+	if strings.TrimSpace(document.RootResourceType) == "" {
+		return SourceRowDescriptor{}, fmt.Errorf("root resource type is required")
+	}
+	if contract.OutputID != document.Output.ID {
+		return SourceRowDescriptor{}, fmt.Errorf("output contract %q does not match document %q", contract.OutputID, document.Output.ID)
+	}
+	if contract.RootResourceType != document.RootResourceType {
+		return SourceRowDescriptor{}, fmt.Errorf("output contract root resource type %q does not match document %q", contract.RootResourceType, document.RootResourceType)
+	}
+	grain := spec.RowGrain(contract.RowGrain)
+	if grain == spec.RowGrainExpanded || grain == spec.RowGrainGroups {
+		return SourceRowDescriptor{}, fmt.Errorf("synthetic rows do not preserve a single resource grain")
+	}
+	if err := spec.ValidateRootGrain(document.RootResourceType, grain); err != nil {
+		return SourceRowDescriptor{}, fmt.Errorf("source row grain: %w", err)
+	}
+	var source ws.Column
+	found := false
+	for _, column := range document.Columns {
+		if column.OccurrenceID != ws.RootOccurrenceID || column.Source.Kind != ws.SourceField || column.Source.Field == nil {
+			continue
+		}
+		path := strings.Trim(strings.TrimSpace(column.Source.Field.Path), ".")
+		mode := strings.ToUpper(strings.TrimSpace(column.Source.Field.ProjectionMode))
+		if path != "id" || mode != "VALUE" {
+			continue
+		}
+		if found {
+			return SourceRowDescriptor{}, fmt.Errorf("multiple root id VALUE source columns are not addressable")
+		}
+		source, found = column, true
+	}
+	if !found {
+		return SourceRowDescriptor{}, fmt.Errorf("addressable source row requires root direct id VALUE field")
+	}
+	var physical string
+	for _, column := range emitted {
+		if column.OutputID != document.Output.ID || column.OccurrenceID != ws.RootOccurrenceID || column.ProjectionMode != "VALUE" || column.SourceResourceType != document.RootResourceType || strings.Trim(strings.TrimSpace(column.SourcePath), ".") != "id" {
+			continue
+		}
+		if column.PublicColumn == "" || column.PublicColumn == "__loom_row_id" {
+			continue
+		}
+		if physical != "" {
+			return SourceRowDescriptor{}, fmt.Errorf("multiple emitted physical columns preserve root id")
+		}
+		physical = column.PublicColumn
+	}
+	if physical == "" {
+		return SourceRowDescriptor{}, fmt.Errorf("emitted physical columns do not preserve root id source %q", source.Column)
+	}
+	return SourceRowDescriptor{ResourceType: document.RootResourceType, PhysicalColumn: physical}, nil
+}

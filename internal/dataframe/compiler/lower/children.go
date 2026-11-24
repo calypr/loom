@@ -1,0 +1,586 @@
+package lower
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
+
+func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent recipeplan.SemanticNode, parentVariable string, child recipeplan.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
+	prefix := fmt.Sprintf("child_set_%d", setIndex)
+	targetVariable := fmt.Sprintf("%s_node", prefix)
+	edgeVariable := fmt.Sprintf("%s_edge", prefix)
+	traversal, err := physicalpkg.BuildPhysicalTraversal(physicalpkg.TraversalLoweringRequest{
+		FromType: parent.ResourceType, EdgeLabel: child.EdgeLabel, ToType: child.ResourceType,
+		SourceVariable: parentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
+		BindPrefix: prefix, Policy: policy,
+	})
+	if err != nil {
+		return ir.PhysicalSet{}, nil, err
+	}
+	for key, value := range traversal.BindVars {
+		physical.BindVars[key] = value
+	}
+	source := ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}
+	subplan := ir.PhysicalSubplan{Captures: []string{parentVariable}, Operations: []ir.PhysicalOperation{{
+		Kind: ir.PhysicalTraversalOp, Source: source,
+		Traversal: &traversal.Traversal,
+	}}}
+	subplan.Operations = appendProjectScope(subplan.Operations, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
+	subplan.Operations = appendDatasetGenerationScope(subplan.Operations, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
+	subplan.Operations = appendAuthScope(subplan.Operations, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: targetVariable, Path: []string{"auth_resource_path"}}}, prefix+"_scope_allowed", child)
+	for index, filter := range child.Filters {
+		if err := spec.ValidateTypedFilterForResource(child.ResourceType, filter); err != nil {
+			return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q: %w", filter.FieldRef, err)
+		}
+		correlationBinding := filter.Correlation
+		if correlationBinding != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return ir.PhysicalSet{}, nil, fmt.Errorf("child correlated filter %q requires one CODE value", filter.FieldRef)
+			}
+			correlated, correlatedErr := LowerCorrelatedPredicateWithIdentity(physical, child.ResourceType, *correlationBinding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, *filter.Values[0].Code, fmt.Sprintf("%s_filter_%d", prefix, index+1))
+			if correlatedErr != nil {
+				return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q correlation: %w", filter.FieldRef, correlatedErr)
+			}
+			subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &correlated}}})
+			continue
+		}
+		selector, err := spec.ParseSelector(filter.Selector)
+		if err != nil {
+			return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q selector: %w", filter.FieldRef, err)
+		}
+		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(child.ResourceType, selector)}}}
+		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
+			key := fmt.Sprintf("%s_filter_%d_value", prefix, index+1)
+			if filter.Operator == spec.FilterIn {
+				values := make([]any, 0, len(filter.Values))
+				for _, value := range filter.Values {
+					literal, err := physicalpkg.FilterLiteral(value)
+					if err != nil {
+						return ir.PhysicalSet{}, nil, err
+					}
+					values = append(values, literal)
+				}
+				physical.BindVars[key] = values
+			} else {
+				if len(filter.Values) == 0 {
+					return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q has no value", filter.FieldRef)
+				}
+				literal, err := physicalpkg.FilterLiteral(filter.Values[0])
+				if err != nil {
+					return ir.PhysicalSet{}, nil, err
+				}
+				physical.BindVars[key] = literal
+			}
+			predicate.Right = &ir.PhysicalValue{BindKey: key}
+		}
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+	}
+	subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: targetVariable}}
+	var output *ir.PhysicalSetOutput
+	if policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) {
+		output = compactPhysicalSetOutput(child)
+	}
+	set := ir.PhysicalSet{Variable: prefix, Subplan: subplan, Unique: true, SortByKey: true, Output: output}
+	projections := make([]ir.PhysicalProjection, 0, len(child.Fields))
+	for index, field := range child.Fields {
+		projection, err := lowerSemanticFieldProjection(physical, child, index, field, ir.PhysicalValue{Variable: set.Variable}, bindings, lowerer)
+		if err != nil {
+			return ir.PhysicalSet{}, nil, err
+		}
+		projection.Name = physicalpkg.TraversalColumnName(projectionPrefix, field.Name)
+		projections = append(projections, projection)
+	}
+	for _, aggregate := range child.Aggregates {
+		expression, err := physicalAggregateExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, aggregate, true)
+		if err != nil {
+			return ir.PhysicalSet{}, nil, err
+		}
+		name := aggregateProjectionName(aggregate, physicalpkg.TraversalColumnNamePrefix(projectionPrefix))
+		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
+	}
+	for _, pivot := range child.Pivots {
+		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, physicalpkg.TraversalColumnNamePrefix(projectionPrefix))
+		if err != nil {
+			return ir.PhysicalSet{}, nil, err
+		}
+		projections = append(projections, pivotProjections...)
+	}
+	for _, ownerRecords := range child.OwnerRecords {
+		expression, err := physicalOwnerRecordsExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, ownerRecords)
+		if err != nil {
+			return ir.PhysicalSet{}, nil, err
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: physicalpkg.TraversalColumnName(projectionPrefix, ownerRecords.Name), Expression: &expression})
+	}
+	for _, slice := range child.Slices {
+		expression, err := physicalSliceExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, slice)
+		if err != nil {
+			return ir.PhysicalSet{}, nil, err
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: physicalpkg.TraversalColumnName(projectionPrefix, slice.Name), Expression: &expression})
+	}
+
+	if policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) {
+
+		if len(child.DynamicMaps) == 0 && len(child.Pivots) == 0 && len(child.OwnerRecords) == 0 {
+			projectPhysicalChildSet(&set, child.ResourceType, projections)
+		} else {
+			set.Output = compactPhysicalSetOutput(child)
+		}
+	}
+	if set.Projection == nil {
+		prepareRichChildSet(&set, child.ResourceType, projections, policy)
+	}
+	return set, projections, nil
+}
+
+func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child recipeplan.SemanticNode, edgeVariable, targetVariable, prefix string) ([]ir.PhysicalOperation, error) {
+	scope := appendProjectScope(nil, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
+	scope = appendDatasetGenerationScope(scope, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
+	scope = appendAuthScope(scope, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: targetVariable, Path: []string{"auth_resource_path"}}}, prefix+"_scope_allowed", child)
+	for index, filter := range child.Filters {
+		if err := spec.ValidateTypedFilterForResource(child.ResourceType, filter); err != nil {
+			return nil, fmt.Errorf("route filter %q: %w", filter.FieldRef, err)
+		}
+		if correlation := filter.Correlation; correlation != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return nil, fmt.Errorf("route correlated filter %q requires one CODE value", filter.FieldRef)
+			}
+			correlated, err := LowerCorrelatedPredicateWithIdentity(physical, child.ResourceType, *correlation, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, *filter.Values[0].Code, fmt.Sprintf("%s_filter_%d", prefix, index+1))
+			if err != nil {
+				return nil, fmt.Errorf("route filter %q correlation: %w", filter.FieldRef, err)
+			}
+			scope = append(scope, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &correlated}}})
+			continue
+		}
+		selector, err := spec.ParseSelector(filter.Selector)
+		if err != nil {
+			return nil, fmt.Errorf("route filter %q selector: %w", filter.FieldRef, err)
+		}
+		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: physicalpkg.SelectorExecutionMode(child.ResourceType, selector)}}}
+		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
+			key := fmt.Sprintf("%s_filter_%d_value", prefix, index+1)
+			if filter.Operator == spec.FilterIn {
+				values := make([]any, 0, len(filter.Values))
+				for _, value := range filter.Values {
+					literal, err := physicalpkg.FilterLiteral(value)
+					if err != nil {
+						return nil, err
+					}
+					values = append(values, literal)
+				}
+				physical.BindVars[key] = values
+			} else {
+				if len(filter.Values) == 0 {
+					return nil, fmt.Errorf("route filter %q has no value", filter.FieldRef)
+				}
+				literal, err := physicalpkg.FilterLiteral(filter.Values[0])
+				if err != nil {
+					return nil, err
+				}
+				physical.BindVars[key] = literal
+			}
+			predicate.Right = &ir.PhysicalValue{BindKey: key}
+		}
+		scope = append(scope, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+	}
+	return scope, nil
+}
+
+func compactPhysicalSetOutput(node recipeplan.SemanticNode) *ir.PhysicalSetOutput {
+	fields := []ir.PhysicalSetOutputField{
+		ir.PhysicalSetGraphIDField,
+		ir.PhysicalSetKeyField,
+		ir.PhysicalSetLogicalKeyField,
+		ir.PhysicalSetIDField,
+		ir.PhysicalSetResourceTypeField,
+	}
+	needsPayload := len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.OwnerRecords) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0
+	if !needsPayload {
+		for _, aggregate := range node.Aggregates {
+			if aggregate.Selector != nil || aggregate.Predicate != nil {
+				needsPayload = true
+				break
+			}
+		}
+	}
+	if needsPayload {
+		fields = append(fields, ir.PhysicalSetPayloadField)
+	}
+	return &ir.PhysicalSetOutput{Fields: fields}
+}
+
+func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections []ir.PhysicalProjection, policy ir.PhysicalOptimizationPolicy) {
+	if !policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {
+		return
+	}
+	counts := map[string]int{}
+	selectors := map[string]spec.Selector{}
+	add := func(selector spec.Selector) {
+		key := physicalSelectorIdentity(selector)
+		counts[key]++
+		selectors[key] = selector
+	}
+	var collect func(*ir.PhysicalExpression)
+	collect = func(expression *ir.PhysicalExpression) {
+		if expression == nil {
+			return
+		}
+		switch expression.Kind {
+		case ir.PhysicalAggregateExpression:
+			if expression.Aggregate != nil {
+				if expression.Aggregate.Value != nil {
+					collect(expression.Aggregate.Value)
+				}
+				if expression.Aggregate.ContributorWindow != nil {
+					collect(&expression.Aggregate.ContributorWindow.Timestamp)
+				}
+				if expression.Aggregate.Ordering != nil {
+					collect(&expression.Aggregate.Ordering.Timestamp)
+				}
+				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
+					collect(expression.Aggregate.Predicate.Comparison.LeftExpression)
+				}
+			}
+		case ir.PhysicalPivotExpression:
+			if expression.Pivot != nil {
+				add(expression.Pivot.KeySelector)
+				add(expression.Pivot.ValueSelector)
+			}
+		case ir.PhysicalSliceExpression:
+			if expression.Slice != nil {
+				if expression.Slice.Predicate != nil && expression.Slice.Predicate.Comparison != nil {
+					collect(expression.Slice.Predicate.Comparison.LeftExpression)
+				}
+				for index := range expression.Slice.Projections {
+					collect(&expression.Slice.Projections[index].Expression)
+				}
+			}
+		case ir.PhysicalExtractExpression:
+			if expression.Extract != nil {
+				add(expression.Extract.Selector)
+			}
+		case ir.PhysicalObjectExpression:
+			if expression.Object != nil {
+				for index := range expression.Object.Fields {
+					collect(&expression.Object.Fields[index].Expression)
+				}
+			}
+		}
+	}
+	for index := range projections {
+		collect(projections[index].Expression)
+	}
+	eligible := map[string]string{}
+	fields := make([]ir.PhysicalPreparedField, 0)
+
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		count := counts[key]
+		_, _, savings := ir.EstimatePreparedSelectorWork(count)
+		if savings <= 0 {
+			continue
+		}
+		field := fmt.Sprintf("__loom_prepared_%d", len(fields))
+		eligible[key] = field
+		fields = append(fields, ir.PhysicalPreparedField{Name: field, ResourceType: resourceType, Selector: selectors[key]})
+	}
+	if len(fields) == 0 {
+		return
+	}
+	set.Prepared = &ir.PhysicalPreparedSet{Variable: set.Variable + "_prepared", SourceSetVariable: set.Variable, Fields: fields}
+	var annotate func(*ir.PhysicalExpression)
+	annotate = func(expression *ir.PhysicalExpression) {
+		if expression == nil {
+			return
+		}
+		annotateExtract := func(extract *ir.PhysicalExtract) {
+			if extract == nil || extract.Source.Variable != set.Variable || extract.UnitNormalization != nil {
+				return
+			}
+
+			if len(extract.Fallbacks) == 0 {
+				if field, ok := eligible[physicalSelectorIdentity(extract.Selector)]; ok {
+					extract.Prepared = &ir.PhysicalPreparedReference{SetVariable: set.Prepared.Variable, Field: field}
+				}
+			}
+		}
+		switch expression.Kind {
+		case ir.PhysicalAggregateExpression:
+			if expression.Aggregate != nil {
+				if expression.Aggregate.Value != nil {
+					annotate(expression.Aggregate.Value)
+				}
+				if expression.Aggregate.ContributorWindow != nil {
+					annotate(&expression.Aggregate.ContributorWindow.Timestamp)
+				}
+				if expression.Aggregate.Ordering != nil {
+					annotate(&expression.Aggregate.Ordering.Timestamp)
+				}
+				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
+					annotate(expression.Aggregate.Predicate.Comparison.LeftExpression)
+				}
+			}
+		case ir.PhysicalPivotExpression:
+			if expression.Pivot != nil {
+				if field, ok := eligible[physicalSelectorIdentity(expression.Pivot.KeySelector)]; ok {
+					expression.Pivot.PreparedKey = &ir.PhysicalPreparedReference{SetVariable: set.Prepared.Variable, Field: field}
+				}
+				if field, ok := eligible[physicalSelectorIdentity(expression.Pivot.ValueSelector)]; ok {
+					expression.Pivot.PreparedValue = &ir.PhysicalPreparedReference{SetVariable: set.Prepared.Variable, Field: field}
+				}
+			}
+		case ir.PhysicalSliceExpression:
+			if expression.Slice != nil {
+				if expression.Slice.Predicate != nil && expression.Slice.Predicate.Comparison != nil {
+					annotate(expression.Slice.Predicate.Comparison.LeftExpression)
+				}
+				for index := range expression.Slice.Projections {
+					annotate(&expression.Slice.Projections[index].Expression)
+				}
+			}
+		case ir.PhysicalExtractExpression:
+			annotateExtract(expression.Extract)
+		case ir.PhysicalObjectExpression:
+			if expression.Object != nil {
+				for index := range expression.Object.Fields {
+					annotate(&expression.Object.Fields[index].Expression)
+				}
+			}
+		}
+	}
+	for index := range projections {
+		annotate(projections[index].Expression)
+	}
+}
+
+func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projections []ir.PhysicalProjection) {
+	if set == nil || len(projections) == 0 {
+		return
+	}
+	selectors := map[string]spec.Selector{}
+	allValues := map[string]bool{}
+	fallback := false
+	var collect func(*ir.PhysicalExpression, bool)
+	var collectPredicate func(*ir.PhysicalPredicateExpression)
+	collectPredicate = func(predicate *ir.PhysicalPredicateExpression) {
+		if predicate == nil {
+			return
+		}
+		if predicate.Comparison != nil {
+			collect(predicate.Comparison.LeftExpression, false)
+		}
+		for index := range predicate.Children {
+			collectPredicate(&predicate.Children[index])
+		}
+	}
+	collect = func(expression *ir.PhysicalExpression, firstValueConsumer bool) {
+		if expression == nil {
+			return
+		}
+		switch expression.Kind {
+		case ir.PhysicalExtractExpression:
+			if expression.Extract == nil || expression.Extract.Source.Variable != set.Variable {
+				return
+			}
+			if expression.Extract.UnitNormalization != nil {
+				fallback = true
+				return
+			}
+			if len(expression.Extract.Fallbacks) != 0 {
+				fallback = true
+				return
+			}
+			key := physicalSelectorIdentity(expression.Extract.Selector)
+			selectors[key] = expression.Extract.Selector
+			if !firstValueConsumer || expression.Cardinality == ir.PhysicalArrayCardinality || expression.Extract.Selector.Filter != nil {
+				allValues[key] = true
+			}
+		case ir.PhysicalAggregateExpression:
+			if expression.Aggregate != nil {
+				collect(expression.Aggregate.Value, false)
+				if expression.Aggregate.ContributorWindow != nil {
+					collect(&expression.Aggregate.ContributorWindow.Timestamp, true)
+				}
+				if expression.Aggregate.Ordering != nil {
+					collect(&expression.Aggregate.Ordering.Timestamp, true)
+				}
+				collectPredicate(expression.Aggregate.Predicate)
+			}
+		case ir.PhysicalPivotExpression:
+			if expression.Pivot != nil && expression.Pivot.Source.Variable == set.Variable {
+				if len(expression.Pivot.ValueFallbacks) != 0 {
+					fallback = true
+					return
+				}
+				key := physicalSelectorIdentity(expression.Pivot.KeySelector)
+				value := physicalSelectorIdentity(expression.Pivot.ValueSelector)
+				selectors[key] = expression.Pivot.KeySelector
+				selectors[value] = expression.Pivot.ValueSelector
+				allValues[key] = true
+				allValues[value] = true
+			}
+		case ir.PhysicalSliceExpression:
+			if expression.Slice != nil {
+				collectPredicate(expression.Slice.Predicate)
+				collect(expression.Slice.Sort, false)
+				for index := range expression.Slice.Projections {
+					collect(&expression.Slice.Projections[index].Expression, false)
+				}
+			}
+		case ir.PhysicalObjectExpression:
+			if expression.Object != nil {
+				for index := range expression.Object.Fields {
+					collect(&expression.Object.Fields[index].Expression, false)
+				}
+			}
+		case ir.PhysicalCallExpression:
+			fallback = true
+		case ir.PhysicalKeyedMapExpression:
+			fallback = true
+		case ir.PhysicalKeySetExpression:
+			fallback = true
+		}
+	}
+	for index := range projections {
+		collect(projections[index].Expression, true)
+	}
+	if fallback || len(selectors) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(selectors))
+	for key := range selectors {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	fields := make([]ir.PhysicalSetProjectionField, 0, len(keys))
+	fieldBySelector := make(map[string]string, len(keys))
+	for index, key := range keys {
+		name := fmt.Sprintf("__loom_projection_%d", index)
+		fieldBySelector[key] = name
+		demand := ir.PhysicalSelectorFirstValue
+		if allValues[key] {
+			demand = ir.PhysicalSelectorAllValues
+		}
+		fields = append(fields, ir.PhysicalSetProjectionField{Name: name, ResourceType: resourceType, Selector: selectors[key], ExecutionMode: physicalpkg.SelectorExecutionMode(resourceType, selectors[key]), Demand: demand})
+	}
+	reductionFields := make([]ir.PhysicalSetReductionField, 0)
+	for index := range projections {
+		projection := &projections[index]
+		if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalExtractExpression || projection.Expression.Extract == nil {
+			continue
+		}
+		extract := projection.Expression.Extract
+		if extract.Source.Variable != set.Variable || extract.Source.BindKey != "" || len(extract.Source.Path) != 0 || len(extract.Fallbacks) != 0 {
+			continue
+		}
+		slot, ok := fieldBySelector[physicalSelectorIdentity(extract.Selector)]
+		if !ok {
+			continue
+		}
+		mode := ir.PhysicalSetReductionFirst
+		if projection.Expression.Cardinality == ir.PhysicalArrayCardinality {
+			mode = ir.PhysicalSetReductionAll
+			if projection.Expression.Extract.Distinct {
+				mode = ir.PhysicalSetReductionDistinct
+			}
+		}
+		name := fmt.Sprintf("__loom_reduced_%d", len(reductionFields))
+		reductionFields = append(reductionFields, ir.PhysicalSetReductionField{Name: name, SourceField: slot, Mode: mode})
+		projection.Value = ir.PhysicalValue{Variable: set.Variable + "_reduced", Path: []string{name}}
+		projection.Expression = nil
+	}
+	var rewrite func(*ir.PhysicalExpression)
+	var rewritePredicate func(*ir.PhysicalPredicateExpression)
+	rewritePredicate = func(predicate *ir.PhysicalPredicateExpression) {
+		if predicate == nil {
+			return
+		}
+		if predicate.Comparison != nil {
+			rewrite(predicate.Comparison.LeftExpression)
+		}
+		for index := range predicate.Children {
+			rewritePredicate(&predicate.Children[index])
+		}
+	}
+	rewrite = func(expression *ir.PhysicalExpression) {
+		if expression == nil {
+			return
+		}
+		switch expression.Kind {
+		case ir.PhysicalExtractExpression:
+			if expression.Extract != nil && expression.Extract.Source.Variable == set.Variable && len(expression.Extract.Fallbacks) == 0 {
+				if field := fieldBySelector[physicalSelectorIdentity(expression.Extract.Selector)]; field != "" {
+					expression.Extract.Prepared = &ir.PhysicalPreparedReference{SetVariable: set.Variable, Field: field}
+				}
+			}
+		case ir.PhysicalAggregateExpression:
+			if expression.Aggregate != nil {
+				rewrite(expression.Aggregate.Value)
+				if expression.Aggregate.ContributorWindow != nil {
+					rewrite(&expression.Aggregate.ContributorWindow.Timestamp)
+				}
+				if expression.Aggregate.Ordering != nil {
+					rewrite(&expression.Aggregate.Ordering.Timestamp)
+				}
+				rewritePredicate(expression.Aggregate.Predicate)
+			}
+		case ir.PhysicalPivotExpression:
+			if expression.Pivot != nil && expression.Pivot.Source.Variable == set.Variable {
+				expression.Pivot.PreparedKey = &ir.PhysicalPreparedReference{SetVariable: set.Variable, Field: fieldBySelector[physicalSelectorIdentity(expression.Pivot.KeySelector)]}
+				expression.Pivot.PreparedValue = &ir.PhysicalPreparedReference{SetVariable: set.Variable, Field: fieldBySelector[physicalSelectorIdentity(expression.Pivot.ValueSelector)]}
+			}
+		case ir.PhysicalSliceExpression:
+			if expression.Slice != nil {
+				rewritePredicate(expression.Slice.Predicate)
+				rewrite(expression.Slice.Sort)
+				for index := range expression.Slice.Projections {
+					rewrite(&expression.Slice.Projections[index].Expression)
+				}
+			}
+		case ir.PhysicalObjectExpression:
+			if expression.Object != nil {
+				for index := range expression.Object.Fields {
+					rewrite(&expression.Object.Fields[index].Expression)
+				}
+			}
+		}
+	}
+	for index := range projections {
+		rewrite(projections[index].Expression)
+	}
+	set.Projection = &ir.PhysicalSetProjection{Fields: fields}
+	if len(reductionFields) != 0 {
+		set.Reduction = &ir.PhysicalSetReduction{Variable: set.Variable + "_reduced", SourceSetVariable: set.Variable, Fields: reductionFields}
+	}
+	set.Output = nil
+}
+
+func physicalSelectorIdentity(selector spec.Selector) string {
+	var b strings.Builder
+	for _, step := range selector.Steps {
+		b.WriteString(step.Field)
+		if step.Iterate {
+			b.WriteString("[]")
+		}
+		if step.Index != nil {
+			fmt.Fprintf(&b, "[%d]", *step.Index)
+		}
+		b.WriteByte('.')
+	}
+	if selector.Filter != nil {
+		b.WriteString("?" + selector.Filter.Field + "=" + selector.Filter.Needle)
+	}
+	return b.String()
+}

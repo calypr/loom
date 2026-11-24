@@ -1,0 +1,236 @@
+package lifecycle
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
+	"github.com/calypr/loom/internal/explorer/construction"
+
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+
+	"github.com/calypr/loom/internal/authscope"
+
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/fhir/schema"
+)
+
+func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(t *testing.T) {
+	var snapshotState *capability.Snapshot
+	var queries int
+	setup := constructionProposalSetup(t, func(setup *testServiceSetup) {
+		setup.Config.RowChoiceResolver = categoryPresenceRowChoiceResolver{}
+		compileReceipt := setup.Config.CompileReceipt
+		snapshotState = &setup.Snapshot
+		setup.Config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return *snapshotState, nil }
+		setup.Config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: *snapshotState, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		}
+		setup.Config.Capability.Catalog = func(_ capability.Snapshot, explorerID string) ws.CatalogSnapshot {
+			return lifecycleInterpretationCatalog(*snapshotState, explorerID)
+		}
+		setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+			receipt, err := compileReceipt(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			compiledWorkspace, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, request.Workspace, *snapshotState, explorercompilation.ResolvedInputs{})
+			if err != nil {
+				return nil, err
+			}
+			bundle := compiledWorkspace.Bundle
+			receipt.Bundle = bundle
+			receipt.RecipeDigest, err = bundle.Digest()
+			if err != nil {
+				return nil, err
+			}
+			receipt.ResolvedRecipeDigest = receipt.RecipeDigest
+			receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+			if err != nil {
+				return nil, err
+			}
+			setup.Store.receipt = receipt
+			return receipt, nil
+		}
+		setup.Config.ScanCategories = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			if receipt == nil || receipt.Bundle.Outputs[0].Construction == nil || scan.StageID != "keep_positive" ||
+				scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" || !scan.RequireValue {
+				t.Fatalf("lifecycle did not pass the exact filtered discovery pair: receipt=%#v scan=%#v", receipt, scan)
+			}
+			plan, err := recipeplan.BuildRecipePlan(receipt.Bundle, bindings)
+			if err != nil {
+				t.Fatalf("build lifecycle receipt recipe: %v", err)
+			}
+			resolved, err := recipeplan.ResolveRecipePlan(plan, receipt.AuthorizationScopeDigest, bindings.DatasetGeneration)
+			if err != nil {
+				t.Fatalf("resolve lifecycle receipt recipe: %v", err)
+			}
+			compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("lower lifecycle receipt recipe: %v", err)
+			}
+			query, err := facade.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, facade.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("compile lifecycle category stage: %v", err)
+			}
+			queries++
+			if !query.Proof.PresenceTracked || query.PresentColumn == "" {
+				t.Fatalf("actual ordinary-probe compiler output did not prove source presence: %#v", query.Proof)
+			}
+			rows := []map[string]any{
+				{query.PresentColumn: true, query.ValueColumn: "final", "__loom_category_value_column": "final"},
+			}
+			queryRows := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				for _, row := range rows {
+					if err := visit(row); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			engine, err := dataframeexecution.New(dataframeexecution.Config{
+				Registry: categoryDiscoveryEmptyRecipeReader{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
+			})
+			if err != nil {
+				t.Fatalf("make lifecycle category engine: %v", err)
+			}
+			return engine.ScanCategoriesCompiled(ctx, query)
+		}
+	})
+	store, snapshot := setup.Store, setup.Snapshot
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := workspace.Documents[0]
+	document.Columns = []ws.Column{{
+		ColumnID: "group_id", Column: "patient_id", Label: "Patient ID", LogicalType: "string",
+		OccurrenceID: ws.RootOccurrenceID,
+		Source:       ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+	}}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{{
+		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
+			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
+		}},
+		Outputs: []ws.StageColumn{{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"}},
+	}}}
+	workspace.Documents[0] = document
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
+
+	snapshot = categoryPresenceSnapshot(t, snapshot)
+	*snapshotState = snapshot
+	categoryChoice := categoryPresenceRowChoice(t, snapshot, "gender")
+	valueChoice := categoryPresenceRowChoice(t, snapshot, "multipleBirthInteger")
+	service := newTestServiceFromSetup(t, setup)
+
+	request := construction.ConstructionCategoryDiscoveryRequest{
+		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "keep_positive", PivotStepID: "pivot_probe",
+		CategoryColumnID: "pivot_category_id", ValueColumnID: "pivot_value_id", GroupKeyIDs: []string{"group_id"},
+		PivotSources: []construction.ConstructionPivotSourceSelection{
+			{ChoiceID: categoryChoice.ChoiceID, ColumnID: "pivot_category_id"},
+			{ChoiceID: valueChoice.ChoiceID, ColumnID: "pivot_value_id"},
+		},
+		CandidateConstruction: document.Construction,
+	}
+	response, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queries != 1 || !response.Complete || response.Outcome != "COMPLETE" || len(response.Categories) != 1 {
+		t.Fatalf("filtered ordinary STRING probe discovery = %#v; actual compiler scans=%d", response, queries)
+	}
+	if response.Categories[0].Key.Kind != ws.TableScalarString {
+		t.Fatalf("category kind = %q, want %q: %#v", response.Categories[0].Key.Kind, ws.TableScalarString, response.Categories)
+	}
+}
+
+func categoryPresenceSnapshot(t *testing.T, snapshot capability.Snapshot) capability.Snapshot {
+	t.Helper()
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true, Populated: true}}
+	snapshot.Candidates = nil
+	for _, field := range []struct{ path, logical string }{{"id", "string"}, {"gender", "string"}, {"multipleBirthInteger", "integer"}} {
+		facts, err := index.ResolveRowPath("Patient", field.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+			ID: field.path, NodeID: "patient", ResourceType: "Patient", FieldPath: field.path,
+			Label: field.path, LogicalType: field.logical, Cardinality: string(facts.Cardinality),
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true,
+		})
+	}
+	return snapshot
+}
+
+func categoryPresenceRowChoice(t *testing.T, snapshot capability.Snapshot, path string) capability.RowChoice {
+	t.Helper()
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := index.ResolveRowPath("Patient", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice, err := capability.NewRowChoice(snapshot, []capability.RowChoiceOccurrence{{
+		OccurrenceID: ws.RootOccurrenceID, NodeID: "patient", ResourceType: "Patient",
+	}}, ws.RootOccurrenceID, capability.RowChoiceFieldGroupKey, capability.RowChoiceFacts{
+		ResourceType: "Patient", CanonicalPath: facts.CanonicalPath, FHIRType: facts.FHIRType,
+		Cardinality: capability.RowChoiceCardinality(facts.Cardinality), Shape: capability.RowChoiceShape(facts.Shape), Reference: facts.Reference,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return choice
+}
+
+type categoryPresenceRowChoiceResolver struct{}
+
+func (categoryPresenceRowChoiceResolver) ResolveRowChoiceID(_ context.Context, request rowdef.RowChoiceResolveRequest) (rowdef.ResolvedRowChoice, error) {
+	identity, err := capability.DecodeRowChoiceID(request.RowChoiceID)
+	if err != nil {
+		return rowdef.ResolvedRowChoice{}, err
+	}
+	return rowdef.ResolvedRowChoice{Kind: request.ExpectedKind, OccurrenceID: identity.Occurrence.OccurrenceID, FieldPath: identity.Path}, nil
+}
+
+type categoryDiscoveryEmptyRecipeReader struct{}
+
+func (categoryDiscoveryEmptyRecipeReader) LoadRecipe(context.Context, string) (recipe.Entry, error) {
+	return recipe.Entry{}, fmt.Errorf("not used by compiled category scan")
+}
+
+func (categoryDiscoveryEmptyRecipeReader) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
+	return recipe.Entry{}, fmt.Errorf("not used by compiled category scan")
+}

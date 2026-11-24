@@ -100,10 +100,6 @@ func MapDataframeError(err error, requestID string) MappedError {
 	}
 }
 
-func StatusForErrorCode(code string) int {
-	return statusForCode(normalizeHTTPCode(code), 0)
-}
-
 func normalizeHTTPCode(code string) string {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	code = strings.ReplaceAll(code, "-", "_")

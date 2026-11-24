@@ -3,18 +3,18 @@ package main
 import (
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 func TestVerifyExplorerContract(t *testing.T) {
-	state := explorer.ExplorerStateV1{
-		Management: explorer.ManagementInteractive,
-		Runtime: &explorer.ExplorerRuntimeV1{
+	state := viewer.ExplorerStateV1{
+		Management: viewer.ManagementInteractive,
+		Runtime: &viewer.ExplorerRuntimeV1{
 			Generation: "demo-generation",
-			Outputs: []explorer.ExplorerRuntimeOutputV1{{
+			Outputs: []viewer.ExplorerRuntimeOutputV1{{
 				OutputID: "patients",
 				Title:    "Patient cohort",
-				Columns: []explorer.ExplorerRuntimeColumnV1{
+				Columns: []viewer.ExplorerRuntimeColumnV1{
 					{Column: "patient_id"},
 					{Column: "age"},
 				},
@@ -28,14 +28,14 @@ func TestVerifyExplorerContract(t *testing.T) {
 }
 
 func TestVerifyExplorerContractRejectsWrongDataset(t *testing.T) {
-	state := explorer.ExplorerStateV1{
-		Management: explorer.ManagementRepository,
-		Runtime: &explorer.ExplorerRuntimeV1{
+	state := viewer.ExplorerStateV1{
+		Management: viewer.ManagementRepository,
+		Runtime: &viewer.ExplorerRuntimeV1{
 			Generation: "repo-generation",
-			Outputs: []explorer.ExplorerRuntimeOutputV1{{
+			Outputs: []viewer.ExplorerRuntimeOutputV1{{
 				OutputID: "patients",
 				Title:    "Repository output",
-				Columns:  []explorer.ExplorerRuntimeColumnV1{{Column: "identifier_system"}},
+				Columns:  []viewer.ExplorerRuntimeColumnV1{{Column: "identifier_system"}},
 			}},
 		},
 	}

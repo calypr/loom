@@ -1,0 +1,1487 @@
+package lower
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
+)
+
+func TestCompileResolvedRecipePlanLowersNonSelectorFieldAtGenericBoundary(t *testing.T) {
+	literal := func(value string) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.Quote(value))}
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "direct-expression",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "label", Expr: recipe.Expression{Call: "concat", Args: []recipe.Expression{literal("a"), literal("b")}}}},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var label *ir.PhysicalExpression
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "label" {
+				label = projection.Expression
+			}
+		}
+	}
+	if label == nil || label.Kind != ir.PhysicalCallExpression || label.Call == nil || label.Call.Name != "concat" {
+		t.Fatalf("label projection = %#v, want direct concat call", label)
+	}
+	if len(label.Call.Args) != 2 || label.Call.Args[0].Kind != ir.PhysicalLiteralExpression || label.Call.Args[1].Kind != ir.PhysicalLiteralExpression {
+		t.Fatalf("label call args = %#v, want two physical literals", label.Call.Args)
+	}
+	if _, ok := compiled.Outputs[0].Plan.BindVars[label.Call.Args[0].Literal.BindKey]; !ok {
+		t.Fatalf("first literal bind %q is missing: %#v", label.Call.Args[0].Literal.BindKey, compiled.Outputs[0].Plan.BindVars)
+	}
+	if _, ok := compiled.Outputs[0].Plan.BindVars[label.Call.Args[1].Literal.BindKey]; !ok {
+		t.Fatalf("second literal bind %q is missing: %#v", label.Call.Args[1].Literal.BindKey, compiled.Outputs[0].Plan.BindVars)
+	}
+}
+
+func TestCompileResolvedRecipePlanRejectsInvalidOutputSelection(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	for _, tc := range []struct {
+		name    string
+		selects []string
+		want    string
+	}{
+		{"unknown", []string{"missing"}, "unknown output"},
+		{"duplicate", []string{"Patient", "Patient"}, "duplicate output"},
+		{"blank", []string{""}, "output name is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCompileResolvedRecipePlanTypesOutputSelectionAsInvalidRequest(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	for _, tc := range []struct {
+		name        string
+		selects     []string
+		want        string
+		wantDetails map[string]any
+	}{
+		{"unknown", []string{"does-not-exist"}, "unknown output", map[string]any{"output": "does-not-exist"}},
+		{"duplicate", []string{"Patient", "Patient"}, "duplicate output", map[string]any{"output": "Patient"}},
+		{"blank", []string{"   "}, "output name is required", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err == nil {
+				t.Fatal("expected rejection")
+			}
+
+			userErr, ok := dataframeerrors.AsUserError(fmt.Errorf("compile resolved bundle: %w", err))
+			if !ok {
+				t.Fatalf("selection fault escaped as untyped; transports publish retryable-free INTERNAL_ERROR 500 for a typo: %v", err)
+			}
+			var typed *dataframeerrors.Error
+			if !errors.As(err, &typed) {
+				t.Fatalf("selection fault is not a typed *dataframeerrors.Error: %T", err)
+			}
+			if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) {
+				t.Fatalf("code=%s want %s", userErr.Code(), dataframeerrors.CodeInvalidRequest)
+			}
+			if userErr.Retryable() {
+				t.Fatal("mistyped output selection must be non-retryable")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+			if len(tc.wantDetails) > 0 {
+				if got := userErr.Details()["output"]; got != tc.wantDetails["output"] {
+					t.Fatalf("details=%v want echoing requested output %q", userErr.Details(), tc.wantDetails["output"])
+				}
+			} else if _, present := userErr.Details()["output"]; present {
+				t.Fatalf("details=%v must not echo a blank selection", userErr.Details())
+			}
+		})
+	}
+}
+
+func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != len(plan.Outputs) {
+		t.Fatalf("compiled output count = %d, want %d", len(compiled.Outputs), len(plan.Outputs))
+	}
+	if compiled.TranslationVersion != "test" {
+		t.Fatalf("translation version = %q, want test", compiled.TranslationVersion)
+	}
+	for _, output := range compiled.Outputs {
+		if len(output.Plan.Operations) == 0 {
+			t.Fatalf("output %q has no canonical operations", output.Name)
+		}
+		if err := output.Plan.Validate(); err != nil {
+			t.Fatalf("output %q canonical plan invalid: %v", output.Name, err)
+		}
+		if output.Plan.Operations[0].Kind != ir.PhysicalRootScanOp {
+			t.Fatalf("output %q first operation = %s, want ROOT_SCAN", output.Name, output.Plan.Operations[0].Kind)
+		}
+		semanticPaths := map[string]string{}
+		for _, column := range output.OutputSchema {
+			if column.Internal {
+				continue
+			}
+			if column.SemanticPath == "" {
+				t.Fatalf("output %q column %q has no semantic path", output.Name, column.Name)
+			}
+			if previous, exists := semanticPaths[column.SemanticPath]; exists {
+				t.Fatalf("output %q columns %q and %q share semantic path %q", output.Name, previous, column.Name, column.SemanticPath)
+			}
+			semanticPaths[column.SemanticPath] = column.Name
+		}
+	}
+}
+
+func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "document-ref",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "resource", Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}}}},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
+	}
+	var found *ir.PhysicalExpression
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "resource" {
+				found = projection.Expression
+			}
+		}
+	}
+	if found == nil || found.Kind != ir.PhysicalObjectExpression || found.Object == nil {
+		t.Fatalf("resource projection = %#v", found)
+	}
+	if err := compiled.Outputs[0].Plan.Validate(); err != nil {
+		t.Fatalf("document plan validation: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "payload") || !strings.Contains(rendered.Query, "resourceType") || !strings.Contains(rendered.Query, "_key") {
+		t.Fatalf("rendered document envelope missing fields: %s", rendered.Query)
+	}
+}
+
+func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, output := range compiled.Outputs {
+		var projections []ir.PhysicalProjection
+		for _, operation := range output.Plan.Operations {
+			if operation.Kind == ir.PhysicalReturnOp && operation.Return != nil {
+				projections = operation.Return.Projections
+				break
+			}
+		}
+		if len(projections) == 0 {
+			t.Fatalf("output %q has no return projections", output.Name)
+		}
+		if len(output.OutputSchema) != len(projections) {
+			t.Fatalf("output %q schema length=%d projections=%d", output.Name, len(output.OutputSchema), len(projections))
+		}
+		for index, projection := range projections {
+			column := output.OutputSchema[index]
+			if column.Name != projection.Name {
+				t.Fatalf("output %q schema[%d]=%q projection=%q", output.Name, index, column.Name, projection.Name)
+			}
+			wantInternal := projection.Hidden || projection.Name == "_key" || strings.HasPrefix(projection.Name, "__loom_")
+			if column.Internal != wantInternal {
+				t.Fatalf("output %q column %q internal=%v want %v", output.Name, column.Name, column.Internal, wantInternal)
+			}
+		}
+	}
+}
+
+func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "alias-scoped-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			TraversalColumnNaming: recipe.TraversalColumnNamingAlias,
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "occ_parent.id"}}},
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "occ_child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := map[string]bool{}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if !column.Internal {
+			public[column.Name] = true
+		}
+	}
+	if !public["occ_parent__id"] || !public["occ_child__id"] {
+		t.Fatalf("alias-scoped public columns = %#v", public)
+	}
+	if public["occ_parent__occ_child__id"] {
+		t.Fatalf("nested column unexpectedly used a path-scoped name: %#v", public)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"LET child_set_1_reduced = {", "LET child_set_2_reduced = {"} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("recipe traversal field missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if strings.Contains(rendered.Query, "FOR __loom_prepared_value IN child_set_") {
+		t.Fatalf("recipe traversal fields still rescan their child sets:\n%s", rendered.Query)
+	}
+}
+
+func TestTraversalColumnNamingExactKeepsAuthoredNamesAcrossNestedTraversals(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "exact-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Fields: []recipe.Field{{Name: "stable_patient_id", Expr: recipe.Expression{Select: "occ_parent.id"}}},
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "stable_condition_id", Expr: recipe.Expression{Select: "occ_child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := map[string]bool{}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if !column.Internal {
+			public[column.Name] = true
+		}
+	}
+	if !public["stable_patient_id"] || !public["stable_condition_id"] {
+		t.Fatalf("exact traversal public columns = %#v", public)
+	}
+	if public["occ_parent__stable_patient_id"] || public["occ_child__stable_condition_id"] {
+		t.Fatalf("exact traversal columns unexpectedly encoded route position: %#v", public)
+	}
+}
+
+func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "path-scoped-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "parent__child__id" {
+			return
+		}
+	}
+	t.Fatalf("path-scoped output schema = %#v", compiled.Outputs[0].OutputSchema)
+}
+
+func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := plan.Outputs[len(plan.Outputs)-1]
+	plan.Outputs = []recipeplan.OutputPlan{group}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, output := range compiled.Outputs {
+		if output.Name != "GroupMember" {
+			continue
+		}
+		for _, operation := range output.Plan.Operations {
+			if operation.Kind != ir.PhysicalUnnestOp || operation.Unnest == nil {
+				continue
+			}
+			found = true
+			if operation.Unnest.Owner.RootVariable != "root" || operation.Unnest.Owner.OwnerVariable != "root" || operation.Unnest.OutputVariable != "member" {
+				t.Fatalf("unexpected unnest bindings: %#v", operation.Unnest)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("GroupMember output did not lower to canonical UNNEST")
+	}
+}
+
+func TestCompileGroupMemberKeepsRequiredRowIdentityNonNullable(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	bundle.Outputs[1].Fields = append(bundle.Outputs[1].Fields, recipe.Field{
+		Name: "inactive", Expr: recipe.Expression{Select: "member.inactive"},
+	})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Outputs = []recipeplan.OutputPlan{plan.Outputs[len(plan.Outputs)-1]}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	columns := make(map[string]CompiledOutputColumn, len(compiled.Outputs[0].OutputSchema))
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		columns[column.Name] = column
+	}
+	identity, ok := columns["__loom_row_id"]
+	if !ok {
+		t.Fatal("GroupMember output schema omitted its hidden row identity")
+	}
+	if identity.Kind != string(expression.KindString) || identity.Cardinality != string(expression.RequiredOne) || identity.Nullable || !identity.Internal || !identity.Identity {
+		t.Fatalf("GroupMember row identity schema = %#v, want required non-nullable internal string identity", identity)
+	}
+	inactive, ok := columns["inactive"]
+	if !ok || inactive.Kind != string(expression.KindBoolean) || inactive.Cardinality != string(expression.OptionalOne) || !inactive.Nullable {
+		t.Fatalf("optional GroupMember.inactive schema = %#v, present=%t; want nullable optional boolean", inactive, ok)
+	}
+}
+
+func compilerFixtureBundle(t *testing.T) recipe.Bundle {
+	t.Helper()
+	bundle, err := recipe.Parse([]byte(`{
+		"recipeSchemaVersion":1,
+		"name":"compiler-fixture",
+		"translationVersion":"test",
+		"outputs":[
+			{"name":"Patient","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"id","expr":{"select":"root.id"}}]},
+			{"name":"GroupMember","rootResourceType":"Group","rowGrain":"expanded","expand":{"from":{"select":"root.member[]"},"as":"member"},"identity":{"name":"id","expr":{"select":"root.id"}},"fields":[{"name":"group_id","expr":{"select":"root.id"}},{"name":"member_id","expr":{"select":"root.id"}}]}
+		]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundle
+}
+
+func TestCompileResolvedRecipePlanLowersBoundedDynamicMap(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "dynamic", Source: recipe.Expression{Select: "root.identifier[].value"}, Columns: []string{"x"}}}}}}
+	var err error
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 || len(compiled.Outputs[0].DynamicColumns) != 1 {
+		t.Fatalf("dynamic metadata = %#v", compiled.Outputs)
+	}
+	found := false
+	foundRuntimeKeys := false
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "__loom_dynamic_runtime_keys" && projection.Hidden && projection.Expression != nil && projection.Expression.Kind == ir.PhysicalObjectExpression {
+				foundRuntimeKeys = true
+			}
+			if projection.Name == "dynamic_x" && projection.Expression != nil && projection.Expression.Kind == ir.PhysicalObjectLookupExpression {
+				found = true
+			}
+		}
+	}
+	if !found || !foundRuntimeKeys {
+		t.Fatal("dynamic projection was not lowered to canonical LOOKUP")
+	}
+}
+
+func TestCompileResolvedRecipePlanLowersDynamicItemLookup(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic-item", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "extension", Source: recipe.Expression{Select: "root.extension[]"}, Key: &recipe.Expression{Select: "item.url"}, Value: &recipe.Expression{Select: "item.url"}, Columns: []string{"http://example.org/code"}}}}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 || len(compiled.Outputs[0].DynamicColumns) != 1 {
+		t.Fatalf("dynamic metadata = %#v", compiled.Outputs)
+	}
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name != "extension_http___example_org_code" || projection.Expression == nil || projection.Expression.ObjectLookup == nil {
+				continue
+			}
+			for _, candidate := range compiled.Outputs[0].Plan.Operations {
+				if candidate.Kind == ir.PhysicalExpressionLetOp && candidate.ExpressionLet != nil && candidate.ExpressionLet.Expression.KeyedMap != nil {
+					if candidate.ExpressionLet.Expression.KeyedMap.ItemKey.Value == nil || candidate.ExpressionLet.Expression.KeyedMap.ItemKey.Value.Path[0] != "url" {
+						t.Fatalf("item key was not lowered to dynamic item path: %#v", candidate.ExpressionLet.Expression.KeyedMap.ItemKey)
+					}
+					return
+				}
+			}
+		}
+	}
+	t.Fatal("dynamic item lookup projection not found")
+}
+
+func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testing.T) {
+	emptyPrefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "attachment-extensions", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+		ExtensionColumns: []recipe.ExtensionColumn{{
+			Name: "attachment", ColumnPrefix: &emptyPrefix, MaxColumns: 8,
+			Source: recipe.Expression{Select: "root.content[].attachment.extension[]"},
+			Columns: []recipe.ExtensionColumnMapping{
+				{Name: "source_path", URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"},
+				{Name: "source_path__sha256", URL: "http://example.org/sha256", URLPath: []string{"http://example.org/source_path"}, SourcePath: "content[].attachment.extension[].extension[]", ValuePath: "valueString", ValueType: "string"},
+				{Name: "complex", URL: "http://example.org/complex", SourcePath: "content[].attachment.extension[]", ValueType: "string"},
+			},
+		}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
+	}
+	output := compiled.Outputs[0]
+	if len(output.DynamicColumns) != 0 {
+		t.Fatalf("extension mappings were still lowered as flattened dynamic columns: %#v", output.DynamicColumns)
+	}
+	provenance := map[string]string{}
+	for _, column := range output.OutputSchema {
+		if column.SourceOrigin != nil && column.SourceOrigin.SourceKind == "EXTENSION_COLUMN" {
+			provenance[column.Name] = column.SourceOrigin.OutputKey
+		}
+	}
+	if provenance["source_path"] != recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{Name: "source_path", URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}) {
+		t.Fatalf("top-level extension provenance = %#v", provenance)
+	}
+	if provenance["source_path__sha256"] != recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{Name: "source_path__sha256", URL: "http://example.org/sha256", URLPath: []string{"http://example.org/source_path"}, SourcePath: "content[].attachment.extension[].extension[]", ValuePath: "valueString", ValueType: "string"}) {
+		t.Fatalf("nested extension provenance = %#v", provenance)
+	}
+	var correlations []ir.PhysicalCorrelation
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil && operation.ExpressionLet.Expression.Pivot.Correlation != nil {
+			correlations = append(correlations, *operation.ExpressionLet.Expression.Pivot.Correlation)
+		}
+	}
+	if len(correlations) != 3 {
+		t.Fatalf("extension correlations = %d", len(correlations))
+	}
+	seenScalar, seenNested, seenJSON := false, false, false
+	for _, correlation := range correlations {
+		if len(correlation.ExtensionURLBindKeys) == 2 {
+			seenNested = true
+		}
+		if len(correlation.ExtensionURLBindKeys) == 1 && correlation.CanonicalJSONValue {
+			seenJSON = true
+		}
+		if len(correlation.ExtensionURLBindKeys) == 1 && correlation.ValueSelector.CanonicalPath() == "valueUrl" {
+			seenScalar = true
+		}
+	}
+	if !seenScalar || !seenNested || !seenJSON {
+		t.Fatalf("extension values were not lowered with exact ancestry: scalar=%v nested=%v json=%v", seenScalar, seenNested, seenJSON)
+	}
+	if err := output.Plan.Validate(); err != nil {
+		t.Fatalf("extension plan validation: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "__loom_postquery_call") || strings.Contains(rendered.Query, "JSON_STRINGIFY") {
+		t.Fatalf("complex extension was not deferred to canonical post-query JSON: %s", rendered.Query)
+	}
+	var exactNestedChain bool
+	for _, correlation := range correlations {
+		if len(correlation.ExtensionURLBindKeys) != 2 {
+			continue
+		}
+		parentKey, leafKey := correlation.ExtensionURLBindKeys[0], correlation.ExtensionURLBindKeys[1]
+		if rendered.BindVars[parentKey] != "http://example.org/source_path" || rendered.BindVars[leafKey] != "http://example.org/sha256" {
+			continue
+		}
+		parentFilter := strings.Index(rendered.Query, "@"+parentKey)
+		leafLoop := strings.Index(rendered.Query, "FOR __correlation_extension_1")
+		leafFilter := strings.Index(rendered.Query, "@"+leafKey)
+		exactNestedChain = parentFilter >= 0 && leafLoop > parentFilter && leafFilter > leafLoop
+	}
+	if !exactNestedChain {
+		t.Fatalf("AQL does not filter the owning parent before descending to the leaf:\n%s\n%#v", rendered.Query, rendered.BindVars)
+	}
+}
+
+func TestExtensionColumnOverwriteCollisionPreservesPinnedBehavior(t *testing.T) {
+	empty := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "extension-overwrite", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", CollisionPolicy: "overwrite",
+		Fields:           []recipe.Field{{Name: "status", Expr: recipe.Expression{Select: "root.id"}}},
+		ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", ColumnPrefix: &empty, Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 2, Columns: []recipe.ExtensionColumnMapping{{Name: "status", URL: "https://example.org/status", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("overwrite collision regressed: %v", err)
+	}
+	var winning *CompiledOutputColumn
+	for index := range compiled.Outputs[0].OutputSchema {
+		column := &compiled.Outputs[0].OutputSchema[index]
+		if column.Name == "status" {
+			if winning != nil {
+				t.Fatalf("duplicate status schema columns: %#v", compiled.Outputs[0].OutputSchema)
+			}
+			winning = column
+		}
+	}
+	if winning == nil || winning.SourceOrigin == nil || winning.SourceOrigin.SourceKind != "EXTENSION_COLUMN" {
+		t.Fatalf("winning extension output = %#v", compiled.Outputs[0].OutputSchema)
+	}
+	extensionProjection := false
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil && operation.ExpressionLet.Expression.Pivot.Correlation != nil && len(operation.ExpressionLet.Expression.Pivot.Correlation.ExtensionURLBindKeys) == 1 {
+			extensionProjection = true
+		}
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		count := 0
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "status" {
+				count++
+				if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalObjectLookupExpression {
+					t.Fatalf("winning status expression = %#v, want lookup from correlated extension output", projection.Expression)
+				}
+			}
+		}
+		if count != 1 {
+			t.Fatalf("RETURN contains %d status projections", count)
+		}
+	}
+	if !extensionProjection {
+		t.Fatal("physical plan omitted the correlated extension projection")
+	}
+}
+
+func TestNestedExtensionColumnKeepsLegacyScopeAliasName(t *testing.T) {
+	empty := ""
+	extension := recipe.ExtensionColumn{Name: "extensions", ColumnPrefix: &empty, Source: recipe.Expression{Select: "occ_child.extension[]"}, MaxColumns: 2, Columns: []recipe.ExtensionColumnMapping{{Name: "status", URL: "https://example.org/status", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "nested-extension-name", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+		Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional, Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional, ExtensionColumns: []recipe.ExtensionColumn{extension}}}}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.SourceOrigin != nil && column.SourceOrigin.SourceKind == "EXTENSION_COLUMN" {
+			if column.Name != "occ_child__status" {
+				t.Fatalf("extension output name = %q, want occ_child__status", column.Name)
+			}
+			return
+		}
+	}
+	t.Fatal("nested extension output missing")
+}
+
+func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns(t *testing.T) {
+	emptyPrefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "legacy-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", CollisionPolicy: "overwrite",
+		Fields: []recipe.Field{
+			{Name: "resource", Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}}},
+			{Name: "contentType", Expr: recipe.Expression{Select: "root.content[].attachment.contentType"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "url", Expr: recipe.Expression{Select: "root.content[].attachment.url"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "size", Expr: recipe.Expression{Select: "root.content[].attachment.size"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "hash", Expr: recipe.Expression{Select: "root.content[].attachment.hash"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "title", Expr: recipe.Expression{Select: "root.content[].attachment.title"}, ValueMode: recipe.ValueModeFirst},
+		},
+		DynamicColumns: []recipe.DynamicColumn{
+			{Name: "identifier_keys", ColumnPrefix: &emptyPrefix, Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}, Value: &recipe.Expression{Select: "item.value"}, Columns: []string{"HTAN_DATA_FILE_ID"}},
+			{Name: "category_keys", ColumnPrefix: &emptyPrefix, Source: recipe.Expression{Select: "root.category[].coding[]"}, Key: &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}, Value: &recipe.Expression{Select: "item.display"}, Columns: []string{"HTAN_DATA_FILE_ID"}},
+		},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.Outputs[0].DynamicColumns; len(got) != 2 || got[0].Name != "HTAN_DATA_FILE_ID" || got[0].DynamicName != "identifier_keys" || got[1].Name != "HTAN_DATA_FILE_ID" || got[1].DynamicName != "category_keys" {
+		t.Fatalf("dynamic overwrite metadata = %#v", got)
+	}
+	count := 0
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "HTAN_DATA_FILE_ID" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("HTAN_DATA_FILE_ID projections = %d, want one", count)
+	}
+}
+
+func TestCompileResolvedRecipePlanRendersDynamicLookupThroughCanonicalRenderer(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "dynamic", Source: recipe.Expression{Select: "root.identifier[].value"}, Columns: []string{"x"}}}}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "__loom_family") || !strings.Contains(rendered.Query, "COLLECT __loom_keyed_group_key") {
+		t.Fatalf("canonical renderer omitted lookup shape: %s", rendered.Query)
+	}
+}
+
+func TestWideDynamicFamilyUsesOneSourceComputation(t *testing.T) {
+	columns := make([]string, 150)
+	for index := range columns {
+		columns[index] = "identifier-" + strconv.Itoa(index)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "wide-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+		Fields:         []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Value: &recipe.Expression{Select: "item.value"}, Columns: columns}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(rendered.Query, "root.payload.identifier"); got != 2 {
+		t.Fatalf("wide family source rendered %d times, want one guarded shared computation\n%s", got, rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "__loom_family_identifiers["); got != len(columns) {
+		t.Fatalf("wide family lookups = %d, want %d", got, len(columns))
+	}
+	t.Logf("wide family columns=%d aql_bytes=%d bind_vars=%d operations=%d", len(columns), len(rendered.Query), len(rendered.BindVars), len(compiled.Outputs[0].Plan.Operations))
+}
+
+func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment", Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs[0].DynamicColumns) != 1 || compiled.Outputs[0].DynamicColumns[0].Name != "patient__identifiers_identifier" {
+		t.Fatalf("unexpected traversal dynamic metadata: %#v", compiled.Outputs[0].DynamicColumns)
+	}
+	if value, ok := compiled.Outputs[0].Plan.BindVars["recipe_dynamic_patient__identifiers_key_0"].(string); !ok || value != "identifier" {
+		t.Fatalf("missing traversal dynamic key bind vars: %#v", compiled.Outputs[0].Plan.BindVars)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundProjectionName := false
+	for _, value := range rendered.BindVars {
+		if value == "patient__identifiers_identifier" {
+			foundProjectionName = true
+			break
+		}
+	}
+	if !foundProjectionName || !strings.Contains(rendered.Query, "FOR __item IN child_set_1") {
+		t.Fatalf("rendered traversal dynamic projection missing: query=%s binds=%#v", rendered.Query, rendered.BindVars)
+	}
+	if strings.Contains(rendered.Query, "FOR dynamic_item IN FLATTEN([(") {
+		t.Fatalf("traversal dynamic source retained an extra array wrapper: %s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "FOR dynamic_item IN FLATTEN((") {
+		t.Fatalf("traversal dynamic source was not flattened directly: %s", rendered.Query)
+	}
+}
+
+func TestCompileResolvedRecipePlanNamesTraversalDynamicMapExactly(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic-exact", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "resource", TraversalColumnNaming: recipe.TraversalColumnNamingExact, Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", ValueMode: recipe.ValueModeAll, Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.Outputs[0].DynamicColumns[0].Name; got != "identifiers_identifier" {
+		t.Fatalf("exact traversal dynamic column = %q, want identifiers_identifier", got)
+	}
+	found := false
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "identifiers_identifier" {
+			found = column.Cardinality == string(expression.Many) && !column.Nullable
+		}
+	}
+	if !found {
+		t.Fatalf("exact dynamic column is not array-valued in output schema: %#v", compiled.Outputs[0].OutputSchema)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FOR __loom_keyed_item IN __loom_keyed_group") || !strings.Contains(rendered.Query, "HAS(") {
+		t.Fatalf("all-values dynamic column did not lower to an array with empty fallback: %s", rendered.Query)
+	}
+}
+
+func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "component-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{Name: "components", ColumnExpr: recipe.Expression{Select: "root.component[].code.coding[].display"}, ValueExpr: recipe.Expression{Select: "root.component[].valueString"}, ItemSource: recipe.Expression{Select: "root.component[]"}, ItemResourceType: "ObservationComponent", Columns: []string{"hemoglobin"}}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered.Query, "pivot_item_value") < 1 || !strings.Contains(rendered.Query, "__root.code") {
+		t.Fatalf("component pivot was not lowered as one correlated item scope: %s", rendered.Query)
+	}
+}
+
+func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "mixed-observation-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{
+			Name:           "observation_values",
+			ColumnExpr:     recipe.Expression{Select: "root.code.text"},
+			ValueExpr:      recipe.Expression{Select: "root.valueQuantity.value"},
+			ValueFallbacks: []recipe.Expression{{Select: "root.valueString"}, {Select: "root.valueBoolean"}},
+			Columns:        []string{"Biospecimen"},
+		}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name != "observation_values__Biospecimen" {
+			continue
+		}
+		found = true
+		if column.Kind != string(expression.KindString) || column.Cardinality != string(expression.RequiredOne) || !column.Nullable {
+			t.Fatalf("mixed pivot column = %#v, want nullable scalar string", column)
+		}
+	}
+	if !found {
+		t.Fatalf("compiled schema missing flattened pivot column: %#v", compiled.Outputs[0].OutputSchema)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "TO_STRING(FIRST(__pivot_flat_values))") {
+		t.Fatalf("mixed pivot values were not normalized to strings: %s", rendered.Query)
+	}
+}
+
+func TestCompiledRecipeOutputSchemaPreservesAliasedPivotMetadata(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "aliased-observation-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{
+			Name:          "observation_values",
+			FieldRef:      "Observation.valueQuantity.value",
+			ColumnExpr:    recipe.Expression{Select: "root.code.text"},
+			ValueExpr:     recipe.Expression{Select: "root.valueQuantity.value"},
+			Columns:       []string{"Biospecimen"},
+			ColumnAliases: map[string]string{"Biospecimen": "biospecimen_value"},
+		}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name != "biospecimen_value" {
+			continue
+		}
+		if column.Kind != string(expression.KindDecimal) || column.SemanticPath != "Observation.valueQuantity.value[Biospecimen]" {
+			t.Fatalf("aliased pivot column = %#v", column)
+		}
+		return
+	}
+	t.Fatalf("compiled schema missing aliased pivot column: %#v", compiled.Outputs[0].OutputSchema)
+}
+
+func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "first-projection", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "resource",
+		Fields: []recipe.Field{{
+			Name:      "author_reference",
+			Expr:      recipe.Expression{Select: "root.author[].reference"},
+			ValueMode: recipe.ValueModeFirst,
+		}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name != "author_reference" {
+			continue
+		}
+		if column.Cardinality != string(expression.OptionalOne) || !column.Nullable {
+			t.Fatalf("FIRST projection column = %#v, want optional scalar", column)
+		}
+		return
+	}
+	t.Fatalf("compiled schema missing author_reference: %#v", compiled.Outputs[0].OutputSchema)
+}
+
+func TestCompiledRecipeSliceFieldsHonorValueModes(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "slice-modes", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+		Slices: []recipe.RepresentativeSlice{{Name: "representatives", Limit: 2, Fields: []recipe.Field{
+			{Name: "first", Expr: recipe.Expression{Select: "name[].family"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "all", Expr: recipe.Expression{Select: "name[].given[]"}, ValueMode: recipe.ValueModeAll},
+			{Name: "distinct", Expr: recipe.Expression{Select: "name[].given[]"}, ValueMode: recipe.ValueModeDistinct},
+		}}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		cardinality ir.PhysicalCardinality
+		distinct    bool
+	}{
+		"first":    {ir.PhysicalScalarCardinality, false},
+		"all":      {ir.PhysicalArrayCardinality, false},
+		"distinct": {ir.PhysicalArrayCardinality, true},
+	}
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalSliceExpression || projection.Expression.Slice == nil {
+				continue
+			}
+			for _, nested := range projection.Expression.Slice.Projections {
+				if expected, ok := want[nested.Name]; ok {
+					if nested.Expression.Cardinality != expected.cardinality || nested.Expression.Extract == nil || nested.Expression.Extract.Distinct != expected.distinct {
+						t.Fatalf("slice field %q = %#v, want cardinality %s distinct=%t", nested.Name, nested.Expression, expected.cardinality, expected.distinct)
+					}
+					delete(want, nested.Name)
+				}
+			}
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing slice fields: %#v", want)
+	}
+}
+
+func TestCompileResolvedRecipePlanRejectsSanitizedPublicColumnCollision(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "collision", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{Name: "component", ColumnExpr: recipe.Expression{Select: "root.component[].code.coding[].display"}, ValueExpr: recipe.Expression{Select: "root.component[].valueString"}, ItemSource: recipe.Expression{Select: "root.component[]"}, ItemResourceType: "ObservationComponent", Columns: []string{"a-b", "a_b"}}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "colliding public column name") {
+		t.Fatalf("error = %v, want collision diagnostic", err)
+	}
+}
+
+func TestRecipeExpressionOperationMatrixChecksLowersAndRenders(t *testing.T) {
+	literal := func(value string) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.Quote(value))}
+	}
+	boolean := func(value bool) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.FormatBool(value))}
+	}
+	tests := []struct {
+		name string
+		call string
+		args []recipe.Expression
+		want string
+	}{
+		{"fallback", "fallback", []recipe.Expression{literal("a"), literal("b")}, "FIRST(FOR"},
+		{"not", "not", []recipe.Expression{boolean(true)}, "NOT ("},
+		{"and", "and", []recipe.Expression{boolean(true), boolean(false)}, " AND "},
+		{"or", "or", []recipe.Expression{boolean(true), boolean(false)}, " OR "},
+		{"eq", "eq", []recipe.Expression{literal("a"), literal("b")}, " == "},
+		{"neq", "neq", []recipe.Expression{literal("a"), literal("b")}, " != "},
+		{"gt", "gt", []recipe.Expression{literal("a"), literal("b")}, " > "},
+		{"gte", "gte", []recipe.Expression{literal("a"), literal("b")}, " >= "},
+		{"lt", "lt", []recipe.Expression{literal("a"), literal("b")}, " < "},
+		{"lte", "lte", []recipe.Expression{literal("a"), literal("b")}, " <= "},
+		{"contains", "contains", []recipe.Expression{literal("a"), literal("b")}, "CONTAINS("},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "operation-" + test.name, TranslationVersion: "1", Outputs: []recipe.Output{{
+				Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+				Fields: []recipe.Field{{Name: "value", Expr: recipe.Expression{Call: test.call, Args: test.args}}},
+			}}}
+			plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(rendered.Query, test.want) {
+				t.Fatalf("rendered %s expression missing %q: %s", test.call, test.want, rendered.Query)
+			}
+		})
+	}
+}
+
+func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "rich",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name:             "conditions",
+			RootResourceType: "Condition",
+			RowGrain:         "diagnosis",
+			Fields:           []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "id"}}},
+			Pivots: []recipe.Pivot{{
+				Name:       "diagnosis",
+				ColumnExpr: recipe.Expression{Select: "code.coding[].display"},
+				ValueExpr:  recipe.Expression{Select: "code.text"},
+				Columns:    []string{"melanoma", "glioma"},
+			}},
+			Aggregates: []recipe.Aggregate{{Name: "condition_count", Operation: recipe.AggregateCount}},
+			Slices: []recipe.RepresentativeSlice{{
+				Name: "representatives", Limit: 2,
+				Fields: []recipe.Field{{Name: "status", Expr: recipe.Expression{Select: "verificationStatus"}}},
+			}},
+		}},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d, want 1", len(compiled.Outputs))
+	}
+	var kinds map[string]ir.PhysicalExpressionKind
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		kinds = make(map[string]ir.PhysicalExpressionKind, len(operation.Return.Projections))
+		for _, projection := range operation.Return.Projections {
+			if projection.Expression != nil {
+				kinds[projection.Name] = projection.Expression.Kind
+			}
+		}
+	}
+	for name, want := range map[string]ir.PhysicalExpressionKind{
+		"diagnosis__glioma":   ir.PhysicalObjectLookupExpression,
+		"diagnosis__melanoma": ir.PhysicalObjectLookupExpression,
+		"condition_count":     ir.PhysicalAggregateExpression,
+		"representatives":     ir.PhysicalSliceExpression,
+	} {
+		if got := kinds[name]; got != want {
+			t.Fatalf("projection %q kind = %q, want %q (all=%#v)", name, got, want, kinds)
+		}
+	}
+}
+
+func TestCompileResolvedRecipePlanPreservesRestrictedEmptyAuthScope(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "scope", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "id"}}},
+	}}}
+	for _, test := range []struct {
+		name       string
+		mode       authscope.ReadScopeMode
+		wantBypass bool
+	}{
+		{name: "restricted-empty", mode: authscope.ReadScopeRestricted, wantBypass: false},
+		{name: "legacy-unrestricted", mode: authscope.ReadScopeUnrestricted, wantBypass: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bindings := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation", AuthScopeMode: test.mode}
+			plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := compiled.Outputs[0].Plan.BindVars["auth_resource_paths_unrestricted"].(bool)
+			if !ok || got != test.wantBypass {
+				t.Fatalf("auth bypass bind = %#v, want %t", compiled.Outputs[0].Plan.BindVars["auth_resource_paths_unrestricted"], test.wantBypass)
+			}
+		})
+	}
+}
+
+func TestCompileResolvedRecipePlanLowersRequiredTraversalFilter(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "required", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", Alias: "condition", ToResourceType: "Condition", MatchMode: recipe.MatchRequired,
+			Filters: []recipe.Filter{{Select: "id", Operator: recipe.FilterExists}},
+		}},
+	}}}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind == ir.PhysicalFilterOp && operation.Filter != nil && operation.Source.SemanticNode == "condition" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("required traversal filter did not reach physical plan")
+	}
+}
+
+func TestPruneUnmaterializedDynamicColumnsRequiresRuntimeInventory(t *testing.T) {
+	metadata := []DynamicColumnMetadata{{Name: "researchstudy__identifier_by_system", DynamicName: "researchstudy__identifier", ValueType: "STRING"}}
+	if got := pruneUnmaterializedDynamicColumns(metadata, []CompiledOutputColumn{{Name: "researchstudy__identifier_by_system"}}); len(got) != 0 {
+		t.Fatalf("derived output without runtime inventory kept checks: %#v", got)
+	}
+	schema := []CompiledOutputColumn{{Name: "researchstudy__identifier_by_system"}, {Name: "__loom_dynamic_runtime_keys"}}
+	if got := pruneUnmaterializedDynamicColumns(metadata, schema); len(got) != 1 {
+		t.Fatalf("output with runtime inventory dropped checks: %#v", got)
+	}
+}
+
+func TestWorkspaceOutputResolverUsesFinalGroupAndPivotSchemas(t *testing.T) {
+	grouped := recipe.Output{
+		Name: "grouped", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "gender", ColumnID: "gender_id", Expr: recipe.Expression{Select: "root.gender"}}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: []recipe.StageColumn{{ID: "gender_id", Name: "gender", Type: "string"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_patients",
+					Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "gender_id", OutputColumnID: "group_gender_id"}},
+					Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "patient_count_id"}},
+				}},
+				Outputs: []recipe.StageColumn{{ID: "group_gender_id", Name: "gender", Type: "string"}, {ID: "patient_count_id", Name: "patient_count", Type: "integer"}},
+			}},
+		},
+	}
+	pivoted := constructionTestOutput()
+	pivoted.Name = "pivoted"
+	pivoted.Construction.Steps = append([]recipe.ConstructionStep(nil), pivoted.Construction.Steps[:1]...)
+	pivoted.Construction.Steps[0].Outputs = []recipe.StageColumn{
+		{ID: "group_id", Name: "group", Type: "string"},
+		{ID: "amount_a_id", Name: "amount_a", Type: "integer", Nullable: true},
+		{ID: "amount_b_id", Name: "amount_b", Type: "integer", Nullable: true},
+	}
+	combine := recipe.ConstructionCombine{
+		Kind: recipe.ConstructionCombineKeyJoin, JoinType: recipe.ConstructionCombineLeftJoin,
+		RightMatchPolicy: recipe.ConstructionCombinePreserveAllMatches,
+		Keys:             []recipe.ConstructionCombineKey{{LeftColumnID: "group_gender_id", RightColumnID: "group_id"}},
+		Projections: []recipe.ConstructionCombineProjection{
+			{OutputColumnID: "gender", InputIndex: 0, InputColumnID: "group_gender_id"},
+			{OutputColumnID: "amount", InputIndex: 1, InputColumnID: "amount_a_id"},
+		},
+	}
+	combined := combineRecipeOutput(combine, []recipe.ConstructionInputRef{
+		{Kind: recipe.ConstructionWorkspaceOutputInput, OutputID: "grouped"},
+		{Kind: recipe.ConstructionWorkspaceOutputInput, OutputID: "pivoted"},
+	}, []recipe.StageColumn{
+		{ID: "gender", Name: "gender", Type: "string", Nullable: true},
+		{ID: "amount", Name: "amount", Type: "integer", Nullable: true},
+	})
+	combined.Name = "combined"
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "workspace", TranslationVersion: "1",
+		Outputs: []recipe.Output{combined, grouped, pivoted},
+	}
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatalf("BuildRecipePlan: %v", err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatalf("ResolveRecipePlan: %v", err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("CompileResolvedRecipePlan: %v", err)
+	}
+	if len(compiled.Outputs) != 3 || compiled.Outputs[0].Name != "combined" || compiled.Outputs[1].Name != "grouped" || compiled.Outputs[2].Name != "pivoted" {
+		t.Fatalf("compiled outputs lost authored order: %#v", compiled.Outputs)
+	}
+	combinedOutput := compiled.Outputs[0]
+	if len(combinedOutput.WorkspaceOutputSources) != 2 {
+		t.Fatalf("workspace sources = %#v, want both sibling inputs", combinedOutput.WorkspaceOutputSources)
+	}
+	for _, source := range combinedOutput.WorkspaceOutputSources {
+		var expected []CompiledOutputColumn
+		switch source.OutputID {
+		case "grouped":
+			expected = compiled.Outputs[1].OutputSchema
+		case "pivoted":
+			expected = compiled.Outputs[2].OutputSchema
+		default:
+			t.Fatalf("unexpected source output ID %q", source.OutputID)
+		}
+		if !equalCompiledOutputSchemas(source.Schema, expected) {
+			t.Fatalf("source %q schema differs from finalized compiler output", source.OutputID)
+		}
+	}
+	if compiled.Outputs[0].Plan.ClickHouseCombine.Inputs[0].WorkspaceOutputID != "grouped" || compiled.Outputs[0].Plan.ClickHouseCombine.Inputs[1].WorkspaceOutputID != "pivoted" {
+		t.Fatalf("physical workspace refs = %#v", compiled.Outputs[0].Plan.ClickHouseCombine.Inputs)
+	}
+	selectedResolved := resolved
+	selectedResolved.SemanticPlan.Bindings.OutputNames = []string{"combined"}
+	selected, err := CompileResolvedRecipePlan(selectedResolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile selected combined output with its dependency closure: %v", err)
+	}
+	if len(selected.Outputs) != 1 || len(selected.Outputs[0].WorkspaceOutputSources) != 2 {
+		t.Fatalf("selected output did not retain both resolved dependency schemas: %#v", selected.Outputs)
+	}
+	if len(selected.WorkspaceDependencies) != 2 {
+		t.Fatalf("selected output dependency count = %d, want 2: %#v", len(selected.WorkspaceDependencies), selected.WorkspaceDependencies)
+	}
+	if got := []string{selected.WorkspaceDependencies[0].Name, selected.WorkspaceDependencies[1].Name}; !reflect.DeepEqual(got, []string{"grouped", "pivoted"}) {
+		t.Fatalf("selected output dependency plans = %#v, want topological grouped/pivoted order", got)
+	}
+	for index, expected := range []string{"grouped", "pivoted"} {
+		if !equalCompiledOutputSchemas(selected.WorkspaceDependencies[index].OutputSchema, compiled.Outputs[index+1].OutputSchema) {
+			t.Fatalf("selected output dependency %q lost its finalized group/pivot schema", expected)
+		}
+	}
+	if len(compiled.WorkspaceDependencies) != 0 {
+		t.Fatalf("unfiltered compilation duplicated public outputs as dependencies: %#v", compiled.WorkspaceDependencies)
+	}
+
+	mismatched := bundle
+	mismatched.Outputs = append([]recipe.Output(nil), bundle.Outputs...)
+	construction := *bundle.Outputs[0].Construction
+	construction.Steps = append([]recipe.ConstructionStep(nil), bundle.Outputs[0].Construction.Steps...)
+	mismatched.Outputs[0].Construction = &construction
+	mismatched.Outputs[0].Construction.Steps[0].Outputs = append([]recipe.StageColumn(nil), bundle.Outputs[0].Construction.Steps[0].Outputs...)
+	mismatched.Outputs[0].Construction.Steps[0].Outputs[1].Type = "string"
+	mismatchPlan, err := recipeplan.BuildRecipePlan(mismatched, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatalf("BuildRecipePlan(mismatched schema): %v", err)
+	}
+	mismatchResolved, err := recipeplan.ResolveRecipePlan(mismatchPlan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatalf("ResolveRecipePlan(mismatched schema): %v", err)
+	}
+	if _, err := CompileResolvedRecipePlan(mismatchResolved, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "compiler-owned type") {
+		t.Fatalf("client-declared output type mismatch error = %v", err)
+	}
+}
+
+func equalCompiledOutputSchemas(left, right []CompiledOutputColumn) bool {
+	return reflect.DeepEqual(left, right)
+}

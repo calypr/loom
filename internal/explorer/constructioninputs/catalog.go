@@ -10,18 +10,21 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
-	"github.com/calypr/loom/internal/api/columncapabilities"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -94,13 +97,13 @@ type revisionReader interface {
 type Catalog struct {
 	reader       ExactReader
 	catalog      publicationCatalog
-	capabilities lifecycle.CapabilityResolver
+	capabilities ports.CapabilityResolver
 	scopes       *authscope.ScopeResolver
 	explorers    explorerReader
 	revisions    revisionReader
 }
 
-func New(reader ExactReader, catalog publicationCatalog, capabilities lifecycle.CapabilityResolver, scopes *authscope.ScopeResolver, explorers explorerReader, revisions revisionReader) Catalog {
+func New(reader ExactReader, catalog publicationCatalog, capabilities ports.CapabilityResolver, scopes *authscope.ScopeResolver, explorers explorerReader, revisions revisionReader) Catalog {
 	return Catalog{reader: reader, catalog: catalog, capabilities: capabilities, scopes: scopes, explorers: explorers, revisions: revisions}
 }
 
@@ -126,7 +129,7 @@ type constructionInputPresentation struct {
 type constructionInputPublicationMetadata struct {
 	tableTitle string
 	outputs    map[string]constructionInputOutputPresentation
-	contracts  explorer.PublicOutputContracts
+	contracts  receiptmodel.PublicOutputContracts
 }
 
 type constructionInputOutputPresentation struct {
@@ -397,7 +400,7 @@ func (c Catalog) authorizedSnapshot(ctx context.Context, project, explorerID str
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction inputs", nil)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
 		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be verified", nil)
 	}
@@ -517,7 +520,7 @@ func (c Catalog) constructionInputPublicationMetadata(ctx context.Context, execu
 		(revision.Status != explorer.RevisionReady && revision.Status != explorer.RevisionActive && revision.Status != explorer.RevisionSuperseded) {
 		return nil, fmt.Errorf("immutable source presentation does not match published revision %q", execution.ID)
 	}
-	contracts, err := explorer.DecodePublicOutputContracts(revision.PublicOutputContract)
+	contracts, err := receiptmodel.DecodePublicOutputContracts(revision.PublicOutputContract)
 	if err != nil {
 		return nil, fmt.Errorf("decode immutable source presentation for published revision %q: %w", execution.ID, err)
 	}
@@ -592,7 +595,7 @@ func constructionInputColumns(columns []published.Column, labels map[string]stri
 		if strings.TrimSpace(column.ID) == "" {
 			continue
 		}
-		capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
+		capabilities := publication.ResolveColumnCapabilities(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
 		label := column.Name
 		if pinnedLabel := labels[column.Name]; strings.TrimSpace(pinnedLabel) != "" {
 			label = pinnedLabel

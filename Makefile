@@ -155,9 +155,12 @@ clean:
 test-ui:
 	npm --prefix ui test
 
-.PHONY: lint-go-comments
+.PHONY: lint-go-comments lint-filenames
 lint-go-comments:
 	$(GO) run ./cmd/check-go-comments
+
+lint-filenames:
+	@python3 scripts/lint_filenames.py
 
 test-go:
 	$(GO) test ./...

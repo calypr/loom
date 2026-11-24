@@ -20,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -136,11 +136,11 @@ func main() {
 		bundle = fixture.Recipe
 		bindings = recipe.RuntimeBindings{Project: fixture.Project}
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		fatalf("build recipe plan %q: %v", label, err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "profile", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "profile", bindings.DatasetGeneration)
 	if err != nil {
 		fatalf("resolve recipe plan %q: %v", label, err)
 	}

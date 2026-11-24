@@ -1,0 +1,164 @@
+package lower
+
+import (
+	"encoding/json"
+	"fmt"
+
+	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
+
+func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root recipeplan.SemanticNode) error {
+	return appendRequiredTraversalMatchFiltersExcept(physical, root, nil)
+}
+
+func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root recipeplan.SemanticNode, selectedOccurrences map[string]struct{}) error {
+	nextMatch := 0
+	seen := map[string]struct{}{}
+	var walk func(recipeplan.SemanticNode, []recipeplan.SemanticNode, bool) error
+	walk = func(parent recipeplan.SemanticNode, route []recipeplan.SemanticNode, requiredPrefix bool) error {
+		for _, child := range parent.Children {
+			next := append(append([]recipeplan.SemanticNode(nil), route...), child)
+			childRequired := child.MatchMode.Required()
+			_, selectedRouteStep := selectedOccurrences[child.OccurrenceID]
+			if childRequired && requiredPrefix && !selectedRouteStep {
+
+				key, err := requiredSemanticRouteKey(root.ResourceType, next)
+				if err != nil {
+					return err
+				}
+				if _, duplicate := seen[key]; duplicate {
+					physical.RequiredMatchReuseCount++
+					continue
+				}
+				seen[key] = struct{}{}
+				predicate, err := buildRequiredTraversalExists(physical, nextMatch, root, next)
+				if err != nil {
+					return err
+				}
+				physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+					Kind:   ir.PhysicalFilterOp,
+					Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel},
+					Filter: &ir.PhysicalFilter{Expression: &predicate},
+				})
+				nextMatch++
+			}
+			if err := walk(child, next, requiredPrefix && childRequired); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(root, nil, true)
+}
+
+func requiredSemanticRouteKey(rootResourceType string, route []recipeplan.SemanticNode) (string, error) {
+	type step struct {
+		ResourceType string
+		EdgeLabel    string
+		Filters      []spec.TypedFilter
+	}
+	steps := make([]step, 0, len(route))
+	for _, node := range route {
+		steps = append(steps, step{ResourceType: node.ResourceType, EdgeLabel: node.EdgeLabel, Filters: node.Filters})
+	}
+	encoded, err := json.Marshal(struct {
+		Root  string
+		Steps []step
+	}{Root: rootResourceType, Steps: steps})
+	if err != nil {
+		return "", fmt.Errorf("encode required traversal reuse key: %w", err)
+	}
+	return string(encoded), nil
+}
+
+func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, root recipeplan.SemanticNode, routeNodes []recipeplan.SemanticNode) (ir.PhysicalPredicateExpression, error) {
+	if len(routeNodes) == 0 {
+		return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d has no route steps", matchIndex)
+	}
+
+	subplan := ir.PhysicalSubplan{Captures: []string{"root"}}
+	parentVariable := "root"
+	parentType := root.ResourceType
+	for stepIndex, node := range routeNodes {
+		route, err := physicalpkg.ResolveStorageRoute(parentType, node.EdgeLabel, node.ResourceType)
+		if err != nil {
+			return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d: %w", matchIndex, stepIndex, err)
+		}
+		nodeVariable := fmt.Sprintf("required_%d_node_%d", matchIndex, stepIndex)
+		edgeVariable := fmt.Sprintf("required_%d_edge_%d", matchIndex, stepIndex)
+		prefix := fmt.Sprintf("required_%d_%d", matchIndex, stepIndex)
+		labelBind := prefix + "_label"
+		typeBind := prefix + "_target_type"
+		edgeCollectionBind := prefix + "_edge_collection"
+		physical.BindVars[labelBind] = node.EdgeLabel
+		physical.BindVars[typeBind] = node.ResourceType
+		physical.BindVars[edgeCollectionBind] = "fhir_edge"
+
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind:   ir.PhysicalTraversalOp,
+			Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel},
+			Traversal: &ir.PhysicalTraversal{
+				SourceVariable: parentVariable, TargetVariable: nodeVariable, EdgeVariable: edgeVariable,
+				Direction: route.Direction, EdgeCollectionBindKey: edgeCollectionBind,
+				EdgeLabelBindKey: labelBind, TargetTypeBindKey: typeBind,
+				EdgeTargetTypeField: route.TargetEdgeTypeField(),
+			},
+		})
+		subplan.Operations = appendProjectScope(subplan.Operations, []string{edgeVariable, nodeVariable}, node.EdgeLabel, node)
+		subplan.Operations = appendDatasetGenerationScope(subplan.Operations, []string{edgeVariable, nodeVariable}, node.EdgeLabel, node)
+		subplan.Operations = appendAuthScope(subplan.Operations, []ir.PhysicalValue{
+			{Variable: edgeVariable, Path: []string{"auth_resource_path"}},
+			{Variable: nodeVariable, Path: []string{"auth_resource_path"}},
+		}, fmt.Sprintf("required_%d_%d_scope_allowed", matchIndex, stepIndex), node)
+		for filterIndex, filter := range node.Filters {
+			if err := spec.ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
+				return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d filter %d: %w", matchIndex, stepIndex, filterIndex, err)
+			}
+			selector, err := spec.ParseSelector(filter.Selector)
+			if err != nil {
+				return ir.PhysicalPredicateExpression{}, err
+			}
+			predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind,
+				LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+					Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: nodeVariable, Path: []string{"payload"}}, ResourceType: node.ResourceType, Selector: selector}}}
+			if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
+				if len(filter.Values) == 0 {
+					return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal filter %q has no value", filter.FieldRef)
+				}
+				key := fmt.Sprintf("required_%d_%d_filter_%d_value", matchIndex, stepIndex, filterIndex)
+				if filter.Operator == spec.FilterIn {
+					values := make([]any, 0, len(filter.Values))
+					for _, value := range filter.Values {
+						literal, err := physicalpkg.FilterLiteral(value)
+						if err != nil {
+							return ir.PhysicalPredicateExpression{}, err
+						}
+						values = append(values, literal)
+					}
+					physical.BindVars[key] = values
+				} else {
+					literal, err := physicalpkg.FilterLiteral(filter.Values[0])
+					if err != nil {
+						return ir.PhysicalPredicateExpression{}, err
+					}
+					physical.BindVars[key] = literal
+				}
+				predicate.Right = &ir.PhysicalValue{BindKey: key}
+			}
+			subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+		}
+		parentVariable = nodeVariable
+		parentType = node.ResourceType
+	}
+	resultBind := fmt.Sprintf("required_%d_result", matchIndex)
+	physical.BindVars[resultBind] = 1
+	subplan.Return = ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Value: &ir.PhysicalValue{BindKey: resultBind},
+	}
+	return ir.PhysicalPredicateExpression{Kind: ir.PhysicalExistsPredicate, Exists: &subplan}, nil
+}

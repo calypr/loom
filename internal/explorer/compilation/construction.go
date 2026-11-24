@@ -4,19 +4,21 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func recipeConstruction(authored *authoringv2.Construction, columns []authoringv2.Column, emitted []explorer.EmittedColumn) (*recipe.Construction, error) {
+func recipeConstruction(authored *ws.Construction, columns []ws.Column, emitted []viewer.EmittedColumn) (*recipe.Construction, error) {
 	if authored == nil {
 		return nil, nil
 	}
 	var sourceColumns []recipe.StageColumn
-	terminalCombine := len(authored.Steps) == 1 && authored.Steps[0].Operation.Kind == authoringv2.ConstructionOperationCombine
+	terminalCombine := len(authored.Steps) == 1 && authored.Steps[0].Operation.Kind == ws.ConstructionOperationCombine
 	if terminalCombine {
 		if len(columns) != 0 || len(emitted) != 0 || len(authored.SourceProjections) != 0 {
 			return nil, fmt.Errorf("terminal combine cannot also declare source projection columns")
@@ -28,7 +30,7 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 			return nil, err
 		}
 		for _, projection := range authored.SourceProjections {
-			name := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
+			name := ws.ConstructionSourceProjectionName(projection.ColumnID)
 			for _, existing := range sourceColumns {
 				if existing.ID == projection.ColumnID || existing.Name == name {
 					return nil, fmt.Errorf("source projection %q collides with the resolved public source schema", projection.ColumnID)
@@ -63,8 +65,8 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 	return construction, nil
 }
 
-func recipeConstructionSourceColumns(columns []authoringv2.Column, emitted []explorer.EmittedColumn) ([]recipe.StageColumn, error) {
-	columnsByName := make(map[string]authoringv2.Column, len(columns))
+func recipeConstructionSourceColumns(columns []ws.Column, emitted []viewer.EmittedColumn) ([]recipe.StageColumn, error) {
+	columnsByName := make(map[string]ws.Column, len(columns))
 	seenIDs := make(map[string]bool, len(columns))
 	for index, column := range columns {
 		if !requiredConstructionID(column.ColumnID) {
@@ -98,7 +100,7 @@ func recipeConstructionSourceColumns(columns []authoringv2.Column, emitted []exp
 		if len(emission.AuthoredColumns) == 0 {
 			return nil, fmt.Errorf("resolved public emission %q has no authored source slot", emission.EmissionID)
 		}
-		owners := make([]authoringv2.Column, 0, len(emission.AuthoredColumns))
+		owners := make([]ws.Column, 0, len(emission.AuthoredColumns))
 		ownerNames := make(map[string]bool, len(emission.AuthoredColumns))
 		for _, authoredName := range emission.AuthoredColumns {
 			column, exists := columnsByName[authoredName]
@@ -182,11 +184,11 @@ func recipeConstructionSourceColumns(columns []authoringv2.Column, emitted []exp
 	return result, nil
 }
 
-func isIndexedSource(column authoringv2.Column) bool {
-	return column.Source.Kind == authoringv2.SourceField && column.Source.Field != nil && strings.EqualFold(strings.TrimSpace(column.Source.ProjectionMode()), "INDEXED")
+func isIndexedSource(column ws.Column) bool {
+	return column.Source.Kind == ws.SourceField && column.Source.Field != nil && strings.EqualFold(strings.TrimSpace(column.Source.ProjectionMode()), "INDEXED")
 }
 
-func checkedSourceCoordinates(owner authoringv2.Column, source []capability.RepeatedCoordinate, expectedCount int) ([]lineage.Coordinate, error) {
+func checkedSourceCoordinates(owner ws.Column, source []capability.RepeatedCoordinate, expectedCount int) ([]lineage.Coordinate, error) {
 	if owner.Source.Field == nil {
 		return nil, fmt.Errorf("INDEXED source slot has no field payload")
 	}
@@ -204,7 +206,7 @@ func checkedSourceCoordinates(owner authoringv2.Column, source []capability.Repe
 	return coordinates, nil
 }
 
-func repeatedCountSourceChild(owners []authoringv2.Column, emission explorer.EmittedColumn) (lineage.SourceChild, error) {
+func repeatedCountSourceChild(owners []ws.Column, emission viewer.EmittedColumn) (lineage.SourceChild, error) {
 	if len(owners) == 0 {
 		return lineage.SourceChild{}, fmt.Errorf("requires at least one INDEXED source owner")
 	}
@@ -244,7 +246,7 @@ func repeatedCountSourceChild(owners []authoringv2.Column, emission explorer.Emi
 	}, nil
 }
 
-func checkedSourcePrefixCoordinates(owner authoringv2.Column, source []capability.RepeatedCoordinate) ([]lineage.Coordinate, error) {
+func checkedSourcePrefixCoordinates(owner ws.Column, source []capability.RepeatedCoordinate) ([]lineage.Coordinate, error) {
 	if owner.Source.Field == nil {
 		return nil, fmt.Errorf("INDEXED source slot has no field payload")
 	}
@@ -291,7 +293,7 @@ func requiredConstructionID(value string) bool {
 	return strings.TrimSpace(value) != "" && strings.TrimSpace(value) == value
 }
 
-func recipeConstructionStep(step authoringv2.ConstructionStep) (recipe.ConstructionStep, error) {
+func recipeConstructionStep(step ws.ConstructionStep) (recipe.ConstructionStep, error) {
 	inputs := make([]recipe.ConstructionInputRef, 0, len(step.Inputs))
 	for _, input := range step.Inputs {
 		inputs = append(inputs, recipe.ConstructionInputRef{
@@ -323,34 +325,20 @@ func recipeConstructionStep(step authoringv2.ConstructionStep) (recipe.Construct
 	return recipe.ConstructionStep{ID: step.ID, Inputs: inputs, Operation: operation, Outputs: outputs, RowValues: values}, nil
 }
 
-func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (recipe.ConstructionOperation, error) {
+func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.ConstructionOperation, error) {
 	operation := recipe.ConstructionOperation{Kind: recipe.ConstructionOperationKind(authored.Kind)}
 	switch authored.Kind {
-	case authoringv2.ConstructionOperationPivot:
+	case ws.ConstructionOperationPivot:
 		if authored.Pivot == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("pivot payload is required")
 		}
-		pivot := authored.Pivot
-		mapped := &recipe.ConstructionPivot{
-			ConstructionID: pivot.ConstructionID, GroupKeyIDs: append([]string(nil), pivot.GroupKeyIDs...),
-			CategoryColumnID: pivot.CategoryColumnID, ValueColumnID: pivot.ValueColumnID,
-			DuplicatePolicy:        recipe.PivotDuplicatePolicy(pivot.DuplicatePolicy),
-			MissingCellPolicy:      recipe.PivotMissingCellPolicy(pivot.MissingCellPolicy),
-			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryPolicy(pivot.UnlistedCategoryPolicy),
-			Categories:             make([]recipe.ConstructionPivotCategory, 0, len(pivot.Categories)),
-		}
-		if pivot.Discovery != nil {
-			mapped.Discovery = &recipe.ConstructionPivotDiscovery{MaxCategories: pivot.Discovery.MaxCategories}
-		}
-		for index, category := range pivot.Categories {
-			key, err := recipeTableScalar(category.Key, tableScalarPivotCategoryKey)
-			if err != nil {
-				return recipe.ConstructionOperation{}, fmt.Errorf("pivot.categories[%d]: %w", index, err)
-			}
-			mapped.Categories = append(mapped.Categories, recipe.ConstructionPivotCategory{Key: key, OutputColumnID: category.OutputColumnID})
+		mapped, err := recipeConstructionPivot(authored.Pivot)
+		if err != nil {
+			return recipe.ConstructionOperation{}, err
 		}
 		operation.Pivot = mapped
-	case authoringv2.ConstructionOperationDerive:
+
+	case ws.ConstructionOperationDerive:
 		if authored.Derive == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("derive payload is required")
 		}
@@ -369,7 +357,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			MissingInputPolicy:   recipe.MissingInputPolicy(derive.MissingInputPolicy),
 			DivisionByZeroPolicy: recipe.DivisionByZeroPolicy(derive.DivisionByZeroPolicy),
 		}
-	case authoringv2.ConstructionOperationFilter:
+	case ws.ConstructionOperationFilter:
 		if authored.Filter == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("filter payload is required")
 		}
@@ -390,7 +378,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 		operation.Filter = &recipe.ConstructionFilter{
 			ColumnID: authored.Filter.ColumnID, Operator: recipe.FilterOperator(authored.Filter.Operator), Values: values,
 		}
-	case authoringv2.ConstructionOperationUnpivot:
+	case ws.ConstructionOperationUnpivot:
 		if authored.Unpivot == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("unpivot payload is required")
 		}
@@ -409,46 +397,17 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			mapped.Inputs = append(mapped.Inputs, recipe.ConstructionUnpivotInput{ColumnID: input.ColumnID, Key: key})
 		}
 		operation.Unpivot = mapped
-	case authoringv2.ConstructionOperationGroup:
+	case ws.ConstructionOperationGroup:
 		if authored.Group == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("group payload is required")
 		}
-		group := authored.Group
-		mapped := &recipe.ConstructionGroup{
-			ConstructionID:   group.ConstructionID,
-			MissingKeyPolicy: recipe.ConstructionGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
-			Keys:             make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
-			Aggregates:       make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
-		}
-		for _, key := range group.Keys {
-			mappedKey := recipe.ConstructionGroupKey{
-				InputColumnID: key.InputColumnID, OutputColumnID: key.OutputColumnID,
-			}
-			if key.FieldSource != nil {
-				mappedField, err := recipeConstructionGroupFieldSource(key.FieldSource)
-				if err != nil {
-					return recipe.ConstructionOperation{}, err
-				}
-				mappedKey.FieldSource = mappedField
-			}
-			if key.SemanticCategory != nil {
-				category := key.SemanticCategory
-				mappedKey.SemanticCategory = &recipe.ConstructionGroupSemanticCategory{
-					Kind: category.Kind, BindingID: category.BindingID, RuleVersion: category.RuleVersion,
-					FamilyID: category.FamilyID, SourceKind: category.SourceKind, System: category.System, Version: category.Version,
-					ResourceType: category.ResourceType, CodingPath: category.CodingPath,
-				}
-			}
-			mapped.Keys = append(mapped.Keys, mappedKey)
-		}
-		for _, aggregate := range group.Aggregates {
-			mapped.Aggregates = append(mapped.Aggregates, recipe.ConstructionGroupAggregate{
-				Operation:     recipe.ConstructionGroupAggregateOp(aggregate.Operation),
-				InputColumnID: aggregate.InputColumnID, OutputColumnID: aggregate.OutputColumnID,
-			})
+		mapped, err := recipeConstructionGroup(authored.Group)
+		if err != nil {
+			return recipe.ConstructionOperation{}, err
 		}
 		operation.Group = mapped
-	case authoringv2.ConstructionOperationCodedGroup:
+
+	case ws.ConstructionOperationCodedGroup:
 		if authored.CodedGroup == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("codedGroup payload is required")
 		}
@@ -478,7 +437,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.CodedGroup = mapped
-	case authoringv2.ConstructionOperationCodedPivot:
+	case ws.ConstructionOperationCodedPivot:
 		if authored.CodedPivot == nil || authored.CodedPivot.Source == nil || authored.CodedPivot.SourceChoiceID != "" {
 			return recipe.ConstructionOperation{}, fmt.Errorf("codedPivot must contain durable source facts after proposal")
 		}
@@ -517,7 +476,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.CodedPivot = mapped
-	case authoringv2.ConstructionOperationExpand:
+	case ws.ConstructionOperationExpand:
 		if authored.Expand == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("expand payload is required")
 		}
@@ -527,7 +486,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			OutputColumnID: expand.OutputColumnID, OrdinalColumnID: expand.OrdinalColumnID,
 			EmptyPolicy: recipe.ExpansionEmptyPolicy(expand.EmptyPolicy),
 		}
-	case authoringv2.ConstructionOperationRelatedSource:
+	case ws.ConstructionOperationRelatedSource:
 		if authored.RelatedSource == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("relatedSource payload is required")
 		}
@@ -558,7 +517,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.RelatedSource = mapped
-	case authoringv2.ConstructionOperationRelatedExpand:
+	case ws.ConstructionOperationRelatedExpand:
 		if authored.RelatedExpand == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("relatedExpand payload is required")
 		}
@@ -592,7 +551,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.RelatedExpand = mapped
-	case authoringv2.ConstructionOperationRelatedEligibility:
+	case ws.ConstructionOperationRelatedEligibility:
 		if authored.RelatedEligibility == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("relatedEligibility payload is required")
 		}
@@ -625,7 +584,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.RelatedEligibility = mapped
-	case authoringv2.ConstructionOperationRelatedField:
+	case ws.ConstructionOperationRelatedField:
 		if authored.RelatedField == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("relatedField payload is required")
 		}
@@ -640,38 +599,105 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			},
 			OutputColumnID: related.OutputColumnID,
 		}
-	case authoringv2.ConstructionOperationCombine:
+	case ws.ConstructionOperationCombine:
 		if authored.Combine == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("combine payload is required")
 		}
-		combine := authored.Combine
-		mapped := &recipe.ConstructionCombine{
-			Kind:             recipe.ConstructionCombineKind(combine.Kind),
-			Keys:             make([]recipe.ConstructionCombineKey, 0, len(combine.Keys)),
-			Projections:      make([]recipe.ConstructionCombineProjection, 0, len(combine.Projections)),
-			JoinType:         recipe.ConstructionCombineJoinType(combine.JoinType),
-			RightMatchPolicy: recipe.ConstructionCombineRightMatchPolicy(combine.RightMatchPolicy),
-			MembershipMode:   recipe.ConstructionCombineMembershipMode(combine.MembershipMode),
-		}
-		for _, key := range combine.Keys {
-			mapped.Keys = append(mapped.Keys, recipe.ConstructionCombineKey{
-				LeftColumnID: key.LeftColumnID, RightColumnID: key.RightColumnID,
-			})
-		}
-		for _, projection := range combine.Projections {
-			mapped.Projections = append(mapped.Projections, recipe.ConstructionCombineProjection{
-				OutputColumnID: projection.OutputColumnID, InputIndex: projection.InputIndex, InputColumnID: projection.InputColumnID,
-			})
+		mapped, err := recipeConstructionCombine(authored.Combine)
+		if err != nil {
+			return recipe.ConstructionOperation{}, err
 		}
 		operation.Combine = mapped
+
 	default:
 		return recipe.ConstructionOperation{}, fmt.Errorf("unsupported operation kind %q", authored.Kind)
 	}
 	return operation, nil
 }
 
+func recipeConstructionPivot(pivot *ws.ConstructionPivot) (*recipe.ConstructionPivot, error) {
+	mapped := &recipe.ConstructionPivot{
+		ConstructionID: pivot.ConstructionID, GroupKeyIDs: append([]string(nil), pivot.GroupKeyIDs...),
+		CategoryColumnID: pivot.CategoryColumnID, ValueColumnID: pivot.ValueColumnID,
+		DuplicatePolicy:        recipe.PivotDuplicatePolicy(pivot.DuplicatePolicy),
+		MissingCellPolicy:      recipe.PivotMissingCellPolicy(pivot.MissingCellPolicy),
+		UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryPolicy(pivot.UnlistedCategoryPolicy),
+		Categories:             make([]recipe.ConstructionPivotCategory, 0, len(pivot.Categories)),
+	}
+	if pivot.Discovery != nil {
+		mapped.Discovery = &recipe.ConstructionPivotDiscovery{MaxCategories: pivot.Discovery.MaxCategories}
+	}
+	for index, category := range pivot.Categories {
+		key, err := recipeTableScalar(category.Key, tableScalarPivotCategoryKey)
+		if err != nil {
+			return nil, fmt.Errorf("pivot.categories[%d]: %w", index, err)
+		}
+		mapped.Categories = append(mapped.Categories, recipe.ConstructionPivotCategory{Key: key, OutputColumnID: category.OutputColumnID})
+	}
+	return mapped, nil
+}
+
+func recipeConstructionGroup(group *ws.ConstructionGroup) (*recipe.ConstructionGroup, error) {
+	mapped := &recipe.ConstructionGroup{
+		ConstructionID:   group.ConstructionID,
+		MissingKeyPolicy: recipe.ConstructionGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
+		Keys:             make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
+		Aggregates:       make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
+	}
+	for _, key := range group.Keys {
+		mappedKey := recipe.ConstructionGroupKey{
+			InputColumnID: key.InputColumnID, OutputColumnID: key.OutputColumnID,
+		}
+		if key.FieldSource != nil {
+			mappedField, err := recipeConstructionGroupFieldSource(key.FieldSource)
+			if err != nil {
+				return nil, err
+			}
+			mappedKey.FieldSource = mappedField
+		}
+		if key.SemanticCategory != nil {
+			category := key.SemanticCategory
+			mappedKey.SemanticCategory = &recipe.ConstructionGroupSemanticCategory{
+				Kind: category.Kind, BindingID: category.BindingID, RuleVersion: category.RuleVersion,
+				FamilyID: category.FamilyID, SourceKind: category.SourceKind, System: category.System, Version: category.Version,
+				ResourceType: category.ResourceType, CodingPath: category.CodingPath,
+			}
+		}
+		mapped.Keys = append(mapped.Keys, mappedKey)
+	}
+	for _, aggregate := range group.Aggregates {
+		mapped.Aggregates = append(mapped.Aggregates, recipe.ConstructionGroupAggregate{
+			Operation:     recipe.ConstructionGroupAggregateOp(aggregate.Operation),
+			InputColumnID: aggregate.InputColumnID, OutputColumnID: aggregate.OutputColumnID,
+		})
+	}
+	return mapped, nil
+}
+
+func recipeConstructionCombine(combine *ws.ConstructionCombine) (*recipe.ConstructionCombine, error) {
+	mapped := &recipe.ConstructionCombine{
+		Kind:             recipe.ConstructionCombineKind(combine.Kind),
+		Keys:             make([]recipe.ConstructionCombineKey, 0, len(combine.Keys)),
+		Projections:      make([]recipe.ConstructionCombineProjection, 0, len(combine.Projections)),
+		JoinType:         recipe.ConstructionCombineJoinType(combine.JoinType),
+		RightMatchPolicy: recipe.ConstructionCombineRightMatchPolicy(combine.RightMatchPolicy),
+		MembershipMode:   recipe.ConstructionCombineMembershipMode(combine.MembershipMode),
+	}
+	for _, key := range combine.Keys {
+		mapped.Keys = append(mapped.Keys, recipe.ConstructionCombineKey{
+			LeftColumnID: key.LeftColumnID, RightColumnID: key.RightColumnID,
+		})
+	}
+	for _, projection := range combine.Projections {
+		mapped.Projections = append(mapped.Projections, recipe.ConstructionCombineProjection{
+			OutputColumnID: projection.OutputColumnID, InputIndex: projection.InputIndex, InputColumnID: projection.InputColumnID,
+		})
+	}
+	return mapped, nil
+}
+
 func recipeConstructionGroupFieldSource(
-	field *authoringv2.ConstructionGroupFieldSource,
+	field *ws.ConstructionGroupFieldSource,
 ) (*recipe.ConstructionGroupFieldSource, error) {
 	if field == nil {
 		return nil, nil
@@ -682,7 +708,7 @@ func recipeConstructionGroupFieldSource(
 	input := field.Input
 	if input == nil {
 
-		input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &authoringv2.ConstructionGroupFieldCurrentStage{
+		input = &ws.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &ws.ConstructionGroupFieldCurrentStage{
 			SourceRole: field.SourceRole, OccurrenceID: field.OccurrenceID,
 			OwnerResourceType: field.OwnerResourceType, ResourceType: field.ResourceType,
 			CandidateID: field.CandidateID, CanonicalPath: field.CanonicalPath,
@@ -737,7 +763,7 @@ func recipeConstructionGroupFieldSource(
 	}, nil
 }
 
-func constructionRelatedPredicate(predicate *authoringv2.ContributorPredicate) (*recipe.ConstructionRelatedPredicate, error) {
+func constructionRelatedPredicate(predicate *ws.ContributorPredicate) (*recipe.ConstructionRelatedPredicate, error) {
 	if predicate == nil {
 		return nil, nil
 	}
@@ -751,12 +777,12 @@ func constructionRelatedPredicate(predicate *authoringv2.ContributorPredicate) (
 	}
 	value := &recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
 	switch predicate.Value.Kind {
-	case authoringv2.ContributorString:
+	case ws.ContributorString:
 		if predicate.Value.String != nil {
 			stringValue := *predicate.Value.String
 			value.String = &stringValue
 		}
-	case authoringv2.ContributorValueCode:
+	case ws.ContributorValueCode:
 		if predicate.Value.Code != nil {
 			value.Code = &recipe.CodeValue{Code: predicate.Value.Code.Code}
 		}
@@ -778,12 +804,12 @@ func constructionRelatedRepeatedBoundaries(boundaries []capability.RepeatedBound
 	return mapped
 }
 
-func recipeConstructionOperand(operand authoringv2.ConstructionOperand) (recipe.ConstructionOperand, error) {
+func recipeConstructionOperand(operand ws.ConstructionOperand) (recipe.ConstructionOperand, error) {
 	result := recipe.ConstructionOperand{Kind: recipe.DerivedOperandKind(operand.Kind), ColumnID: operand.ColumnID}
 	switch operand.Kind {
-	case authoringv2.ConstructionColumnOperand:
+	case ws.ConstructionColumnOperand:
 		return result, nil
-	case authoringv2.ConstructionLiteralOperand:
+	case ws.ConstructionLiteralOperand:
 		if operand.Literal == nil {
 			return recipe.ConstructionOperand{}, fmt.Errorf("literal payload is required")
 		}
@@ -794,4 +820,30 @@ func recipeConstructionOperand(operand authoringv2.ConstructionOperand) (recipe.
 	default:
 		return recipe.ConstructionOperand{}, fmt.Errorf("unsupported operand kind %q", operand.Kind)
 	}
+}
+
+type tableScalarContext uint8
+
+const (
+	tableScalarPivotCategoryKey tableScalarContext = iota
+	tableScalarUnpivotKey
+)
+
+func recipeTableScalar(value ws.TableScalar, context tableScalarContext) (recipe.TableScalar, error) {
+	var err error
+	switch context {
+	case tableScalarPivotCategoryKey:
+		err = value.ValidatePivotCategoryKey()
+	case tableScalarUnpivotKey:
+		err = value.ValidateConcreteValue()
+	default:
+		return recipe.TableScalar{}, fmt.Errorf("unsupported table scalar context %d", context)
+	}
+	if err != nil {
+		return recipe.TableScalar{}, err
+	}
+	return recipe.TableScalar{
+		Kind: recipe.TableScalarKind(value.Kind), String: value.String,
+		Integer: value.Integer, Decimal: value.Decimal, Boolean: value.Boolean,
+	}, nil
 }

@@ -3,11 +3,15 @@ package spec
 import (
 	"errors"
 	"fmt"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+
 	"strings"
 	"time"
 
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+
 	fhir "github.com/calypr/loom/fhir/model"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type FilterOperator string
@@ -36,6 +40,41 @@ const (
 	FilterDate     FilterValueKind = "DATE"
 	FilterDateTime FilterValueKind = "DATE_TIME"
 )
+
+type FilterValueCountRule uint8
+
+const (
+	FilterValueCountInvalid FilterValueCountRule = iota
+	FilterValueCountExactlyOne
+	FilterValueCountOneOrMore
+	FilterValueCountNone
+)
+
+func (op FilterOperator) ValueCountRule() FilterValueCountRule {
+	switch op {
+	case FilterExists, FilterMissing:
+		return FilterValueCountNone
+	case FilterIn:
+		return FilterValueCountOneOrMore
+	case FilterEquals, FilterNotEquals, FilterContains, FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:
+		return FilterValueCountExactlyOne
+	default:
+		return FilterValueCountInvalid
+	}
+}
+
+func (rule FilterValueCountRule) Accepts(count int) bool {
+	switch rule {
+	case FilterValueCountExactlyOne:
+		return count == 1
+	case FilterValueCountOneOrMore:
+		return count >= 1
+	case FilterValueCountNone:
+		return count == 0
+	default:
+		return false
+	}
+}
 
 type ArrayQuantifier string
 
@@ -66,13 +105,13 @@ type FilterValue struct {
 type TypedFilter struct {
 	FieldRef string `json:"fieldRef"`
 
-	Selector    string                        `json:"selector,omitempty"`
-	FieldKind   FilterValueKind               `json:"fieldKind"`
-	Repeated    bool                          `json:"repeated,omitempty"`
-	Quantifier  ArrayQuantifier               `json:"quantifier,omitempty"`
-	Operator    FilterOperator                `json:"operator"`
-	Values      []FilterValue                 `json:"values,omitempty"`
-	Correlation *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+	Selector    string                         `json:"selector,omitempty"`
+	FieldKind   FilterValueKind                `json:"fieldKind"`
+	Repeated    bool                           `json:"repeated,omitempty"`
+	Quantifier  ArrayQuantifier                `json:"quantifier,omitempty"`
+	Operator    FilterOperator                 `json:"operator"`
+	Values      []FilterValue                  `json:"values,omitempty"`
+	Correlation *fhirbinding.CorrelatedBinding `json:"correlation,omitempty"`
 }
 
 func (f TypedFilter) Validate() error {
@@ -93,23 +132,22 @@ func (f TypedFilter) Validate() error {
 		return errors.New("array quantifier is only valid for repeated fields")
 	}
 
-	want := 1
-	if f.Operator == FilterExists || f.Operator == FilterMissing {
-		want = 0
-	} else if f.Operator == FilterIn {
-		if len(f.Values) == 0 {
+	countRule := f.Operator.ValueCountRule()
+	if !countRule.Accepts(len(f.Values)) {
+		switch countRule {
+		case FilterValueCountNone:
+			return fmt.Errorf("operator %s requires 0 value(s), got %d", f.Operator, len(f.Values))
+		case FilterValueCountOneOrMore:
 			return errors.New("IN filter requires at least one value")
+		default:
+			return fmt.Errorf("operator %s requires 1 value(s), got %d", f.Operator, len(f.Values))
 		}
-		want = len(f.Values)
-	}
-	if len(f.Values) != want {
-		return fmt.Errorf("operator %s requires %d value(s), got %d", f.Operator, want, len(f.Values))
 	}
 	if !OperatorSupportsKind(f.Operator, f.FieldKind) {
 		return fmt.Errorf("operator %s is not compatible with %s", f.Operator, f.FieldKind)
 	}
 	for i, value := range f.Values {
-		requireCode := f.Correlation == nil || f.Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion
+		requireCode := f.Correlation == nil || f.Correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion
 		if err := value.validate(requireCode); err != nil {
 			return fmt.Errorf("filter value %d: %w", i, err)
 		}
@@ -134,7 +172,7 @@ func (f TypedFilter) Validate() error {
 			return errors.New("correlated filter requires one CODE value with system")
 		}
 		code := f.Values[0].Code
-		if err := fhirschema.ValidateCorrelatedKey(f.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
+		if err := fhirbinding.ValidateCorrelatedKey(f.Correlation.SelectionScope, fhirbinding.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
 			return err
 		}
 	}
@@ -142,13 +180,7 @@ func (f TypedFilter) Validate() error {
 }
 
 func (op FilterOperator) Valid() bool {
-	switch op {
-	case FilterEquals, FilterNotEquals, FilterIn, FilterExists, FilterMissing,
-		FilterContains, FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:
-		return true
-	default:
-		return false
-	}
+	return op.ValueCountRule() != FilterValueCountInvalid
 }
 
 func (kind FilterValueKind) Valid() bool {
@@ -256,4 +288,77 @@ func validateOrderedTemporalValue(operator FilterOperator, value FilterValue) er
 		}
 	}
 	return nil
+}
+
+func ValidateTypedFilterForResource(resourceType string, filter TypedFilter) error {
+	if err := filter.Validate(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(filter.Selector) == "" {
+		return fmt.Errorf("filter %q requires a resolved selector", filter.FieldRef)
+	}
+	selector, err := ParseSelector(filter.Selector)
+	if err != nil {
+		return fmt.Errorf("filter %q selector: %w", filter.FieldRef, err)
+	}
+	if _, _, err := selectorCardinality(resourceType, selector); err != nil {
+		return fmt.Errorf("filter %q selector: %w", filter.FieldRef, err)
+	}
+	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath())
+	if !ok {
+		return fmt.Errorf("filter selector %q is not represented by generated resource type %q", filter.Selector, resourceType)
+	}
+	if filter.Repeated != metadata.Repeated {
+		return fmt.Errorf("filter selector %q repeated=%t does not match generated cardinality repeated=%t", filter.Selector, filter.Repeated, metadata.Repeated)
+	}
+	if !filterKindMatchesGeneratedPrimitive(filter.FieldKind, metadata.Primitive, selector.CanonicalPath()) {
+		return fmt.Errorf("filter selector %q has generated primitive %q, incompatible with filter value kind %q", filter.Selector, metadata.Primitive, filter.FieldKind)
+	}
+	if filter.FieldKind == FilterCode {
+		for _, value := range filter.Values {
+			if value.Code == nil {
+				continue
+			}
+			if filter.Correlation != nil {
+				if strings.TrimSpace(value.Code.System) == "" {
+					return fmt.Errorf("filter %q correlated CODE requires a non-empty system", filter.FieldRef)
+				}
+				checked, err := fhirbinding.ValidateCorrelatedBinding(resourceType, *filter.Correlation)
+				if err != nil {
+					return fmt.Errorf("filter %q correlated binding: %w", filter.FieldRef, err)
+				}
+				if checked.VersionSelector == nil && value.Code.Version != "" {
+					return fmt.Errorf("filter %q supplies a version without a correlated versionPath", filter.FieldRef)
+				}
+				continue
+			}
+			if strings.TrimSpace(value.Code.System) != "" || strings.TrimSpace(value.Code.Display) != "" || value.Code.Version != "" {
+				return fmt.Errorf("filter %q supplies code system/display/version without a paired Coding binding", filter.FieldRef)
+			}
+		}
+	}
+	return nil
+}
+
+func filterKindMatchesGeneratedPrimitive(kind FilterValueKind, primitive fhirschema.PrimitiveKind, canonicalPath string) bool {
+	switch primitive {
+	case fhirschema.PrimitiveString:
+		if kind == FilterString {
+			return true
+		}
+
+		return kind == FilterCode && (canonicalPath == "code" || strings.HasSuffix(canonicalPath, ".code"))
+	case fhirschema.PrimitiveBoolean:
+		return kind == FilterBoolean
+	case fhirschema.PrimitiveInteger:
+		return kind == FilterInteger
+	case fhirschema.PrimitiveDecimal:
+		return kind == FilterDecimal
+	case fhirschema.PrimitiveDate:
+		return kind == FilterDate
+	case fhirschema.PrimitiveDateTime:
+		return kind == FilterDateTime
+	default:
+		return false
+	}
 }

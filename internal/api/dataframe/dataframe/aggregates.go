@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
-	httpapi "github.com/calypr/loom/internal/api/http"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
@@ -108,7 +108,7 @@ func (s *Service) WithOperationContext(ctx context.Context, expectedCalls int) c
 	}
 	if s != nil && s.logger != nil {
 		s.logger.Debug("dataframe aggregate operation installed",
-			"request_id", httpapi.RequestIDFromContext(result),
+			"request_id", httpctx.RequestIDFromContext(result),
 			"expected_calls", expectedCalls,
 		)
 	}
@@ -203,7 +203,7 @@ func (s *aggregateOperationState) fallbackDispatch() {
 	s.mu.Unlock()
 	if s.service != nil && s.service.logger != nil && len(batch) > 0 {
 		s.service.logger.Debug("dataframe aggregate fallback dispatch",
-			"request_id", httpapi.RequestIDFromContext(s.operationCtx),
+			"request_id", httpctx.RequestIDFromContext(s.operationCtx),
 			"batch_calls", len(batch),
 			"expected_calls", s.expectedCalls,
 			"received_calls", s.receivedCalls,
@@ -225,7 +225,7 @@ func (s *aggregateOperationState) dispatch(batch []*aggregateCall) {
 	if len(batch) > 0 {
 		if s.service != nil && s.service.logger != nil {
 			s.service.logger.Debug("dataframe aggregate dispatch",
-				"request_id", httpapi.RequestIDFromContext(s.operationCtx),
+				"request_id", httpctx.RequestIDFromContext(s.operationCtx),
 				"batch_calls", len(batch),
 				"expected_calls", s.expectedCalls,
 				"received_calls", s.receivedCalls,
@@ -367,7 +367,7 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 	}
 	clickhouseElapsed := time.Since(clickhouseStarted)
 	attrs := []any{
-		"request_id", httpapi.RequestIDFromContext(ctx),
+		"request_id", httpctx.RequestIDFromContext(ctx),
 		"logical_graphql_calls", len(calls), "logical_jobs", logicalJobs,
 		"deduplicated_jobs", deduplicated, "selector_groups", len(groups),
 		"filter_groups", filterGroups, "grouping_statements", groupingStatements,

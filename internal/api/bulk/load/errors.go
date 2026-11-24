@@ -3,20 +3,23 @@ package load
 import (
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
 func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var row *ingest.RowError
+	var row *row.RowError
 	if errors.As(err, &row) {
 		code := dataframeerrors.CodeInternalError
 		if row.Category == "validation" {
@@ -28,26 +31,26 @@ func normalizeError(err error) error {
 				"file": row.File, "row": row.Row, "resourceType": row.ResourceType, "category": row.Category,
 			}))
 	}
-	var sourceValidation *ingest.SourceFileValidationError
+	var sourceValidation *sourceload.SourceFileValidationError
 	if errors.As(err, &sourceValidation) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "",
 			dataframeerrors.WithPublicMessage("The source file contains invalid rows."),
 			dataframeerrors.WithDetails(sourceLoadValidationDetails(sourceValidation)))
 	}
-	if errors.Is(err, ingest.ErrSourceLoadNotFound) {
+	if errors.Is(err, sourceload.ErrSourceLoadNotFound) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeDatasetNotFound, "",
 			dataframeerrors.WithPublicMessage("The source-load operation was not found."))
 	}
-	if errors.Is(err, ingest.ErrSourceLoadInProgress) {
+	if errors.Is(err, sourceload.ErrSourceLoadInProgress) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodePublicationInProgress, "",
 			dataframeerrors.WithPublicMessage("The source-load operation is already in progress; retry shortly."),
 			dataframeerrors.WithRetryable(true))
 	}
-	if errors.Is(err, ingest.ErrSourceLoadIncomplete) {
+	if errors.Is(err, sourceload.ErrSourceLoadIncomplete) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "",
 			dataframeerrors.WithPublicMessage("The source-load operation is incomplete; all selected files must be accepted before publication."))
 	}
-	var resourceIncomplete *ingest.LoadIncompleteError
+	var resourceIncomplete *generation.LoadIncompleteError
 	if errors.As(err, &resourceIncomplete) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeGenerationLoadIncomplete, "",
 			dataframeerrors.WithDetails(map[string]any{
@@ -56,11 +59,11 @@ func normalizeError(err error) error {
 				"edgeErrors":       resourceIncomplete.EdgeErrors,
 			}))
 	}
-	var preflight *ingest.PreflightError
+	var preflight *source.PreflightError
 	if errors.As(err, &preflight) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeIngestPreflightFailed, "", dataframeerrors.WithDetails(preflightErrorDetails(preflight)))
 	}
-	var incomplete *ingest.GenerationLoadIncompleteError
+	var incomplete *generation.GenerationLoadIncompleteError
 	if errors.As(err, &incomplete) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeGenerationLoadIncomplete, "", dataframeerrors.WithDetails(map[string]any{
 			"validationErrors": incomplete.ValidationErrors,
@@ -71,19 +74,19 @@ func normalizeError(err error) error {
 	if errors.Is(err, dataset.ErrGenerationNotReady) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeGenerationNotReady, "")
 	}
-	var activation *ingest.ActivationOutcomeError
+	var activation *generation.ActivationOutcomeError
 	if errors.As(err, &activation) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeGenerationActivationUnknown, "")
 	}
-	var sourceConflict *ingest.SourcePublishConflictError
+	var sourceConflict *sourceload.SourcePublishConflictError
 	if errors.As(err, &sourceConflict) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "")
 	}
-	var migrationRequired *ingest.SourcePublishMigrationRequiredError
+	var migrationRequired *sourceload.SourcePublishMigrationRequiredError
 	if errors.As(err, &migrationRequired) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "", dataframeerrors.WithDetails(map[string]any{"migrationRequired": true}))
 	}
-	var sourceLimit *ingest.SourcePublishLimitError
+	var sourceLimit *sourceload.SourcePublishLimitError
 	if errors.As(err, &sourceLimit) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeExportLimitExceeded, "",
 			dataframeerrors.WithPublicMessage(fmt.Sprintf("Metadata publishing exceeds Loom's %s limit (maximum %d).", sourceLimit.Limit, sourceLimit.Maximum)),
@@ -92,7 +95,7 @@ func normalizeError(err error) error {
 	return err
 }
 
-func sourceLoadValidationDetails(validation *ingest.SourceFileValidationError) map[string]any {
+func sourceLoadValidationDetails(validation *sourceload.SourceFileValidationError) map[string]any {
 	if validation == nil {
 		return map[string]any{"issues": []any{}, "totalErrors": int64(0), "truncated": false}
 	}
@@ -128,7 +131,7 @@ func sourceLoadValidationDetails(validation *ingest.SourceFileValidationError) m
 	}
 }
 
-func safeSourceLoadIssueMessage(sample ingest.RowErrorSample) string {
+func safeSourceLoadIssueMessage(sample row.RowErrorSample) string {
 	if sample.Category == "validation" {
 		if field, ok := missingRequiredField(sample); ok {
 			return fmt.Sprintf("Required field %q is missing.", field)
@@ -144,7 +147,7 @@ func safeSourceLoadIssueMessage(sample ingest.RowErrorSample) string {
 	return "Loom could not process this row."
 }
 
-func missingRequiredField(sample ingest.RowErrorSample) (string, bool) {
+func missingRequiredField(sample row.RowErrorSample) (string, bool) {
 	message := strings.TrimSpace(sample.Message)
 	const shortPrefix = "required field '"
 	const shortSuffix = "' is missing"
@@ -182,7 +185,7 @@ func safeSchemaFieldName(value string) bool {
 	return true
 }
 
-func preflightErrorDetails(err *ingest.PreflightError) map[string]any {
+func preflightErrorDetails(err *source.PreflightError) map[string]any {
 	if err == nil || len(err.Report.Issues) == 0 {
 		return nil
 	}

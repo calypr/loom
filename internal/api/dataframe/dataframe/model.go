@@ -1,12 +1,9 @@
 package dataframe
 
 import (
-	"encoding/json"
-
-	"github.com/calypr/loom/internal/api/columncapabilities"
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	publication "github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -48,12 +45,8 @@ func Model(value materialization.Materialization) *dataframemodel.DataframeMater
 	return result
 }
 
-func ColumnFromPhysical(column publication.PhysicalColumn) *dataframemodel.DataframeColumn {
-	return ColumnModel(materialization.Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated})
-}
-
 func ColumnModel(column materialization.Column) *dataframemodel.DataframeColumn {
-	capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
+	capabilities := publication.ResolveColumnCapabilities(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
 	return &dataframemodel.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: capabilities.Logical, Nullable: capabilities.Nullable, Repeated: capabilities.Repeated, Filterable: capabilities.Filterable, Sortable: capabilities.Sortable, Aggregatable: capabilities.Aggregatable}
 }
 
@@ -68,12 +61,4 @@ func PersistedFailure(raw, code string, retryable bool) (message, failureCode *s
 	publicCode := code
 	publicMessage := dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.ErrorCode(code), "", dataframeerrors.WithRetryable(retryable)))
 	return &publicMessage, &publicCode, &retryable
-}
-
-func AggregateRowsResult(value []map[string]any) (json.RawMessage, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
-	}
-	return data, nil
 }

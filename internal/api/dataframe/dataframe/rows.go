@@ -84,20 +84,6 @@ func resolveSelector(input *dataframemodel.DataframeSelectorInput) (dfmaterializ
 	return selector, nil
 }
 
-func resolvePublishedSelector(input *dfmaterialization.DataframeSelector) (dfmaterialization.DataframeSelector, error) {
-	if input == nil {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
-	}
-	selector := *input
-	selector.Recipe = strings.TrimSpace(selector.Recipe)
-	selector.TranslationVersion = strings.TrimSpace(selector.TranslationVersion)
-	selector.Output = strings.TrimSpace(selector.Output)
-	if !selector.Valid() {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
-	}
-	return selector, nil
-}
-
 func convertFilters(filters []*dataframemodel.DataframeFilterInput) []dfmaterialization.Filter {
 	converted := make([]dfmaterialization.Filter, 0, len(filters))
 	for _, filter := range filters {

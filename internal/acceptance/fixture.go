@@ -601,30 +601,6 @@ func canonicalJSON(raw []byte) []byte {
 	out, _ := json.Marshal(value)
 	return out
 }
-func canonicalFileStats(path string) (int, int64, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64<<10), 64<<20)
-	count := 0
-	var bytes int64
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		canonical := canonicalJSON([]byte(line))
-		if string(canonical) != line {
-			return 0, 0, errors.New("non-canonical NDJSON")
-		}
-		count++
-		bytes += int64(len(line)) + 1
-	}
-	return count, bytes, scanner.Err()
-}
 func resourceID(raw []byte) string {
 	var value struct {
 		ID string `json:"id"`

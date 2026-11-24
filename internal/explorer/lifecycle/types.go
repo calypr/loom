@@ -4,151 +4,88 @@ import (
 	"context"
 	"time"
 
-	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+	"github.com/calypr/loom/internal/explorer/publication"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/authoringnetwork"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
+	"github.com/calypr/loom/internal/explorer/construction"
+	"github.com/calypr/loom/internal/explorer/population"
+
+	"github.com/calypr/loom/internal/explorer/explicitgroup"
+	"github.com/calypr/loom/internal/explorer/rowdef"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/dataframe/publication"
-	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
-type CapabilityResolver struct {
-	Current           func(context.Context, string, string, string) (capability.Snapshot, error)
-	Token             func(context.Context, string, string) (capability.Snapshot, error)
-	ForCompilation    func(context.Context, string, string) (AuthorizedCapability, error)
-	ForExecution      func(context.Context, string, string) (AuthorizedCapability, error)
-	Catalog           func(capability.Snapshot, string) authoringv2.CatalogSnapshot
-	ValidateReadScope func(authscope.ReadScope, string) error
-}
+type ReceiptReader func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+type ReceiptPreviewer func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
+type ReceiptStreamValidator func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) error
 
-type AuthorizedCapability struct {
-	Snapshot capability.Snapshot
-	Scope    authscope.ReadScope
-}
+type CategoryScanner func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
-func (a AuthorizedCapability) Clone() AuthorizedCapability {
-	return AuthorizedCapability{Snapshot: a.Snapshot.Clone(), Scope: a.Scope.Clone()}
-}
+type ColumnPopulationScanner func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
 
-type CompileReceiptRequest struct {
-	Project                         string
-	ExplorerID                      string
-	Workspace                       authoringv2.Workspace
-	SnapshotToken                   string
-	RequestID                       string
-	Authorized                      AuthorizedCapability
-	ResolvedInputs                  explorercompilation.ResolvedInputs
-	SelectionMembersCollection      string
-	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
-	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
-	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
-	ConstructionProposal            *explorer.ConstructionProposalBinding
-	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
-}
+type CellTraceExecutor func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
 
-type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
-type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
-type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
-type ReceiptStreamValidator func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error
+type RowLineageExecutor func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
-type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error)
-
-type ConstructionSourceStageRequest struct {
-	Project                    string
-	ExplorerID                 string
-	OutputID                   string
-	Document                   authoringv2.Document
-	Authorized                 AuthorizedCapability
-	SelectionMembersCollection string
-}
-
-type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
-
-type ColumnPopulationScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
-
-type ArtifactPublishedReader interface {
-	ExactExecutionMaterialization(context.Context, string, string) (dataframepublished.Materialization, error)
-	StreamExactExport(context.Context, dataframepublished.ExactExportRequest, dataframepublished.ExactExportVisitor) (dataframepublished.ExactExportResult, error)
-}
-
-type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
-
-type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
-
-type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
-
-type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error
-
-type Execution struct {
-	ID                   string
-	Name                 string
-	Project              string
-	RecipeDigest         string
-	ResolvedSchemaDigest string
-	SourceGeneration     string
-	ScopeDigest          string
-	State                string
-	Outputs              []ExecutionOutput
-	QualityReports       []publication.QualityReport
-}
-
-type ExecutionOutput struct {
-	Name     string
-	State    string
-	RowCount *int
-	Columns  []publication.PhysicalColumn
-}
-
-type ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error)
-type GenerationValidator func(context.Context, string, string) error
-type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
-type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
+type GenerationValidator = publication.GenerationValidator
+type ReleaseActivator = publication.ReleaseActivator
+type ReleasePreparer = publication.ReleasePreparer
 
 type Config struct {
-	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
-	AuthoringNetwork          func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
-	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
-	CreateImportedSourceRule  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.SourceRuleCreate) (authoringv2.Document, error)
-	EditImportedSource        func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	EditImportedSources       func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	RemoveImportedField       func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
-	RemoveImportedOutput      func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
+	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, ws.CatalogSnapshot) (ws.Workspace, error)
+	AuthoringNetwork          func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error)
+	EditImportedRelationship  func(context.Context, string, ports.AuthorizedCapability, ws.Document, authoringv2.ImportedRelationshipChange) (ws.Document, error)
+	CreateImportedSourceRule  func(context.Context, string, ports.AuthorizedCapability, ws.Document, ws.SourceRuleCreate) (ws.Document, error)
+	EditImportedSource        func(context.Context, string, ports.AuthorizedCapability, ws.Document, *authoringv2.ImportedSourceStepChange) (ws.Document, error)
+	EditImportedSources       func(context.Context, string, ports.AuthorizedCapability, ws.Document, []authoringv2.ImportedSourceStepChange) (ws.Document, error)
+	RemoveImportedField       func(context.Context, string, ports.AuthorizedCapability, ws.Document, string, string) (ws.Document, error)
+	RemoveImportedOutput      func(context.Context, string, ports.AuthorizedCapability, ws.Document, string, string) (ws.Document, error)
 
 	SelectionMembersCollection         string
-	Capability                         CapabilityResolver
-	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
-	SemanticCoverage                   func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error)
-	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
+	Capability                         ports.CapabilityResolver
+	SemanticInventory                  func(context.Context, semantic.PageOptions) (semantic.Page, error)
+	SemanticCoverage                   func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error)
+	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 
-	InterpretationRepository explorer.InterpretationRepository
+	InterpretationRepository interpretation.Repository
 
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator
-	RowChoiceResolver           RowChoiceResolver
-	RowChoicePlanner            RowChoicePlanner
-	ExplicitGroupResolver       ExplicitGroupRevisionResolver
-	ExplicitGroupRepository     explorer.ExplicitGroupRepository
+	RowChoiceResolver           rowdef.RowChoiceResolver
+	RowChoicePlanner            rowdef.RowChoicePlanner
+	ExplicitGroupResolver       explicitgroup.ExplicitGroupRevisionResolver
+	ExplicitGroupRepository     explorerselection.ExplicitGroupRepository
 
-	CompileReceipt               ReceiptCompiler
-	ConstructionSourceStage      ConstructionSourceStageCompiler
+	CompileReceipt               ports.ReceiptCompiler
+	ConstructionSourceStage      ports.ConstructionSourceStageCompiler
 	PreviewReceipt               ReceiptPreviewer
 	ValidateReceiptStream        ReceiptStreamValidator
 	ScanCategories               CategoryScanner
 	ScanColumnPopulation         ColumnPopulationScanner
-	PopulationMapping            PopulationMappingExecutor
-	PopulationMappingCursorCodec PopulationMappingCursorCodec
+	PopulationMapping            population.PopulationMappingExecutor
+	PopulationMappingCursorCodec *population.HMACPopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
 	RowLineage                   RowLineageExecutor
-	MaterializeReceipt           ReceiptMaterializer
+	MaterializeReceipt           ports.ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
 	ArtifactStore                explorer.ArtifactStore
-	PublishedReader              ArtifactPublishedReader
+	PublishedReader              ports.ArtifactPublishedReader
 
 	ArtifactTTL      time.Duration
 	ArtifactMaxRows  int64
@@ -166,7 +103,7 @@ type Config struct {
 
 type ListResult struct {
 	Project   string
-	Summaries []explorer.ExplorerSummaryV1
+	Summaries []viewer.ExplorerSummaryV1
 }
 
 type CreateRequest struct {
@@ -188,25 +125,12 @@ type SuggestionsRequest struct {
 type SuggestionsResult struct {
 	SnapshotToken string
 	NodeID        string
-	Candidates    []authoringv2.CatalogCandidate
+	Candidates    []ws.CatalogCandidate
 }
 
 type BuilderRequest struct {
 	Project    string
 	ExplorerID string
-}
-
-type compileRequest struct {
-	Project                         string
-	ExplorerID                      string
-	Workspace                       authoringv2.Workspace
-	SnapshotToken                   string
-	RequestID                       string
-	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
-	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
-	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
-	ConstructionProposal            *explorer.ConstructionProposalBinding
-	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
 }
 
 type ReconcileRequest struct {
@@ -219,186 +143,13 @@ type ReconcileRequest struct {
 }
 
 type ReconcileResult struct {
-	Receipt   *explorer.CompilationReceipt
-	Workspace authoringv2.Workspace
-}
-
-type AssessRowChangeRequest struct {
-	Mode             string
-	Project          string
-	ExplorerID       string
-	SnapshotToken    string
-	DraftVersion     int64
-	DraftDigest      string
-	OutputID         string
-	RootNodeID       string
-	RootOccurrenceID string
-	RouteRebase      []authoringv2.RouteRebaseChoice
-}
-
-type AssessRowChangeResult struct {
-	CandidateDocument    *authoringv2.Document
-	CandidateNetwork     *authoringv2.AuthoringNetwork
-	CandidateRowIdentity *authoringv2.RowIdentityPlan
-	SnapshotToken        string
-	DraftVersion         int64
-	DraftDigest          string
-	CandidateReceiptID   string
-	Assessment           authoringv2.RowChangeAssessment
-}
-
-type PreviewRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	Limit      int
-
-	AllowSampledAggregatePreview bool
-
-	SinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
-}
-
-type PreviewResult struct {
-	Receipt *explorer.CompilationReceipt
-	Columns []explorer.EmittedColumn
-	Summary dataframeexecution.PreviewSummary
-}
-
-type PreviewSinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
-
-type AcceptedConstruction struct {
-	Preview      PreviewResult
-	PreviewLimit int
+	Receipt   *receiptmodel.CompilationReceipt
+	Workspace ws.Workspace
 }
 
 type ApplyCommandsWithConstructionPreviewResponse struct {
 	Commands *authoringv2.ApplyCommandsResponse
-	Accepted *AcceptedConstruction
-}
-
-type PreviewInterpretationCandidateRequest struct {
-	Project              string
-	ExplorerID           string
-	SnapshotToken        string
-	ExpectedDraftVersion int64
-	ExpectedDraftDigest  string
-	OutputID             string
-	Column               string
-	RevisionID           string
-	Limit                int
-}
-
-type CandidatePreviewCompleteness string
-
-const (
-	CandidatePreviewComplete   CandidatePreviewCompleteness = "COMPLETE"
-	CandidatePreviewIncomplete CandidatePreviewCompleteness = "INCOMPLETE"
-)
-
-type CandidatePreviewState string
-
-const (
-	CandidatePreviewUnchanged  CandidatePreviewState = "UNCHANGED"
-	CandidatePreviewChanged    CandidatePreviewState = "CHANGED"
-	CandidatePreviewResolved   CandidatePreviewState = "RESOLVED"
-	CandidatePreviewUnresolved CandidatePreviewState = "UNRESOLVED"
-)
-
-type InterpretationCandidatePreviewSample struct {
-	RowID  string                `json:"rowId"`
-	Before map[string]any        `json:"before"`
-	After  map[string]any        `json:"after"`
-	State  CandidatePreviewState `json:"state"`
-}
-
-type CandidatePreviewCounts struct {
-	Compared   int `json:"compared"`
-	Changed    int `json:"changed"`
-	Resolved   int `json:"resolved"`
-	Unresolved int `json:"unresolved"`
-}
-
-type PreviewInterpretationCandidateResult struct {
-	BaseReceiptID      string                                 `json:"baseReceiptId"`
-	CandidateReceiptID string                                 `json:"candidateReceiptId"`
-	OutputID           string                                 `json:"outputId"`
-	Column             string                                 `json:"column"`
-	RevisionID         string                                 `json:"revisionId"`
-	Completeness       CandidatePreviewCompleteness           `json:"completeness"`
-	Samples            []InterpretationCandidatePreviewSample `json:"samples"`
-	Counts             CandidatePreviewCounts                 `json:"counts"`
-}
-
-type InterpretationLibraryView struct {
-	Library explorer.InterpretationLibrary
-	Head    *explorer.InterpretationRevision
-}
-
-type ListInterpretationLibrariesResult struct {
-	Project   string
-	Libraries []InterpretationLibraryView
-}
-
-type GetInterpretationRevisionRequest struct {
-	Project    string
-	RevisionID string
-}
-
-type CreateInterpretationRevisionRequest struct {
-	Project          string
-	LibraryID        string
-	ParentRevisionID string
-	Applicability    explorer.InterpretationApplicability
-	Rules            []explorer.InterpretationRule
-	Explanation      string
-	Author           string
-}
-
-type PopulationMappingRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	Cursor     string
-	Limit      int
-}
-
-type PopulationMappingBinding struct {
-	ReceiptID           string
-	OutputID            string
-	Project             string
-	ExplorerID          string
-	Generation          string
-	ScopeDigest         string
-	SelectionRevisionID string
-	MembershipDigest    string
-	ResourceType        string
-}
-
-type PopulationMappingCounts struct {
-	Selected    int64
-	Mapped      int64
-	Unmapped    int64
-	EmittedRows int64
-}
-
-type PopulationMappingDiagnostic struct {
-	Code    string
-	Message string
-}
-
-type PopulationMappingReport struct {
-	Binding     PopulationMappingBinding
-	Status      dataframeexecution.PopulationMappingStatus
-	Counts      *PopulationMappingCounts
-	Unmapped    []explorer.ResourceRef
-	NextCursor  string
-	Diagnostics []PopulationMappingDiagnostic
-}
-
-type PopulationMappingResult struct {
-	Report PopulationMappingReport
+	Accepted *construction.AcceptedConstruction
 }
 
 type CellTraceRequest struct {
@@ -410,28 +161,6 @@ type CellTraceRequest struct {
 	Column     string
 	Offset     int
 	Limit      int
-}
-
-type RowLineageRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	RowID      string
-	Offset     int
-	Limit      int
-}
-
-type RowLineageResult struct {
-	ReceiptID    string
-	OutputID     string
-	RowID        string
-	Status       string
-	Contributors []dataframeexecution.RowLineageContributor
-	HasMore      bool
-	NextOffset   *int
-	ReasonCode   string
-	Operation    string
 }
 
 type CellTraceBinding struct {
@@ -463,33 +192,12 @@ type CellTraceFeature struct {
 	LossReasons        []string `json:"lossReasons"`
 }
 
-type PublishRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	Actor      string
-}
+type PublishRequest = publication.PublishRequest
+type PublishResult = publication.PublishResult
+type RepositoryPublishRequest = publication.RepositoryPublishRequest
+type RepositoryPublishResult = publication.RepositoryPublishResult
+type ArtifactRequest = publication.ArtifactRequest
+type ArtifactResult = publication.ArtifactResult
+type ArtifactOpenRequest = publication.ArtifactOpenRequest
 
-type PublishResult struct {
-	Receipt   *explorer.CompilationReceipt
-	Revision  *explorer.Revision
-	Execution Execution
-}
-
-type RepositoryPublishRequest struct {
-	Project    string
-	Generation string
-	Workspace  authoringv2.Workspace
-	Commit     string
-	Actor      string
-}
-
-type RepositoryPublishResult struct {
-	Receipt          *explorer.CompilationReceipt
-	Owner            *explorer.Explorer
-	Revision         *explorer.Revision
-	Execution        Execution
-	Materializations []explorer.Materialization
-	Dataset          explorer.DatasetMetadata
-	Publication      explorer.PublicationMetadata
-}
+type PreviewRequest = authoringcore.PreviewRequest

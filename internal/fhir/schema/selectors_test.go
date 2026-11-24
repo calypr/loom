@@ -1,6 +1,8 @@
 package schema
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestSelectorFromFieldRoundTrips(t *testing.T) {
 	field, ok := LookupField("DocumentReference", "content[].attachment.title")
@@ -29,22 +31,5 @@ func TestParseSelectorCanonicalizesIndexedPaths(t *testing.T) {
 	}
 	if sel.Filter == nil || sel.Filter.Field != "system" || sel.Filter.Needle != "case_id" {
 		t.Fatalf("unexpected filter: %#v", sel.Filter)
-	}
-}
-
-func TestChoiceValueSelectorOptions(t *testing.T) {
-	options := ChoiceValueSelectorOptions("Observation")
-	if len(options) == 0 {
-		t.Fatal("expected observation value selector options")
-	}
-	found := false
-	for _, option := range options {
-		if SelectorExpression(option) == "valueQuantity.value" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected valueQuantity.value option, got %#v", options)
 	}
 }

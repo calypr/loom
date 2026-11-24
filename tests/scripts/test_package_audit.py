@@ -95,7 +95,7 @@ class PackageAuditTest(unittest.TestCase):
             [
                 sys.executable,
                 "scripts/package_audit_verify.py",
-                "internal/api/recipe",
+                "internal/api/dataframe/query",
                 "--dry-run",
             ],
             cwd=ROOT,
@@ -105,8 +105,8 @@ class PackageAuditTest(unittest.TestCase):
         )
         self.assertIn("internal/server", result.stdout)
         self.assertIn(
-            "go test ./internal/api/dataframe/query ./internal/api/recipe "
-            "./internal/explorer/importedsource ./internal/server -count=1",
+            "go test ./cmd/dataframe-profile ./internal/api/dataframe/dataframe "
+            "./internal/api/dataframe/query ./internal/server -count=1",
             result.stdout,
         )
 

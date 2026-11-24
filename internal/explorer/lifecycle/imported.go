@@ -1,0 +1,52 @@
+package lifecycle
+
+import (
+	"context"
+	"errors"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+)
+
+func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, catalog ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+	if s.config.EditImportedSource == nil {
+		return nil, support.Unavailable("commands", "IMPORTED_SOURCE_UNAVAILABLE", "source editing is unavailable", nil)
+	}
+	command := commands[0]
+	var document *ws.Document
+	for i := range workspace.Documents {
+		if workspace.Documents[i].Output.ID == command.OutputID {
+			document = &workspace.Documents[i]
+			break
+		}
+	}
+	if document == nil || document.ImportedRecipe == nil {
+		return nil, support.Malformed("commands", "source editing requires an imported dataframe", nil)
+	}
+	updated, err := s.config.EditImportedSource(ctx, project, authorized, *document, command.SourceStep())
+	if err != nil {
+		var typed *ports.Error
+		if errors.As(err, &typed) {
+			return nil, typed
+		}
+		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
+	}
+	if err := command.ResolveImportedDocument(updated); err != nil {
+		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
+	}
+	prepared := []authoringv2.Command{command}
+	candidate, _, err := authoringv2.ApplyCommands(workspace, catalog, "source-edit-validation", prepared)
+	if err != nil {
+		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
+	}
+
+	if _, err := s.core.Compile(ctx, authoringcore.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: authorized.Snapshot.Token, RequestID: "source-edit-validation"}); err != nil {
+		return nil, err
+	}
+	return prepared, nil
+}

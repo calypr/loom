@@ -28,12 +28,12 @@ func callExpression(name string, args ...ir.PhysicalExpression) ir.PhysicalExpre
 }
 
 func TestRenderGenericPhysicalCallsParameterizeLiterals(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"left": "A", "right": "B", "delimiter": ","},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	concat := callExpression("concat", scalarLiteral("left"), scalarLiteral("right"))
 	got, err := renderer.renderExpression(concat)
 	if err != nil {
@@ -63,12 +63,12 @@ func TestRenderGenericPhysicalCallsParameterizeLiterals(t *testing.T) {
 }
 
 func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{"child_set_1": "child_set_1"},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	expression := ir.PhysicalExpression{
 		Kind:        ir.PhysicalExtractExpression,
 		Cardinality: ir.PhysicalArrayCardinality,
@@ -88,12 +88,12 @@ func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {
 }
 
 func TestRenderUnitNormalizationConvertsPerMeasurementAndSkipsNullBeforeIdentityAssert(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	expression := ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality,
 		Extract: &ir.PhysicalExtract{
@@ -136,12 +136,12 @@ func TestRenderUnitNormalizationConvertsPerMeasurementAndSkipsNullBeforeIdentity
 }
 
 func TestRenderLengthCountsTerminalRepeatedSelectorItems(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	repeated := ir.PhysicalExpression{
 		Kind:        ir.PhysicalExtractExpression,
 		Cardinality: ir.PhysicalArrayCardinality,
@@ -164,12 +164,12 @@ func TestRenderLengthCountsTerminalRepeatedSelectorItems(t *testing.T) {
 }
 
 func TestRenderGenericCoalesceStringPreservesNulls(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"number": 7, "text": "seven"},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	got, err := renderer.renderExpression(callExpression("coalesce_string", scalarLiteral("number"), scalarLiteral("text")))
 	if err != nil {
 		t.Fatal(err)
@@ -180,12 +180,12 @@ func TestRenderGenericCoalesceStringPreservesNulls(t *testing.T) {
 }
 
 func TestRenderGenericPhysicalCaseUsesBoundNull(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"condition": true, "value": "yes"},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	call := callExpression("case", scalarLiteral("condition"), scalarLiteral("value"))
 	got, err := renderer.renderExpression(call)
 	if err != nil {
@@ -203,12 +203,12 @@ func TestRenderGenericPhysicalCaseUsesBoundNull(t *testing.T) {
 }
 
 func TestRenderGenericPhysicalUUIDUsesExactPostQueryMarker(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"namespace": "ns", "name": "name"},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	uuid := callExpression("uuid5", scalarLiteral("namespace"), scalarLiteral("name"))
 	got, err := renderer.renderExpression(uuid)
 	if err != nil || !strings.Contains(got, "__loom_exact_uuid_operation") || !strings.Contains(got, "uuid5") {
@@ -229,12 +229,12 @@ func TestRenderGenericPhysicalUUIDUsesExactPostQueryMarker(t *testing.T) {
 }
 
 func TestRenderNestedUUIDUsesRecursivePostQueryCallMarker(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"namespace": "ns", "name": "name", "suffix": "-suffix"},
 		collectionKeys: map[string]struct{}{},
 		setVariables:   map[string]string{},
 		reservedVars:   map[string]struct{}{},
-	}
+	}}
 	nested := callExpression("concat", callExpression("uuid5", scalarLiteral("namespace"), scalarLiteral("name")), scalarLiteral("suffix"))
 	got, err := renderer.renderExpression(nested)
 	if err != nil || !strings.Contains(got, "__loom_postquery_call") || !strings.Contains(got, "concat") {

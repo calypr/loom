@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/published"
@@ -12,10 +14,10 @@ import (
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/capability/resolver"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
@@ -86,14 +88,14 @@ type Fixture struct {
 	Catalog      *BundleCatalog
 	Explorers    Explorers
 	Revisions    *Revisions
-	Capabilities lifecycle.CapabilityResolver
+	Capabilities ports.CapabilityResolver
 	Snapshot     capability.Snapshot
 	Digest       string
 }
 
 func New(scope authscope.ReadScope) (Fixture, error) {
 	snapshot := capabilityfixtures.AuthorizedCapabilitySnapshot("generation-a", resolver.ScopeDigest(scope))
-	workspace, err := authoringv2.DecodeWorkspace(BaselineExplorerWorkspace())
+	workspace, err := ws.DecodeWorkspace(BaselineExplorerWorkspace())
 	if err != nil {
 		return Fixture{}, err
 	}
@@ -110,8 +112,8 @@ func New(scope authscope.ReadScope) (Fixture, error) {
 		Catalog:   &BundleCatalog{Pointers: map[string]publication.BundlePointer{}},
 		Explorers: Explorers{Value: &explorer.Explorer{Project: "project-a", ExplorerID: "builder-a", DraftVersion: 1, DraftDigest: digest, DraftConfig: draft}},
 		Revisions: &Revisions{Values: map[string]*explorer.Revision{}},
-		Capabilities: lifecycle.CapabilityResolver{ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capabilities: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 		Snapshot: snapshot,
 		Digest:   digest,

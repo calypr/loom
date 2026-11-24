@@ -2,20 +2,13 @@ package catalog
 
 import (
 	"context"
-	"sync"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+
+	"github.com/calypr/loom/internal/semantic"
 )
 
 const (
-	FieldCatalogCollection        = "fhir_field_catalog"
 	RelationshipCatalogCollection = "fhir_relationship_catalog"
-	FieldProfileStatusRecordType  = "profile_status"
-	fieldKindScalar               = "scalar"
-	fieldKindObject               = "object"
-	fieldKindArray                = "array"
-	fieldKindCodeableConcept      = "codeable_concept"
-	fieldKindCoding               = "coding"
-	pivotKindCodeableConcept      = "codeable_concept_display_value"
-	pivotKindObservation          = "observation_code_value"
 )
 
 const (
@@ -144,28 +137,28 @@ type RelationshipObservationResult struct {
 }
 
 type FieldEnrichmentObservation struct {
-	Project               string                      `json:"project"`
-	DatasetGeneration     string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath      string                      `json:"auth_resource_path,omitempty"`
-	ResourceType          string                      `json:"resource_type"`
-	Path                  string                      `json:"path"`
-	Kind                  string                      `json:"kind"`
-	DocCount              int64                       `json:"doc_count"`
-	MaxItems              int                         `json:"max_items,omitempty"`
-	SampleCount           int                         `json:"sample_count"`
-	DistinctValues        []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated     bool                        `json:"distinct_truncated"`
-	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
-	SemanticObservations  []SemanticObservation       `json:"semantic_observations,omitempty"`
-	PivotCandidate        bool                        `json:"pivot_candidate"`
-	PivotKind             string                      `json:"pivot_kind,omitempty"`
-	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
-	PivotFamily           string                      `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                      `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                      `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                      `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                      `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string                    `json:"pivot_value_selectors,omitempty"`
+	Project               string                                   `json:"project"`
+	DatasetGeneration     string                                   `json:"dataset_generation,omitempty"`
+	AuthResourcePath      string                                   `json:"auth_resource_path,omitempty"`
+	ResourceType          string                                   `json:"resource_type"`
+	Path                  string                                   `json:"path"`
+	Kind                  string                                   `json:"kind"`
+	DocCount              int64                                    `json:"doc_count"`
+	MaxItems              int                                      `json:"max_items,omitempty"`
+	SampleCount           int                                      `json:"sample_count"`
+	DistinctValues        []string                                 `json:"distinct_values,omitempty"`
+	DistinctTruncated     bool                                     `json:"distinct_truncated"`
+	ExtensionValues       []fieldcatalog.ExtensionValueObservation `json:"extension_values,omitempty"`
+	SemanticObservations  []semantic.Observation                   `json:"semantic_observations,omitempty"`
+	PivotCandidate        bool                                     `json:"pivot_candidate"`
+	PivotKind             string                                   `json:"pivot_kind,omitempty"`
+	PivotColumns          []string                                 `json:"pivot_columns,omitempty"`
+	PivotFamily           string                                   `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string                                   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string                                   `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string                                   `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string                                   `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string                                 `json:"pivot_value_selectors,omitempty"`
 }
 
 type FieldEnrichmentResult struct {
@@ -189,148 +182,6 @@ type CapabilityEvidenceReader interface {
 	DiscoverResourceInventory(context.Context, ResourceInventoryOptions) (ResourceInventoryResult, error)
 	DiscoverRelationshipObservations(context.Context, RelationshipObservationOptions) (RelationshipObservationResult, error)
 	DiscoverFieldEnrichment(context.Context, FieldEnrichmentOptions) (FieldEnrichmentResult, error)
-}
-
-type FieldCatalogDocument struct {
-	Key        string `json:"_key"`
-	RecordType string `json:"record_type,omitempty"`
-	Project    string `json:"project"`
-
-	DatasetGeneration   string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath    string                      `json:"auth_resource_path,omitempty"`
-	ResourceType        string                      `json:"resource_type"`
-	Path                string                      `json:"path"`
-	Kind                string                      `json:"kind"`
-	DocCount            int64                       `json:"doc_count"`
-	MaxItems            int                         `json:"max_items,omitempty"`
-	SampleCount         int                         `json:"sample_count"`
-	DistinctValues      []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated   bool                        `json:"distinct_truncated"`
-	EnrichmentComplete  *bool                       `json:"enrichment_complete,omitempty"`
-	EnrichmentTruncated bool                        `json:"enrichment_truncated"`
-	ExtensionValues     []ExtensionValueObservation `json:"extension_values,omitempty"`
-
-	SemanticObservations  []SemanticObservation `json:"semantic_observations,omitempty"`
-	PivotCandidate        bool                  `json:"pivot_candidate"`
-	PivotKind             string                `json:"pivot_kind,omitempty"`
-	PivotColumns          []string              `json:"pivot_columns,omitempty"`
-	PivotFamily           string                `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string              `json:"pivot_value_selectors,omitempty"`
-}
-
-type SemanticObservationCompleteness string
-
-const (
-	SemanticRuleHintCodedConceptV1  = "CODED_CONCEPT_V1"
-	SemanticRuleHintCodedCategoryV1 = "CODED_CATEGORY_V1"
-)
-
-const (
-	SemanticComplete   SemanticObservationCompleteness = "complete"
-	SemanticPartial    SemanticObservationCompleteness = "partial"
-	SemanticIncomplete SemanticObservationCompleteness = "incomplete"
-)
-
-type SemanticObservation struct {
-	SchemaVersion          int                             `json:"schema_version"`
-	Source                 SemanticObservationSource       `json:"source"`
-	Key                    SemanticObservationKey          `json:"key"`
-	Value                  SemanticObservationValue        `json:"value"`
-	OwningScope            string                          `json:"owning_scope,omitempty"`
-	ExtensionURLPath       []string                        `json:"extension_url_path,omitempty"`
-	ChoiceArm              string                          `json:"choice_arm,omitempty"`
-	LogicalType            string                          `json:"logical_type,omitempty"`
-	ObservedUnits          []string                        `json:"observed_units,omitempty"`
-	ObservedUnitsTruncated bool                            `json:"observed_units_truncated,omitempty"`
-	Completeness           SemanticObservationCompleteness `json:"completeness"`
-	Status                 string                          `json:"status,omitempty"`
-	Population             int64                           `json:"population"`
-	Examples               []string                        `json:"examples,omitempty"`
-	ExamplesTruncated      bool                            `json:"examples_truncated"`
-	RuleHint               string                          `json:"rule_hint,omitempty"`
-	RuleVersion            string                          `json:"rule_version,omitempty"`
-}
-
-type ConceptCandidate = SemanticObservation
-
-type SemanticObservationSource struct {
-	Canonical string `json:"canonical,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Profile   string `json:"profile,omitempty"`
-	Path      string `json:"path,omitempty"`
-}
-
-type SemanticObservationKey struct {
-	Selector string `json:"selector,omitempty"`
-	System   string `json:"system,omitempty"`
-	Version  string `json:"version,omitempty"`
-	Code     string `json:"code,omitempty"`
-	Display  string `json:"display,omitempty"`
-}
-
-type SemanticObservationValue struct {
-	Selector              string   `json:"selector,omitempty"`
-	Type                  string   `json:"type,omitempty"`
-	FallbackSelectors     []string `json:"fallback_selectors,omitempty"`
-	FallbackOnBlankString bool     `json:"fallback_on_blank_string,omitempty"`
-}
-
-type ExtensionValueObservation struct {
-	URL        string `json:"url"`
-	SourcePath string `json:"source_path"`
-	ValuePath  string `json:"value_path"`
-	ValueType  string `json:"value_type"`
-
-	URLPath []string `json:"url_path,omitempty"`
-}
-
-type PopulatedFieldOptions struct {
-	Project string
-
-	DatasetGeneration string
-
-	AuthResourcePathsUnrestricted *bool
-	AuthResourcePaths             []string
-	ResourceType                  string
-	PivotOnly                     bool
-	CursorBatch                   int
-}
-
-type PopulatedField struct {
-	Project               string                      `json:"project"`
-	DatasetGeneration     string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath      string                      `json:"auth_resource_path,omitempty"`
-	ResourceType          string                      `json:"resource_type"`
-	Path                  string                      `json:"path"`
-	Kind                  string                      `json:"kind"`
-	DocCount              int64                       `json:"doc_count"`
-	MaxItems              int                         `json:"max_items,omitempty"`
-	SampleCount           int                         `json:"sample_count"`
-	DistinctValues        []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated     bool                        `json:"distinct_truncated"`
-	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
-	SemanticObservations  []SemanticObservation       `json:"semantic_observations,omitempty"`
-	PivotCandidate        bool                        `json:"pivot_candidate"`
-	PivotKind             string                      `json:"pivot_kind,omitempty"`
-	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
-	PivotFamily           string                      `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                      `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                      `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                      `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                      `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string                    `json:"pivot_value_selectors,omitempty"`
-}
-
-type AuthResourcePathOptions struct {
-	Project           string
-	DatasetGeneration string
-	CursorBatch       int
-
-	AllGenerations bool
 }
 
 type PopulatedReferenceOptions struct {
@@ -372,137 +223,4 @@ type RelationshipKey struct {
 	FromType          string
 	Label             string
 	ToType            string
-}
-
-type Profiler struct {
-	project                  string
-	datasetGeneration        string
-	semanticInventoryBuildID string
-	authResourcePath         string
-	resourceType             string
-	semanticSourceKind       string
-	semanticOnly             bool
-	semanticScratch          semanticWalkScratch
-	limits                   ProfileLimits
-	shapeCache               *ShapePlanCache
-	stats                    map[string]*fieldCatalogStats
-	retainedBytes            int
-	truncated                bool
-	enrichmentTruncated      bool
-	budget                   *retentionBudget
-}
-
-type fieldCatalogStats struct {
-	path                  string
-	kind                  string
-	docCount              int64
-	maxItems              int
-	distinctValues        []string
-	distinctSet           map[string]struct{}
-	distinctTruncated     bool
-	pivotCandidate        bool
-	pivotKind             string
-	pivotColumns          []string
-	pivotColumnSet        map[string]struct{}
-	pivotFamily           string
-	pivotColumnSelect     string
-	pivotValueSelect      string
-	pivotItemSource       string
-	pivotItemResourceType string
-	pivotValueSelectors   []string
-	extensionValues       []ExtensionValueObservation
-	extensionValueSet     map[string]struct{}
-	semanticObservations  map[string]*semanticObservationStats
-}
-
-type semanticObservationStats struct {
-	observation SemanticObservation
-	exampleSet  map[string]struct{}
-	unitSet     map[string]struct{}
-}
-
-type ShapePlanCache struct {
-	mu            sync.RWMutex
-	plans         map[string]*shapePlan
-	maxPlans      int
-	maxBytes      int
-	retainedBytes int
-	truncated     bool
-	budget        *retentionBudget
-	sharedPlans   *ShapePlanCache
-}
-
-type retentionBudget struct {
-	mu   sync.Mutex
-	max  int
-	used int
-}
-
-func newRetentionBudget(max int) *retentionBudget {
-	return &retentionBudget{max: max}
-}
-
-func (b *retentionBudget) reserve(weight int) bool {
-	if weight <= 0 {
-		return true
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.max > 0 && b.used > b.max-weight {
-		return false
-	}
-	b.used += weight
-	return true
-}
-
-func (b *retentionBudget) release(weight int) {
-	if weight <= 0 {
-		return
-	}
-	b.mu.Lock()
-	b.used -= weight
-	if b.used < 0 {
-		b.used = 0
-	}
-	b.mu.Unlock()
-}
-
-func (b *retentionBudget) usage() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.used
-}
-
-func (c *ShapePlanCache) retentionBudget(max int) *retentionBudget {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.budget == nil {
-		c.budget = newRetentionBudget(max)
-	} else if c.budget.max <= 0 && max > 0 {
-		c.budget.max = max
-	}
-	return c.budget
-}
-
-func (c *ShapePlanCache) isTruncated() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.truncated
-}
-
-type shapePlan struct {
-	fields []*fieldPlan
-}
-
-type fieldPlan struct {
-	Path           string
-	Kind           string
-	Accessor       []pathStep
-	PivotCandidate bool
-	PivotKind      string
-}
-
-type pathStep struct {
-	field        string
-	iterateArray bool
 }

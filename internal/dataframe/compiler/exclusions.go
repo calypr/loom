@@ -1,0 +1,183 @@
+package compiler
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+)
+
+const (
+	DefaultTableShapeExclusionLimit = 25
+	MaxTableShapeExclusionLimit     = 100
+)
+
+type TableShapeExclusionRefusalCode string
+
+const (
+	TableShapeExclusionUnsupported   TableShapeExclusionRefusalCode = "TABLE_SHAPE_EXCLUSION_UNSUPPORTED"
+	TableShapeExclusionNoPolicy      TableShapeExclusionRefusalCode = "TABLE_SHAPE_EXCLUSION_NO_POLICY"
+	TableShapeExclusionInvalidOffset TableShapeExclusionRefusalCode = "TABLE_SHAPE_EXCLUSION_OFFSET_INVALID"
+	TableShapeExclusionInvalidLimit  TableShapeExclusionRefusalCode = "TABLE_SHAPE_EXCLUSION_LIMIT_INVALID"
+)
+
+type TableShapeExclusionRefusal struct {
+	Code TableShapeExclusionRefusalCode
+}
+
+func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
+
+type CompiledTableShapeExclusionQuery struct {
+	Query                string
+	BindVars             map[string]any
+	ResourceTypeField    string
+	ResourceIDField      string
+	IdentityStatusField  string
+	CategoryValueField   string
+	CategoryPresentField string
+	CategoryTypeField    string
+	OutputRowIDField     string
+	ReasonField          string
+	OmissionField        string
+	Offset               int
+	Limit                int
+	Diagnostics          ir.CompilerPlanDiagnostics
+}
+
+func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledTableShapeExclusionQuery, error) {
+	if offset < 0 {
+		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidOffset}
+	}
+	if limit <= 0 {
+		limit = DefaultTableShapeExclusionLimit
+	}
+	if limit > MaxTableShapeExclusionLimit {
+		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidLimit}
+	}
+
+	_ = policy
+	physical, err := WithGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
+	if err != nil {
+		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
+	}
+	physical, err = sourceStagePivotForExclusions(physical)
+	if err != nil {
+		return CompiledTableShapeExclusionQuery{}, err
+	}
+	pivotIndex := -1
+	var pivot *ir.PhysicalGroupedPivot
+	for index := range physical.Operations {
+		operation := &physical.Operations[index]
+		switch operation.Kind {
+		case ir.PhysicalGroupedPivotOp:
+			if pivot != nil || operation.GroupedPivot == nil {
+				return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+			}
+			pivotIndex, pivot = index, operation.GroupedPivot
+		case ir.PhysicalUnpivotOp:
+			return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+		}
+	}
+	if pivot == nil {
+		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	if pivot.UnlistedCategoryPolicy != string(ir.PhysicalPivotUnlistedCategoryExcludeWithEvidence) {
+		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionNoPolicy}
+	}
+
+	if pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput && physical.StageSequence == nil &&
+		len(physical.Operations) > 0 && physical.Operations[0].RootScan != nil {
+		root := physical.Operations[0].RootScan.Variable
+		for index, projection := range pivot.InputProjections {
+			if projection.Name != pivot.CategoryColumn {
+				continue
+			}
+			value, direct := ir.DirectScalarRootProjectionValue(projection, root)
+			if direct && len(value.Path) > 1 && value.Path[0] == "payload" {
+				pivot.CategoryPresence = &ir.PhysicalProjectionPresence{
+					Source: ir.PhysicalValue{Variable: root, Path: []string{"payload"}},
+					Paths:  [][]string{append([]string(nil), value.Path[1:]...)},
+				}
+				pivot.CategoryPresenceColumn = "__loom_exclusion_category_present"
+				pivot.InputProjections[index].Presence = pivot.CategoryPresence
+			}
+		}
+	}
+
+	const offsetBind, limitBind, fetchLimitBind = "table_shape_exclusion_offset", "table_shape_exclusion_limit", "table_shape_exclusion_fetch_limit"
+	for _, bind := range []string{offsetBind, limitBind, fetchLimitBind} {
+		if _, exists := physical.BindVars[bind]; exists {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion bind %q is already defined", bind)
+		}
+	}
+	physical.BindVars[offsetBind] = offset
+	physical.BindVars[limitBind] = limit
+	physical.BindVars[fetchLimitBind] = limit + 1
+	terminal := ir.PhysicalTableShapeExclusionReturn{
+		Pivot: *pivot, OffsetBindKey: offsetBind, LimitBindKey: limitBind, FetchLimitBindKey: fetchLimitBind,
+	}
+	physical.Operations = append(physical.Operations[:pivotIndex], ir.PhysicalOperation{
+		Kind:                      ir.PhysicalTableShapeExclusionReturnOp,
+		Source:                    physical.Operations[pivotIndex].Source,
+		TableShapeExclusionReturn: &terminal,
+	})
+	if err := physical.Validate(); err != nil {
+		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("validate table-shape exclusion plan: %w", err)
+	}
+	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
+		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("verify table-shape exclusion scope: %w", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical)
+	if err != nil {
+		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("render table-shape exclusion plan: %w", err)
+	}
+	if strings.TrimSpace(output.Name) == "" {
+		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
+	}
+	return CompiledTableShapeExclusionQuery{
+		Query: rendered.Query, BindVars: rendered.BindVars,
+		ResourceTypeField:    ir.PhysicalTableShapeExclusionResourceTypeField,
+		ResourceIDField:      ir.PhysicalTableShapeExclusionResourceIDField,
+		IdentityStatusField:  ir.PhysicalTableShapeExclusionIdentityStatusField,
+		CategoryValueField:   ir.PhysicalTableShapeExclusionCategoryValueField,
+		CategoryPresentField: ir.PhysicalTableShapeExclusionCategoryPresentField,
+		CategoryTypeField:    ir.PhysicalTableShapeExclusionCategoryTypeField,
+		OutputRowIDField:     ir.PhysicalTableShapeExclusionOutputRowIDField,
+		ReasonField:          ir.PhysicalTableShapeExclusionReasonField,
+		OmissionField:        ir.PhysicalTableShapeExclusionOmissionField,
+		Offset:               offset, Limit: limit, Diagnostics: PhysicalPlanDiagnostics(physical),
+	}, nil
+}
+
+func sourceStagePivotForExclusions(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
+	sequence := plan.StageSequence
+	if sequence == nil {
+		return plan, nil
+	}
+	if len(sequence.Stages) == 0 || sequence.Stages[0].Kind != ir.PhysicalStagePivotOp || sequence.Stages[0].GroupedPivot == nil || sequence.Stages[0].InputStageID != sequence.SourceStageID {
+		return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	for _, stage := range sequence.Stages[1:] {
+		if stage.Kind != ir.PhysicalStageDeriveOp {
+			return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+		}
+	}
+	last := len(plan.Operations) - 1
+	if last < 0 || plan.Operations[last].Kind != ir.PhysicalReturnOp || plan.Operations[last].Return == nil {
+		return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	pivot := *sequence.Stages[0].GroupedPivot
+	pivot.InputProjections = append([]ir.PhysicalProjection(nil), plan.Operations[last].Return.Projections...)
+	if pivot.CategoryPresenceFromInput {
+		for index := range pivot.InputProjections {
+			if pivot.InputProjections[index].Name == pivot.CategoryColumn {
+				pivot.InputProjections[index].Presence = nil
+			}
+		}
+	}
+	plan.Operations = append(plan.Operations[:last], ir.PhysicalOperation{Kind: ir.PhysicalGroupedPivotOp, GroupedPivot: &pivot}, ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: sequence.Stages[0].OutputProjections}})
+	plan.StageSequence = nil
+	return plan, nil
+}

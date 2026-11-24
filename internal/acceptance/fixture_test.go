@@ -1,6 +1,7 @@
 package acceptance
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -338,4 +339,29 @@ func TestFixtureCapsFailBeforeCacheCommit(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("cap failure left cache entries: %v", entries)
 	}
+}
+
+func canonicalFileStats(path string) (int, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64<<10), 64<<20)
+	count := 0
+	var bytes int64
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		canonical := canonicalJSON([]byte(line))
+		if string(canonical) != line {
+			return 0, 0, errors.New("non-canonical NDJSON")
+		}
+		count++
+		bytes += int64(len(line)) + 1
+	}
+	return count, bytes, scanner.Err()
 }

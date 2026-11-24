@@ -133,8 +133,8 @@ export const profiles = [
     ['dataset-arango', './internal/dataset/arango', 'TestRevisionInflationAgainstArango'],
     ['dataset', './internal/dataset', 'TestReleaseRequirementsUnmetActivateAgainstArango'],
     ['compilation', './internal/explorer/compilation', 'TestAcceptanceObservationContributorAQLAndBinds'],
-    ['recipe', './internal/dataframe/recipe/exec/arango', 'TestRecipeRegistryReadRoundTripAgainstArango'],
-    ['backfill', './internal/ingest', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
+    ['recipe', './internal/dataframe/recipe/arango', 'TestRecipeRegistryReadRoundTripAgainstArango'],
+    ['backfill', './internal/semantic/backfill', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
 ].map(([id, pkg, required]) => ({ id, package: pkg, required, ...(id === 'backfill' ? { run: required } : {}) }));
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler and execution packages supply real row witnesses.

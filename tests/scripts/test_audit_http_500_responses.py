@@ -17,7 +17,7 @@ class AuditTests(unittest.TestCase):
             generated = root/'api/loomapi'
             server.mkdir(parents=True)
             generated.mkdir(parents=True)
-            (server/'openapi_fixture.go').write_text('package fixture\n'+adapter+'\n'+helpers)
+            (server/'routes.go').write_text('package fixture\n'+adapter+'\n'+helpers)
             (generated/'api.gen.go').write_text('package loomapi\n'+factory)
             yaml = root/'openapi.yaml'
             yaml.write_text('paths:\n  /thing:\n    get:\n      operationId: getThing\n      responses:\n        "500": {}\n')
@@ -26,6 +26,8 @@ class AuditTests(unittest.TestCase):
     def test_direct_and_returned_helper_preserve_mapper_provenance(self):
         for adapter,helpers in [
             ('func GetThing() { status, failure := authoringErrorForOpenAPI(); return loomapi.NewGetThingErrorResponse(status, openAPIErrorResponseBody(status,failure)) }',''),
+            ('func GetThing() { status,body:=mapServiceError(); return loomapi.NewGetThingErrorResponse(status,body) }',
+             'type Service struct{}; func (*Service) GetThing() { return nil }'),
             ('func GetThing() { return dispatch() }','func dispatch() (loomapi.GetThingResponseObject,error) { status,body:=mapServiceError(); return loomapi.NewGetThingErrorResponse(status,body) }'),
             ('func GetThing() { fail:=func() (loomapi.GetThingResponseObject,error) {status,legacy:=explorerLegacyResponse(); return loomapi.NewGetThingErrorResponse(status,legacy)}; return fail() }',''),
         ]:
@@ -33,6 +35,13 @@ class AuditTests(unittest.TestCase):
                 report=self.run_fixture(adapter,helpers=helpers)
                 self.assertEqual(report['problems'],[])
                 self.assertEqual(report['count'],1)
+
+    def test_route_method_takes_precedence_over_same_named_helper(self):
+        report = self.run_fixture(
+            'type HTTPRoutes struct{}; func (*HTTPRoutes) GetThing() { return nil,nil }',
+            helpers='func GetThing(){status,body:=mapServiceError();return loomapi.NewGetThingErrorResponse(status,body)}',
+        )
+        self.assertIn('getThing missing reachable mapped 500 response', report['problems'])
 
     def test_shadowed_binding_does_not_overwrite_outer_mapped_body(self):
         report = self.run_fixture('func GetThing(){status,body:=mapServiceError();{body:=nil;_=body};return loomapi.NewGetThingErrorResponse(status,body)}')

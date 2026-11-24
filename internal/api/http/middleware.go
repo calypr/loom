@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/foundation/httpctx"
 	"runtime/debug"
 	"time"
 
@@ -67,7 +68,7 @@ func (s *HTTPServer) requestIDMiddleware(c fiber.Ctx) error {
 	}
 	c.Locals("request_id", requestID)
 	c.Set("X-Request-ID", requestID)
-	c.SetContext(ContextWithRequestID(c.Context(), requestID))
+	c.SetContext(httpctx.ContextWithRequestID(c.Context(), requestID))
 	return c.Next()
 }
 

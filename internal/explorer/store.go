@@ -5,6 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -19,35 +23,34 @@ var (
 	ErrCorruptReceipt = errors.New("corrupt compilation receipt")
 )
 
-type Store interface {
+type ExplorerStore interface {
 	List(context.Context, string) ([]Explorer, error)
 	Get(context.Context, string, string) (*Explorer, error)
 	Create(context.Context, Explorer) (*Explorer, error)
-
 	SaveDraft(context.Context, Explorer, int64, ...string) (*Explorer, error)
-	InsertCompilationReceipt(context.Context, CompilationReceipt) (*CompilationReceipt, error)
-	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*CompilationReceipt, error)
-	PublishAuthoring(context.Context, CompilationReceipt, Revision, dataset.ProjectRelease, int64) (*Revision, error)
+}
+
+type RevisionStore interface {
+	InsertCompilationReceipt(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error)
+	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	PublishAuthoring(context.Context, receiptmodel.CompilationReceipt, Revision, dataset.ProjectRelease, int64) (*Revision, error)
 	InsertRevision(context.Context, Revision) (*Revision, error)
 	GetRevision(context.Context, string) (*Revision, error)
-	FailRevision(context.Context, string, []Diagnostic) (*Revision, error)
+	FailRevision(context.Context, string, []viewer.Diagnostic) (*Revision, error)
 	ActivateRepositoryGeneration(context.Context, string, string, string) error
-	BeginSelection(context.Context, SelectionRevision, string) (*SelectionRevision, error)
-	AppendSelectionMembers(context.Context, string, string, []SelectionMember) ([]SelectionMember, error)
+}
+
+type SelectionStore interface {
+	BeginSelection(context.Context, explorerselection.SelectionRevision, string) (*explorerselection.SelectionRevision, error)
+	AppendSelectionMembers(context.Context, string, string, []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error)
 	DigestSelectionMembers(context.Context, string, string) (string, int64, int64, error)
-	CompleteSelection(context.Context, string, string, string, int64, int64, time.Time) (*SelectionRevision, error)
+	CompleteSelection(context.Context, string, string, string, int64, int64, time.Time) (*explorerselection.SelectionRevision, error)
 	AbortSelection(context.Context, string, string) error
 	CleanupSelectionStaging(context.Context, time.Time, int) error
-	GetSelection(context.Context, string, string) (*SelectionRevision, error)
-	VisitSelectionMembers(context.Context, string, string, string, int, func(SelectionMember) error) (string, error)
+	GetSelection(context.Context, string, string) (*explorerselection.SelectionRevision, error)
+	VisitSelectionMembers(context.Context, string, string, string, int, func(explorerselection.SelectionMember) error) (string, error)
 }
 
 type DraftRevisionReader interface {
 	GetDraftRevision(context.Context, string, string, string) (*DraftRevision, error)
-}
-
-type InterpretationRepository interface {
-	ListInterpretationLibraries(context.Context, string) ([]InterpretationLibrary, error)
-	GetInterpretationRevision(context.Context, string, InterpretationRevisionID) (*InterpretationRevision, error)
-	CreateInterpretationRevision(context.Context, InterpretationRevision, *InterpretationRevisionID) (*InterpretationRevision, error)
 }

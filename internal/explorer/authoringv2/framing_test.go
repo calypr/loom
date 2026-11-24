@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func testObservationFrame() FrameDefinition {
-	frame, err := NewFrameDefinition("Observation component values", "Codes and their paired values on Observation records.", capability.SemanticFrameFamily{
+func testObservationFrame() ws.FrameDefinition {
+	frame, err := ws.NewFrameDefinition("Observation component values", "Codes and their paired values on Observation records.", capability.SemanticFrameFamily{
 		BindingID: "binding-observation-component", ResourceType: "Observation", SourcePath: "component[]",
 		OwningScope: "component[]", KeyPath: "component[].code.coding[]", ValuePath: "valueQuantity.value",
 		LogicalType: "decimal", RuleVersion: "semantic-rule-v1", SchemaVersion: 1,
@@ -21,26 +23,26 @@ func testObservationFrame() FrameDefinition {
 	return frame
 }
 
-func observationFrameWorkspace(frame FrameDefinition) Workspace {
+func observationFrameWorkspace(frame ws.FrameDefinition) ws.Workspace {
 	lookup := validCorrelatedLookup()
-	tagged := Column{Column: "component_shared", Label: "Shared", OccurrenceID: RootOccurrenceID, FrameID: frame.ID, Source: ColumnSource{Kind: SourceCodedValue, Lookup: lookup}}
+	tagged := ws.Column{Column: "component_shared", Label: "Shared", OccurrenceID: ws.RootOccurrenceID, FrameID: frame.ID, Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: lookup}}
 	otherLookup := validCorrelatedLookup()
 	otherLookup.Key.Code = "unframed"
-	ordinary := Column{Column: "component_other", Label: "Other", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceCodedValue, Lookup: otherLookup}}
-	document := Document{
-		Kind: Kind, Output: Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
-		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(),
-		Frames: []FrameDefinition{frame}, Columns: []Column{tagged, ordinary},
+	ordinary := ws.Column{Column: "component_other", Label: "Other", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: otherLookup}}
+	document := ws.Document{
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(),
+		Frames: []ws.FrameDefinition{frame}, Columns: []ws.Column{tagged, ordinary},
 	}
-	return Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Builder"},
-		Documents: []Document{document}, Tabs: []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}},
+	return ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Builder"},
+		Documents: []ws.Document{document}, Tabs: []ws.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}},
 	}
 }
 
-func observationFrameCatalog() CatalogSnapshot {
+func observationFrameCatalog() ws.CatalogSnapshot {
 	catalog := testCatalog()
-	catalog.Nodes = []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
+	catalog.Nodes = []ws.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
 	catalog.Edges = nil
 	catalog.Candidates = nil
 	return catalog
@@ -50,12 +52,12 @@ func TestFrameSourcePersistsAndRoundTripsWithoutChangingRows(t *testing.T) {
 	frame := testObservationFrame()
 	workspace := emptyCommandWorkspace()
 	workspace.Explorer.Title = "Builder"
-	workspace.Documents = []Document{{
-		Kind: Kind, Output: Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
-		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
+	workspace.Documents = []ws.Document{{
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{},
 	}}
-	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
-	command := Command{Type: CommandSetFrameSource, OutputID: "out", FrameChoiceID: "signed-frame-choice", FrameForm: capability.ConstructionChoiceValue}
+	workspace.Tabs = []ws.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
+	command := Command{Type: CommandSetFrameSource, OutputID: "out", Payload: &FramePayload{FrameChoiceID: "signed-frame-choice", FrameForm: capability.ConstructionChoiceValue}}
 	if err := command.ResolveFrameSource(frame); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +76,7 @@ func TestFrameSourcePersistsAndRoundTripsWithoutChangingRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := DecodeWorkspace(encoded)
+	reloaded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,18 +111,18 @@ func TestDirectSemanticFrameChoicePersistsEmptyRouteAsArray(t *testing.T) {
 		t.Fatalf("direct semantic choice route = %#v, want an empty array", identity.Route)
 	}
 	frameSource := identity.Source.(capability.SemanticFrameChoiceSource).Family
-	frame, err := NewFrameDefinition("Observation height", "Height observations.", frameSource, identity.Route, capability.ConstructionChoiceValue)
+	frame, err := ws.NewFrameDefinition("Observation height", "Height observations.", frameSource, identity.Route, capability.ConstructionChoiceValue)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	workspace := emptyCommandWorkspace()
-	workspace.Documents = []Document{{
-		Kind: Kind, Output: Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
-		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
+	workspace.Documents = []ws.Document{{
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{},
 	}}
-	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
-	command := Command{Type: CommandSetFrameSource, OutputID: "out", FrameChoiceID: choice.ChoiceID, FrameForm: capability.ConstructionChoiceValue}
+	workspace.Tabs = []ws.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
+	command := Command{Type: CommandSetFrameSource, OutputID: "out", Payload: &FramePayload{FrameChoiceID: choice.ChoiceID, FrameForm: capability.ConstructionChoiceValue}}
 	if err := command.ResolveFrameSource(frame); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +152,7 @@ func TestDirectSemanticFrameChoicePersistsEmptyRouteAsArray(t *testing.T) {
 	if route := string(frameWire["route"]); route != "[]" {
 		t.Fatalf("saved direct frame route = %s, want []: %s", route, encoded)
 	}
-	reloaded, err := DecodeWorkspace(encoded)
+	reloaded, err := ws.DecodeWorkspace(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,22 +172,22 @@ func TestLegacyFrameWithNullRouteKeepsItsPersistedIdentity(t *testing.T) {
 		t.Fatal("legacy null route and new empty-array route unexpectedly share an identity")
 	}
 	workspace := emptyCommandWorkspace()
-	workspace.Documents = []Document{{
-		Kind: Kind, Output: Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
-		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
-		Frames: []FrameDefinition{{
+	workspace.Documents = []ws.Document{{
+		Kind: ws.Kind, Output: ws.Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+		Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Observation"}, Rows: ws.RecordsRowDefinition(), Columns: []ws.Column{},
+		Frames: []ws.FrameDefinition{{
 			ID: legacyID, Title: "Observation height", Description: "Height observations.", Source: source,
 			Route: nil, Form: capability.ConstructionChoiceValue,
-			ZeroPolicy: FrameZeroNull, ManyPolicy: FrameManyInvalidMultipleValues,
+			ZeroPolicy: ws.FrameZeroNull, ManyPolicy: ws.FrameManyInvalidMultipleValues,
 		}},
 	}}
-	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
+	workspace.Tabs = []ws.Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
 
 	legacyWire, err := json.Marshal(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodeStoredWorkspaceForMigration(legacyWire)
+	decoded, err := ws.DecodeStoredWorkspaceForMigration(legacyWire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +214,7 @@ func TestLegacyFrameWithNullRouteKeepsItsPersistedIdentity(t *testing.T) {
 		wire.Documents[0].Frames[0].ID != legacyID || string(wire.Documents[0].Frames[0].Route) != "null" {
 		t.Fatalf("legacy frame was silently migrated or rekeyed: %s", canonical)
 	}
-	reloaded, err := DecodeStoredWorkspaceForMigration(canonical)
+	reloaded, err := ws.DecodeStoredWorkspaceForMigration(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,9 +229,7 @@ func TestRemovingFrameSourceAtomicallyRemovesOnlyTaggedColumns(t *testing.T) {
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("test workspace is invalid: %v", err)
 	}
-	after, results, err := ApplyCommands(workspace, observationFrameCatalog(), "remove-frame", []Command{{
-		Type: CommandRemoveFrameSource, OutputID: "out", FrameID: frame.ID,
-	}})
+	after, results, err := ApplyCommands(workspace, observationFrameCatalog(), "remove-frame", []Command{{Type: CommandRemoveFrameSource, OutputID: "out", Payload: &FramePayload{FrameID: frame.ID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestRemovingFrameSourceAtomicallyRemovesOnlyTaggedColumns(t *testing.T) {
 
 func TestFrameDefinitionRejectsUnsupportedZeroManyPolicy(t *testing.T) {
 	frame := testObservationFrame()
-	frame.ManyPolicy = FrameManyFirst
+	frame.ManyPolicy = ws.FrameManyFirst
 	if err := frame.Validate(); err == nil || !strings.Contains(err.Error(), "zero/many policy") {
 		t.Fatalf("mismatched form policy error = %v", err)
 	}

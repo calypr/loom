@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -12,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -72,8 +73,8 @@ type OwnerRecordsRequest struct {
 	RootResourceType string
 	ResourceType     string
 	Route            []Traversal
-	Binding          fhirschema.CorrelatedBinding
-	Key              fhirschema.CorrelatedKey
+	Binding          fhirbinding.CorrelatedBinding
+	Key              fhirbinding.CorrelatedKey
 }
 
 type Options struct {
@@ -133,8 +134,8 @@ type CandidateCapability struct {
 
 type OwnerRecordsCapability struct {
 	ResourceType string
-	Binding      fhirschema.CorrelatedBinding
-	Key          fhirschema.CorrelatedKey
+	Binding      fhirbinding.CorrelatedBinding
+	Key          fhirbinding.CorrelatedKey
 	Rendered     Rendered
 }
 
@@ -159,7 +160,7 @@ func ProbeRoot(ctx context.Context, request RootRequest, options ...Options) (Re
 	if !ok {
 		return Result{}, fmt.Errorf("resource type %q has no supported row grain", canonical)
 	}
-	output := semantic.OutputPlan{RootResourceType: canonical, Root: semantic.SemanticNode{Alias: "root", ResourceType: canonical}}
+	output := recipeplan.OutputPlan{RootResourceType: canonical, Root: recipeplan.SemanticNode{Alias: "root", ResourceType: canonical}}
 	physical, rendered, err := compile(ctx, request.Scope, output, optionsFor(options))
 	_ = physical
 	if err != nil {
@@ -181,8 +182,8 @@ func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Op
 		return Result{}, fmt.Errorf("resource type %q is not a concrete generated FHIR resource", request.RootResourceType)
 	}
 	toType, _ := fhirschema.ConcreteResourceType(request.ToResourceType)
-	child := semantic.SemanticNode{Alias: routeAlias(request.Alias, 1), ResourceType: toType, EdgeLabel: request.EdgeLabel, MatchMode: request.MatchMode}
-	output := semantic.OutputPlan{RootResourceType: rootType, Root: semantic.SemanticNode{Alias: "root", ResourceType: rootType, Children: []semantic.SemanticNode{child}}}
+	child := recipeplan.SemanticNode{Alias: routeAlias(request.Alias, 1), ResourceType: toType, EdgeLabel: request.EdgeLabel, MatchMode: request.MatchMode}
+	output := recipeplan.OutputPlan{RootResourceType: rootType, Root: recipeplan.SemanticNode{Alias: "root", ResourceType: rootType, Children: []recipeplan.SemanticNode{child}}}
 	physical, rendered, err := compile(ctx, request.Scope, output, optionsFor(options))
 	if err != nil {
 		return Result{}, err
@@ -301,7 +302,7 @@ func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options
 	if err != nil {
 		return Result{}, err
 	}
-	checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, request.Binding)
+	checked, err := fhirbinding.ValidateCorrelatedBinding(resourceType, request.Binding)
 	if err != nil {
 		return Result{}, fmt.Errorf("owner records binding: %w", err)
 	}
@@ -311,11 +312,11 @@ func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options
 	if strings.TrimSpace(request.Key.System) == "" || strings.TrimSpace(request.Key.Code) == "" {
 		return Result{}, fmt.Errorf("owner records require a terminology system and code")
 	}
-	target.OwnerRecords = []semantic.SemanticOwnerRecords{{
+	target.OwnerRecords = []recipeplan.SemanticOwnerRecords{{
 		Name: "owner_records", FieldRef: resourceType + "." + checked.ValueSelector.CanonicalPath(),
 		Binding: request.Binding, Key: request.Key,
 	}}
-	physical, rendered, err := compile(ctx, request.Scope, semantic.OutputPlan{RootResourceType: root.ResourceType, Root: *root}, optionsFor(options))
+	physical, rendered, err := compile(ctx, request.Scope, recipeplan.OutputPlan{RootResourceType: root.ResourceType, Root: *root}, optionsFor(options))
 	if err != nil {
 		return Result{}, err
 	}
@@ -333,7 +334,7 @@ type preparedCandidate struct {
 	primitive    fhirschema.PrimitiveKind
 	cardinality  spec.Cardinality
 	repeated     bool
-	root         semantic.SemanticNode
+	root         recipeplan.SemanticNode
 }
 
 func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
@@ -385,7 +386,7 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	return preparedCandidate{scope: request.Scope, resourceType: resourceType, fieldRef: fieldRef, selector: selector, fieldKind: fieldKind, primitive: terminal.Primitive, cardinality: cardinality, repeated: repeated, root: *root}, nil
 }
 
-func routedRoot(rootResourceType, resourceType string, route []Traversal) (*semantic.SemanticNode, *semantic.SemanticNode, string, error) {
+func routedRoot(rootResourceType, resourceType string, route []Traversal) (*recipeplan.SemanticNode, *recipeplan.SemanticNode, string, error) {
 	rootType := strings.TrimSpace(rootResourceType)
 	if rootType == "" {
 		rootType = strings.TrimSpace(resourceType)
@@ -398,7 +399,7 @@ func routedRoot(rootResourceType, resourceType string, route []Traversal) (*sema
 	if !ok {
 		return nil, nil, "", fmt.Errorf("candidate resource type %q is not a concrete generated FHIR resource", resourceType)
 	}
-	root := semantic.SemanticNode{Alias: "root", ResourceType: canonicalRoot}
+	root := recipeplan.SemanticNode{Alias: "root", ResourceType: canonicalRoot}
 	current := &root
 	for index, traversal := range route {
 		if strings.TrimSpace(traversal.FromResourceType) == "" {
@@ -408,7 +409,7 @@ func routedRoot(rootResourceType, resourceType string, route []Traversal) (*sema
 			return nil, nil, "", err
 		}
 		toType, _ := fhirschema.ConcreteResourceType(traversal.ToResourceType)
-		current.Children = append(current.Children, semantic.SemanticNode{Alias: routeAlias(traversal.Alias, index+1), ResourceType: toType, EdgeLabel: traversal.EdgeLabel, MatchMode: traversal.MatchMode})
+		current.Children = append(current.Children, recipeplan.SemanticNode{Alias: routeAlias(traversal.Alias, index+1), ResourceType: toType, EdgeLabel: traversal.EdgeLabel, MatchMode: traversal.MatchMode})
 		current = &current.Children[len(current.Children)-1]
 	}
 	if current.ResourceType != canonicalResource {
@@ -431,9 +432,9 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 	if prepared.repeated {
 		fieldType.Cardinality = expression.Many
 	}
-	field := semantic.SemanticField{
+	field := recipeplan.SemanticField{
 		Name: "candidate", FieldRef: prepared.fieldRef,
-		Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: prepared.selector.CanonicalPath()}), Type: fieldType},
+		Expr:       recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: prepared.selector.CanonicalPath()}), Type: fieldType},
 		Projection: mode,
 	}
 	root := prepared.root
@@ -441,7 +442,7 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 	for len(target.Children) != 0 {
 		target = &target.Children[len(target.Children)-1]
 	}
-	target.Fields = []semantic.SemanticField{field}
+	target.Fields = []recipeplan.SemanticField{field}
 	if filter != nil {
 		typed, err := typedFilter(prepared, *filter)
 		if err != nil {
@@ -454,9 +455,9 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 			return ir.PhysicalPlan{}, Rendered{}, fmt.Errorf("chart operation is required")
 		}
 		selector := prepared.selector
-		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector, RequiredValues: append([]string(nil), chart.RequiredValues...)}}
+		target.Aggregates = []recipeplan.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector, RequiredValues: append([]string(nil), chart.RequiredValues...)}}
 	}
-	output := semantic.OutputPlan{RootResourceType: root.ResourceType, Root: root}
+	output := recipeplan.OutputPlan{RootResourceType: root.ResourceType, Root: root}
 	physical, rendered, err := compile(ctx, prepared.scope, output, options)
 	return physical, rendered, err
 }
@@ -471,12 +472,12 @@ func validateCandidateProjection(prepared preparedCandidate, mode spec.Projectio
 	return nil
 }
 
-func compile(ctx context.Context, scope Scope, output semantic.OutputPlan, options Options) (ir.PhysicalPlan, Rendered, error) {
+func compile(ctx context.Context, scope Scope, output recipeplan.OutputPlan, options Options) (ir.PhysicalPlan, Rendered, error) {
 	if err := contextErr(ctx); err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
 	options = options.normalized()
-	context := semantic.ExecutionContext{
+	context := recipeplan.ExecutionContext{
 		Project:           scope.Project,
 		DatasetGeneration: scope.DatasetGeneration,
 		AuthResourcePaths: ir.CloneStrings(scope.AuthResourcePaths),

@@ -13,7 +13,7 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-func (s *Store) DiscoverReferences(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+func (s *RelationshipStore) DiscoverReferences(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -55,7 +55,7 @@ func (s *Store) DiscoverReferences(ctx context.Context, opts catalog.PopulatedRe
 	return rows, err
 }
 
-func (s *Store) AuditRelationshipEdges(ctx context.Context, opts catalog.RelationshipAuditOptions) (catalog.RelationshipAuditSummary, error) {
+func (s *RelationshipStore) AuditRelationshipEdges(ctx context.Context, opts catalog.RelationshipAuditOptions) (catalog.RelationshipAuditSummary, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -87,7 +87,7 @@ func (s *Store) AuditRelationshipEdges(ctx context.Context, opts catalog.Relatio
 	return summary, nil
 }
 
-func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
+func (s *RelationshipStore) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -144,7 +144,7 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 	return result, nil
 }
 
-func (s *Store) WriteRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func (s *RelationshipStore) WriteRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -175,7 +175,7 @@ func (s *Store) WriteRelationshipCatalog(ctx context.Context, docs []catalog.Rel
 	}
 	return nil
 }
-func (s *Store) AccumulateRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, timings map[string]float64) error {
+func (s *RelationshipStore) AccumulateRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -199,7 +199,7 @@ FOR d IN @docs
 	}
 	return nil
 }
-func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.RelationshipRebuildOptions) (catalog.RelationshipRebuildSummary, error) {
+func (s *RelationshipStore) RebuildRelationshipCatalog(ctx context.Context, opts catalog.RelationshipRebuildOptions) (catalog.RelationshipRebuildSummary, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}

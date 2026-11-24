@@ -1,0 +1,998 @@
+package receiptmodel
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/explorer/viewer"
+	"github.com/calypr/loom/internal/projectid"
+)
+
+const (
+	CompilationReceiptFormatVersion         = 6
+	previousCompilationReceiptFormatVersion = 5
+	legacyCompilationReceiptFormatVersion   = 3
+
+	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v21"
+	legacyCompilationReceiptV20CompilerContractVersion = "loom.explorer.compiler/v20"
+	legacyCompilationReceiptV19CompilerContractVersion = "loom.explorer.compiler/v19"
+	legacyCompilationReceiptV18CompilerContractVersion = "loom.explorer.compiler/v18"
+	legacyCompilationReceiptV17CompilerContractVersion = "loom.explorer.compiler/v17"
+	legacyCompilationReceiptV16CompilerContractVersion = "loom.explorer.compiler/v16"
+	previousCompilationReceiptCompilerContractVersion  = "loom.explorer.compiler/v15"
+	legacyCompilationReceiptB06CompilerContractVersion = "loom.explorer.compiler/v14"
+	legacyCompilationReceiptV13CompilerContractVersion = "loom.explorer.compiler/v13"
+	legacyCompilationReceiptCompilerContractVersion    = "loom.explorer.compiler/v12"
+	legacyCompilationReceiptOlderContractVersion       = "loom.explorer.compiler/v11"
+	legacyCompilationReceiptV10ContractVersion         = "loom.explorer.compiler/v10"
+
+	CurrentReceiptFormatVersion       = CompilationReceiptFormatVersion
+	CurrentCompilerContractVersion    = CompilationReceiptCompilerContractVersion
+	CurrentCompilationContractVersion = CompilationReceiptCompilerContractVersion
+)
+
+func ReceiptContractSupportedForExecution(r CompilationReceipt) bool {
+	return r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion && !r.Bundle.HasArchivedReshape() && r.TableShapeProposal == nil
+}
+
+func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
+	canonical, err := canonicalRaw(raw)
+	if err != nil {
+		return "", err
+	}
+	if len(canonical) == 0 {
+		return "", fmt.Errorf("compilation artifact is required")
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+type CompilationReceipt struct {
+	ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
+	PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding `json:"populationMemberRemovalProposal,omitempty"`
+	ID                              string                                  `json:"id"`
+	ReceiptFormatVersion            int                                     `json:"receiptFormatVersion"`
+	CompilerContractVersion         string                                  `json:"compilerContractVersion"`
+	Project                         string                                  `json:"project"`
+	ExplorerID                      string                                  `json:"explorerId"`
+	IntentDigest                    string                                  `json:"intentDigest"`
+	ResolvedInputsDigest            string                                  `json:"resolvedInputsDigest,omitempty"`
+	ResolvedInterpretations         []interpretation.ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
+	SnapshotToken                   string                                  `json:"snapshotToken"`
+	AuthorizationScopeDigest        string                                  `json:"authorizationScopeDigest,omitempty"`
+	CapabilitySchemaDigest          string                                  `json:"capabilitySchemaDigest,omitempty"`
+	ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
+	SourceGeneration                string                                  `json:"sourceGeneration"`
+	CompilationKey                  string                                  `json:"compilationKey,omitempty"`
+	RecipeDigest                    string                                  `json:"recipeDigest"`
+	ResolvedRecipeDigest            string                                  `json:"resolvedRecipeDigest,omitempty"`
+	ResolvedSchemaDigest            string                                  `json:"resolvedSchemaDigest,omitempty"`
+	OutputContractDigest            string                                  `json:"outputContractDigest,omitempty"`
+	NormalizedBundle                json.RawMessage                         `json:"normalizedBundle"`
+	Bundle                          recipe.Bundle                           `json:"compiledRecipe"`
+	CompiledConfig                  json.RawMessage                         `json:"compiledConfig,omitempty"`
+	PublicOutputContract            json.RawMessage                         `json:"publicOutputContract,omitempty"`
+	IdentityMappings                []IdentityMapping                       `json:"identityMappings"`
+	EmittedColumns                  []viewer.EmittedColumn                  `json:"emittedColumns"`
+	OutputFingerprints              map[string]string                       `json:"outputFingerprints,omitempty"`
+	ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
+
+	OutputColumnProvenance map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
+
+	CompiledOutputSchemas      map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
+	Warnings                   []CompilationWarning                     `json:"warnings,omitempty"`
+	ColumnPolicyProposal       *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
+	SourceRelationshipProposal *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
+	RowDefinitionProposal      *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
+	TableShapeProposal         *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
+	RequestID                  string                                   `json:"requestId,omitempty"`
+	CreatedAt                  time.Time                                `json:"createdAt"`
+}
+
+type ReceiptCompiledOutputColumn struct {
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	LogicalType string `json:"logicalType"`
+	Cardinality string `json:"cardinality"`
+	Nullable    bool   `json:"nullable"`
+	Internal    bool   `json:"internal,omitempty"`
+	Identity    bool   `json:"identity,omitempty"`
+}
+
+type ReceiptConstructionStage struct {
+	ID                      string                                      `json:"id"`
+	InputStageID            string                                      `json:"inputStageId"`
+	Operation               string                                      `json:"operation,omitempty"`
+	RowIdentityColumn       string                                      `json:"rowIdentityColumn,omitempty"`
+	Columns                 []ReceiptConstructionStageColumn            `json:"columns"`
+	Capabilities            []ReceiptConstructionOperationChoice        `json:"capabilities"`
+	RelatedExpandAnchors    []ReceiptConstructionRelatedExpandAnchor    `json:"relatedExpandAnchors,omitempty"`
+	RelatedExpand           *ReceiptConstructionRelatedExpand           `json:"relatedExpand,omitempty"`
+	ActiveRelatedRecord     *ReceiptConstructionActiveRelatedRecord     `json:"activeRelatedRecord,omitempty"`
+	CodedGroupChoices       []ReceiptConstructionCodedGroupChoice       `json:"codedGroupChoices,omitempty"`
+	GroupFieldSourceContext *ReceiptConstructionGroupFieldSourceContext `json:"groupFieldSourceContext,omitempty"`
+}
+
+type ReceiptConstructionGroupFieldSourceContext struct {
+	SourceStageID        string                                        `json:"sourceStageId"`
+	SourceShapeID        string                                        `json:"sourceShapeId"`
+	SourceIdentityColumn string                                        `json:"sourceIdentityColumn"`
+	SourceExpansion      *ReceiptConstructionGroupFieldSourceExpansion `json:"sourceExpansion,omitempty"`
+	FieldOwners          []ReceiptConstructionGroupFieldOwner          `json:"fieldOwners"`
+}
+
+type ReceiptConstructionGroupFieldSourceExpansion struct {
+	OwnerOccurrenceID string                                         `json:"ownerOccurrenceId"`
+	OwnerResourceType string                                         `json:"ownerResourceType"`
+	Selector          string                                         `json:"selector"`
+	Route             []ReceiptConstructionGroupFieldSourceRouteStep `json:"route"`
+	Ancestors         []ReceiptConstructionGroupFieldSourceAncestor  `json:"ancestors"`
+	OrdinalSemantics  string                                         `json:"ordinalSemantics"`
+	IdentitySemantics string                                         `json:"identitySemantics"`
+	EmptyPolicy       string                                         `json:"emptyPolicy"`
+}
+
+type ReceiptConstructionGroupFieldSourceRouteStep struct {
+	OccurrenceID string `json:"occurrenceId"`
+	FromType     string `json:"fromType"`
+	EdgeLabel    string `json:"edgeLabel"`
+	ToType       string `json:"toType"`
+	Direction    string `json:"direction"`
+}
+
+type ReceiptConstructionGroupFieldSourceAncestor struct {
+	StepIndex        int    `json:"stepIndex"`
+	BoundarySelector string `json:"boundarySelector"`
+	ResourceType     string `json:"resourceType"`
+}
+
+type ReceiptConstructionGroupFieldOwner struct {
+	Role              string `json:"role"`
+	OccurrenceID      string `json:"occurrenceId"`
+	OwnerResourceType string `json:"ownerResourceType"`
+	ResourceType      string `json:"resourceType"`
+	BoundarySelector  string `json:"boundarySelector,omitempty"`
+	StepIndex         int    `json:"stepIndex"`
+}
+
+type ReceiptConstructionCodedGroupChoice struct {
+	ChoiceID     string `json:"choiceId"`
+	OccurrenceID string `json:"occurrenceId"`
+	ResourceType string `json:"resourceType"`
+	CodingPath   string `json:"codingPath"`
+	Label        string `json:"label"`
+}
+
+type ReceiptConstructionRelatedExpandAnchor struct {
+	AnchorColumnID string `json:"anchorColumnId"`
+	Kind           string `json:"kind"`
+	NodeID         string `json:"nodeId,omitempty"`
+	ResourceType   string `json:"resourceType"`
+	Label          string `json:"label"`
+}
+
+type ReceiptConstructionRelatedExpand struct {
+	AnchorColumnID         string                                `json:"anchorColumnId"`
+	AnchorColumn           string                                `json:"anchorColumn"`
+	AnchorKind             string                                `json:"anchorKind"`
+	AnchorNodeID           string                                `json:"anchorNodeId,omitempty"`
+	AnchorResourceType     string                                `json:"anchorResourceType"`
+	RelatedRecordColumnID  string                                `json:"relatedRecordColumnId"`
+	ParentIdentityColumnID string                                `json:"parentIdentityColumnId"`
+	ParentIdentityColumn   string                                `json:"parentIdentityColumn"`
+	TerminalIdentityColumn string                                `json:"terminalIdentityColumn"`
+	TargetNodeID           string                                `json:"targetNodeId"`
+	TargetResourceType     string                                `json:"targetResourceType"`
+	Route                  []recipe.ConstructionRelatedRouteStep `json:"route"`
+}
+
+type ReceiptConstructionActiveRelatedRecord struct {
+	TargetNodeID           string `json:"targetNodeId"`
+	TargetResourceType     string `json:"targetResourceType"`
+	TerminalIdentityColumn string `json:"terminalIdentityColumn"`
+}
+
+type ReceiptConstructionStageColumn struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Label     string `json:"label"`
+	Type      string `json:"type,omitempty"`
+	SourceKey string `json:"sourceKey,omitempty"`
+
+	Cardinality expression.Cardinality `json:"cardinality,omitempty"`
+}
+
+type ReceiptConstructionOperationChoice struct {
+	Kind       string `json:"kind"`
+	Supported  bool   `json:"supported"`
+	ReasonCode string `json:"reasonCode,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage, bundle recipe.Bundle) error {
+	outputsByID := make(map[string]recipe.Output, len(bundle.Outputs))
+	ambiguousOutputs := make(map[string]struct{})
+	for _, output := range bundle.Outputs {
+		if _, duplicate := outputsByID[output.Name]; duplicate {
+			delete(outputsByID, output.Name)
+			ambiguousOutputs[output.Name] = struct{}{}
+			continue
+		}
+		if _, ambiguous := ambiguousOutputs[output.Name]; !ambiguous {
+			outputsByID[output.Name] = output
+		}
+	}
+	for outputID, stages := range stagesByOutput {
+		if strings.TrimSpace(outputID) == "" || outputID != strings.TrimSpace(outputID) {
+			return fmt.Errorf("constructionStages requires exact output IDs")
+		}
+		if len(stages) == 0 {
+			return fmt.Errorf("constructionStages[%q] must include the source projection", outputID)
+		}
+		first := stages[0]
+		hasSourceProjection := first.ID == recipe.ConstructionSourceProjectionID && first.InputStageID == "" && first.Operation == ""
+		hasTerminalCombine := false
+		if !hasSourceProjection {
+			output, exists := outputsByID[outputID]
+			_, ambiguous := ambiguousOutputs[outputID]
+			hasTerminalCombine = exists && !ambiguous && isReceiptTerminalCombineStage(output, stages)
+		}
+		if !hasSourceProjection && !hasTerminalCombine {
+			return fmt.Errorf("constructionStages[%q][0] must be the implicit source projection or the exact terminal Combine stage", outputID)
+		}
+		seenStageIDs := make(map[string]struct{}, len(stages))
+		priorStageID := ""
+		for index, stage := range stages {
+			if strings.TrimSpace(stage.ID) == "" || stage.ID != strings.TrimSpace(stage.ID) {
+				return fmt.Errorf("constructionStages[%q][%d] requires an exact id", outputID, index)
+			}
+			if _, exists := seenStageIDs[stage.ID]; exists {
+				return fmt.Errorf("constructionStages[%q][%d] duplicates stage id %q", outputID, index, stage.ID)
+			}
+			seenStageIDs[stage.ID] = struct{}{}
+			if index == 0 {
+				if hasSourceProjection {
+					if stage.ID != recipe.ConstructionSourceProjectionID || stage.InputStageID != "" || stage.Operation != "" {
+						return fmt.Errorf("constructionStages[%q][0] must be the implicit source projection", outputID)
+					}
+				} else if !hasTerminalCombine {
+					return fmt.Errorf("constructionStages[%q][0] must be the exact terminal Combine stage", outputID)
+				}
+			} else if stage.InputStageID != priorStageID || stage.ID == recipe.ConstructionSourceProjectionID || strings.TrimSpace(stage.Operation) == "" {
+				return fmt.Errorf("constructionStages[%q][%d] does not follow its previous stage", outputID, index)
+			}
+			priorStageID = stage.ID
+			if err := validateReceiptGroupFieldSourceContext(stage); err != nil {
+				return fmt.Errorf("constructionStages[%q][%d].groupFieldSourceContext: %w", outputID, index, err)
+			}
+			seenColumns := make(map[string]struct{}, len(stage.Columns))
+			seenNames := make(map[string]struct{}, len(stage.Columns))
+			for columnIndex, column := range stage.Columns {
+				if strings.TrimSpace(column.ID) == "" || column.ID != strings.TrimSpace(column.ID) ||
+					strings.TrimSpace(column.Name) == "" || column.Name != strings.TrimSpace(column.Name) ||
+					strings.TrimSpace(column.Label) == "" || column.Label != strings.TrimSpace(column.Label) {
+					return fmt.Errorf("constructionStages[%q][%d].columns[%d] requires exact id, name, and label", outputID, index, columnIndex)
+				}
+				if _, exists := seenColumns[column.ID]; exists {
+					return fmt.Errorf("constructionStages[%q][%d] duplicates column id %q", outputID, index, column.ID)
+				}
+				if _, exists := seenNames[column.Name]; exists {
+					return fmt.Errorf("constructionStages[%q][%d] duplicates public column name %q", outputID, index, column.Name)
+				}
+				if column.Cardinality != "" && !column.Cardinality.Valid() {
+					return fmt.Errorf("constructionStages[%q][%d].columns[%d] has unsupported cardinality %q", outputID, index, columnIndex, column.Cardinality)
+				}
+				seenColumns[column.ID] = struct{}{}
+				seenNames[column.Name] = struct{}{}
+			}
+			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
+			for choiceIndex, choice := range stage.Capabilities {
+				switch choice.Kind {
+				case "PIVOT", "CODED_PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "CODED_GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_ELIGIBILITY", "RELATED_FIELD", "ROW_VALUES":
+				default:
+					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
+				}
+				if _, exists := seenOperations[choice.Kind]; exists {
+					return fmt.Errorf("constructionStages[%q][%d] duplicates capability for %q", outputID, index, choice.Kind)
+				}
+				seenOperations[choice.Kind] = struct{}{}
+				if !choice.Supported && (strings.TrimSpace(choice.ReasonCode) == "" || strings.TrimSpace(choice.Reason) == "") {
+					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] needs a reason for unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
+				}
+			}
+			anchorIDs := make(map[string]ReceiptConstructionRelatedExpandAnchor, len(stage.RelatedExpandAnchors))
+			for anchorIndex, anchor := range stage.RelatedExpandAnchors {
+				if strings.TrimSpace(anchor.AnchorColumnID) == "" || anchor.AnchorColumnID != strings.TrimSpace(anchor.AnchorColumnID) ||
+					strings.TrimSpace(anchor.ResourceType) == "" || anchor.ResourceType != strings.TrimSpace(anchor.ResourceType) ||
+					strings.TrimSpace(anchor.Label) == "" || anchor.Label != strings.TrimSpace(anchor.Label) {
+					return fmt.Errorf("constructionStages[%q][%d].relatedExpandAnchors[%d] requires exact column, type, and label", outputID, index, anchorIndex)
+				}
+				if _, exists := anchorIDs[anchor.AnchorColumnID]; exists {
+					return fmt.Errorf("constructionStages[%q][%d] duplicates related expansion anchor %q", outputID, index, anchor.AnchorColumnID)
+				}
+				switch anchor.Kind {
+				case "root":
+					if anchor.AnchorColumnID != "_key" || anchor.NodeID != "" {
+						return fmt.Errorf("constructionStages[%q][%d] root expansion anchor must be _key without a node override", outputID, index)
+					}
+				case "rootContributors":
+					if anchor.AnchorColumnID != "__loom_root_contributor_keys" || anchor.NodeID != "" {
+						return fmt.Errorf("constructionStages[%q][%d] root-contributor anchor must be the compiler-owned identity set without a node override", outputID, index)
+					}
+				case "activeRelatedRecord":
+					if strings.TrimSpace(anchor.NodeID) == "" || anchor.NodeID != strings.TrimSpace(anchor.NodeID) {
+						return fmt.Errorf("constructionStages[%q][%d] active related-record anchor requires an exact node id", outputID, index)
+					}
+				default:
+					return fmt.Errorf("constructionStages[%q][%d] has unsupported related expansion anchor kind %q", outputID, index, anchor.Kind)
+				}
+				anchorIDs[anchor.AnchorColumnID] = anchor
+			}
+			if stage.Operation == "RELATED_EXPAND" {
+				if stage.RelatedExpand == nil || stage.RelatedExpand.AnchorColumnID == "" || stage.RelatedExpand.AnchorColumn != stage.RelatedExpand.AnchorColumnID ||
+					stage.RelatedExpand.AnchorKind == "" || stage.RelatedExpand.AnchorResourceType == "" ||
+					stage.RelatedExpand.RelatedRecordColumnID == "" || stage.RelatedExpand.ParentIdentityColumnID == "" ||
+					stage.RelatedExpand.ParentIdentityColumn == "" || stage.RelatedExpand.TerminalIdentityColumn == "" ||
+					stage.RelatedExpand.TargetNodeID == "" || stage.RelatedExpand.TargetResourceType == "" || len(stage.RelatedExpand.Route) == 0 {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND lacks its exact target and identity metadata", outputID, index)
+				}
+				var inputStage *ReceiptConstructionStage
+				for inputIndex := range stages {
+					if stages[inputIndex].ID == stage.InputStageID {
+						inputStage = &stages[inputIndex]
+						break
+					}
+				}
+				var inputAnchor *ReceiptConstructionRelatedExpandAnchor
+				if inputStage != nil {
+					for anchorIndex := range inputStage.RelatedExpandAnchors {
+						if inputStage.RelatedExpandAnchors[anchorIndex].AnchorColumnID == stage.RelatedExpand.AnchorColumnID {
+							inputAnchor = &inputStage.RelatedExpandAnchors[anchorIndex]
+							break
+						}
+					}
+				}
+				if inputAnchor == nil || inputAnchor.Kind != stage.RelatedExpand.AnchorKind || inputAnchor.ResourceType != stage.RelatedExpand.AnchorResourceType ||
+					(inputAnchor.Kind == "activeRelatedRecord" && inputAnchor.NodeID != stage.RelatedExpand.AnchorNodeID) ||
+					(inputAnchor.Kind == "rootContributors" && (stage.RelatedExpand.AnchorColumnID != "__loom_root_contributor_keys" ||
+						stage.RelatedExpand.Route[0].FromNodeID != stage.RelatedExpand.AnchorNodeID || stage.RelatedExpand.Route[0].FromResourceType != inputAnchor.ResourceType)) {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND anchor differs from the compiler-proven input stage anchors", outputID, index)
+				}
+				foundOutput := false
+				for _, column := range stage.Columns {
+					if column.ID == stage.RelatedExpand.RelatedRecordColumnID {
+						foundOutput = true
+						break
+					}
+				}
+				if !foundOutput {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND output ID is absent from stage columns", outputID, index)
+				}
+				priorNode, priorResource := stage.RelatedExpand.Route[0].FromNodeID, stage.RelatedExpand.Route[0].FromResourceType
+				for routeIndex, hop := range stage.RelatedExpand.Route {
+					if hop.EdgeID == "" || hop.FromNodeID != priorNode || hop.FromResourceType != priorResource || hop.ToNodeID == "" ||
+						hop.ToResourceType == "" || hop.Relationship == "" || (hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+						(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+						return fmt.Errorf("constructionStages[%q][%d].relatedExpand.route[%d] is invalid or discontinuous", outputID, index, routeIndex)
+					}
+					priorNode, priorResource = hop.ToNodeID, hop.ToResourceType
+				}
+				if priorNode != stage.RelatedExpand.TargetNodeID || priorResource != stage.RelatedExpand.TargetResourceType {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND route terminal differs from target", outputID, index)
+				}
+			} else if stage.RelatedExpand != nil {
+				return fmt.Errorf("constructionStages[%q][%d] has related-expansion metadata for %q", outputID, index, stage.Operation)
+			}
+			if stage.ActiveRelatedRecord != nil {
+				active := stage.ActiveRelatedRecord
+				if strings.TrimSpace(active.TargetNodeID) == "" || active.TargetNodeID != strings.TrimSpace(active.TargetNodeID) ||
+					strings.TrimSpace(active.TargetResourceType) == "" || active.TargetResourceType != strings.TrimSpace(active.TargetResourceType) ||
+					strings.TrimSpace(active.TerminalIdentityColumn) == "" || active.TerminalIdentityColumn != strings.TrimSpace(active.TerminalIdentityColumn) {
+					return fmt.Errorf("constructionStages[%q][%d].activeRelatedRecord requires exact target and terminal identity fields", outputID, index)
+				}
+				switch stage.Operation {
+				case "RELATED_EXPAND":
+					if active.TargetNodeID != stage.RelatedExpand.TargetNodeID || active.TargetResourceType != stage.RelatedExpand.TargetResourceType || active.TerminalIdentityColumn != stage.RelatedExpand.TerminalIdentityColumn {
+						return fmt.Errorf("constructionStages[%q][%d] active terminal identity differs from RELATED_EXPAND metadata", outputID, index)
+					}
+				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_ELIGIBILITY", "RELATED_FIELD", "UNPIVOT":
+				default:
+					return fmt.Errorf("constructionStages[%q][%d] cannot carry an active related record through %q", outputID, index, stage.Operation)
+				}
+				activeAnchor, foundActiveAnchor := anchorIDs[active.TerminalIdentityColumn]
+				if !foundActiveAnchor || activeAnchor.Kind != "activeRelatedRecord" || activeAnchor.NodeID != active.TargetNodeID || activeAnchor.ResourceType != active.TargetResourceType {
+					return fmt.Errorf("constructionStages[%q][%d] active related record is absent from compiler-proven expansion anchors", outputID, index)
+				}
+			} else if stage.Operation == "RELATED_FIELD" {
+				return fmt.Errorf("constructionStages[%q][%d] RELATED_FIELD lacks its active exact terminal record", outputID, index)
+			}
+		}
+	}
+	return nil
+}
+
+func validateReceiptGroupFieldSourceContext(stage ReceiptConstructionStage) error {
+	context := stage.GroupFieldSourceContext
+	if context == nil {
+		return nil
+	}
+	if stage.ID != context.SourceStageID || context.SourceStageID == "" || context.SourceShapeID == "" ||
+		context.SourceIdentityColumn == "" || stage.RowIdentityColumn != context.SourceIdentityColumn || len(context.FieldOwners) == 0 {
+		return fmt.Errorf("requires exact stage, shape, row identity, and owner facts")
+	}
+	ownerKeys := make(map[string]struct{}, len(context.FieldOwners))
+	rootOwners, itemOwners := 0, 0
+	for index, owner := range context.FieldOwners {
+		if owner.OccurrenceID == "" || owner.OwnerResourceType == "" || owner.ResourceType == "" ||
+			owner.OccurrenceID != strings.TrimSpace(owner.OccurrenceID) || owner.OwnerResourceType != strings.TrimSpace(owner.OwnerResourceType) ||
+			owner.ResourceType != strings.TrimSpace(owner.ResourceType) {
+			return fmt.Errorf("fieldOwners[%d] requires exact occurrence and resource facts", index)
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", owner.Role, owner.OccurrenceID, owner.ResourceType, owner.BoundarySelector, owner.StepIndex)
+		if _, duplicate := ownerKeys[key]; duplicate {
+			return fmt.Errorf("fieldOwners[%d] duplicates an exact owner", index)
+		}
+		ownerKeys[key] = struct{}{}
+		switch owner.Role {
+		case "ROOT":
+			rootOwners++
+			if owner.OwnerResourceType != owner.ResourceType || owner.BoundarySelector != "" {
+				return fmt.Errorf("fieldOwners[%d] ROOT facts are inconsistent", index)
+			}
+		case "OWNER":
+			if owner.BoundarySelector != "" || owner.OwnerResourceType != owner.ResourceType {
+				return fmt.Errorf("fieldOwners[%d] OWNER facts are inconsistent", index)
+			}
+		case "ANCESTOR":
+			if owner.BoundarySelector == "" || owner.StepIndex < 0 {
+				return fmt.Errorf("fieldOwners[%d] ANCESTOR requires an exact boundary selector and step", index)
+			}
+		case "CURRENT_ITEM":
+			itemOwners++
+			if owner.BoundarySelector == "" {
+				return fmt.Errorf("fieldOwners[%d] CURRENT_ITEM requires the exact item selector", index)
+			}
+		default:
+			return fmt.Errorf("fieldOwners[%d] has unsupported role %q", index, owner.Role)
+		}
+	}
+	if rootOwners != 1 {
+		return fmt.Errorf("requires exactly one root field owner")
+	}
+	expansion := context.SourceExpansion
+	if expansion == nil {
+		if itemOwners != 0 {
+			return fmt.Errorf("CURRENT_ITEM owners require compiler expansion facts")
+		}
+		return nil
+	}
+	if expansion.OwnerOccurrenceID == "" || expansion.OwnerResourceType == "" || expansion.Selector == "" ||
+		expansion.OrdinalSemantics == "" || expansion.IdentitySemantics == "" || expansion.EmptyPolicy == "" || itemOwners != 1 {
+		return fmt.Errorf("sourceExpansion requires exact owner, selector, route semantics, and one current item")
+	}
+	priorType := ""
+	for index, hop := range expansion.Route {
+		if hop.OccurrenceID == "" || hop.FromType == "" || hop.EdgeLabel == "" || hop.ToType == "" ||
+			(hop.Direction != "INBOUND" && hop.Direction != "OUTBOUND") || (priorType != "" && hop.FromType != priorType) {
+			return fmt.Errorf("sourceExpansion.route[%d] is invalid or discontinuous", index)
+		}
+		priorType = hop.ToType
+	}
+	for index, ancestor := range expansion.Ancestors {
+		if ancestor.StepIndex < 0 || ancestor.BoundarySelector == "" || ancestor.ResourceType == "" {
+			return fmt.Errorf("sourceExpansion.ancestors[%d] requires exact boundary facts", index)
+		}
+		matches := 0
+		for _, owner := range context.FieldOwners {
+			if owner.Role == "ANCESTOR" && owner.StepIndex == ancestor.StepIndex && owner.BoundarySelector == ancestor.BoundarySelector &&
+				owner.ResourceType == ancestor.ResourceType && owner.OccurrenceID == expansion.OwnerOccurrenceID && owner.OwnerResourceType == expansion.OwnerResourceType {
+				matches++
+			}
+		}
+		if matches != 1 {
+			return fmt.Errorf("sourceExpansion.ancestors[%d] does not have one exact owner context", index)
+		}
+	}
+	currentMatches := 0
+	for _, owner := range context.FieldOwners {
+		if owner.Role == "CURRENT_ITEM" && owner.OccurrenceID == expansion.OwnerOccurrenceID &&
+			owner.OwnerResourceType == expansion.OwnerResourceType && owner.BoundarySelector == expansion.Selector {
+			currentMatches++
+		}
+	}
+	if currentMatches != 1 {
+		return fmt.Errorf("current item owner does not match the exact expansion")
+	}
+	return nil
+}
+
+func isReceiptTerminalCombineStage(output recipe.Output, stages []ReceiptConstructionStage) bool {
+	if len(stages) != 1 || output.Construction == nil {
+		return false
+	}
+	step, terminal := output.Construction.TerminalCombineStep()
+	if !terminal || step.Operation.Combine == nil || output.Construction.Validate(nil) != nil {
+		return false
+	}
+	stage := stages[0]
+	return stage.ID == step.ID && stage.InputStageID == "" && stage.Operation == string(step.Operation.Combine.Kind)
+}
+
+func validateReceiptCompiledOutputSchemas(
+	schemas map[string][]ReceiptCompiledOutputColumn,
+	bundle recipe.Bundle,
+) error {
+	if len(schemas) == 0 {
+		return nil
+	}
+	if len(schemas) != len(bundle.Outputs) {
+		return fmt.Errorf("receipt compiled output schema set changed")
+	}
+	for _, output := range bundle.Outputs {
+		columns, exists := schemas[output.Name]
+		if !exists {
+			return fmt.Errorf("receipt compiled output schema is missing output %q", output.Name)
+		}
+		ids := make(map[string]struct{}, len(columns))
+		names := make(map[string]struct{}, len(columns))
+		for index, column := range columns {
+			invalidPublicLabel := !column.Internal && (strings.TrimSpace(column.Label) == "" || column.Label != strings.TrimSpace(column.Label))
+			if strings.TrimSpace(column.Name) == "" || column.Name != strings.TrimSpace(column.Name) || invalidPublicLabel ||
+				strings.TrimSpace(column.LogicalType) == "" || column.LogicalType != strings.TrimSpace(column.LogicalType) ||
+				!expression.Cardinality(column.Cardinality).Valid() {
+				return fmt.Errorf("receipt compiled output schema %q column %d is incomplete", output.Name, index)
+			}
+			if column.ID != "" {
+				if strings.TrimSpace(column.ID) != column.ID {
+					return fmt.Errorf("receipt compiled output schema %q has a non-exact column ID", output.Name)
+				}
+				if _, duplicate := ids[column.ID]; duplicate {
+					return fmt.Errorf("receipt compiled output schema %q duplicates column ID %q", output.Name, column.ID)
+				}
+				ids[column.ID] = struct{}{}
+			}
+			if _, duplicate := names[column.Name]; duplicate {
+				return fmt.Errorf("receipt compiled output schema %q duplicates column name %q", output.Name, column.Name)
+			}
+			names[column.Name] = struct{}{}
+		}
+	}
+	return nil
+}
+
+type IdentityMapping struct {
+	OutputID       string   `json:"outputId,omitempty"`
+	CandidateID    string   `json:"candidateId"`
+	OccurrenceID   string   `json:"occurrenceId"`
+	ProjectionMode string   `json:"projectionMode,omitempty"`
+	EmissionIDs    []string `json:"emissionIds"`
+}
+
+type CompilationWarning struct {
+	Severity  string         `json:"severity,omitempty"`
+	Code      string         `json:"code"`
+	Stage     string         `json:"stage,omitempty"`
+	FieldPath string         `json:"fieldPath,omitempty"`
+	Message   string         `json:"message"`
+	Details   map[string]any `json:"details,omitempty"`
+}
+
+func CompilationKey(r CompilationReceipt) (string, error) {
+	identity := struct {
+		ReceiptFormatVersion            int                                     `json:"receiptFormatVersion"`
+		CompilerContractVersion         string                                  `json:"compilerContractVersion"`
+		Project                         string                                  `json:"project"`
+		ExplorerID                      string                                  `json:"explorerId"`
+		IntentDigest                    string                                  `json:"intentDigest"`
+		ResolvedInputsDigest            string                                  `json:"resolvedInputsDigest,omitempty"`
+		ResolvedInterpretations         []interpretation.ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
+		NormalizedBundle                []byte                                  `json:"normalizedBundle,omitempty"`
+		SnapshotToken                   string                                  `json:"snapshotToken"`
+		AuthorizationScope              string                                  `json:"authorizationScopeDigest,omitempty"`
+		CapabilitySchema                string                                  `json:"capabilitySchemaDigest,omitempty"`
+		ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
+		SourceGeneration                string                                  `json:"sourceGeneration"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding            `json:"columnPolicyProposal,omitempty"`
+		SourceRelationshipProposal      *SourceRelationshipProposalBinding      `json:"sourceRelationshipProposal,omitempty"`
+		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
+		ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
+		PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding `json:"populationMemberRemovalProposal,omitempty"`
+		ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
+	}{}
+	normalized, err := canonicalRaw(r.NormalizedBundle)
+	if err != nil {
+		return "", fmt.Errorf("canonical normalized bundle: %w", err)
+	}
+	identity = struct {
+		ReceiptFormatVersion            int                                     `json:"receiptFormatVersion"`
+		CompilerContractVersion         string                                  `json:"compilerContractVersion"`
+		Project                         string                                  `json:"project"`
+		ExplorerID                      string                                  `json:"explorerId"`
+		IntentDigest                    string                                  `json:"intentDigest"`
+		ResolvedInputsDigest            string                                  `json:"resolvedInputsDigest,omitempty"`
+		ResolvedInterpretations         []interpretation.ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
+		NormalizedBundle                []byte                                  `json:"normalizedBundle,omitempty"`
+		SnapshotToken                   string                                  `json:"snapshotToken"`
+		AuthorizationScope              string                                  `json:"authorizationScopeDigest,omitempty"`
+		CapabilitySchema                string                                  `json:"capabilitySchemaDigest,omitempty"`
+		ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
+		SourceGeneration                string                                  `json:"sourceGeneration"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding            `json:"columnPolicyProposal,omitempty"`
+		SourceRelationshipProposal      *SourceRelationshipProposalBinding      `json:"sourceRelationshipProposal,omitempty"`
+		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
+		ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
+		PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding `json:"populationMemberRemovalProposal,omitempty"`
+		ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
+	}{
+		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
+		r.IntentDigest, r.ResolvedInputsDigest, r.ResolvedInterpretations, normalized, r.SnapshotToken,
+		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.ColumnPolicyProposal, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
+		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages,
+	}
+	return digestIdentity("compile_", identity)
+}
+
+func ReceiptID(r CompilationReceipt) (string, error) {
+	key, err := CompilationKey(r)
+	if err != nil {
+		return "", err
+	}
+	return receiptIDWithCompilationKey(r, key)
+}
+
+func receiptIDWithCompilationKey(r CompilationReceipt, key string) (string, error) {
+	compiledConfig, err := canonicalRaw(r.CompiledConfig)
+	if err != nil {
+		return "", fmt.Errorf("canonical compiled config: %w", err)
+	}
+	publicContract, err := canonicalRaw(r.PublicOutputContract)
+	if err != nil {
+		return "", fmt.Errorf("canonical public output contract: %w", err)
+	}
+	identity := struct {
+		CompilationKey                  string                                   `json:"compilationKey"`
+		RecipeDigest                    string                                   `json:"recipeDigest"`
+		ResolvedRecipeDigest            string                                   `json:"resolvedRecipeDigest,omitempty"`
+		ResolvedSchemaDigest            string                                   `json:"resolvedSchemaDigest,omitempty"`
+		OutputContractDigest            string                                   `json:"outputContractDigest,omitempty"`
+		Bundle                          recipe.Bundle                            `json:"compiledRecipe"`
+		CompiledConfig                  []byte                                   `json:"compiledConfig,omitempty"`
+		PublicOutputContract            []byte                                   `json:"publicOutputContract,omitempty"`
+		Mappings                        []IdentityMapping                        `json:"identityMappings"`
+		Emissions                       []viewer.EmittedColumn                   `json:"emittedColumns"`
+		Fingerprints                    map[string]string                        `json:"outputFingerprints,omitempty"`
+		ColumnProvenance                map[string]map[string]string             `json:"outputColumnProvenance,omitempty"`
+		ResolvedInterpretations         []interpretation.ResolvedInterpretation  `json:"resolvedInterpretations,omitempty"`
+		Warnings                        []CompilationWarning                     `json:"warnings,omitempty"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
+		SourceRelationshipProposal      *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
+		RowDefinitionProposal           *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal              *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
+		ConstructionProposal            *ConstructionProposalBinding             `json:"constructionProposal,omitempty"`
+		PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding  `json:"populationMemberRemovalProposal,omitempty"`
+		ConstructionStages              map[string][]ReceiptConstructionStage    `json:"constructionStages,omitempty"`
+		CompiledOutputSchemas           map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
+	}{
+		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
+		r.OutputContractDigest, r.Bundle, compiledConfig,
+		publicContract, r.IdentityMappings, r.EmittedColumns,
+		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.ColumnPolicyProposal, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
+		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages, r.CompiledOutputSchemas,
+	}
+	return digestIdentity("receipt_", identity)
+}
+
+func digestIdentity(prefix string, identity any) (string, error) {
+	raw, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	canonical, err := explorerconfig.CanonicalJSONBytes(raw)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return prefix + hex.EncodeToString(sum[:]), nil
+}
+
+func canonicalRaw(raw json.RawMessage) ([]byte, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		return nil, nil
+	}
+	return explorerconfig.CanonicalJSONBytes(raw)
+}
+
+func (r CompilationReceipt) Validate() error { return r.ValidateArchive() }
+
+func (r CompilationReceipt) ValidateArchive() error {
+	var verifiedCompilationKey string
+	if r.ColumnPolicyProposal != nil {
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("column policy proposals require the current receipt and compiler contract")
+		}
+		if r.SourceRelationshipProposal != nil || r.RowDefinitionProposal != nil || r.TableShapeProposal != nil || r.ConstructionProposal != nil || r.PopulationMemberRemovalProposal != nil {
+			return fmt.Errorf("column policy proposal cannot share a receipt with another proposal")
+		}
+		if err := r.ColumnPolicyProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
+	if r.SourceRelationshipProposal != nil {
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("source relationship proposals require the current receipt and compiler contract")
+		}
+		if r.RowDefinitionProposal != nil || r.TableShapeProposal != nil || r.ConstructionProposal != nil || r.PopulationMemberRemovalProposal != nil {
+			return fmt.Errorf("source relationship proposal cannot share a receipt with another proposal")
+		}
+		if err := r.SourceRelationshipProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
+	if r.RowDefinitionProposal != nil {
+		if err := r.RowDefinitionProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
+	if r.TableShapeProposal != nil {
+		if err := r.TableShapeProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
+	if r.ConstructionProposal != nil {
+		if err := r.ConstructionProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("construction proposals require the current receipt and compiler contract")
+		}
+	}
+	if r.PopulationMemberRemovalProposal != nil {
+		if r.RowDefinitionProposal != nil || r.TableShapeProposal != nil || r.ConstructionProposal != nil {
+			return fmt.Errorf("population member removal proposal cannot share a receipt with another proposal")
+		}
+		if err := r.PopulationMemberRemovalProposal.Validate(r.IntentDigest, r.SnapshotToken, r.Project, r.SourceGeneration); err != nil {
+			return err
+		}
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("population member proposals require the current receipt and compiler contract")
+		}
+	}
+	if err := validateReceiptConstructionStages(r.ConstructionStages, r.Bundle); err != nil {
+		return err
+	}
+	if err := validateReceiptCompiledOutputSchemas(r.CompiledOutputSchemas, r.Bundle); err != nil {
+		return err
+	}
+	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != previousCompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {
+		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
+	}
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV20CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV19CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV18CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
+		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
+	}
+	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {
+		return fmt.Errorf("receipt project and explorerId are required")
+	}
+	if r.Bundle.RecipeSchemaVersion <= 0 {
+		return ErrReceiptRecompileRequired
+	}
+	if r.ReceiptFormatVersion == CompilationReceiptFormatVersion || r.ReceiptFormatVersion == previousCompilationReceiptFormatVersion || r.ReceiptFormatVersion == legacyCompilationReceiptFormatVersion {
+		required := []struct {
+			name  string
+			value string
+		}{
+			{"compilerContractVersion", r.CompilerContractVersion},
+			{"intentDigest", r.IntentDigest},
+			{"snapshotToken", r.SnapshotToken},
+			{"authorizationScopeDigest", r.AuthorizationScopeDigest},
+			{"capabilitySchemaDigest", r.CapabilitySchemaDigest},
+			{"sourceGeneration", r.SourceGeneration},
+			{"compilationKey", r.CompilationKey},
+			{"recipeDigest", r.RecipeDigest},
+			{"resolvedRecipeDigest", r.ResolvedRecipeDigest},
+			{"resolvedSchemaDigest", r.ResolvedSchemaDigest},
+			{"outputContractDigest", r.OutputContractDigest},
+		}
+		for _, field := range required {
+			if strings.TrimSpace(field.value) == "" {
+				return fmt.Errorf("receipt %s is required", field.name)
+			}
+		}
+		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV20CompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV19CompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
+			return fmt.Errorf("receipt shapeDigest is required")
+		}
+		key, err := CompilationKey(r)
+		if err != nil {
+			return err
+		}
+		if r.CompilationKey != key {
+			return fmt.Errorf("receipt compilation key mismatch: got %q want %q", r.CompilationKey, key)
+		}
+		verifiedCompilationKey = key
+		resolvedDigest, err := r.Bundle.ArchiveDigest()
+		if err != nil {
+			return fmt.Errorf("digest resolved recipe: %w", err)
+		}
+		if r.ResolvedRecipeDigest != resolvedDigest {
+			return fmt.Errorf("receipt resolved recipe digest mismatch: got %q want %q", r.ResolvedRecipeDigest, resolvedDigest)
+		}
+		contract, contractErr := DecodePublicOutputContracts(r.PublicOutputContract)
+		if contractErr != nil {
+			return contractErr
+		}
+		if contractErr := contract.ValidateAgainst(r.Bundle, r.EmittedColumns); contractErr != nil {
+			return contractErr
+		}
+		contractDigest, err := CompilationArtifactDigest(r.PublicOutputContract)
+		if err != nil {
+			return fmt.Errorf("%w: digest public output contract: %v", ErrReceiptRecompileRequired, err)
+		}
+		if r.OutputContractDigest != contractDigest {
+			return fmt.Errorf("%w: receipt output contract digest mismatch: got %q want %q", ErrReceiptRecompileRequired, r.OutputContractDigest, contractDigest)
+		}
+		if err := validateOutputColumnProvenance(r.OutputColumnProvenance); err != nil {
+			return err
+		}
+		if len(r.OutputColumnProvenance) != len(r.Bundle.Outputs) {
+			return fmt.Errorf("receipt output column provenance output set changed")
+		}
+		for _, output := range r.Bundle.Outputs {
+			if _, ok := r.OutputColumnProvenance[output.Name]; !ok {
+				return fmt.Errorf("receipt output column provenance is missing output %q", output.Name)
+			}
+		}
+	}
+	if err := validateResolvedInterpretations(r.Project, r.ResolvedInterpretations); err != nil {
+		return err
+	}
+	if r.ID != "" {
+		if err := r.validateIDWithCompilationKey(verifiedCompilationKey); err != nil {
+			return err
+		}
+	}
+	if len(r.NormalizedBundle) > 0 {
+		if err := validateReceiptRawJSON(r.NormalizedBundle); err != nil {
+			return fmt.Errorf("invalid normalized bundle: %w", err)
+		}
+	}
+	if len(r.CompiledConfig) > 0 {
+		if err := validateReceiptRawJSON(r.CompiledConfig); err != nil {
+			return fmt.Errorf("invalid compiled config: %w", err)
+		}
+	}
+	if len(r.PublicOutputContract) > 0 {
+		if err := validateReceiptRawJSON(r.PublicOutputContract); err != nil {
+			return fmt.Errorf("invalid public output contract: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateOutputColumnProvenance(values map[string]map[string]string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("receipt output column provenance is required")
+	}
+	for output, columns := range values {
+		if strings.TrimSpace(output) == "" || len(columns) == 0 {
+			return fmt.Errorf("receipt output column provenance contains an empty output")
+		}
+		for column, provenance := range columns {
+			if strings.TrimSpace(column) == "" || (provenance != "EXPLICIT" && provenance != "DISCOVERED") {
+				return fmt.Errorf("receipt output column provenance is invalid for %q/%q", output, column)
+			}
+		}
+	}
+	return nil
+}
+
+func validateResolvedInterpretations(project string, values []interpretation.ResolvedInterpretation) error {
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		if strings.TrimSpace(value.OutputID) == "" || strings.TrimSpace(value.Column) == "" || strings.TrimSpace(value.OccurrenceID) == "" {
+			return fmt.Errorf("receipt resolved interpretation %d requires outputId, column, and occurrenceId", index)
+		}
+		key := value.OutputID + "\x00" + value.Column + "\x00" + value.OccurrenceID
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("receipt resolved interpretations contain duplicate %q", key)
+		}
+		seen[key] = struct{}{}
+		if err := value.Revision.Validate(); err != nil {
+			return fmt.Errorf("receipt resolved interpretation %q has invalid revision: %w", key, err)
+		}
+		if projectid.Canonical(value.Revision.Project) != projectid.Canonical(project) {
+			return fmt.Errorf("receipt resolved interpretation %q belongs to a different project", key)
+		}
+		if value.SelectedRuleID == "" {
+			return fmt.Errorf("receipt resolved interpretation %q is missing selectedRuleId", key)
+		}
+		found := false
+		for _, rule := range value.Revision.Rules {
+			if rule.ID != value.SelectedRuleID {
+				continue
+			}
+			found = true
+			left, leftErr := json.Marshal(rule.Definition)
+			right, rightErr := json.Marshal(value.Definition)
+			if leftErr != nil || rightErr != nil || string(left) != string(right) {
+				return fmt.Errorf("receipt resolved interpretation %q selected definition mismatch", key)
+			}
+			break
+		}
+		if !found {
+			return fmt.Errorf("receipt resolved interpretation %q selected rule %q is absent", key, value.SelectedRuleID)
+		}
+	}
+	return nil
+}
+
+func (r CompilationReceipt) ValidateID() error {
+	return r.validateIDWithCompilationKey("")
+}
+
+func (r CompilationReceipt) validateIDWithCompilationKey(key string) error {
+	if strings.TrimSpace(r.ID) == "" {
+		return fmt.Errorf("receipt id is required")
+	}
+	var expected string
+	var err error
+	if key == "" {
+		expected, err = ReceiptID(r)
+	} else {
+		expected, err = receiptIDWithCompilationKey(r, key)
+	}
+	if err != nil {
+		return fmt.Errorf("calculate receipt id: %w", err)
+	}
+	if r.ID != expected {
+		return fmt.Errorf("receipt id mismatch: got %q want %q", r.ID, expected)
+	}
+	return nil
+}
+
+func validateReceiptRawJSON(raw []byte) error {
+	if json.Valid(raw) {
+		return nil
+	}
+	_, err := explorerconfig.CanonicalJSONBytes(raw)
+	return err
+}
+
+func ValidateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage, bundle recipe.Bundle) error {
+	return validateReceiptConstructionStages(stagesByOutput, bundle)
+}
+
+func ValidateReceiptCompiledOutputSchemas(schemas map[string][]ReceiptCompiledOutputColumn, bundle recipe.Bundle) error {
+	return validateReceiptCompiledOutputSchemas(schemas, bundle)
+}
+
+func ValidateReceiptRawJSON(raw []byte) error {
+	return validateReceiptRawJSON(raw)
+}
+
+func (receipt CompilationReceipt) CurrentWorkspace() (ws.Workspace, error) {
+	workspace, err := ws.DecodeCurrentWorkspace(receipt.NormalizedBundle)
+	if err != nil {
+		return ws.Workspace{}, err
+	}
+	digest, err := workspace.Digest()
+	if err != nil || receipt.IntentDigest == "" || digest != receipt.IntentDigest {
+		return ws.Workspace{}, fmt.Errorf("receipt workspace does not match its intent digest")
+	}
+	return workspace, nil
+}

@@ -9,12 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
+
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest ...string) (*explorer.Explorer, error) {
+func (s *DraftStore) SaveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest ...string) (*explorer.Explorer, error) {
 	return s.saveDraft(ctx, e, expected, expectedDigest, nil)
 }
 
@@ -24,7 +27,7 @@ type draftMigrationWrite struct {
 	beforeHistory func(context.Context, store.RowQueryer, explorer.Explorer, explorer.DraftRevision) error
 }
 
-func (s *Store) saveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest []string, migration *draftMigrationWrite) (*explorer.Explorer, error) {
+func (s *DraftStore) saveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest []string, migration *draftMigrationWrite) (*explorer.Explorer, error) {
 	e.UpdatedAt = time.Now().UTC()
 	draftPatch, err := draftPatchDocument(e)
 	if err != nil {
@@ -55,7 +58,7 @@ func (s *Store) saveDraft(ctx context.Context, e explorer.Explorer, expected int
 		Write: writeCollections,
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		var previous *explorer.Explorer
-		if err := tx.QueryRows(txCtx, migrationJSONQuery(`FOR d IN @@c
+		if err := tx.QueryRows(txCtx, db.MigrationJSONQuery(`FOR d IN @@c
 FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId
   AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0))
   AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest)
@@ -65,7 +68,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 			"expected": expected, "expectedDigest": digest,
 			"expectedRevision": expectedRevision,
 		}, func(row map[string]any) error {
-			value, decodeErr := decodeDraftRow[explorer.Explorer](row, migration != nil)
+			value, decodeErr := db.DecodeDraftRow[explorer.Explorer](row, migration != nil)
 			previous = &value
 			return decodeErr
 		}); err != nil {
@@ -82,9 +85,9 @@ RETURN d`, migration != nil), 1, map[string]any{
 				return err
 			}
 		}
-		revisionDoc, err := document(revision, revision.ID)
+		revisionDoc, err := db.Document(revision, revision.ID)
 		if migration != nil {
-			revisionDoc, err = migrationDocument(revision, revision.ID)
+			revisionDoc, err = db.MigrationDocument(revision, revision.ID)
 		}
 		if err != nil {
 			return fmt.Errorf("encode prior Explorer draft revision: %w", err)
@@ -100,9 +103,9 @@ RETURN d`, migration != nil), 1, map[string]any{
 		}
 		if migration != nil {
 			matched := false
-			err := tx.QueryRows(txCtx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
+			err := tx.QueryRows(txCtx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
 				map[string]any{"@c": DraftRevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
-					stored, err := decodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
+					stored, err := db.DecodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
 					if err != nil {
 						return err
 					}
@@ -114,7 +117,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 					if err != nil {
 						return err
 					}
-					matched = auditNormalizedJSON(actual) == auditNormalizedJSON(expected)
+					matched = workspacedb.AuditNormalizedJSON(actual) == workspacedb.AuditNormalizedJSON(expected)
 					return nil
 				})
 			if err != nil {
@@ -126,7 +129,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 		}
 
 		var updated *explorer.Explorer
-		if err := tx.QueryRows(txCtx, migrationJSONQuery(`FOR d IN @@c
+		if err := tx.QueryRows(txCtx, db.MigrationJSONQuery(`FOR d IN @@c
 FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId
   AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0))
   AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest)
@@ -142,7 +145,7 @@ UPDATE d WITH MERGE(base, @doc, {
 			"nextVersion":      expected + 1, "revisionId": revision.ID, "doc": draftPatch,
 			"clearDraftConfig": e.DraftConfig == nil,
 		}, func(row map[string]any) error {
-			value, decodeErr := decodeDraftRow[explorer.Explorer](row, migration != nil)
+			value, decodeErr := db.DecodeDraftRow[explorer.Explorer](row, migration != nil)
 			updated = &value
 			return decodeErr
 		}); err != nil {
@@ -163,7 +166,7 @@ UPDATE d WITH MERGE(base, @doc, {
 	return out, nil
 }
 
-func (s *Store) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
+func (s *DraftStore) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
 	project = strings.TrimSpace(project)
 	explorerID = strings.TrimSpace(explorerID)
 	revisionID = strings.TrimSpace(revisionID)
@@ -171,13 +174,13 @@ func (s *Store) GetDraftRevision(ctx context.Context, project, explorerID, revis
 		return nil, explorer.ErrNotFound
 	}
 	var out *explorer.DraftRevision
-	err := s.client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c
+	err := s.client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c
 FILTER d._key == @key AND d.id == @revisionId AND d.project == @project AND d.explorerId == @explorerId
 RETURN d`, true), 1, map[string]any{
 		"@c": DraftRevisionsCollection, "key": revisionID, "revisionId": revisionID,
 		"project": project, "explorerId": explorerID,
 	}, func(row map[string]any) error {
-		value, decodeErr := decodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
+		value, decodeErr := db.DecodeMigrationJSON[explorer.DraftRevision](row["migrationJSON"])
 		out = &value
 		return decodeErr
 	})
@@ -200,7 +203,7 @@ func draftRevisionFromExplorer(value explorer.Explorer) explorer.DraftRevision {
 }
 
 func draftRevisionKey(project, explorerID string, version int64) string {
-	return "draft_revision_" + key(project, explorerID, strconv.FormatInt(version, 10))
+	return "draft_revision_" + db.Key(project, explorerID, strconv.FormatInt(version, 10))
 }
 
 func draftPatchDocument(value explorer.Explorer) (map[string]any, error) {

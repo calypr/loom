@@ -6,14 +6,8 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
-)
-
-type ManagementMode string
-
-const (
-	ManagementRepository  ManagementMode = "REPOSITORY"
-	ManagementInteractive ManagementMode = "INTERACTIVE"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
+	"github.com/calypr/loom/internal/explorer/viewer"
 )
 
 type RevisionStatus string
@@ -25,46 +19,12 @@ const (
 	RevisionFailed     RevisionStatus = "FAILED"
 )
 
-type Diagnostic struct {
-	Severity  string         `json:"severity"`
-	Stage     string         `json:"stage,omitempty"`
-	Code      string         `json:"code"`
-	FieldPath string         `json:"fieldPath,omitempty"`
-	Message   string         `json:"message"`
-	Details   map[string]any `json:"details,omitempty"`
-	Retryable bool           `json:"retryable,omitempty"`
-	RequestID string         `json:"requestId,omitempty"`
-}
-
-type DatasetMetadata struct {
-	Generation   string          `json:"generation,omitempty"`
-	SchemaDigest string          `json:"schemaDigest,omitempty"`
-	Outputs      []DatasetOutput `json:"outputs"`
-}
-
-type DatasetOutput struct {
-	Name        string                       `json:"name"`
-	State       string                       `json:"state"`
-	Queryable   bool                         `json:"queryable"`
-	Fingerprint string                       `json:"fingerprint,omitempty"`
-	Selector    *dataset.DataframeSelector   `json:"selector,omitempty"`
-	Columns     []publication.PhysicalColumn `json:"columns,omitempty"`
-}
-
-type PublicationMetadata struct {
-	State       string    `json:"state"`
-	Generation  string    `json:"generation,omitempty"`
-	ExecutionID string    `json:"executionId,omitempty"`
-	RevisionID  string    `json:"revisionId,omitempty"`
-	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
-}
-
 type Explorer struct {
-	Project        string         `json:"project"`
-	ExplorerID     string         `json:"explorerId"`
-	Title          string         `json:"title"`
-	ManagementMode ManagementMode `json:"managementMode"`
-	ProjectConfig  *ProjectConfig `json:"projectConfig,omitempty"`
+	Project        string                        `json:"project"`
+	ExplorerID     string                        `json:"explorerId"`
+	Title          string                        `json:"title"`
+	ManagementMode viewer.ManagementMode         `json:"managementMode"`
+	ProjectConfig  *explorerconfig.ProjectConfig `json:"projectConfig,omitempty"`
 
 	DraftConfig                   json.RawMessage `json:"draftConfig,omitempty"`
 	DraftVersion                  int64           `json:"draftVersion"`
@@ -96,15 +56,6 @@ type DraftRevision struct {
 	UpdatedAt                time.Time       `json:"updatedAt"`
 }
 
-type Materialization struct {
-	OutputID          string                       `json:"outputId"`
-	Output            string                       `json:"output"`
-	MaterializationID string                       `json:"materializationId"`
-	Fingerprint       string                       `json:"fingerprint,omitempty"`
-	Selector          *dataset.DataframeSelector   `json:"selector,omitempty"`
-	Columns           []publication.PhysicalColumn `json:"columns"`
-}
-
 type Revision struct {
 	ID         string `json:"id"`
 	Project    string `json:"project"`
@@ -119,12 +70,12 @@ type Revision struct {
 	RecipeDigest         string                      `json:"recipeDigest"`
 	ResolvedSchemaDigest string                      `json:"resolvedSchemaDigest"`
 	SourceGeneration     string                      `json:"sourceGeneration"`
-	Materializations     []Materialization           `json:"materializations"`
-	EmittedColumns       []EmittedColumn             `json:"emittedColumns"`
-	Dataset              DatasetMetadata             `json:"dataset,omitempty"`
+	Materializations     []viewer.Materialization    `json:"materializations"`
+	EmittedColumns       []viewer.EmittedColumn      `json:"emittedColumns"`
+	Dataset              viewer.DatasetMetadata      `json:"dataset,omitempty"`
 	QualityReports       []publication.QualityReport `json:"qualityReports,omitempty"`
-	Publication          PublicationMetadata         `json:"publication,omitempty"`
-	Diagnostics          []Diagnostic                `json:"diagnostics"`
+	Publication          viewer.PublicationMetadata  `json:"publication,omitempty"`
+	Diagnostics          []viewer.Diagnostic         `json:"diagnostics"`
 	Status               RevisionStatus              `json:"status"`
 	CreatedBy            string                      `json:"createdBy,omitempty"`
 	CreatedAt            time.Time                   `json:"createdAt"`

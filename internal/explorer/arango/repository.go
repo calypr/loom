@@ -8,8 +8,14 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/viewer"
+
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
+
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -24,7 +30,7 @@ type legacyRepositoryConfig struct {
 func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 	legacy := []legacyRepositoryConfig{}
 	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.activeRevisionId != null AND d.activeRevisionId != "" RETURN d`, 1000, map[string]any{"@c": LegacyRepositoryConfigsCollection}, func(row map[string]any) error {
-		value, decodeErr := decode[legacyRepositoryConfig](row)
+		value, decodeErr := db.Decode[legacyRepositoryConfig](row)
 		if decodeErr == nil {
 			legacy = append(legacy, value)
 		}
@@ -49,8 +55,8 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 		if len(draft) == 0 {
 			draft = revision.AuthoringWorkspaceBytes()
 			if len(revision.AuthoringBundle) == 0 {
-				object, _ := auditObject(revision.Config)
-				if !auditWorkspaceShape(object) {
+				object, _ := workspacedb.AuditObject(revision.Config)
+				if !workspacedb.AuditWorkspaceShape(object) {
 					draft = nil
 				}
 			}
@@ -75,7 +81,7 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 		}
 		title := "Default"
 		if len(draft) != 0 {
-			workspace, decodeErr := authoringv2.DecodeCurrentWorkspace(draft)
+			workspace, decodeErr := ws.DecodeCurrentWorkspace(draft)
 			if decodeErr != nil {
 				return fmt.Errorf("legacy repository draft requires explicit workspace migration: %w", decodeErr)
 			}
@@ -90,7 +96,7 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 		if updatedAt.IsZero() {
 			updatedAt = revision.CreatedAt
 		}
-		_, err = s.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "default", Title: title, ManagementMode: explorer.ManagementRepository, DraftConfig: append([]byte(nil), draft...), DraftVersion: 1, DraftDigest: digest, ActiveRevisionID: revision.ID, UpdatedAt: updatedAt})
+		_, err = s.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "default", Title: title, ManagementMode: viewer.ManagementRepository, DraftConfig: append([]byte(nil), draft...), DraftVersion: 1, DraftDigest: digest, ActiveRevisionID: revision.ID, UpdatedAt: updatedAt})
 		if err != nil && !errors.Is(err, explorer.ErrDraftConflict) {
 			return fmt.Errorf("migrate legacy Explorer %q owner: %w", project, err)
 		}

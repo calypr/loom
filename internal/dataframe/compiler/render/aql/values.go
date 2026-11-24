@@ -89,7 +89,7 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 	resourceTypeBind := r.newInternalBindKey("related_field_resource_type")
 	r.bindVars[resourceTypeBind] = expression.RelatedField.ResourceType
 	if expression.RelatedField.PresenceOnly {
-		present, err := r.renderPropertyPathPresence(document+".payload", expression.RelatedField.Path[1:])
+		present, err := r.tableShape().renderPropertyPathPresence(document+".payload", expression.RelatedField.Path[1:])
 		if err != nil {
 			return "", fmt.Errorf("related field presence: %w", err)
 		}

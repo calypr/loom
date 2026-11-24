@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -10,7 +11,7 @@ import (
 
 func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 	var gotRefOpts catalog.PopulatedReferenceOptions
-	var gotFieldOpts []catalog.PopulatedFieldOptions
+	var gotFieldOpts []fieldcatalog.PopulatedFieldOptions
 
 	service := NewService(Config{
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
@@ -18,12 +19,12 @@ func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 			gotRefOpts = opts
 			return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 7}}, nil
 		},
-		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		DiscoverFields: func(ctx context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			gotFieldOpts = append(gotFieldOpts, opts)
 			if opts.PivotOnly {
-				return []catalog.PopulatedField{{ResourceType: opts.ResourceType, Path: "valueCodeableConcept", PivotCandidate: true, PivotKind: "codeable_concept_display_value", PivotColumns: []string{"A"}}}, nil
+				return []fieldcatalog.PopulatedField{{ResourceType: opts.ResourceType, Path: "valueCodeableConcept", PivotCandidate: true, PivotKind: "codeable_concept_display_value", PivotColumns: []string{"A"}}}, nil
 			}
-			return []catalog.PopulatedField{{ResourceType: opts.ResourceType, Path: "identifier[].value", Kind: "scalar", DistinctValues: []string{"x"}}}, nil
+			return []fieldcatalog.PopulatedField{{ResourceType: opts.ResourceType, Path: "identifier[].value", Kind: "scalar", DistinctValues: []string{"x"}}}, nil
 		},
 	})
 

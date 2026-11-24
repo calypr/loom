@@ -1,0 +1,295 @@
+package sourceload
+
+import (
+	"context"
+
+	"encoding/json"
+	"fmt"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/source"
+
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	publication "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/semantic"
+	arangostore "github.com/calypr/loom/internal/store/arango"
+)
+
+func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord, identityFormat string) error {
+	identity, err := source.LoadSchemaSnapshot()
+	if err != nil {
+		return err
+	}
+	selectedTypes := make([]string, 0, len(record.Plan.Files))
+	for _, file := range record.Plan.Files {
+		resourceType, err := canonicalSourceResourceType(file.Path)
+		if err != nil {
+			return err
+		}
+		selectedTypes = append(selectedTypes, resourceType)
+	}
+	if record.SourceGeneration != "" {
+		ref, err := publication.NewRef(record.Project, record.SourceGeneration)
+		if err != nil {
+			return err
+		}
+		base, err := p.datasets.ReadManifest(ctx, ref)
+		if err != nil {
+			return fmt.Errorf("read source generation manifest: %w", err)
+		}
+		copySource, err := sourceSchemaAllowsCopy(base.SchemaIdentity, identity, selectedTypes)
+		if err != nil || !copySource {
+			return err
+		}
+	}
+	copyCurrentFileEntries := false
+	if record.SourceGeneration != "" {
+		version, err := p.sourceSemanticInventoryEntryIndexVersion(ctx, record.Project, record.SourceGeneration)
+		if err != nil {
+			return err
+		}
+		copyCurrentFileEntries = version >= semantic.EntryIndexVersion
+	}
+	for _, resourceType := range identity.GeneratedResourceTypes {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if sourceLoadSelectsType(record.Plan.Files, resourceType) {
+			continue
+		}
+		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, record.Generation, copyVertexDocument(resourceType, record.Project, record.Generation, identityFormat)); err != nil {
+			return fmt.Errorf("copy source generation resource %s: %w", resourceType, err)
+		}
+	}
+	if err := p.copySourceCollection(ctx, bootstrap.EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
+		return fmt.Errorf("copy source generation edges: %w", err)
+	}
+	if err := p.copySourceCollection(ctx, fieldprofile.FieldCatalogCollection, record.SourceGeneration, record.Project, record.Generation, copyCatalogDocument(fieldprofile.FieldCatalogCollection, record.Project, record.Generation, selectedTypes)); err != nil {
+		return fmt.Errorf("copy source generation field catalog: %w", err)
+	}
+	if err := p.copySourceCollection(ctx, semantic.Collection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryDocument(record.Project, record.Generation, selectedTypes)); err != nil {
+		return fmt.Errorf("copy source generation semantic inventory: %w", err)
+	}
+	if err := p.copySourceCollection(ctx, semantic.EntryCollection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryEntryDocument(record.Project, record.Generation, selectedTypes, copyCurrentFileEntries)); err != nil {
+		return fmt.Errorf("copy source generation semantic inventory entries: %w", err)
+	}
+	return nil
+}
+
+func (p *RepositorySourceLoader) copySourceCollection(ctx context.Context, collection, sourceGeneration, project, targetGeneration string, transform sourceCopyTransform) error {
+	exists, err := p.client.CollectionExists(ctx, collection)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	query := `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
+FILTER doc.project == @project
+FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
+FILTER doc._key > @after_key
+SORT doc._key
+LIMIT @limit
+RETURN {document: doc}`
+	if collection == bootstrap.EdgeCollection {
+		query = `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
+FILTER doc.project == @project
+FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
+FILTER doc._key > @after_key
+SORT doc._key
+LIMIT @limit
+LET from_doc = DOCUMENT(doc._from)
+LET to_doc = DOCUMENT(doc._to)
+RETURN {
+  document: doc,
+  from_logical_key: NOT_NULL(from_doc.logical_key, from_doc._key, ""),
+  to_logical_key: NOT_NULL(to_doc.logical_key, to_doc._key, "")
+}`
+	}
+	after := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		rows := make([]sourceCopyRow, 0, p.batchSize)
+		err := p.client.QueryRows(ctx, query, p.batchSize, map[string]any{
+			"@collection": collection, "project": project, "source_generation": sourceGeneration,
+			"after_key": after, "limit": p.batchSize,
+		}, func(row map[string]any) error {
+			var copyRow sourceCopyRow
+			encoded, err := json.Marshal(row)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(encoded, &copyRow); err != nil {
+				return err
+			}
+			if copyRow.Document == nil {
+				return fmt.Errorf("source copy returned an empty %s document", collection)
+			}
+			rows = append(rows, copyRow)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		docs := make([]json.RawMessage, 0, len(rows))
+		for _, row := range rows {
+			sourceKey, _ := row.Document["_key"].(string)
+			if sourceKey == "" {
+				return fmt.Errorf("source copy returned a %s document without _key", collection)
+			}
+			encoded, err := transform(row)
+			if err != nil {
+				return fmt.Errorf("rebase %s document: %w", collection, err)
+			}
+			if len(encoded) > 0 {
+				docs = append(docs, encoded)
+			}
+			after = sourceKey
+		}
+		if len(docs) > 0 {
+			if err := p.client.InsertBatchRaw(ctx, collection, docs, true, p.writeAPI); err != nil {
+				return fmt.Errorf("write candidate %s copy batch: %w", collection, err)
+			}
+		}
+		if len(rows) < p.batchSize {
+			return nil
+		}
+	}
+}
+
+func (p *RepositorySourceLoader) validateSourceLoadSelectedScopes(ctx context.Context, project string, base sourceLoadBase, selectedTypes []string, authResourcePath string) error {
+	for _, resourceType := range selectedTypes {
+		if priorScope, ok := base.LegacyFileScopes[resourceType]; ok && priorScope != authResourcePath {
+			return &SourcePublishMigrationRequiredError{Reason: "selected file is owned by a different authorization path"}
+		}
+	}
+	collections := append([]string(nil), selectedTypes...)
+	collections = append(collections, fieldprofile.FieldCatalogCollection, semantic.Collection, semantic.EntryCollection)
+	for _, collection := range collections {
+		if exists, err := p.client.CollectionExists(ctx, collection); err != nil {
+			return err
+		} else if !exists {
+			continue
+		}
+		query := `FOR doc IN @@collection
+FILTER doc.project == @project
+FILTER (@generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @generation
+FILTER @scope_field == "resource_type" ? doc.resource_type IN @resource_types : doc.resourceType == @resource_type
+FILTER NOT_NULL(doc.auth_resource_path, "") != @auth_resource_path
+LIMIT 1
+RETURN {mismatch: true}`
+		fieldName := "resourceType"
+		if collection == fieldprofile.FieldCatalogCollection || collection == semantic.Collection || collection == semantic.EntryCollection {
+			fieldName = "resource_type"
+		}
+		found, err := arangostore.QueryHasRow(ctx, p.client, query, 1, map[string]any{
+			"@collection": collection, "project": project, "generation": base.Generation,
+			"scope_field": fieldName, "resource_type": collection,
+			"resource_types": selectedTypes, "auth_resource_path": authResourcePath,
+		})
+		if err != nil {
+			return fmt.Errorf("inspect selected %s authorization scope: %w", collection, err)
+		}
+		if found {
+			return &SourcePublishMigrationRequiredError{Reason: "selected resource rows use a different authorization path"}
+		}
+	}
+	if exists, err := p.client.CollectionExists(ctx, bootstrap.EdgeCollection); err != nil {
+		return err
+	} else if exists {
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR edge IN fhir_edge
+FILTER edge.project == @project
+FILTER (@generation == "" AND NOT_NULL(edge.dataset_generation, "") == "") OR edge.dataset_generation == @generation
+FILTER NOT_NULL(edge.source_file, "") IN @resource_types
+FILTER NOT_NULL(edge.auth_resource_path, "") != @auth_resource_path
+LIMIT 1
+RETURN {mismatch: true}`, 1, map[string]any{
+			"project": project, "generation": base.Generation, "resource_types": selectedTypes,
+			"auth_resource_path": authResourcePath,
+		})
+		if err != nil {
+			return fmt.Errorf("inspect selected edge authorization scope: %w", err)
+		}
+		if found {
+			return &SourcePublishMigrationRequiredError{Reason: "selected relationship rows use a different authorization path"}
+		}
+	}
+	return nil
+}
+
+func (p *RepositorySourceLoader) requireMutableSourceCopySafe(ctx context.Context, project string, base sourceLoadBase, selectedTypes []string) error {
+	if base.Mode != "mutable" {
+		return nil
+	}
+	identity, err := source.LoadSchemaSnapshot()
+	if err != nil {
+		return err
+	}
+	allSelected := len(selectedTypes) == len(identity.GeneratedResourceTypes)
+	if allSelected {
+		for _, resourceType := range identity.GeneratedResourceTypes {
+			if !sourceLoadSelectsTypeNames(selectedTypes, resourceType) {
+				allSelected = false
+				break
+			}
+		}
+	}
+	if allSelected {
+		return nil
+	}
+	for _, resourceType := range identity.GeneratedResourceTypes {
+		if sourceLoadSelectsTypeNames(selectedTypes, resourceType) {
+			continue
+		}
+		if exists, err := p.client.CollectionExists(ctx, resourceType); err != nil {
+			return err
+		} else if !exists {
+			continue
+		}
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR doc IN @@collection
+FILTER doc.project == @project AND NOT_NULL(doc.dataset_generation, "") == ""
+LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": resourceType, "project": project})
+		if err != nil {
+			return fmt.Errorf("inspect mutable-root %s rows: %w", resourceType, err)
+		}
+		if found {
+			return &SourcePublishMigrationRequiredError{Reason: "partial update cannot copy unversioned mutable-root rows safely"}
+		}
+	}
+	for _, collection := range []string{fieldprofile.FieldCatalogCollection, semantic.Collection, semantic.EntryCollection} {
+		if exists, err := p.client.CollectionExists(ctx, collection); err != nil {
+			return err
+		} else if !exists {
+			continue
+		}
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR doc IN @@collection
+FILTER doc.project == @project AND NOT_NULL(doc.dataset_generation, "") == ""
+FILTER doc.resource_type NOT IN @resource_types
+LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": collection, "project": project, "resource_types": selectedTypes})
+		if err != nil {
+			return fmt.Errorf("inspect mutable-root %s rows: %w", collection, err)
+		}
+		if found {
+			return &SourcePublishMigrationRequiredError{Reason: "partial update cannot copy unversioned mutable-root catalogs safely"}
+		}
+	}
+	if exists, err := p.client.CollectionExists(ctx, bootstrap.EdgeCollection); err != nil {
+		return err
+	} else if exists {
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR edge IN fhir_edge
+FILTER edge.project == @project AND NOT_NULL(edge.dataset_generation, "") == ""
+FILTER (NOT_NULL(edge.source_file, "") == "" OR edge.source_file NOT IN @resource_types)
+LIMIT 1 RETURN {found: true}`, 1, map[string]any{"project": project, "resource_types": selectedTypes})
+		if err != nil {
+			return fmt.Errorf("inspect mutable-root edge ownership: %w", err)
+		}
+		if found {
+			return &SourcePublishMigrationRequiredError{Reason: "partial update cannot copy mutable-root edges without file ownership"}
+		}
+	}
+	return nil
+}

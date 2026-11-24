@@ -1,0 +1,153 @@
+package catalog
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	"sort"
+
+	"github.com/calypr/loom/internal/semantic"
+)
+
+func canonicalDigest(value any) (string, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func ResourceInventoryDigest(records []ResourceInventoryObservation) (string, error) {
+	canonical := append([]ResourceInventoryObservation(nil), records...)
+	sort.SliceStable(canonical, func(i, j int) bool {
+		return inventoryLess(canonical[i], canonical[j])
+	})
+	return canonicalDigest(canonical)
+}
+
+func inventoryLess(a, b ResourceInventoryObservation) bool {
+	for _, pair := range [][2]string{{a.Project, b.Project}, {a.DatasetGeneration, b.DatasetGeneration}, {a.AuthResourcePath, b.AuthResourcePath}, {a.ResourceType, b.ResourceType}} {
+		if pair[0] != pair[1] {
+			return pair[0] < pair[1]
+		}
+	}
+	return a.DocumentCount < b.DocumentCount
+}
+
+func RelationshipObservationDigest(records []RelationshipObservation) (string, error) {
+	canonical := append([]RelationshipObservation(nil), records...)
+	sort.SliceStable(canonical, func(i, j int) bool {
+		return relationshipObservationLess(canonical[i], canonical[j])
+	})
+	return canonicalDigest(canonical)
+}
+
+func relationshipObservationLess(a, b RelationshipObservation) bool {
+	left := [12]string{a.Project, a.DatasetGeneration, a.AuthResourcePath, a.StorageFromType, a.Label, a.StorageToType, a.StorageDirection, a.BuilderFromType, a.BuilderToType, a.BuilderDirection, a.FromType, a.ToType}
+	right := [12]string{b.Project, b.DatasetGeneration, b.AuthResourcePath, b.StorageFromType, b.Label, b.StorageToType, b.StorageDirection, b.BuilderFromType, b.BuilderToType, b.BuilderDirection, b.FromType, b.ToType}
+	for i := range left {
+		if left[i] != right[i] {
+			return left[i] < right[i]
+		}
+	}
+	return a.EdgeCount < b.EdgeCount
+}
+
+func FieldEnrichmentDigest(records []FieldEnrichmentObservation, completeness ...bool) (string, error) {
+	canonical := cloneFieldEnrichment(records)
+	sort.SliceStable(canonical, func(i, j int) bool {
+		a, b := canonical[i], canonical[j]
+		for _, pair := range [][2]string{{a.Project, b.Project}, {a.DatasetGeneration, b.DatasetGeneration}, {a.AuthResourcePath, b.AuthResourcePath}, {a.ResourceType, b.ResourceType}, {a.Path, b.Path}, {a.Kind, b.Kind}} {
+			if pair[0] != pair[1] {
+				return pair[0] < pair[1]
+			}
+		}
+		return a.DocCount < b.DocCount
+	})
+	if len(completeness) != 0 {
+		if len(completeness) != 3 {
+			return "", fmt.Errorf("field enrichment digest completeness requires known, complete, and truncated flags")
+		}
+		return canonicalDigest(struct {
+			Values        []FieldEnrichmentObservation `json:"values"`
+			CoverageKnown bool                         `json:"field_coverage_known"`
+			Complete      bool                         `json:"complete"`
+			Truncated     bool                         `json:"truncated"`
+		}{canonical, completeness[0], completeness[1], completeness[2]})
+	}
+	return canonicalDigest(canonical)
+}
+
+func RepeatedShapeDigest(records []FieldEnrichmentObservation) (string, error) {
+	type boundary struct {
+		Project           string `json:"project"`
+		DatasetGeneration string `json:"datasetGeneration,omitempty"`
+		AuthResourcePath  string `json:"authResourcePath,omitempty"`
+		ResourceType      string `json:"resourceType"`
+		Path              string `json:"path"`
+		MaxItems          int    `json:"maxItems"`
+	}
+	values := make([]boundary, 0)
+	for _, record := range records {
+		if record.MaxItems <= 0 {
+			continue
+		}
+		values = append(values, boundary{record.Project, record.DatasetGeneration, record.AuthResourcePath, record.ResourceType, record.Path, record.MaxItems})
+	}
+	sort.Slice(values, func(i, j int) bool {
+		left, right := values[i], values[j]
+		return left.Project+"\x00"+left.DatasetGeneration+"\x00"+left.AuthResourcePath+"\x00"+left.ResourceType+"\x00"+left.Path < right.Project+"\x00"+right.DatasetGeneration+"\x00"+right.AuthResourcePath+"\x00"+right.ResourceType+"\x00"+right.Path
+	})
+	return canonicalDigest(values)
+}
+
+func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObservation {
+	if len(in) == 0 {
+		return []FieldEnrichmentObservation{}
+	}
+	out := make([]FieldEnrichmentObservation, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
+		out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
+		out[i].PivotValueSelectors = append([]string(nil), in[i].PivotValueSelectors...)
+		out[i].ExtensionValues = append([]fieldcatalog.ExtensionValueObservation(nil), in[i].ExtensionValues...)
+		for j := range out[i].ExtensionValues {
+			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
+		}
+		out[i].SemanticObservations = append([]semantic.Observation(nil), in[i].SemanticObservations...)
+		for j := range out[i].SemanticObservations {
+			out[i].SemanticObservations[j].ExtensionURLPath = append([]string(nil), in[i].SemanticObservations[j].ExtensionURLPath...)
+			out[i].SemanticObservations[j].ObservedUnits = append([]string(nil), in[i].SemanticObservations[j].ObservedUnits...)
+			out[i].SemanticObservations[j].Examples = append([]string(nil), in[i].SemanticObservations[j].Examples...)
+		}
+	}
+	return out
+}
+
+func ReadCapabilityEvidence(ctx context.Context, reader CapabilityEvidenceReader, opts CapabilityEvidenceOptions) (CapabilityEvidence, error) {
+	var result CapabilityEvidence
+	var firstErr error
+	inventory, err := reader.DiscoverResourceInventory(ctx, opts)
+	result.ResourceInventory = inventory
+	if err != nil {
+		firstErr = err
+	}
+	relationships, err := reader.DiscoverRelationshipObservations(ctx, opts)
+	result.Relationships = relationships
+	if err != nil {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	enrichment, err := reader.DiscoverFieldEnrichment(ctx, opts)
+	result.FieldEnrichment = enrichment
+	if err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return result, firstErr
+}

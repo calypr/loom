@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/viewer"
+
 	"github.com/calypr/loom/internal/acceptance"
-	"github.com/calypr/loom/internal/explorer"
 )
 
 type smokeExpectation struct {
@@ -168,28 +169,28 @@ func loadSmokeExpectation(management, generation, outputID, outputTitle, oracleP
 	return want, nil
 }
 
-func fetchExplorer(ctx context.Context, base, project string) (explorer.ExplorerStateV1, error) {
+func fetchExplorer(ctx context.Context, base, project string) (viewer.ExplorerStateV1, error) {
 	path := strings.TrimRight(base, "/") + "/api/v1/projects/" + url.PathEscape(project) + "/explorers/default"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return explorer.ExplorerStateV1{}, err
+		return viewer.ExplorerStateV1{}, err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return explorer.ExplorerStateV1{}, err
+		return viewer.ExplorerStateV1{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return explorer.ExplorerStateV1{}, fmt.Errorf("%s returned %s", request.URL.Path, response.Status)
+		return viewer.ExplorerStateV1{}, fmt.Errorf("%s returned %s", request.URL.Path, response.Status)
 	}
-	var state explorer.ExplorerStateV1
+	var state viewer.ExplorerStateV1
 	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
-		return explorer.ExplorerStateV1{}, err
+		return viewer.ExplorerStateV1{}, err
 	}
 	return state, nil
 }
 
-func verifyExplorerContract(state explorer.ExplorerStateV1, want smokeExpectation) error {
+func verifyExplorerContract(state viewer.ExplorerStateV1, want smokeExpectation) error {
 	if string(state.Management) != want.Management {
 		return fmt.Errorf("management=%q want %q", state.Management, want.Management)
 	}

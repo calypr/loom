@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -65,7 +66,7 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 }
 
 func (s *Service) buildResourceHints(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) (ResourceHints, error) {
-	fields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
+	fields, err := s.discoverFields(ctx, fieldcatalog.PopulatedFieldOptions{
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -77,9 +78,9 @@ func (s *Service) buildResourceHints(ctx context.Context, project, datasetGenera
 		return ResourceHints{}, queryBackend(err)
 	}
 
-	pivotFields := []catalog.PopulatedField{}
+	pivotFields := []fieldcatalog.PopulatedField{}
 	if includePivotOnlyFields {
-		pivotFields, err = s.discoverFields(ctx, catalog.PopulatedFieldOptions{
+		pivotFields, err = s.discoverFields(ctx, fieldcatalog.PopulatedFieldOptions{
 			Project:                       project,
 			DatasetGeneration:             datasetGeneration,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -126,9 +127,9 @@ func (s *Service) buildRelatedResourceHints(ctx context.Context, project, datase
 	return out, nil
 }
 
-func normalizeFieldSlice(in []catalog.PopulatedField) []catalog.PopulatedField {
+func normalizeFieldSlice(in []fieldcatalog.PopulatedField) []fieldcatalog.PopulatedField {
 	if len(in) == 0 {
-		return []catalog.PopulatedField{}
+		return []fieldcatalog.PopulatedField{}
 	}
 	for i := range in {
 		if in[i].DistinctValues == nil {

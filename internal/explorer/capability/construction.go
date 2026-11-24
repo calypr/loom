@@ -1095,10 +1095,6 @@ func NewConstructionCodedGroupChoice(
 	}, nil
 }
 
-func NewSemanticConstructionChoice(snapshotToken, semanticContextToken, buildID string, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
-	return NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID, nil, source, candidate, ownerRecordsProved...)
-}
-
 func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID string, route []ConstructionRouteStep, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
 	if (source.GroupOutputID == "") != (source.GroupStageID == "") ||
 		(source.GroupOutputID != "" && (strings.TrimSpace(source.GroupOutputID) != source.GroupOutputID || strings.TrimSpace(source.GroupStageID) != source.GroupStageID)) {

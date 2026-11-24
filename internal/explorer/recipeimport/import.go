@@ -6,60 +6,61 @@ import (
 	"fmt"
 	"strings"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func ImportWorkspace(bundle recipe.Bundle, catalog authoringv2.CatalogSnapshot, outputSchemas map[string][]recipe.StageColumn) (authoringv2.Workspace, error) {
+func ImportWorkspace(bundle recipe.Bundle, catalog ws.CatalogSnapshot, outputSchemas map[string][]recipe.StageColumn) (ws.Workspace, error) {
 	digest, err := bundle.Digest()
 	if err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("digest imported recipe: %w", err)
+		return ws.Workspace{}, fmt.Errorf("digest imported recipe: %w", err)
 	}
 	if strings.TrimSpace(bundle.Name) == "" || strings.TrimSpace(bundle.TranslationVersion) == "" {
-		return authoringv2.Workspace{}, fmt.Errorf("imported recipe name and translationVersion are required")
+		return ws.Workspace{}, fmt.Errorf("imported recipe name and translationVersion are required")
 	}
 	if len(bundle.Outputs) == 0 {
-		return authoringv2.Workspace{}, fmt.Errorf("imported recipe has no outputs")
+		return ws.Workspace{}, fmt.Errorf("imported recipe has no outputs")
 	}
-	workspace := authoringv2.Workspace{
-		APIVersion:       authoringv2.APIVersion,
-		Kind:             authoringv2.WorkspaceKind,
-		SemanticsVersion: authoringv2.CurrentSemanticsVersion,
-		Explorer:         authoringv2.ExplorerMetadata{Title: bundle.Name},
-		Documents:        make([]authoringv2.Document, 0, len(bundle.Outputs)),
-		Tabs:             make([]authoringv2.Tab, 0, len(bundle.Outputs)),
+	workspace := ws.Workspace{
+		APIVersion:       ws.APIVersion,
+		Kind:             ws.WorkspaceKind,
+		SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer:         ws.ExplorerMetadata{Title: bundle.Name},
+		Documents:        make([]ws.Document, 0, len(bundle.Outputs)),
+		Tabs:             make([]ws.Tab, 0, len(bundle.Outputs)),
 	}
 	usedIDs := make(map[string]bool, len(bundle.Outputs))
 	for outputIndex, output := range bundle.Outputs {
 		if strings.TrimSpace(output.Name) == "" || strings.TrimSpace(output.RootResourceType) == "" {
-			return authoringv2.Workspace{}, fmt.Errorf("outputs[%d] requires name and rootResourceType", outputIndex)
+			return ws.Workspace{}, fmt.Errorf("outputs[%d] requires name and rootResourceType", outputIndex)
 		}
 		schema, ok := outputSchemas[output.Name]
 		if !ok {
-			return authoringv2.Workspace{}, fmt.Errorf("resolved schema for output %q is missing", output.Name)
+			return ws.Workspace{}, fmt.Errorf("resolved schema for output %q is missing", output.Name)
 		}
 		outputID := output.Name
 		if !validBuilderID(outputID) {
-			return authoringv2.Workspace{}, fmt.Errorf("output name %q cannot be represented as a Builder output id", output.Name)
+			return ws.Workspace{}, fmt.Errorf("output name %q cannot be represented as a Builder output id", output.Name)
 		}
 		if usedIDs[outputID] {
-			return authoringv2.Workspace{}, fmt.Errorf("recipe outputs collide on Builder output id %q", outputID)
+			return ws.Workspace{}, fmt.Errorf("recipe outputs collide on Builder output id %q", outputID)
 		}
 		usedIDs[outputID] = true
 		route, err := routeForOutput(output, catalog)
 		if err != nil {
-			return authoringv2.Workspace{}, fmt.Errorf("output %q route: %w", output.Name, err)
+			return ws.Workspace{}, fmt.Errorf("output %q route: %w", output.Name, err)
 		}
-		columns := make([]authoringv2.Column, 0, len(schema))
+		columns := make([]ws.Column, 0, len(schema))
 		seenIDs, seenNames := map[string]bool{}, map[string]bool{}
 		for columnIndex, stageColumn := range schema {
 			id := strings.TrimSpace(stageColumn.ID)
 			name := strings.TrimSpace(stageColumn.Name)
 			if id == "" || name == "" {
-				return authoringv2.Workspace{}, fmt.Errorf("output %q schema[%d] requires stable id and name", output.Name, columnIndex)
+				return ws.Workspace{}, fmt.Errorf("output %q schema[%d] requires stable id and name", output.Name, columnIndex)
 			}
 			if seenIDs[id] || seenNames[name] {
-				return authoringv2.Workspace{}, fmt.Errorf("output %q schema has duplicate column id or name", output.Name)
+				return ws.Workspace{}, fmt.Errorf("output %q schema has duplicate column id or name", output.Name)
 			}
 			seenIDs[id], seenNames[name] = true, true
 			label := stageColumn.Label
@@ -67,46 +68,46 @@ func ImportWorkspace(bundle recipe.Bundle, catalog authoringv2.CatalogSnapshot, 
 				label = name
 			}
 			visible := true
-			columns = append(columns, authoringv2.Column{
+			columns = append(columns, ws.Column{
 				ColumnID: id, Column: name, Label: label, LogicalType: stageColumn.Type,
-				OccurrenceID: authoringv2.RootOccurrenceID,
-				Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: name}},
-				Table:        &authoringv2.TablePresentation{Visible: &visible},
+				OccurrenceID: ws.RootOccurrenceID,
+				Source:       ws.ColumnSource{Kind: ws.SourceImported, Imported: &ws.ImportedSource{OutputColumn: name}},
+				Table:        &ws.TablePresentation{Visible: &visible},
 			})
 		}
 		rows := importedRows(output)
 		sourcePlan := SourcePlan(output)
-		document := authoringv2.Document{
-			Kind:             authoringv2.Kind,
-			Output:           authoringv2.Output{ID: outputID, Title: output.Name},
+		document := ws.Document{
+			Kind:             ws.Kind,
+			Output:           ws.Output{ID: outputID, Title: output.Name},
 			RootResourceType: output.RootResourceType,
 			Route:            route,
 			Rows:             rows,
 			Columns:          columns,
-			ImportedRecipe:   &authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name},
+			ImportedRecipe:   &ws.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name},
 			ImportedSource:   &sourcePlan,
 		}
 		workspace.Documents = append(workspace.Documents, document)
 		tabID := "tab_" + outputID
-		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: tabID, Title: output.Name, OutputID: outputID, Order: outputIndex, Visible: true})
+		workspace.Tabs = append(workspace.Tabs, ws.Tab{ID: tabID, Title: output.Name, OutputID: outputID, Order: outputIndex, Visible: true})
 	}
 	if err := workspace.Validate(); err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("validate imported workspace: %w", err)
+		return ws.Workspace{}, fmt.Errorf("validate imported workspace: %w", err)
 	}
 	return workspace, nil
 }
 
-func importedRows(output recipe.Output) authoringv2.RowDefinition {
+func importedRows(output recipe.Output) ws.RowDefinition {
 	if output.GroupRows != nil {
 		source := output.GroupRows
-		rows := &authoringv2.GroupedRows{Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{RevisionID: source.RevisionID, UnassignedMemberPolicy: authoringv2.UnassignedMemberPolicy(source.UnassignedMemberPolicy)}}, AfterStepID: source.AfterStepID}
+		rows := &ws.GroupedRows{Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{RevisionID: source.RevisionID, UnassignedMemberPolicy: ws.UnassignedMemberPolicy(source.UnassignedMemberPolicy)}}, AfterStepID: source.AfterStepID}
 		for _, value := range source.RowValues {
-			rows.RowValues = append(rows.RowValues, authoringv2.ExplicitGroupRowValue{ColumnID: value.ColumnID, Policy: authoringv2.ConstructionRowValuePolicy(value.Policy)})
+			rows.RowValues = append(rows.RowValues, ws.ExplicitGroupRowValue{ColumnID: value.ColumnID, Policy: ws.ConstructionRowValuePolicy(value.Policy)})
 		}
-		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: rows}
+		return ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: rows}
 	}
 	if output.Expand == nil {
-		return authoringv2.RecordsRowDefinition()
+		return ws.RecordsRowDefinition()
 	}
 	path := strings.TrimSpace(output.Expand.From.Select)
 	if strings.HasPrefix(path, "root.") {
@@ -114,26 +115,26 @@ func importedRows(output recipe.Output) authoringv2.RowDefinition {
 	}
 	occurrence := strings.TrimSpace(output.Expand.OwnerOccurrenceID)
 	if occurrence == "" {
-		occurrence = authoringv2.RootOccurrenceID
+		occurrence = ws.RootOccurrenceID
 	}
-	policy := authoringv2.EmptyCollectionExclude
+	policy := ws.EmptyCollectionExclude
 	switch output.Expand.EmptyPolicy.Normalized() {
 	case recipe.ExpansionError:
-		policy = authoringv2.EmptyCollectionError
+		policy = ws.EmptyCollectionError
 	case recipe.ExpansionPreserveParent:
-		policy = authoringv2.EmptyCollectionPreserveParent
+		policy = ws.EmptyCollectionPreserveParent
 	}
-	return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{OccurrenceID: occurrence, ScopePath: path, EmptyCollectionPolicy: policy}}
+	return ws.RowDefinition{Kind: ws.RowDefinitionExpanded, Expanded: &ws.ExpandedRows{OccurrenceID: occurrence, ScopePath: path, EmptyCollectionPolicy: policy}}
 }
 
-func ImportRows(output recipe.Output) authoringv2.RowDefinition {
+func ImportRows(output recipe.Output) ws.RowDefinition {
 	return importedRows(output)
 }
 
-func routeForOutput(output recipe.Output, catalog authoringv2.CatalogSnapshot) (authoringv2.RouteNode, error) {
-	root := authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: output.RootResourceType}
-	var add func(parent *authoringv2.RouteNode, traversals []recipe.Traversal, path string) error
-	add = func(parent *authoringv2.RouteNode, traversals []recipe.Traversal, path string) error {
+func routeForOutput(output recipe.Output, catalog ws.CatalogSnapshot) (ws.RouteNode, error) {
+	root := ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: output.RootResourceType}
+	var add func(parent *ws.RouteNode, traversals []recipe.Traversal, path string) error
+	add = func(parent *ws.RouteNode, traversals []recipe.Traversal, path string) error {
 		for index, traversal := range traversals {
 			if strings.TrimSpace(traversal.Name) == "" || strings.TrimSpace(traversal.ToResourceType) == "" {
 				return fmt.Errorf("%s[%d] requires name and toResourceType", path, index)
@@ -149,7 +150,7 @@ func routeForOutput(output recipe.Output, catalog authoringv2.CatalogSnapshot) (
 			if occurrenceID == "" {
 				occurrenceID = stableOccurrence(path, index, traversal.Name)
 			}
-			child := authoringv2.RouteNode{OccurrenceID: occurrenceID, ResourceType: traversal.ToResourceType, MatchMode: authoringv2.RouteMatchMode(traversal.MatchMode.Normalized())}
+			child := ws.RouteNode{OccurrenceID: occurrenceID, ResourceType: traversal.ToResourceType, MatchMode: ws.RouteMatchMode(traversal.MatchMode.Normalized())}
 			if len(edges) == 1 {
 				child.CatalogEdgeID = edges[0].ID
 				child.Relationship = edges[0].Label
@@ -165,21 +166,21 @@ func routeForOutput(output recipe.Output, catalog authoringv2.CatalogSnapshot) (
 		return nil
 	}
 	if err := add(&root, output.Traversals, "traversals"); err != nil {
-		return authoringv2.RouteNode{}, err
+		return ws.RouteNode{}, err
 	}
 	return root, nil
 }
 
-func ImportRoute(output recipe.Output, catalog authoringv2.CatalogSnapshot) (authoringv2.RouteNode, error) {
+func ImportRoute(output recipe.Output, catalog ws.CatalogSnapshot) (ws.RouteNode, error) {
 	return routeForOutput(output, catalog)
 }
 
-func matchingEdges(catalog authoringv2.CatalogSnapshot, fromResource, relationship, toResource string) []authoringv2.CatalogEdge {
+func matchingEdges(catalog ws.CatalogSnapshot, fromResource, relationship, toResource string) []ws.CatalogEdge {
 	nodes := make(map[string]string, len(catalog.Nodes))
 	for _, node := range catalog.Nodes {
 		nodes[node.ID] = node.ResourceType
 	}
-	var matches []authoringv2.CatalogEdge
+	var matches []ws.CatalogEdge
 	for _, edge := range catalog.Edges {
 		nameMatches := relationship == edge.Label || relationship == edge.Label+"_"+toResource
 		if nodes[edge.FromNodeID] == fromResource && nodes[edge.ToNodeID] == toResource && nameMatches {

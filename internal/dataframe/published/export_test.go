@@ -219,7 +219,7 @@ func TestStreamExactExportPreservesArtifactRowIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if streamed[artifactRowIdentityKey] != "published-row-7" {
+	if streamed["__loom_row_id"] != "published-row-7" {
 		t.Fatalf("streamed artifact row identity = %#v", streamed)
 	}
 }

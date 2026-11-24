@@ -1,0 +1,185 @@
+package execution_test
+
+import (
+	"context"
+	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+)
+
+func TestRecipeOutputLogicalColumnsUsesSortableGroupStorageKey(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		grain    spec.RowGrain
+		kind     string
+		wantKind string
+	}{
+		{name: "resource row identity", grain: spec.RowGrainPatient, kind: "string", wantKind: "string"},
+		{name: "group row identity", grain: spec.RowGrainGroups, kind: "object", wantKind: "string"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+				Name: "output", RootResourceType: "Patient", RowGrain: test.grain,
+				OutputSchema: []lower.CompiledOutputColumn{{
+					Name: "__loom_row_id", Kind: test.kind, Cardinality: "one", Internal: true, Identity: true,
+				}},
+			}}}}
+
+			columns := reciperuntime.PublicationColumns(resolved, "output")
+			if len(columns) != 1 || columns[0].Name != "__loom_row_id" || columns[0].Kind != test.wantKind || !columns[0].IsIdentity || !columns[0].LoomOwned {
+				t.Fatalf("publication identity column = %#v, want storage kind %q and Loom-owned identity", columns, test.wantKind)
+			}
+			if resolved.Compiled.Outputs[0].OutputSchema[0].Kind != test.kind {
+				t.Fatalf("publication conversion mutated compiler identity kind to %q", resolved.Compiled.Outputs[0].OutputSchema[0].Kind)
+			}
+		})
+	}
+}
+
+func TestRecipeOutputLogicalColumnsPreservesAuthoredIDsAcrossOutputOwners(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		grain  spec.RowGrain
+		fields []lower.CompiledOutputColumn
+	}{
+		{
+			name:  "direct source column",
+			grain: spec.RowGrainPatient,
+			fields: []lower.CompiledOutputColumn{{
+				ID: "authored-source-id", Name: "patient_id", Kind: "string", Cardinality: "one",
+			}},
+		},
+		{
+			name:  "group and pivot outputs",
+			grain: spec.RowGrainGroups,
+			fields: []lower.CompiledOutputColumn{
+				{ID: "authored-group-key-id", Name: "group_label", Kind: "string", Cardinality: "one"},
+				{ID: "authored-pivot-output-id", Name: "active_total", Kind: "integer", Cardinality: "optional_one"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+				Name: "output", RootResourceType: "Patient", RowGrain: test.grain,
+				OutputSchema: append([]lower.CompiledOutputColumn{{
+					ID: "__loom_row_id", Name: "__loom_row_id", Kind: "string", Cardinality: "one", Internal: true, Identity: true,
+				}}, test.fields...),
+			}}}}
+
+			logical := reciperuntime.PublicationColumns(resolved, "output")
+			if len(logical) != len(test.fields)+1 {
+				t.Fatalf("publication columns = %#v, want row identity plus %d authored columns", logical, len(test.fields))
+			}
+			for index, field := range test.fields {
+				if got := logical[index+1].ID; got != field.ID {
+					t.Errorf("publication column %q ID = %q, want authored ID %q", logical[index+1].Name, got, field.ID)
+				}
+			}
+		})
+	}
+}
+
+func TestPlainTableAuthoredColumnIDReachesCompiledAndPublishedSchema(t *testing.T) {
+	capabilityCandidate := capability.Candidate{
+		ID: "patient-id", NodeID: "patient-node", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string",
+		Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect},
+	}
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope-a", SchemaDigest: "schema-a", CompilerVersion: "compiler-a"},
+		capability.Policy{
+			Route:      capability.RoutePolicy{Version: "route-a", AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: "projection-a", Modes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "patient-node", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
+		nil,
+		[]capability.Candidate{capabilityCandidate},
+		nil,
+	)
+	choice, err := capability.NewFieldConstructionChoice(snapshot.Token, capabilityCandidate)
+	if err != nil {
+		t.Fatalf("build signed field choice for catalog: %v", err)
+	}
+
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion,
+		Explorer: ws.ExplorerMetadata{Title: "Builder"}, Documents: []ws.Document{}, Tabs: []ws.Tab{},
+	}
+	authoringCatalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind,
+		Project: "project-a", ExplorerID: "explorer-a", SourceGeneration: "generation-a", AuthorizationScopeDigest: "scope-a",
+		ResolvedSchemaDigest: "schema-a", SnapshotToken: snapshot.Token, Complete: true,
+		RoutePolicy: ws.RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
+		Nodes:       []ws.CatalogNode{{ID: "patient-node", ResourceType: "Patient", RowRootEligible: true}},
+		Candidates: []ws.CatalogCandidate{{
+			ID: "patient-id", NodeID: "patient-node", FieldPath: "id", Label: "Patient ID", LogicalType: "string",
+			Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
+		}},
+	}
+	workspace, created, err := authoringv2.ApplyCommands(workspace, authoringCatalog, "create-patients", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "patient-node"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = authoringv2.ApplyCommands(workspace, authoringCatalog, "add-patient-id", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "patient-id"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authored := workspace.Documents[0].Columns[0]
+	if authored.ColumnID == "" {
+		t.Fatal("plain-table ADD_COLUMN did not persist an authored column identity")
+	}
+
+	translated, err := explorercompilation.CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, explorercompilation.ResolvedInputs{})
+	if err != nil {
+		t.Fatalf("compile authored workspace: %v", err)
+	}
+	semanticPlan, err := recipeplan.BuildRecipePlan(translated.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatalf("build semantic plan: %v", err)
+	}
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatalf("resolve semantic plan: %v", err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("lower resolved plan: %v", err)
+	}
+	var compiledID string
+	for _, output := range compiled.Outputs {
+		if output.Name != created[0].OutputID {
+			continue
+		}
+		for _, column := range output.OutputSchema {
+			if column.Name == authored.Column {
+				compiledID = column.ID
+				break
+			}
+		}
+	}
+	if compiledID != authored.ColumnID {
+		t.Fatalf("compiler output schema ID = %q, want exact authored ID %q", compiledID, authored.ColumnID)
+	}
+
+	logical := reciperuntime.PublicationColumns(dataframeexecution.Resolved{Compiled: compiled}, created[0].OutputID)
+	for _, column := range logical {
+		if column.Name == authored.Column {
+			if column.ID != authored.ColumnID {
+				t.Fatalf("published logical column ID = %q, want exact authored ID %q", column.ID, authored.ColumnID)
+			}
+			return
+		}
+	}
+	t.Fatalf("published logical schema omitted authored column %q: %#v", authored.Column, logical)
+}

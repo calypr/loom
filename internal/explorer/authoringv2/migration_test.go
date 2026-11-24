@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 func TestStoredWorkspaceMigrationInvalidatesVersion9Digest(t *testing.T) {
-	legacy := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: tableShapeSemanticsVersion,
-		Explorer:  ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{workspaceDocument("patients")},
-		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	legacy := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: tableShapeSemanticsVersion,
+		Explorer:  ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{workspaceDocument("patients")},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	storedDigest, err := legacy.Digest()
 	if err != nil {
@@ -22,12 +24,12 @@ func TestStoredWorkspaceMigrationInvalidatesVersion9Digest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := MigrateStoredWorkspace(raw, CatalogSnapshot{})
+	migrated, err := ws.MigrateStoredWorkspace(raw, ws.CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migrated.Workspace.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("migrated semanticsVersion = %d, want %d", migrated.Workspace.SemanticsVersion, CurrentSemanticsVersion)
+	if migrated.Workspace.SemanticsVersion != ws.CurrentSemanticsVersion {
+		t.Fatalf("migrated semanticsVersion = %d, want %d", migrated.Workspace.SemanticsVersion, ws.CurrentSemanticsVersion)
 	}
 	if !contains(migrated.AcceptedOriginalDigests, storedDigest) || !migrated.DigestChanged || migrated.MigratedCanonicalDigest == storedDigest {
 		t.Fatalf("old digest invalidation evidence = %#v; old=%q", migrated, storedDigest)
@@ -35,13 +37,13 @@ func TestStoredWorkspaceMigrationInvalidatesVersion9Digest(t *testing.T) {
 }
 
 func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.T) {
-	legacy, err := DecodeStoredWorkspaceForMigration(persistedWorkspaceWithoutRows(explicitRowsSemanticsVersion - 1))
+	legacy, err := ws.DecodeStoredWorkspaceForMigration(persistedWorkspaceWithoutRows(explicitRowsSemanticsVersion - 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated := MigrateLosslessDefaults(legacy, CatalogSnapshot{})
-	if migrated.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("semanticsVersion = %d, want %d", migrated.SemanticsVersion, CurrentSemanticsVersion)
+	migrated := ws.MigrateLosslessDefaults(legacy, ws.CatalogSnapshot{})
+	if migrated.SemanticsVersion != ws.CurrentSemanticsVersion {
+		t.Fatalf("semanticsVersion = %d, want %d", migrated.SemanticsVersion, ws.CurrentSemanticsVersion)
 	}
 	if migrated.Documents[0].ArchiveRetiredShape != nil {
 		t.Fatalf("migration invented table shape: %#v", migrated.Documents[0].ArchiveRetiredShape)
@@ -49,13 +51,13 @@ func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.
 }
 
 func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
-	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":""}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
+	raw := `{"apiVersion":"` + ws.APIVersion + `","kind":"` + ws.WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Patients"},"documents":[{"kind":"` + ws.Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":""}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	workspace, err := ws.DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	catalog := commandCatalog()
-	migrated, err := MigrateLegacyContributors(workspace, catalog)
+	migrated, err := ws.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,7 @@ func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 	if migrated.SemanticsVersion != contributorSemanticsVersion || column.Source.Aggregate.Where != nil || column.Contributor == nil {
 		t.Fatalf("migrated workspace = %#v", migrated)
 	}
-	if column.Contributor.Operator != ContributorExists || column.Contributor.Value != nil {
+	if column.Contributor.Operator != ws.ContributorExists || column.Contributor.Value != nil {
 		t.Fatalf("legacy empty equals did not become EXISTS: %#v", column.Contributor)
 	}
 	if len(migrated.MigrationDecisions) != 1 {
@@ -75,8 +77,8 @@ func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 }
 
 func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T) {
-	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(aggregateTemporalPolicySemanticsVersion-1) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
+	raw := `{"apiVersion":"` + ws.APIVersion + `","kind":"` + ws.WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(aggregateTemporalPolicySemanticsVersion-1) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + ws.Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	workspace, err := ws.DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,7 @@ func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T
 	if strings.Contains(string(canonical), `"temporal":`) || !strings.Contains(string(canonical), `"contributorWindow":`) || !strings.Contains(string(canonical), `"ordering":`) {
 		t.Fatalf("canonical persisted source did not use the new contract: %s", canonical)
 	}
-	reloaded, err := DecodeStoredWorkspaceForMigration(canonical)
+	reloaded, err := ws.DecodeStoredWorkspaceForMigration(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,26 +110,26 @@ func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T
 }
 
 func TestDecodeWorkspaceRejectsLegacyTemporalAtCurrentSemanticsVersion(t *testing.T) {
-	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+	raw := `{"apiVersion":"` + ws.APIVersion + `","kind":"` + ws.WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(ws.CurrentSemanticsVersion) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + ws.Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := ws.DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("current semantics accepted the legacy temporal field: %v", err)
 	}
 }
 
 func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	visible := true
-	legacy := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{{Column: "names", Label: "Names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}, Table: &TablePresentation{Visible: &visible}}}}},
-		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	legacy := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "names", Label: "Names", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}}}}},
+		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
-	catalog := CatalogSnapshot{
-		Nodes:      []CatalogNode{{ID: "patient", ResourceType: "Patient"}},
-		Candidates: []CatalogCandidate{{ID: "names", NodeID: "patient", FieldPath: "name[].family", ProjectionModes: []string{"INDEXED", "FIRST"}, DefaultProjectionMode: "INDEXED", RepeatedBoundaries: []RepeatedBoundary{{Path: "name[]", MaxItems: 2}}}},
+	catalog := ws.CatalogSnapshot{
+		Nodes:      []ws.CatalogNode{{ID: "patient", ResourceType: "Patient"}},
+		Candidates: []ws.CatalogCandidate{{ID: "names", NodeID: "patient", FieldPath: "name[].family", ProjectionModes: []string{"INDEXED", "FIRST"}, DefaultProjectionMode: "INDEXED", RepeatedBoundaries: []ws.RepeatedBoundary{{Path: "name[]", MaxItems: 2}}}},
 	}
 
-	migrated := MigrateLosslessDefaults(legacy, catalog)
-	if migrated.SemanticsVersion != CurrentSemanticsVersion || migrated.Documents[0].Columns[0].Source.Field.ProjectionMode != "INDEXED" {
+	migrated := ws.MigrateLosslessDefaults(legacy, catalog)
+	if migrated.SemanticsVersion != ws.CurrentSemanticsVersion || migrated.Documents[0].Columns[0].Source.Field.ProjectionMode != "INDEXED" {
 		t.Fatalf("migrated workspace = %#v", migrated)
 	}
 	if len(migrated.MigrationDecisions) != 1 || migrated.MigrationDecisions[0] != "semantics-v2:repeated-first-to-indexed:patients:names" {
@@ -153,7 +155,7 @@ func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	}
 
 	migrated.Documents[0].Columns[0].Source.Field.ProjectionMode = "FIRST"
-	remigrated := MigrateLosslessDefaults(migrated, catalog)
+	remigrated := ws.MigrateLosslessDefaults(migrated, catalog)
 	if remigrated.Documents[0].Columns[0].Source.Field.ProjectionMode != "FIRST" {
 		t.Fatal("current explicit FIRST projection was reinterpreted")
 	}
@@ -161,17 +163,17 @@ func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 
 func TestMigrateSemanticsV2PreservesExplicitRootFirstAndAnnotatesChildReduction(t *testing.T) {
 	visible := true
-	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: 2, Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []Column{
-			{Column: "root_name", Label: "Name", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}, Table: &TablePresentation{Visible: &visible}},
-			{Column: "encounter__code", Label: "Code", OccurrenceID: "encounter", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "code.coding[].code", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible}},
-			{Column: "encounter__code_indexed", Label: "Indexed code", OccurrenceID: "encounter", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "code.coding[].code", ProjectionMode: "INDEXED"}}, Table: &TablePresentation{Visible: &visible}},
+	workspace := ws.Workspace{
+		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: 2, Explorer: ws.ExplorerMetadata{Title: "Patients"},
+		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient", Children: []ws.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []ws.Column{
+			{Column: "root_name", Label: "Name", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter__code", Label: "Code", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}},
+			{Column: "encounter__code_indexed", Label: "Indexed code", OccurrenceID: "encounter", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "INDEXED"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		}}},
-		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
-	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient"}, {ID: "encounter", ResourceType: "Encounter"}}, Candidates: []CatalogCandidate{{ID: "name", NodeID: "patient", FieldPath: "name[].family", ProjectionModes: []string{"INDEXED", "FIRST"}, DefaultProjectionMode: "INDEXED", RepeatedBoundaries: []RepeatedBoundary{{Path: "name[]", MaxItems: 2}}}, {ID: "code", NodeID: "encounter", FieldPath: "code.coding[].code", ProjectionModes: []string{"VALUE", "INDEXED"}, DefaultProjectionMode: "VALUE"}}}
-	migrated := MigrateLosslessDefaults(workspace, catalog)
+	catalog := ws.CatalogSnapshot{Nodes: []ws.CatalogNode{{ID: "patient", ResourceType: "Patient"}, {ID: "encounter", ResourceType: "Encounter"}}, Candidates: []ws.CatalogCandidate{{ID: "name", NodeID: "patient", FieldPath: "name[].family", ProjectionModes: []string{"INDEXED", "FIRST"}, DefaultProjectionMode: "INDEXED", RepeatedBoundaries: []ws.RepeatedBoundary{{Path: "name[]", MaxItems: 2}}}, {ID: "code", NodeID: "encounter", FieldPath: "code.coding[].code", ProjectionModes: []string{"VALUE", "INDEXED"}, DefaultProjectionMode: "VALUE"}}}
+	migrated := ws.MigrateLosslessDefaults(workspace, catalog)
 	if migrated.Documents[0].Columns[0].Source.Field.ProjectionMode != "FIRST" {
 		t.Fatalf("explicit v2 root FIRST was reinterpreted: %#v", migrated.Documents[0].Columns[0].Source)
 	}

@@ -4,30 +4,33 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/interpretation"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-var _ explorer.InterpretationRepository = (*Store)(nil)
+var _ interpretation.Repository = (*Store)(nil)
 
-func interpretationLibraryKey(project string, id explorer.InterpretationLibraryID) string {
-	return "interpretation_library_" + key(project, string(id))
+func interpretationLibraryKey(project string, id interpretation.InterpretationLibraryID) string {
+	return "interpretation_library_" + db.Key(project, string(id))
 }
 
-func interpretationRevisionKey(id explorer.InterpretationRevisionID) string {
+func interpretationRevisionKey(id interpretation.InterpretationRevisionID) string {
 	return string(id)
 }
 
-func (s *Store) ListInterpretationLibraries(ctx context.Context, rawProject string) ([]explorer.InterpretationLibrary, error) {
-	project, err := explorer.CanonicalInterpretationProject(rawProject)
+func (s *InterpretationStore) ListInterpretationLibraries(ctx context.Context, rawProject string) ([]interpretation.InterpretationLibrary, error) {
+	project, err := interpretation.CanonicalInterpretationProject(rawProject)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]explorer.InterpretationLibrary, 0)
+	result := make([]interpretation.InterpretationLibrary, 0)
 	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project SORT d.id ASC RETURN d`, 1000, map[string]any{
 		"@c": InterpretationLibrariesCollection, "project": project,
 	}, func(row map[string]any) error {
-		value, err := decode[explorer.InterpretationLibrary](row)
+		value, err := db.Decode[interpretation.InterpretationLibrary](row)
 		if err != nil {
 			return fmt.Errorf("decode interpretation library: %w", err)
 		}
@@ -43,19 +46,19 @@ func (s *Store) ListInterpretationLibraries(ctx context.Context, rawProject stri
 	return result, nil
 }
 
-func (s *Store) GetInterpretationRevision(ctx context.Context, rawProject string, id explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
-	project, err := explorer.CanonicalInterpretationProject(rawProject)
+func (s *InterpretationStore) GetInterpretationRevision(ctx context.Context, rawProject string, id interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
+	project, err := interpretation.CanonicalInterpretationProject(rawProject)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := explorer.NewInterpretationRevisionID(string(id)); err != nil {
+	if _, err := interpretation.NewInterpretationRevisionID(string(id)); err != nil {
 		return nil, err
 	}
-	var out *explorer.InterpretationRevision
+	var out *interpretation.InterpretationRevision
 	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.id == @id AND d.project == @project RETURN d`, 1, map[string]any{
 		"@c": InterpretationRevisionsCollection, "key": interpretationRevisionKey(id), "id": string(id), "project": project,
 	}, func(row map[string]any) error {
-		value, err := decode[explorer.InterpretationRevision](row)
+		value, err := db.Decode[interpretation.InterpretationRevision](row)
 		if err != nil {
 			return fmt.Errorf("decode interpretation revision: %w", err)
 		}
@@ -74,8 +77,8 @@ func (s *Store) GetInterpretationRevision(ctx context.Context, rawProject string
 	return out, nil
 }
 
-func (s *Store) CreateInterpretationRevision(ctx context.Context, input explorer.InterpretationRevision, expectedParent *explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
-	revision, err := explorer.PrepareInterpretationRevision(input)
+func (s *InterpretationStore) CreateInterpretationRevision(ctx context.Context, input interpretation.InterpretationRevision, expectedParent *interpretation.InterpretationRevisionID) (*interpretation.InterpretationRevision, error) {
+	revision, err := interpretation.PrepareInterpretationRevision(input)
 	if err != nil {
 		return nil, err
 	}
@@ -89,10 +92,10 @@ func (s *Store) CreateInterpretationRevision(ctx context.Context, input explorer
 		parent = string(*revision.ParentRevisionID)
 	}
 	if expected != parent {
-		return nil, explorer.ErrInterpretationParentConflict
+		return nil, interpretation.ErrInterpretationParentConflict
 	}
 
-	doc, err := document(revision, interpretationRevisionKey(revision.ID))
+	doc, err := db.Document(revision, interpretationRevisionKey(revision.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -140,17 +143,17 @@ func (s *Store) CreateInterpretationRevision(ctx context.Context, input explorer
 		return nil, err
 	}
 	if response == nil {
-		return nil, explorer.ErrInterpretationParentConflict
+		return nil, interpretation.ErrInterpretationParentConflict
 	}
 	status, _ := response["status"].(string)
 	switch status {
 	case "collision":
-		return nil, explorer.ErrImmutableInterpretation
+		return nil, interpretation.ErrImmutableInterpretation
 	case "parent_conflict":
-		return nil, explorer.ErrInterpretationParentConflict
+		return nil, interpretation.ErrInterpretationParentConflict
 	case "create", "idempotent":
 	default:
-		return nil, explorer.ErrInterpretationParentConflict
+		return nil, interpretation.ErrInterpretationParentConflict
 	}
 	value := response["existing"]
 	if status == "create" {
@@ -159,7 +162,7 @@ func (s *Store) CreateInterpretationRevision(ctx context.Context, input explorer
 	if value == nil {
 		return nil, fmt.Errorf("interpretation create returned no revision")
 	}
-	stored, err := decode[explorer.InterpretationRevision](value)
+	stored, err := db.Decode[interpretation.InterpretationRevision](value)
 	if err != nil {
 		return nil, fmt.Errorf("decode created interpretation revision: %w", err)
 	}
@@ -205,18 +208,18 @@ LET advanced = (
 )
 RETURN {status: status, existing: existing, revision: FIRST(inserted), library: FIRST(advanced)}`
 
-func validateInterpretationLibrary(value explorer.InterpretationLibrary, project string) error {
+func validateInterpretationLibrary(value interpretation.InterpretationLibrary, project string) error {
 	if value.Project != project {
 		return fmt.Errorf("interpretation library project is not canonical")
 	}
-	if _, err := explorer.NewInterpretationLibraryID(string(value.ID)); err != nil {
+	if _, err := interpretation.NewInterpretationLibraryID(string(value.ID)); err != nil {
 		return err
 	}
 	if value.HeadRevisionID != "" {
-		if _, err := explorer.NewInterpretationRevisionID(string(value.HeadRevisionID)); err != nil {
+		if _, err := interpretation.NewInterpretationRevisionID(string(value.HeadRevisionID)); err != nil {
 			return err
 		}
-		if _, err := explorer.NewInterpretationContentDigest(string(value.HeadDigest)); err != nil {
+		if _, err := interpretation.NewInterpretationContentDigest(string(value.HeadDigest)); err != nil {
 			return err
 		}
 	}

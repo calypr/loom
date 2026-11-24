@@ -3,8 +3,8 @@ package queryapi
 import (
 	"errors"
 
-	"github.com/calypr/loom/internal/api/authpolicy"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 

@@ -31,7 +31,7 @@ func main() {
 }
 
 func semanticResourceTypeViolations(root string) ([]string, error) {
-	dir := filepath.Join(root, "internal", "fhir", "semantic")
+	dir := filepath.Join(root, "internal", "semantic")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read semantic package: %w", err)

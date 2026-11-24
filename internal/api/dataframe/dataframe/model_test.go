@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -50,4 +51,12 @@ func TestAggregateRowsResultReturnsEncodingError(t *testing.T) {
 	if errors.Is(err, dataframeerrors.ErrBackendUnavailable) {
 		t.Fatal("encoding failure was classified as backend failure")
 	}
+}
+
+func AggregateRowsResult(value []map[string]any) (json.RawMessage, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
+	}
+	return data, nil
 }

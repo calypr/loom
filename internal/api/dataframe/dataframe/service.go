@@ -3,13 +3,13 @@ package dataframe
 import (
 	"context"
 	"errors"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"strings"
 
-	"github.com/calypr/loom/internal/api/authpolicy"
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -137,7 +137,7 @@ func (s *Service) logReadFailure(ctx context.Context, phase, resourceType string
 	if s.logger == nil {
 		return
 	}
-	fields := []any{"request_id", httpapi.RequestIDFromContext(ctx), "phase", phase, "resource_type", resourceType, "error_chain", errorChain(err)}
+	fields := []any{"request_id", httpctx.RequestIDFromContext(ctx), "phase", phase, "resource_type", resourceType, "error_chain", errorChain(err)}
 	fields = append(fields, attrs...)
 	s.logger.Error("dataframe read failed", fields...)
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
 type Handler struct {
@@ -16,10 +16,10 @@ type Handler struct {
 }
 
 type SourceLoader interface {
-	Begin(context.Context, string, string, ingest.SourceLoadPlan) (ingest.SourceLoadStatus, error)
-	Status(context.Context, string, string) (ingest.SourceLoadStatus, error)
-	UploadFile(context.Context, string, string, string, string) (ingest.SourceFileReceipt, error)
-	Publish(context.Context, string, string) (ingest.SourcePublishReceipt, error)
+	Begin(context.Context, string, string, sourceload.SourceLoadPlan) (sourceload.SourceLoadStatus, error)
+	Status(context.Context, string, string) (sourceload.SourceLoadStatus, error)
+	UploadFile(context.Context, string, string, string, string) (sourceload.SourceFileReceipt, error)
+	Publish(context.Context, string, string) (sourceload.SourcePublishReceipt, error)
 }
 
 type SourceLoadLimits struct {

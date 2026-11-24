@@ -2,10 +2,10 @@ package queryapi
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"regexp"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -43,7 +43,7 @@ type FieldPredicate struct {
 
 var fieldRefSanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 
-func discoveredFieldHints(resourceType string, fields []catalog.PopulatedField) []FieldHint {
+func discoveredFieldHints(resourceType string, fields []fieldcatalog.PopulatedField) []FieldHint {
 	if len(fields) == 0 {
 		return []FieldHint{}
 	}
@@ -55,7 +55,7 @@ func discoveredFieldHints(resourceType string, fields []catalog.PopulatedField) 
 	return out
 }
 
-func fieldHintFromDiscovered(field catalog.PopulatedField, fieldRef string, label string, selector string) FieldHint {
+func fieldHintFromDiscovered(field fieldcatalog.PopulatedField, fieldRef string, label string, selector string) FieldHint {
 	selectorResp := decomposeSelector(selector)
 	if spec, ok := fhirschema.LookupField(field.ResourceType, field.Path); ok {
 		selectorResp = fieldSelectorFromSpec(fhirschema.SelectorFromField(spec))
@@ -80,7 +80,7 @@ func fieldHintFromDiscovered(field catalog.PopulatedField, fieldRef string, labe
 	}
 }
 
-func resolveFieldRef(resourceType string, discovered []catalog.PopulatedField, fieldRef string) (string, error) {
+func resolveFieldRef(resourceType string, discovered []fieldcatalog.PopulatedField, fieldRef string) (string, error) {
 	fieldRef = strings.TrimSpace(fieldRef)
 	if fieldRef == "" {
 		return "", dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "fieldRef is required")

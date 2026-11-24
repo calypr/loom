@@ -1,0 +1,207 @@
+package lifecycle
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/receiptmodel"
+
+	"github.com/calypr/loom/internal/explorer/construction"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+)
+
+func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *testing.T) {
+	var request construction.ConstructionCategoryDiscoveryRequest
+	var calls int
+	includeMissing := false
+	includeNull := false
+	conclusiveMissing := false
+	incomplete := false
+	overflow := false
+	invalidProof := false
+	noValues := false
+	presenceTracked := true
+	var scanCategories CategoryScanner
+	service, store, snapshot := constructionProposalService(t, func(setup *testServiceSetup) {
+		setup.Config.ScanCategories = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			return scanCategories(ctx, receipt, bindings, scan)
+		}
+	})
+	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range workspace.Documents[0].Columns {
+		workspace.Documents[0].Columns[index].LogicalType = "string"
+	}
+	column := workspace.Documents[0].Columns[0]
+	column.Column = "status"
+	column.Label = "Status"
+	column.Source.Field.Path = "status"
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, column)
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
+	upgraded, err := ws.StartDocumentConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upgraded.Construction == nil || len(upgraded.Columns) != 2 {
+		t.Fatalf("upgraded source columns = %#v", upgraded)
+	}
+	request = construction.ConstructionCategoryDiscoveryRequest{
+		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
+		CategoryColumnID: upgraded.Columns[1].ColumnID,
+		ValueColumnID:    upgraded.Columns[0].ColumnID,
+	}
+
+	scanCategories = func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		calls++
+		if receipt == nil || bindings.Project != request.Project || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != request.OutputID {
+			t.Fatalf("scanner received unbound receipt or runtime bindings: %#v %#v", receipt, bindings)
+		}
+		if scan.Output != request.OutputID || scan.StageID != request.StageID || scan.ColumnID != request.CategoryColumnID || scan.ValueColumnID != request.ValueColumnID || scan.MaxValues != 256 || !scan.RequireValue {
+			t.Fatalf("scanner received a different stage, pair, or value policy: %#v", scan)
+		}
+		var category receiptmodel.ReceiptConstructionStageColumn
+		for _, stage := range receipt.ConstructionStages[request.OutputID] {
+			if stage.ID != request.StageID {
+				continue
+			}
+			for _, column := range stage.Columns {
+				if column.ID == request.CategoryColumnID {
+					category = column
+				}
+			}
+		}
+		if category.ID == "" {
+			t.Fatalf("requested category column %q was absent from the stage receipt", request.CategoryColumnID)
+		}
+		proof := compilerCategoryScanProof(request, category)
+		proof.PresenceTracked = presenceTracked
+		if conclusiveMissing {
+			proof.OverflowWitnessFingerprint = "witness"
+		}
+		if invalidProof {
+			proof.Fingerprint = ""
+		}
+		values := []dataframeexecution.CategoryValue{{Present: true, Value: "final"}}
+		if noValues {
+			values = nil
+		}
+		if includeNull {
+			values = append(values, dataframeexecution.CategoryValue{Present: true, Value: nil})
+		}
+		if includeMissing {
+			values = append(values, dataframeexecution.CategoryValue{Present: false})
+		}
+		return dataframeexecution.CategoryScanResult{
+			Values:            values,
+			Complete:          !incomplete && !overflow && !conclusiveMissing,
+			Overflow:          overflow,
+			ConclusiveMissing: conclusiveMissing,
+			Proof:             proof,
+		}, nil
+	}
+
+	stale := request
+	stale.StageID = "stale-stage"
+	if _, err := service.DiscoverConstructionCategories(context.Background(), stale); lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+		t.Fatalf("stale stage error = %v", err)
+	}
+	stale = request
+	stale.CategoryColumnID = "stale-column"
+	if _, err := service.DiscoverConstructionCategories(context.Background(), stale); lifecycleErrorCode(err) != "INVALID_CATEGORY_COLUMN_ID" {
+		t.Fatalf("stale category column error = %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("scanner ran before stage and column IDs were validated: %d calls", calls)
+	}
+
+	response, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !response.Complete || response.StageID != request.StageID || response.CategoryColumnID != request.CategoryColumnID || response.ValueColumnID != request.ValueColumnID || response.ProofFingerprint == "" {
+		t.Fatalf("category discovery response = %#v; calls = %d", response, calls)
+	}
+	if len(response.Categories) != 1 || response.Categories[0].Label != "final" || response.Categories[0].Key.String == nil || *response.Categories[0].Key.String != "final" {
+		t.Fatalf("typed category values = %#v", response.Categories)
+	}
+
+	includeMissing = true
+	includeNull = true
+	withMissing, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || withMissing.Outcome != "COMPLETE" || !withMissing.Complete ||
+		len(withMissing.Categories) != 3 || withMissing.Categories[1].Key.Kind != ws.TableScalarNull ||
+		withMissing.Categories[2].Key.Kind != ws.TableScalarMissing {
+		t.Fatalf("presence-tracked missing-category discovery = %#v, error = %v", withMissing, err)
+	}
+	presenceTracked = false
+	unsupported, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || unsupported.Outcome != "MISSING_UNSUPPORTED" || unsupported.Complete ||
+		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "Filter rows where the category field is missing") {
+		t.Fatalf("untracked missing-category discovery = %#v, error = %v; want the conservative refusal", unsupported, err)
+	}
+	presenceTracked = true
+	includeMissing = false
+	includeNull = false
+	conclusiveMissing = true
+	if _, err = service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+		t.Fatalf("presence-tracked witness without the complete category scan error = %v", err)
+	}
+	conclusiveMissing = false
+
+	incomplete = true
+	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+		t.Fatalf("incomplete scan error = %v", err)
+	}
+	incomplete = false
+	overflow = true
+	limited, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || limited.Outcome != "LIMIT_EXCEEDED" || limited.Complete || limited.ProofFingerprint != "" || len(limited.Categories) != 0 || limited.Limit != facade.MaxCategoryScanValues || limited.Message == "" {
+		t.Fatalf("overflow scan result = %#v, error = %v", limited, err)
+	}
+	invalidProof = true
+	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+		t.Fatalf("overflow with invalid compiler proof error = %v", err)
+	}
+	invalidProof = false
+	overflow = false
+	noValues = true
+	empty, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || empty.Outcome != "NO_VALUES" || empty.Complete || len(empty.Categories) != 0 || !strings.Contains(empty.Message, "No selected value is populated") {
+		t.Fatalf("no-value category discovery = %#v, error = %v", empty, err)
+	}
+	noValues = false
+	scanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		return dataframeexecution.CategoryScanResult{}, context.DeadlineExceeded
+	}
+	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_TIMEOUT" {
+		t.Fatalf("timed-out scan error = %v", err)
+	}
+}
+
+func compilerCategoryScanProof(request construction.ConstructionCategoryDiscoveryRequest, column receiptmodel.ReceiptConstructionStageColumn) facade.CategoryScanProof {
+	return facade.CategoryScanProof{
+		Version: 2, Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
+		ValueColumnID: request.ValueColumnID, Column: column.Name, Kind: column.Type,
+		Cardinality: string(column.Cardinality), MaxValues: facade.MaxCategoryScanValues, ValuePresenceRequired: true,
+		OutputSchemaDigest: "schema", PlanFingerprint: "plan", QueryFingerprint: "query", Fingerprint: "proof",
+	}
+}

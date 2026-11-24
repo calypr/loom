@@ -1,22 +1,25 @@
 package arango
 
-import store "github.com/calypr/loom/internal/store/arango"
+import (
+	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	store "github.com/calypr/loom/internal/store/arango"
+)
 
 const (
-	ExplorersCollection                = "loom_explorers"
-	DraftRevisionsCollection           = "loom_explorer_draft_revisions"
-	RevisionsCollection                = "loom_explorer_revisions"
-	CompilationReceiptsCollection      = "loom_explorer_compilation_receipts"
-	SelectionsCollection               = "loom_explorer_selections"
-	SelectionMembersCollection         = "loom_explorer_selection_members"
-	ExplicitGroupRevisionsCollection   = "loom_explorer_explicit_group_revisions"
-	ExplicitGroupDefinitionsCollection = "loom_explorer_explicit_group_definitions"
-	ExplicitGroupMembershipsCollection = "loom_explorer_explicit_group_memberships"
-	InterpretationLibrariesCollection  = "loom_explorer_interpretation_libraries"
-	InterpretationRevisionsCollection  = "loom_explorer_interpretation_revisions"
-	ViewBuilderSettingsCollection      = "loom_explorer_view_builder_settings"
-
-	LegacyRepositoryConfigsCollection = "loom_repository_explorer_configs"
+	ExplorersCollection                = db.ExplorersCollection
+	DraftRevisionsCollection           = db.DraftRevisionsCollection
+	RevisionsCollection                = db.RevisionsCollection
+	CompilationReceiptsCollection      = db.CompilationReceiptsCollection
+	SelectionsCollection               = db.SelectionsCollection
+	SelectionMembersCollection         = db.SelectionMembersCollection
+	ExplicitGroupRevisionsCollection   = db.ExplicitGroupRevisionsCollection
+	ExplicitGroupDefinitionsCollection = db.ExplicitGroupDefinitionsCollection
+	ExplicitGroupMembershipsCollection = db.ExplicitGroupMembershipsCollection
+	InterpretationLibrariesCollection  = db.InterpretationLibrariesCollection
+	InterpretationRevisionsCollection  = db.InterpretationRevisionsCollection
+	ViewBuilderSettingsCollection      = db.ViewBuilderSettingsCollection
+	LegacyRepositoryConfigsCollection  = db.LegacyRepositoryConfigsCollection
 )
 
 func CollectionSpecs() []store.CollectionSpec {
@@ -57,7 +60,7 @@ func CollectionSpecs() []store.CollectionSpec {
 		{Name: InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
 		{Name: ViewBuilderSettingsCollection, Indexes: [][]string{{"project"}}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
-		CapabilitySnapshotCollectionSpec(),
+		capabilitydb.CapabilitySnapshotCollectionSpec(),
 		workspaceProjectionCollectionSpec(),
 	}
 }

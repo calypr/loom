@@ -3,15 +3,15 @@ package recipetest
 import (
 	"context"
 
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type Registry struct{}
 
-func (Registry) LoadRecipe(context.Context, string) (exec.Entry, error) {
-	return exec.Entry{}, nil
+func (Registry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
+	return recipe.Entry{}, nil
 }
 
-func (registry Registry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
+func (registry Registry) LoadRecipeVersion(ctx context.Context, name, _ string) (recipe.Entry, error) {
 	return registry.LoadRecipe(ctx, name)
 }

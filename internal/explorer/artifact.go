@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
-	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
+	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/dataframe/artifactformat"
 )
 
 type ArtifactState string
@@ -22,30 +24,30 @@ const (
 )
 
 type ArtifactRecord struct {
-	ID                       string                            `json:"id"`
-	Project                  string                            `json:"project"`
-	ExplorerID               string                            `json:"explorerId"`
-	RevisionID               string                            `json:"revisionId"`
-	OutputID                 string                            `json:"outputId"`
-	ReceiptID                string                            `json:"receiptId"`
-	ExecutionID              string                            `json:"executionId"`
-	DatasetGeneration        string                            `json:"datasetGeneration"`
-	SchemaDigest             string                            `json:"schemaDigest"`
-	AuthorizationScopeDigest string                            `json:"authorizationScopeDigest"`
-	SnapshotToken            string                            `json:"snapshotToken"`
-	IdempotencyKey           string                            `json:"idempotencyKey"`
-	State                    ArtifactState                     `json:"state"`
-	Format                   dataframepublished.ArtifactFormat `json:"format"`
-	Filename                 string                            `json:"filename"`
-	MediaType                string                            `json:"mediaType"`
-	ArchiveSHA256            string                            `json:"archiveSha256,omitempty"`
-	Bytes                    int64                             `json:"bytes,omitempty"`
-	Rows                     int64                             `json:"rows,omitempty"`
-	Features                 int                               `json:"features,omitempty"`
-	FailureCode              string                            `json:"failureCode,omitempty"`
-	CreatedAt                time.Time                         `json:"createdAt"`
-	CompletedAt              *time.Time                        `json:"completedAt,omitempty"`
-	ExpiresAt                time.Time                         `json:"expiresAt"`
+	ID                       string                        `json:"id"`
+	Project                  string                        `json:"project"`
+	ExplorerID               string                        `json:"explorerId"`
+	RevisionID               string                        `json:"revisionId"`
+	OutputID                 string                        `json:"outputId"`
+	ReceiptID                string                        `json:"receiptId"`
+	ExecutionID              string                        `json:"executionId"`
+	DatasetGeneration        string                        `json:"datasetGeneration"`
+	SchemaDigest             string                        `json:"schemaDigest"`
+	AuthorizationScopeDigest string                        `json:"authorizationScopeDigest"`
+	SnapshotToken            string                        `json:"snapshotToken"`
+	IdempotencyKey           string                        `json:"idempotencyKey"`
+	State                    ArtifactState                 `json:"state"`
+	Format                   artifactformat.ArtifactFormat `json:"format"`
+	Filename                 string                        `json:"filename"`
+	MediaType                string                        `json:"mediaType"`
+	ArchiveSHA256            string                        `json:"archiveSha256,omitempty"`
+	Bytes                    int64                         `json:"bytes,omitempty"`
+	Rows                     int64                         `json:"rows,omitempty"`
+	Features                 int                           `json:"features,omitempty"`
+	FailureCode              string                        `json:"failureCode,omitempty"`
+	CreatedAt                time.Time                     `json:"createdAt"`
+	CompletedAt              *time.Time                    `json:"completedAt,omitempty"`
+	ExpiresAt                time.Time                     `json:"expiresAt"`
 }
 
 func ArtifactID(record ArtifactRecord) (string, error) {
@@ -90,4 +92,17 @@ type ArtifactStore interface {
 	Begin(context.Context, ArtifactRecord) (ArtifactStage, *ArtifactRecord, error)
 	Get(context.Context, string) (*ArtifactRecord, error)
 	Open(context.Context, string) (io.ReadCloser, *ArtifactRecord, error)
+}
+
+func RevisionWorkspaceArtifact(revision Revision) workspacepkg.Artifact {
+	return workspacepkg.Artifact{Kind: "revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
+		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.AuthoringWorkspaceBytes()), IntentDigest: revision.IntentDigest,
+		Generation: revision.SourceGeneration, ReceiptID: revision.CompilationReceiptID}
+}
+
+func DraftWorkspaceArtifact(revision DraftRevision) workspacepkg.Artifact {
+	return workspacepkg.Artifact{Kind: "draft-revision", Project: revision.Project, ExplorerID: revision.ExplorerID,
+		ID: revision.ID, RawDigest: workspaceBytesDigest(revision.DraftConfig), IntentDigest: revision.DraftDigest,
+		SnapshotToken: revision.SnapshotToken, Generation: revision.SourceGeneration,
+		ScopeDigest: revision.AuthorizationScopeDigest, DraftVersion: revision.DraftVersion}
 }

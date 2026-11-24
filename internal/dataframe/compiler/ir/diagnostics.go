@@ -68,7 +68,7 @@ func (r RichSourceReuse) TotalConsumers() int {
 
 func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 	diagnostics := CompilerPlanDiagnostics{
-		Fingerprint:             physicalPlanFingerprint(plan),
+		Fingerprint:             PhysicalPlanFingerprint(plan),
 		SharedTraversalCount:    plan.SharedTraversalCount,
 		RequiredMatchReuseCount: plan.RequiredMatchReuseCount,
 		OptimizationPolicy:      clonePhysicalOptimizationReport(plan.OptimizationPolicy),
@@ -215,7 +215,7 @@ func countObjectLookupConsumers(expression *PhysicalExpression) int {
 	return count
 }
 
-func physicalPlanFingerprint(plan PhysicalPlan) string {
+func PhysicalPlanFingerprint(plan PhysicalPlan) string {
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		return ""

@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"time"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
@@ -12,13 +13,13 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type Service struct {
 	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFieldsFn       func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	discoverFieldsFn       func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)
 	dataframes             *dataframeexecution.Service
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
@@ -29,7 +30,7 @@ type Service struct {
 
 type Config struct {
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	DiscoverFields     func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)
 	Dataframes         *dataframeexecution.Service
 	ScopeResolver      *authscope.ScopeResolver
 
@@ -68,7 +69,7 @@ func (s *Service) clockNow() time.Time {
 	return time.Now()
 }
 
-func (s *Service) discoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func (s *Service) discoverFields(ctx context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 	if s == nil || s.discoverFieldsFn == nil {
 		return nil, catalogUnavailable()
 	}
@@ -82,19 +83,19 @@ func (s *Service) discoverReferences(ctx context.Context, opts catalog.Populated
 	return s.discoverReferencesFn(ctx, opts)
 }
 
-func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (recipeplan.ResolvedRecipePlan, error) {
 	resolvedBundle, err := s.resolveRecipeBundle(ctx, bundle, bindings)
 	if err != nil {
-		return semantic.ResolvedRecipePlan{}, err
+		return recipeplan.ResolvedRecipePlan{}, err
 	}
-	plan, err := semantic.BuildRecipePlan(resolvedBundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(resolvedBundle, bindings)
 	if err != nil {
-		return semantic.ResolvedRecipePlan{}, err
+		return recipeplan.ResolvedRecipePlan{}, err
 	}
-	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
+	return recipeplan.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
 }
 
-func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
+func compileSingleQuery(resolved recipeplan.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return dataframeexecution.CompiledQuery{}, err
@@ -103,6 +104,14 @@ func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (datafr
 		return dataframeexecution.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	return queries[0], nil
+}
+
+func (s *Service) RunPreview(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
+	if limit == nil {
+		defaultLimit := 25
+		limit = &defaultLimit
+	}
+	return s.Run(ctx, input, limit)
 }
 
 func (s *Service) Run(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {

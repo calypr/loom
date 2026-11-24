@@ -3,15 +3,18 @@ package arango
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"sort"
 	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
-func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func (s *FieldStore) DiscoverFields(ctx context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -19,9 +22,9 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 	if opts.ResourceType != "" {
 		vars["resource_type"] = opts.ResourceType
 	}
-	rows := []catalog.PopulatedField{}
+	rows := []fieldcatalog.PopulatedField{}
 	err := s.client.QueryRows(ctx, populatedFieldsAQL, opts.CursorBatch, vars, func(row map[string]any) error {
-		var out catalog.PopulatedField
+		var out fieldcatalog.PopulatedField
 		if err := decode(row, &out); err != nil {
 			return err
 		}
@@ -36,7 +39,7 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 	return rows, err
 }
 
-func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
+func (s *FieldStore) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -65,14 +68,14 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 		vars["resource_types"] = nil
 	}
 	err := s.client.QueryRows(ctx, fieldEnrichmentAQL, opts.CursorBatch, vars, func(row map[string]any) error {
-		if stringValue(row["record_type"]) == catalog.FieldProfileStatusRecordType {
+		if stringValue(row["record_type"]) == fieldprofile.FieldProfileStatusRecordType {
 			recordCoverage(row)
 			if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 				result.Truncated = true
 			}
 			return nil
 		}
-		var field catalog.PopulatedField
+		var field fieldcatalog.PopulatedField
 		if err := decode(row, &field); err != nil {
 			return err
 		}
@@ -82,7 +85,7 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 			return nil
 		}
 		field.ResourceType = resourceType
-		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]catalog.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]catalog.SemanticObservation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
+		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]fieldcatalog.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]semantic.Observation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
 
 		if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 			result.Truncated = true
@@ -105,7 +108,7 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 	return result, nil
 }
 
-func (s *Store) WriteFieldCatalog(ctx context.Context, collection string, docs []catalog.FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func (s *FieldStore) WriteFieldCatalog(ctx context.Context, collection string, docs []fieldcatalog.FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}

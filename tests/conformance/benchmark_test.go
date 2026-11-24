@@ -6,7 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -21,7 +22,7 @@ type compilerBenchmarkCase struct {
 }
 
 var (
-	benchmarkCompiled compiler.CompiledQuery
+	benchmarkCompiled model.CompiledQuery
 	benchmarkErr      error
 )
 

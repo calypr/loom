@@ -1,0 +1,1085 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "chain-0-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-0-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-0-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-0-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-1-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-1-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-1-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-1-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-2-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-2-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-2-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-2-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-3-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-3-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-3-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-3-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-4-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-4-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-4-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-4-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-5-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-5-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-5-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-5-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-6-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-6-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-6-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-6-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-7-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-7-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-7-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-7-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-8-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-8-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-8-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-8-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-9-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-9-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-9-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-9-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-10-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-10-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-10-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-10-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-11-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-11-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-11-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-11-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-12-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-12-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-12-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-12-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-13-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-13-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-13-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-13-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-14-0-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-14-0-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-14-1-0",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-14-1-1",
+      "firstKind": "DERIVE",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-15-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-15-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-15-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-15-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-16-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-16-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-16-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-16-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-17-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-17-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-17-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-17-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "FOREIGN",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-18-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-18-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-18-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-18-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-19-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-19-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-19-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-19-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-20-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-20-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-20-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-20-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "PREVIOUS",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": true
+    },
+    {
+      "id": "chain-21-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-21-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-21-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-21-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-22-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-22-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-22-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-22-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-23-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-23-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-23-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-23-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "REVISION",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-24-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-24-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-24-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-24-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-25-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-25-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-25-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-25-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-26-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-26-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-26-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-26-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "SELF",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-27-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-27-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-27-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-27-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "d",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-28-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-28-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-28-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-28-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "foreign",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-29-0-0",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-29-0-1",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": false,
+      "reorder": true,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-29-1-0",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": false,
+      "expectedAccepted": false
+    },
+    {
+      "id": "chain-29-1-1",
+      "firstKind": "FILTER",
+      "secondInput": "SOURCE",
+      "secondColumn": "x",
+      "rename": true,
+      "reorder": true,
+      "expectedAccepted": false
+    }
+  ]
+}

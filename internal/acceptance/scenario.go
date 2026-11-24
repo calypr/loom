@@ -20,9 +20,10 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
 	dfpublication "github.com/calypr/loom/internal/dataframe/publication"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -382,7 +383,7 @@ func publishWorkspace(ctx context.Context, cfg ScenarioConfig, client *http.Clie
 }
 
 func migrateLegacyWorkspaceForCurrentAPI(ctx context.Context, cfg ScenarioConfig, client *http.Client, raw []byte) ([]byte, map[string]any, error) {
-	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
+	workspace, err := ws.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode acceptance workspace for publication: %w", err)
 	}
@@ -421,10 +422,10 @@ func migrateLegacyWorkspaceForCurrentAPI(ctx context.Context, cfg ScenarioConfig
 	}, nil
 }
 
-func hasLegacyAggregateWhere(workspace authoringv2.Workspace) bool {
+func hasLegacyAggregateWhere(workspace ws.Workspace) bool {
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
-			if column.Source.Kind == authoringv2.SourceAggregate && column.Source.Aggregate != nil && column.Source.Aggregate.Where != nil {
+			if column.Source.Kind == ws.SourceAggregate && column.Source.Aggregate != nil && column.Source.Aggregate.Where != nil {
 				return true
 			}
 		}
@@ -432,22 +433,22 @@ func hasLegacyAggregateWhere(workspace authoringv2.Workspace) bool {
 	return false
 }
 
-func migrateLegacyAcceptanceWorkspace(workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
+func migrateLegacyAcceptanceWorkspace(workspace ws.Workspace, catalog ws.CatalogSnapshot) (ws.Workspace, error) {
 	if err := validatePinnedContributorCatalog(catalog); err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("validate pinned acceptance catalog: %w", err)
+		return ws.Workspace{}, fmt.Errorf("validate pinned acceptance catalog: %w", err)
 	}
-	migrated, err := authoringv2.MigrateWorkspaceForCompilation(workspace, catalog)
+	migrated, err := ws.MigrateWorkspaceForCompilation(workspace, catalog)
 	if err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("migrate acceptance contributor predicates: %w", err)
+		return ws.Workspace{}, fmt.Errorf("migrate acceptance contributor predicates: %w", err)
 	}
 	migrated = migrated.NormalizePresentationOrders()
 	if err := migrated.ValidateForPublication(); err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("validate migrated acceptance workspace: %w", err)
+		return ws.Workspace{}, fmt.Errorf("validate migrated acceptance workspace: %w", err)
 	}
 	return migrated, nil
 }
 
-func countContributorPredicates(workspace authoringv2.Workspace) int {
+func countContributorPredicates(workspace ws.Workspace) int {
 	count := 0
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
@@ -459,7 +460,7 @@ func countContributorPredicates(workspace authoringv2.Workspace) int {
 	return count
 }
 
-func countWorkspaceColumns(workspace authoringv2.Workspace) int {
+func countWorkspaceColumns(workspace ws.Workspace) int {
 	count := 0
 	for _, document := range workspace.Documents {
 		count += len(document.Columns)
@@ -496,7 +497,7 @@ func authoringV2Supported(ctx context.Context, cfg ScenarioConfig, client *http.
 	if err := json.Unmarshal(raw, &capability); err != nil {
 		return false, fmt.Errorf("decode Explorer authoring capability: %w", err)
 	}
-	if capability.APIVersion != authoringv2.APIVersion || capability.Kind != "ExplorerAuthoringCapabilities" {
+	if capability.APIVersion != ws.APIVersion || capability.Kind != "ExplorerAuthoringCapabilities" {
 		return false, fmt.Errorf("unexpected Explorer authoring capability protocol: apiVersion=%q kind=%q", capability.APIVersion, capability.Kind)
 	}
 	for _, operation := range capability.Operations {
@@ -507,8 +508,8 @@ func authoringV2Supported(ctx context.Context, cfg ScenarioConfig, client *http.
 	return false, nil
 }
 
-func currentAcceptanceCatalog(ctx context.Context, cfg ScenarioConfig, client *http.Client) (authoringv2.CatalogSnapshot, error) {
-	var empty authoringv2.CatalogSnapshot
+func currentAcceptanceCatalog(ctx context.Context, cfg ScenarioConfig, client *http.Client) (ws.CatalogSnapshot, error) {
+	var empty ws.CatalogSnapshot
 	if strings.TrimSpace(cfg.Namespace.Run) == "" {
 		return empty, errors.New("acceptance run ID is required to create a verifier-owned catalog Explorer")
 	}
@@ -535,9 +536,9 @@ func currentAcceptanceCatalog(ctx context.Context, cfg ScenarioConfig, client *h
 	return decodeAcceptanceCatalog(state, cfg.Namespace.Project, explorerID, cfg.Namespace.Generation)
 }
 
-func decodeAcceptanceCatalog(state map[string]any, project, explorerID, generation string) (authoringv2.CatalogSnapshot, error) {
-	var empty authoringv2.CatalogSnapshot
-	if state["apiVersion"] != authoringv2.APIVersion || state["kind"] != authoringv2.StateKind {
+func decodeAcceptanceCatalog(state map[string]any, project, explorerID, generation string) (ws.CatalogSnapshot, error) {
+	var empty ws.CatalogSnapshot
+	if state["apiVersion"] != ws.APIVersion || state["kind"] != ws.StateKind {
 		return empty, fmt.Errorf("unexpected Builder state protocol: apiVersion=%v kind=%v", state["apiVersion"], state["kind"])
 	}
 	catalogValue, ok := state["catalog"]
@@ -552,19 +553,19 @@ func decodeAcceptanceCatalog(state map[string]any, project, explorerID, generati
 	if err := json.Unmarshal(catalogJSON, &wire); err != nil {
 		return empty, fmt.Errorf("decode Builder catalog: %w", err)
 	}
-	catalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
+	catalog := ws.CatalogSnapshot{
+		APIVersion: ws.APIVersion, Kind: ws.CatalogKind,
 		Project: project, ExplorerID: explorerID,
 		SourceGeneration: wire.Generation, AuthorizationScopeDigest: wire.AuthorizationScopeDigest,
 		SnapshotToken: wire.SnapshotToken, Complete: wire.Complete, Truncated: wire.Truncated,
-		Nodes:      make([]authoringv2.CatalogNode, 0, len(wire.Nodes)),
-		Candidates: make([]authoringv2.CatalogCandidate, 0, len(wire.Candidates)),
+		Nodes:      make([]ws.CatalogNode, 0, len(wire.Nodes)),
+		Candidates: make([]ws.CatalogCandidate, 0, len(wire.Candidates)),
 	}
 	for _, node := range wire.Nodes {
-		catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: node.ID, ResourceType: node.ResourceType})
+		catalog.Nodes = append(catalog.Nodes, ws.CatalogNode{ID: node.ID, ResourceType: node.ResourceType})
 	}
 	for _, candidate := range wire.Candidates {
-		catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+		catalog.Candidates = append(catalog.Candidates, ws.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
 			LogicalType: candidate.LogicalType, Repeated: candidate.Repeated,
 			RepeatedBoundaries: candidate.RepeatedBoundaries,
@@ -596,16 +597,16 @@ type acceptanceCatalogNodeWire struct {
 }
 
 type acceptanceCatalogCandidateWire struct {
-	ID                 string                         `json:"candidateId"`
-	NodeID             string                         `json:"nodeId"`
-	FieldPath          string                         `json:"fieldPath"`
-	LogicalType        string                         `json:"logicalType"`
-	Repeated           bool                           `json:"repeated"`
-	RepeatedBoundaries []authoringv2.RepeatedBoundary `json:"repeatedBoundaries"`
+	ID                 string                `json:"candidateId"`
+	NodeID             string                `json:"nodeId"`
+	FieldPath          string                `json:"fieldPath"`
+	LogicalType        string                `json:"logicalType"`
+	Repeated           bool                  `json:"repeated"`
+	RepeatedBoundaries []ws.RepeatedBoundary `json:"repeatedBoundaries"`
 }
 
-func validatePinnedContributorCatalog(catalog authoringv2.CatalogSnapshot) error {
-	if catalog.APIVersion != authoringv2.APIVersion || catalog.Kind != authoringv2.CatalogKind {
+func validatePinnedContributorCatalog(catalog ws.CatalogSnapshot) error {
+	if catalog.APIVersion != ws.APIVersion || catalog.Kind != ws.CatalogKind {
 		return errors.New("catalog protocol or kind is unsupported")
 	}
 	if strings.TrimSpace(catalog.Project) == "" || strings.TrimSpace(catalog.ExplorerID) == "" || strings.TrimSpace(catalog.SourceGeneration) == "" {
@@ -617,7 +618,7 @@ func validatePinnedContributorCatalog(catalog authoringv2.CatalogSnapshot) error
 	if !catalog.Complete || catalog.Truncated {
 		return errors.New("catalog snapshot is incomplete or truncated")
 	}
-	nodes := make(map[string]authoringv2.CatalogNode, len(catalog.Nodes))
+	nodes := make(map[string]ws.CatalogNode, len(catalog.Nodes))
 	for _, node := range catalog.Nodes {
 		if strings.TrimSpace(node.ID) == "" || strings.TrimSpace(node.ResourceType) == "" {
 			return errors.New("catalog contains an invalid node")

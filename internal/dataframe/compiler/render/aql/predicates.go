@@ -2,11 +2,11 @@ package aql
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
@@ -62,8 +62,8 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if err != nil {
 		return "", err
 	}
-	owner := r.newInternalVariable("correlation_owner")
-	coding := r.newInternalVariable("correlation_coding")
+	owner := r.navigation().newInternalVariable("correlation_owner")
+	coding := r.navigation().newInternalVariable("correlation_coding")
 	codings, err := r.renderCorrelationCodingItems(owner, correlation)
 	if err != nil {
 		return "", fmt.Errorf("correlation key selector: %w", err)
@@ -80,11 +80,11 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if err != nil {
 		return "", err
 	}
-	if correlation.SystemBindKey == "" || (correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion && correlation.CodeBindKey == "") {
+	if correlation.SystemBindKey == "" || (correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion && correlation.CodeBindKey == "") {
 		return "", fmt.Errorf("correlation match binds are required")
 	}
 	codeClause := fmt.Sprintf("FILTER __correlation_code == @%s", correlation.CodeBindKey)
-	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+	if correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 		codeClause = ""
 	}
 	valueSource := correlationValueSource(correlation, owner, coding)
@@ -166,7 +166,7 @@ func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector s
 	}
 	eligible := "LENGTH(__correlation_candidate) > 0"
 	if fallbackOnBlankString {
-		probe := r.newInternalVariable("correlation_nonblank_value")
+		probe := r.navigation().newInternalVariable("correlation_nonblank_value")
 		eligible = "LENGTH(FOR " + probe + " IN __correlation_candidate FILTER IS_STRING(" + probe + ") AND TRIM(" + probe + ") != '' LIMIT 1 RETURN 1) > 0"
 	}
 	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER " + eligible + " RETURN __correlation_candidate)", nil
@@ -221,7 +221,7 @@ func (r *physicalPlanRenderer) renderSelectorPredicate(predicate ir.PhysicalPred
 	if err != nil {
 		return "", err
 	}
-	valueVar := r.newInternalVariable("filter_value")
+	valueVar := r.navigation().newInternalVariable("filter_value")
 	match := ""
 	switch operator {
 	case "EQUALS":
@@ -328,7 +328,7 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 			}
 			lines = append(lines, rendered...)
 		case ir.PhysicalTraversalOp:
-			lines = append(lines, r.renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, indent+"  ")...)
+			lines = append(lines, r.navigation().renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, indent+"  ")...)
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
 			rendered, err := r.renderScopeOperation(operation, indent+"    ")
 			if err != nil {
@@ -355,10 +355,10 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 		if err != nil {
 			return "", err
 		}
-		keyVariable := r.newInternalVariable("subplan_distinct_key")
-		groupKeyVariable := r.newInternalVariable("subplan_distinct_group_key")
-		valueVariable := r.newInternalVariable("subplan_distinct_value")
-		groupedValues := r.newInternalVariable("subplan_distinct_values")
+		keyVariable := r.navigation().newInternalVariable("subplan_distinct_key")
+		groupKeyVariable := r.navigation().newInternalVariable("subplan_distinct_group_key")
+		valueVariable := r.navigation().newInternalVariable("subplan_distinct_value")
+		groupedValues := r.navigation().newInternalVariable("subplan_distinct_values")
 		lines = append(lines,
 			indent+"    LET "+keyVariable+" = "+key,
 			indent+"    LET "+valueVariable+" = "+value,
@@ -393,4 +393,11 @@ func (r *physicalPlanRenderer) renderDocumentLookup(lookup ir.PhysicalDocumentLo
 		fmt.Sprintf("%sLET %s = DOCUMENT(@@%s, PARSE_IDENTIFIER(%s).key)", indent, lookup.Variable, lookup.CollectionBindKey, exactID),
 		fmt.Sprintf("%sFILTER %s != null && %s._id == %s", indent, lookup.Variable, lookup.Variable, exactID),
 	}, nil
+}
+
+func correlationValueSource(correlation ir.PhysicalCorrelation, owner, coding string) string {
+	if correlation.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
+		return coding
+	}
+	return owner
 }

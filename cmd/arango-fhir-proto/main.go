@@ -20,10 +20,13 @@ import (
 	"github.com/arangodb/go-driver/v2/connection"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
+	semanticarango "github.com/calypr/loom/internal/semantic/arango"
+	"github.com/calypr/loom/internal/semantic/backfill"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -92,7 +95,7 @@ func withSignalCancellation(ctx context.Context, run func(context.Context) error
 }
 
 type loadCommandConfig struct {
-	Options ingest.LoadOptions
+	Options generation.LoadOptions
 
 	CPUProfile   string
 	MemProfile   string
@@ -186,8 +189,8 @@ func configureLoadFlagsCore(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.IntVar(&config.Options.WriterCount, "writers", 2, "Concurrent writer goroutines")
 	fs.IntVar(&config.Options.WorkerCount, "workers", 2, "Concurrent parse/profile workers")
 	fs.IntVar(&config.Options.LineQueueSize, "line-queue-size", 1024, "Buffered input lines")
-	fs.IntVar(&config.Options.WriteQueueSize, "write-queue-size", ingest.DefaultWriteQueueSize, "Buffered write batches")
-	profileLimits := catalog.DefaultProfileLimits()
+	fs.IntVar(&config.Options.WriteQueueSize, "write-queue-size", generation.DefaultWriteQueueSize, "Buffered write batches")
+	profileLimits := fieldprofile.DefaultProfileLimits()
 	fs.IntVar(&config.Options.CatalogLimits.MaxFields, "max-catalog-fields", profileLimits.MaxFields, "Maximum retained catalog fields per resource")
 	fs.IntVar(&config.Options.CatalogLimits.MaxDistinctValuesPerField, "max-distinct-values", profileLimits.MaxDistinctValuesPerField, "Maximum retained distinct values per field")
 	fs.IntVar(&config.Options.CatalogLimits.MaxDistinctValueBytes, "max-distinct-value-bytes", profileLimits.MaxDistinctValueBytes, "Maximum retained bytes per catalog value")
@@ -215,7 +218,7 @@ func runConfiguredLoad(ctx context.Context, config loadCommandConfig) error {
 	return printJSON(summary)
 }
 
-func runLoadWithProfiles(ctx context.Context, config loadCommandConfig) (summary ingest.LoadSummary, err error) {
+func runLoadWithProfiles(ctx context.Context, config loadCommandConfig) (summary generation.LoadSummary, err error) {
 	previousMemoryLimit := int64(-1)
 	if config.MemoryBytes > 0 {
 		previousMemoryLimit = debug.SetMemoryLimit(config.MemoryBytes)
@@ -225,14 +228,14 @@ func runLoadWithProfiles(ctx context.Context, config loadCommandConfig) (summary
 	}
 	stopProfiles, profileErr := startProfiles(config.CPUProfile, config.MemProfile, config.TraceProfile, config.BlockProfile)
 	if profileErr != nil {
-		return ingest.LoadSummary{}, profileErr
+		return generation.LoadSummary{}, profileErr
 	}
 	defer func() {
 		if stopErr := stopProfiles(); stopErr != nil && err == nil {
 			err = stopErr
 		}
 	}()
-	return ingest.Load(ctx, config.Options)
+	return generation.Load(ctx, config.Options)
 }
 
 func parseMemoryBytes(raw string) (int64, error) {
@@ -478,7 +481,7 @@ type repairGenerationReport struct {
 	SourceGeneration string                           `json:"source_generation"`
 	TargetGeneration string                           `json:"target_generation"`
 	SourceAudit      catalog.RelationshipAuditSummary `json:"source_audit"`
-	Load             ingest.LoadSummary               `json:"load"`
+	Load             generation.LoadSummary           `json:"load"`
 	TargetAudit      catalog.RelationshipAuditSummary `json:"target_audit"`
 	Activated        bool                             `json:"activated"`
 }
@@ -617,7 +620,7 @@ func activateStagedGeneration(ctx context.Context, connection arangostore.Connec
 
 type semanticInventoryBackfillCommand struct {
 	Connection arangostore.ConnectionOptions
-	Options    ingest.SemanticInventoryBackfillOptions
+	Options    backfill.SemanticInventoryBackfillOptions
 }
 
 func parseBackfillSemanticInventoryCommand(args []string, errorHandling flag.ErrorHandling) (semanticInventoryBackfillCommand, error) {
@@ -669,11 +672,11 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read backfill generation manifest: %w", err)
 	}
-	store, err := catalogarango.New(client)
+	store, err := semanticarango.New(client)
 	if err != nil {
 		return err
 	}
-	config.Options.Progress = func(progress ingest.SemanticInventoryBackfillProgress) {
+	config.Options.Progress = func(progress backfill.SemanticInventoryBackfillProgress) {
 		data, marshalErr := json.Marshal(progress)
 		if marshalErr != nil {
 			fmt.Fprintf(os.Stderr, "semantic inventory progress encode failed: %v\n", marshalErr)
@@ -681,7 +684,7 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintln(os.Stderr, string(data))
 	}
-	report, err := ingest.BackfillSemanticInventory(ctx, store, manifest, config.Options)
+	report, err := backfill.BackfillSemanticInventory(ctx, store, manifest, config.Options)
 	if err != nil {
 		return err
 	}
@@ -709,9 +712,9 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	return opts, connection, nil
 }
 
-func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
+func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (fieldprofile.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-fields", errorHandling)
-	opts := catalog.PopulatedFieldOptions{}
+	opts := fieldprofile.PopulatedFieldOptions{}
 	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
@@ -721,7 +724,7 @@ func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorH
 	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
+		return fieldprofile.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
 	}
 	return opts, connection, nil
 }

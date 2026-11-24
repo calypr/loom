@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	lowerphysical "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 type fakeDiscovery struct {
@@ -54,7 +56,7 @@ func TestResolveCatalogProjectionBeforeSemanticTyping(t *testing.T) {
 	if len(resolved.Bundle.Outputs[0].Fields) != 2 || resolved.Bundle.Outputs[0].Fields[0].Name != "gender" || resolved.Bundle.Outputs[0].Fields[0].SourceKey != "common" {
 		t.Fatalf("resolved fields = %#v", resolved.Bundle.Outputs[0].Fields)
 	}
-	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
+	if _, err := recipeplan.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
 		t.Fatalf("resolved fields did not type-check: %v", err)
 	}
 }
@@ -117,11 +119,11 @@ func TestResolveCatalogProjectionAppliesStablePerOutputOverrides(t *testing.T) {
 	if fields[0].SourceKey != "fields" {
 		t.Fatalf("resolved field lost its owning projection identity: %#v", fields[0])
 	}
-	semanticPlan, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p"})
+	semanticPlan, err := recipeplan.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedPlan, err := semantic.ResolveRecipePlan(semanticPlan, "scope", "generation")
+	resolvedPlan, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,11 +202,11 @@ func TestResolveDiscoveredPivotOutputOverridesByRawKeyAndRetainsMissingKeys(t *t
 	if len(second.Pivots) != 1 || !reflect.DeepEqual(second.Pivots[0].Columns, []string{"code-b"}) || second.Pivots[0].ColumnAliases["code-b"] != "blood_pressure" {
 		t.Fatalf("later discovery did not reapply saved raw-key choices: %#v", second.Pivots)
 	}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: 1, Name: "pivot-output-editor", TranslationVersion: "1", Outputs: []recipe.Output{second}}, recipe.RuntimeBindings{Project: "p"})
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: 1, Name: "pivot-output-editor", TranslationVersion: "1", Outputs: []recipe.Output{second}}, recipe.RuntimeBindings{Project: "p"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedPlan, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolvedPlan, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,8 +272,8 @@ func TestResolvePivotOutputOverrideUsesNativeNamesForCollision(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			aliases := map[string]string{"code-a": tc.alias}
-			firstName := lower.NativePivotColumnName("", "values", "code-a", aliases)
-			secondName := lower.NativePivotColumnName("", "values", tc.rawKey, aliases)
+			firstName := lowerphysical.NativePivotColumnName("", "values", "code-a", aliases)
+			secondName := lowerphysical.NativePivotColumnName("", "values", tc.rawKey, aliases)
 			if (firstName == secondName) != tc.wantCollision {
 				t.Fatalf("test fixture names %q and %q do not match expected collision=%v", firstName, secondName, tc.wantCollision)
 			}
@@ -388,11 +390,11 @@ func TestResolveDynamicOutputOverridesPreserveSiblingsAndFreezeExclusions(t *tes
 	if got := strings.Join(resolvedAgain.Bundle.Outputs[0].DynamicColumns[0].Columns, ","); got != "CELL_MORPHOLOGY_ASSESSMENT,CELL_SEGMENTATION_METHOD,CLUSTERING_METHOD" {
 		t.Fatalf("second resolution changed frozen keys: %q", got)
 	}
-	plan, err := semantic.BuildRecipePlan(resolvedAgain.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	plan, err := recipeplan.BuildRecipePlan(resolvedAgain.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedPlan, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolvedPlan, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,11 +479,11 @@ func TestCompileDynamicOutputRemovalKeepsValidationInventoryOutOfPublicSchema(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := semantic.BuildRecipePlan(resolvedBundle.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	plan, err := recipeplan.BuildRecipePlan(resolvedBundle.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedPlan, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolvedPlan, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +534,7 @@ func TestResolveExtensionColumnsFreezesURLMappings(t *testing.T) {
 	if len(columns) != 2 || columns[0].Name != "sha256" || columns[1].Name != "source_path" {
 		t.Fatalf("unexpected extension mappings: %#v", columns)
 	}
-	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
+	if _, err := recipeplan.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
 		t.Fatalf("resolved extension columns did not type-check: %v", err)
 	}
 }
@@ -591,11 +593,11 @@ func TestNestedExtensionRemovalUsesRawMappingIdentityAndKeepsSibling(t *testing.
 			t.Fatalf("raw ancestor URL was not retained: %#v", mapping)
 		}
 	}
-	plan, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	plan, err := recipeplan.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedPlan, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolvedPlan, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +766,7 @@ func TestResolveCanonicalizesFragmentsBeforeCompilation(t *testing.T) {
 	if resolved.StoredRecipeDigest == resolved.ExpandedRecipeDigest || resolved.ExpandedRecipeDigest == "" {
 		t.Fatalf("fragment identity digests were not separated: stored=%q expanded=%q", resolved.StoredRecipeDigest, resolved.ExpandedRecipeDigest)
 	}
-	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p"}); err != nil {
+	if _, err := recipeplan.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p"}); err != nil {
 		t.Fatal(err)
 	}
 }

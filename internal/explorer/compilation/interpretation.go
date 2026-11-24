@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	ws "github.com/calypr/loom/internal/explorer/workspace"
+
+	"github.com/calypr/loom/internal/explorer/interpretation"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -22,10 +24,10 @@ const (
 
 type InterpretationCandidateMatch struct {
 	CapabilityCandidateIDs []string
-	StructuralCandidate    explorer.InterpretationStructuralCandidate
+	StructuralCandidate    interpretation.InterpretationStructuralCandidate
 }
 
-type InterpretationCandidateResolution interface {
+type interpretationCandidateResolution interface {
 	State() InterpretationCandidateResolutionState
 	Reason() string
 	Match() (InterpretationCandidateMatch, bool)
@@ -79,18 +81,18 @@ func (unsupportedInterpretationCandidate) Match() (InterpretationCandidateMatch,
 }
 func (unsupportedInterpretationCandidate) interpretationCandidateResolution() {}
 
-func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Workspace, snapshot capability.Snapshot, revisions map[explorer.InterpretationRevisionID]explorer.InterpretationRevision) (ResolvedInputs, error) {
+func ResolveWorkspaceInterpretations(project string, workspace ws.Workspace, snapshot capability.Snapshot, revisions map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision) (ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := ResolvedInputs{}
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
-			if column.Interpretation == nil || column.Interpretation.Kind != authoringv2.FeatureInterpretationPinned {
+			if column.Interpretation == nil || column.Interpretation.Kind != ws.FeatureInterpretationPinned {
 				continue
 			}
 			if column.Interpretation.Pinned == nil {
 				return inputs, fmt.Errorf("pinned interpretation for %s/%s requires a revision", document.Output.ID, column.Column)
 			}
-			id, err := explorer.NewInterpretationRevisionID(strings.TrimSpace(column.Interpretation.Pinned.RevisionID))
+			id, err := interpretation.NewInterpretationRevisionID(strings.TrimSpace(column.Interpretation.Pinned.RevisionID))
 			if err != nil {
 				return inputs, fmt.Errorf("interpretation %s/%s: %w", document.Output.ID, column.Column, err)
 			}
@@ -133,7 +135,7 @@ func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Works
 	return inputs.Canonical(), nil
 }
 
-func ResolveInterpretationCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (InterpretationCandidateResolution, error) {
+func ResolveInterpretationCandidate(document ws.Document, column ws.Column, snapshot capability.Snapshot) (interpretationCandidateResolution, error) {
 	occurrences, _, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve occurrence %q: %w", column.OccurrenceID, err)
@@ -165,10 +167,10 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	if len(concepts) > 1 {
 		return ambiguousInterpretationCandidate{reason: "source concept is ambiguous in the exact capability snapshot"}, nil
 	}
-	var candidate explorer.InterpretationStructuralCandidate
+	var candidate interpretation.InterpretationStructuralCandidate
 	if len(concepts) == 1 {
 		concept := concepts[0]
-		candidate = explorer.InterpretationStructuralCandidate{
+		candidate = interpretation.InterpretationStructuralCandidate{
 			ResourceType:  firstNonEmpty(concept.SourceResourceType, capabilityCandidate.ResourceType),
 			SourceProfile: concept.SourceProfile, SourceCanonical: concept.SourceCanonical, OwningScope: concept.OwningScope,
 			System: concept.System, Code: concept.Code, ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...),
@@ -176,7 +178,7 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 			SchemaDigest: snapshot.Identity.SchemaDigest,
 		}
 	} else {
-		candidate = explorer.InterpretationStructuralCandidate{
+		candidate = interpretation.InterpretationStructuralCandidate{
 			ResourceType: capabilityCandidate.ResourceType, LogicalType: capabilityCandidate.LogicalType,
 			Cardinality: capabilityCandidate.Cardinality, System: sourceSystem(column.Source), Code: sourceCode(column.Source),
 			ExtensionURLPath: sourceExtensionPath(column.Source), SchemaDigest: snapshot.Identity.SchemaDigest,
@@ -187,19 +189,19 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	}}, nil
 }
 
-func structuralCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (explorer.InterpretationStructuralCandidate, error) {
+func structuralCandidate(document ws.Document, column ws.Column, snapshot capability.Snapshot) (interpretation.InterpretationStructuralCandidate, error) {
 	resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
 	if err != nil {
-		return explorer.InterpretationStructuralCandidate{}, err
+		return interpretation.InterpretationStructuralCandidate{}, err
 	}
 	match, ready := resolution.Match()
 	if !ready {
-		return explorer.InterpretationStructuralCandidate{}, fmt.Errorf("source resolution is %s: %s", resolution.State(), resolution.Reason())
+		return interpretation.InterpretationStructuralCandidate{}, fmt.Errorf("source resolution is %s: %s", resolution.State(), resolution.Reason())
 	}
 	return match.StructuralCandidate, nil
 }
 
-func interpretationSourcePaths(source authoringv2.ColumnSource) []string {
+func interpretationSourcePaths(source ws.ColumnSource) []string {
 	paths := []string{}
 	if path := source.FieldPath(); path != "" {
 		paths = append(paths, normalizeFieldPath(path))
@@ -213,7 +215,7 @@ func interpretationSourcePaths(source authoringv2.ColumnSource) []string {
 	return uniqueStrings(paths)
 }
 
-func matchingConceptCandidates(values []capability.ConceptCandidate, source authoringv2.ColumnSource) []capability.ConceptCandidate {
+func matchingConceptCandidates(values []capability.ConceptCandidate, source ws.ColumnSource) []capability.ConceptCandidate {
 	paths := interpretationSourcePaths(source)
 	system, code := sourceSystem(source), sourceCode(source)
 	extensionPath := sourceExtensionPath(source)
@@ -236,7 +238,7 @@ func matchingConceptCandidates(values []capability.ConceptCandidate, source auth
 	return matched
 }
 
-func sourceSystem(source authoringv2.ColumnSource) string {
+func sourceSystem(source ws.ColumnSource) string {
 	if source.Lookup == nil {
 		return ""
 	}
@@ -246,20 +248,20 @@ func sourceSystem(source authoringv2.ColumnSource) string {
 	if source.Lookup.Key != nil {
 		return strings.TrimSpace(source.Lookup.Key.System)
 	}
-	if source.Kind == authoringv2.SourceIdentifierBySystem {
+	if source.Kind == ws.SourceIdentifierBySystem {
 		return strings.TrimSpace(source.Lookup.Match)
 	}
 	return ""
 }
 
-func sourceCode(source authoringv2.ColumnSource) string {
+func sourceCode(source ws.ColumnSource) string {
 	if source.Lookup != nil && source.Lookup.Key != nil {
 		return strings.TrimSpace(source.Lookup.Key.Code)
 	}
 	return ""
 }
 
-func sourceExtensionPath(source authoringv2.ColumnSource) []string {
+func sourceExtensionPath(source ws.ColumnSource) []string {
 	if source.Lookup != nil && source.Lookup.Extension != nil {
 		return append([]string(nil), source.Lookup.Extension.URLPath...)
 	}

@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -14,14 +14,18 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	rowlineage "github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
+
 	clickhousecombine "github.com/calypr/loom/internal/dataframe/compiler/render/clickhouse"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/calypr/loom/internal/store/arango"
@@ -67,17 +71,17 @@ type PreviewSummary struct {
 	Truncated bool
 
 	PartialValidation    bool
-	RowLineageCapability compiler.RowLineageCapability
+	RowLineageCapability rowlineage.RowLineageCapability
 }
 
 type Config struct {
-	Registry                   exec.Reader
+	Registry                   recipe.Reader
 	Revisions                  recipe.RevisionStore
 	ResolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows                  QueryRows
 	PreviewQueryRows           QueryRows
 	WithPreviewReadSnapshot    WithPreviewReadSnapshot
-	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	PreparePreviewIndex        func(context.Context, model.PreviewCoveringIndexSpec) error
 	PreviewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	PreviewCollectionRevision  func(context.Context, string) (string, error)
 	PreviewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
@@ -93,13 +97,13 @@ type Config struct {
 }
 
 type Engine struct {
-	registry                   exec.Reader
+	registry                   recipe.Reader
 	revisions                  recipe.RevisionStore
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows                  QueryRows
 	previewQueryRows           QueryRows
 	withPreviewReadSnapshot    WithPreviewReadSnapshot
-	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	preparePreviewIndex        func(context.Context, model.PreviewCoveringIndexSpec) error
 	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
 	previewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
@@ -116,7 +120,7 @@ type Engine struct {
 
 type Resolved struct {
 	Bundle               recipe.Bundle
-	Semantic             semantic.ResolvedRecipePlan
+	Semantic             recipeplan.ResolvedRecipePlan
 	Compiled             lower.CompiledRecipe
 	StoredRecipeDigest   string
 	ResolvedSchemaDigest string
@@ -170,8 +174,8 @@ type OutputStream struct {
 	compiledOutput           bool
 	artifactScopeMode        string
 	artifactScopeEvidence    string
-	scopeEvidence            *ir.WholeRelationScopeEvidence
-	scopeEvidenceIdentity    *ir.WholeRelationScopeIdentity
+	scopeEvidence            *irscope.WholeRelationScopeEvidence
+	scopeEvidenceIdentity    *irscope.WholeRelationScopeIdentity
 	workspaceArtifactManager *chartifact.Manager
 	workspaceArtifactSources []PrivateClickHouseArtifactSource
 	captureExecutionID       string
@@ -184,16 +188,16 @@ type preparedClickHouseQuery struct {
 	Args          []any
 	Identity      chartifact.Identity
 	PhysicalPlan  ir.PhysicalPlan
-	ScopeIdentity ir.WholeRelationScopeIdentity
-	ScopeEvidence ir.WholeRelationScopeEvidence
+	ScopeIdentity irscope.WholeRelationScopeIdentity
+	ScopeEvidence irscope.WholeRelationScopeEvidence
 }
 
 type materializedClickHouseCapture struct {
 	Artifact      *chartifact.Artifact
 	Identity      ir.ClickHouseArtifactIdentity
 	PhysicalPlan  ir.PhysicalPlan
-	ScopeIdentity ir.WholeRelationScopeIdentity
-	ScopeEvidence ir.WholeRelationScopeEvidence
+	ScopeIdentity irscope.WholeRelationScopeIdentity
+	ScopeEvidence irscope.WholeRelationScopeEvidence
 }
 
 type DynamicColumnCheck struct {
@@ -235,16 +239,16 @@ func New(cfg Config) (*Engine, error) {
 	}, nil
 }
 
-func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
+func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (recipe.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
+		return recipe.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	if bindings.RecipeDigest != "" && e.revisions != nil {
 		revision, err := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
 		if err != nil {
-			return exec.Entry{}, err
+			return recipe.Entry{}, err
 		}
-		return exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
+		return recipe.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
 	}
 	return e.registry.LoadRecipe(ctx, name)
 }
@@ -273,7 +277,7 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	if err != nil {
 		return Resolved{}, fmt.Errorf("digest bundle: %w", err)
 	}
-	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
+	return e.resolveEntry(ctx, recipe.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
@@ -329,7 +333,7 @@ func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bu
 	return resolved, nil
 }
 
-func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
+func (e *Engine) resolveEntry(ctx context.Context, entry recipe.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
@@ -358,7 +362,7 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 			return Resolved{}, fmt.Errorf("digest resolved bundle: %w", err)
 		}
 	}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return Resolved{}, err
 	}
@@ -368,7 +372,7 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if e.scopeDigest != nil {
 		scope = e.scopeDigest(bindings)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, scope, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, scope, bindings.DatasetGeneration)
 	if err != nil {
 		return Resolved{}, err
 	}
@@ -458,157 +462,7 @@ func (e *Engine) MaterializeVersion(ctx context.Context, name, translationVersio
 	return resolved, nil
 }
 
-func (e *Engine) Streams(ctx context.Context, resolved Resolved) ([]OutputStream, error) {
-	return e.streamsWithLimit(ctx, resolved, 0)
-}
-
-func (e *Engine) Run(ctx context.Context, resolved Resolved) (map[string][]map[string]any, error) {
-	streams, err := e.Streams(ctx, resolved)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string][]map[string]any, len(streams))
-	for _, stream := range streams {
-		rows := make([]map[string]any, 0)
-		_, err := stream.Stream(ctx, func(row map[string]any) error {
-			rows = append(rows, row)
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("output %q: %w", stream.Name, err)
-		}
-		result[stream.Name] = rows
-	}
-	return result, nil
-}
-
-func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit int) ([]OutputStream, error) {
-	streams := make([]OutputStream, 0, len(resolved.Compiled.Outputs))
-	selected := selectedOutputNames(resolved.Semantic.SemanticPlan.Bindings.OutputNames, resolved.Compiled.Outputs)
-	for _, name := range resolved.Semantic.SemanticPlan.Bindings.OutputNames {
-		if !selected[name] {
-			return nil, dataframeerrors.Wrap(fmt.Errorf("requested recipe output %q was not found", name), dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithDetails(map[string]any{"output": name}))
-		}
-	}
-	for _, output := range resolved.Compiled.Outputs {
-		if selected != nil && !selected[output.Name] {
-			continue
-		}
-		stream, _, err := e.streamForOutput(resolved, output.Name, limit)
-		if err != nil {
-			return nil, err
-		}
-		streams = append(streams, stream)
-	}
-	return streams, nil
-}
-
-func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (OutputStream, compiler.CompiledQuery, error) {
-	for _, output := range resolved.Compiled.Outputs {
-		if output.Name != name {
-			continue
-		}
-		return e.streamForCompiledOutput(resolved, output, limit)
-	}
-	return OutputStream{}, compiler.CompiledQuery{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
-}
-
-func (e *Engine) streamForCompiledOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int) (OutputStream, compiler.CompiledQuery, error) {
-	return e.buildCompiledOutputStream(resolved, output, limit, make(map[string]bool), false)
-}
-
-func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
-	if building[output.Name] {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("workspace output dependency cycle includes %q", output.Name)
-	}
-	building[output.Name] = true
-	defer delete(building, output.Name)
-	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
-	if privateArtifactCapture && requiresRestrictedRowAuthPathCapture(output, bindings) {
-
-		bindings.IncludeAuthResourcePath = true
-	}
-	switch output.Plan.Engine {
-	case ir.PhysicalEngineClickHouse:
-		return e.clickHouseStreamForOutput(resolved, output, limit, building, bindings)
-	case "", ir.PhysicalEngineAQL:
-	default:
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
-	}
-	query, err := compiler.CompileRecipeOutputWithPolicy(output, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
-	}
-	rootPageRows := e.rootPageRows
-	if limit > 0 && limit < rootPageRows {
-		rootPageRows = limit
-	}
-	stream := OutputStream{
-		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
-		DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
-		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
-		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
-		bindings: bindings,
-		stageID:  compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
-		physicalPlan: query.PhysicalPlan,
-	}
-	scopeMode, scopeEvidence, scopeIdentity, err := compiledArtifactScope(output, bindings, query.PhysicalPlan)
-	if err != nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q artifact scope: %w", output.Name, err)
-	}
-	stream.artifactScopeMode, stream.scopeEvidence, stream.scopeEvidenceIdentity = scopeMode, scopeEvidence, scopeIdentity
-	if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
-		stream.artifactScopeEvidence = scopeEvidence.Digest()
-	}
-
-	wholeInput := len(output.Plan.Operations) == 1 &&
-		output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
-	for _, operation := range output.Plan.Operations {
-		if operation.Kind == ir.PhysicalGroupedPivotOp {
-			wholeInput = true
-		}
-	}
-	for _, stage := range output.Stages {
-		if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) ||
-			stage.Operation == string(recipe.ConstructionCodedGroupOp) {
-			wholeInput = true
-		}
-	}
-	if sequence := output.Plan.StageSequence; sequence != nil {
-		for _, stage := range sequence.Stages {
-			if stage.Kind == ir.PhysicalStageCohortGroupOp {
-				wholeInput = true
-				break
-			}
-		}
-	}
-	sampledAggregate := wholeInput && bindings.AllowSampledAggregatePreview
-	stream.sampledAggregate = sampledAggregate
-	if rootPageRows > 0 && (!wholeInput || sampledAggregate) {
-		pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
-		pageBindings.PreviewLimit = limit
-		page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
-		if pageErr != nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
-		}
-		stream.page = &page
-		query.PlanDiagnostics = page.RowsDiagnostics
-		stream.planFingerprint = query.PlanDiagnostics.Fingerprint
-	}
-	return stream, query, nil
-}
-
-func compiledOutputFinalStageID(output lower.CompiledRecipeOutput) string {
-	if output.Plan.StageSequence != nil && output.Plan.StageSequence.FinalStageID != "" {
-		return output.Plan.StageSequence.FinalStageID
-	}
-	if len(output.Stages) > 0 && strings.TrimSpace(output.Stages[len(output.Stages)-1].ID) != "" {
-		return output.Stages[len(output.Stages)-1].ID
-	}
-	return recipe.ConstructionSourceProjectionID
-}
-
-func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, compiler.CompiledQuery, error) {
+func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, model.CompiledQuery, error) {
 	physicalPlan := output.Plan
 	if output.OptimizedPlan != nil {
 		physicalPlan = ir.ClonePhysicalPlan(*output.OptimizedPlan)
@@ -616,7 +470,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		physicalPlan = ir.ClonePhysicalPlan(output.Plan)
 	}
 	if physicalPlan.ClickHouseCombine == nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has no typed ClickHouse combine", output.Name)
+		return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q has no typed ClickHouse combine", output.Name)
 	}
 	hasWorkspaceInputs := false
 	for _, input := range physicalPlan.ClickHouseCombine.Inputs {
@@ -627,16 +481,16 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 	}
 	if hasWorkspaceInputs {
 		if err := physicalPlan.ClickHouseCombine.ValidateWithWorkspaceArtifacts(); err != nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q workspace ClickHouse plan: %w", output.Name, err)
+			return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q workspace ClickHouse plan: %w", output.Name, err)
 		}
 	} else if err := physicalPlan.Validate(); err != nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse plan: %w", output.Name, err)
+		return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q ClickHouse plan: %w", output.Name, err)
 	}
 	if len(output.DynamicColumns) != 0 {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse combine does not support dynamic columns", output.Name)
+		return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q ClickHouse combine does not support dynamic columns", output.Name)
 	}
 	combine := clonePhysicalClickHouseCombine(*physicalPlan.ClickHouseCombine)
-	query := compiler.CompiledQuery{
+	query := model.CompiledQuery{
 		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
 		TranslationVersion: output.TranslationVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
 		PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", RowIdentity: output.RowIdentity.Clone(),
@@ -656,7 +510,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 	}
 	if hasWorkspaceInputs {
 		if e.privateClickHouseArtifacts == nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q requires the private workspace artifact manager", output.Name)
+			return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q requires the private workspace artifact manager", output.Name)
 		}
 		dependencies := make(map[string]lower.CompiledRecipeOutput, len(resolved.Compiled.Outputs)+len(resolved.Compiled.WorkspaceDependencies))
 		for _, dependency := range resolved.Compiled.Outputs {
@@ -672,15 +526,15 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 			}
 			dependency, ok := dependencies[input.WorkspaceOutputID]
 			if !ok {
-				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q is missing compiled workspace dependency %q", output.Name, input.WorkspaceOutputID)
+				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q is missing compiled workspace dependency %q", output.Name, input.WorkspaceOutputID)
 			}
-			dependencyStream, _, err := e.buildCompiledOutputStream(resolved, dependency, 0, building, true)
+			dependencyStream, _, err := e.outputStreams().buildCompiledOutputStream(resolved, dependency, 0, building, true)
 			if err != nil {
-				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q dependency %q: %w", output.Name, input.WorkspaceOutputID, err)
+				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q dependency %q: %w", output.Name, input.WorkspaceOutputID, err)
 			}
 			columns, err := chartifact.ColumnsFromCompiledOutput(dependency.OutputSchema)
 			if err != nil {
-				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q dependency %q schema: %w", output.Name, input.WorkspaceOutputID, err)
+				return OutputStream{}, model.CompiledQuery{}, fmt.Errorf("output %q dependency %q schema: %w", output.Name, input.WorkspaceOutputID, err)
 			}
 			stream.workspaceArtifactSources = append(stream.workspaceArtifactSources, PrivateClickHouseArtifactSource{
 				OutputID: input.WorkspaceOutputID, Stream: dependencyStream, Columns: columns,
@@ -701,7 +555,7 @@ func requiresRestrictedRowAuthPathCapture(output lower.CompiledRecipeOutput, bin
 	return ok && !unrestricted
 }
 
-func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, actualPlan ir.PhysicalPlan) (string, *ir.WholeRelationScopeEvidence, *ir.WholeRelationScopeIdentity, error) {
+func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, actualPlan ir.PhysicalPlan) (string, *irscope.WholeRelationScopeEvidence, *irscope.WholeRelationScopeIdentity, error) {
 	if output.ScopeEvidence == nil {
 		if output.ScopeEvidenceIdentity != nil {
 			return "", nil, nil, fmt.Errorf("scope evidence identity exists without opaque compiler evidence")
@@ -728,7 +582,7 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 
 		return mode, nil, nil, nil
 	}
-	optimizedEvidence, err := ir.NewWholeRelationScopeEvidence(actualPlan, identity)
+	optimizedEvidence, err := irscope.NewWholeRelationScopeEvidence(actualPlan, identity)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("issue evidence for the actual captured physical plan: %w", err)
 	}
@@ -900,349 +754,6 @@ func selectedOutputNames(names []string, outputs []lower.CompiledRecipeOutput) m
 		}
 	}
 	return known
-}
-
-func (e *Engine) Preview(ctx context.Context, resolved Resolved, limit int) (map[string][]map[string]any, error) {
-	limit, err := normalizePreviewLimit(limit)
-	if err != nil {
-		return nil, err
-	}
-	selected := resolved.Semantic.SemanticPlan.Bindings.OutputNames
-	if len(selected) == 0 {
-		selected = make([]string, 0, len(resolved.Compiled.Outputs))
-		for _, output := range resolved.Compiled.Outputs {
-			selected = append(selected, output.Name)
-		}
-	}
-	for _, name := range selected {
-		if !hasCompiledOutput(resolved, name) {
-			return nil, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
-		}
-	}
-	result := make(map[string][]map[string]any, len(selected))
-	for _, name := range selected {
-		rows := make([]map[string]any, 0, limit)
-		_, err := e.PreviewOutput(ctx, resolved, PreviewRequest{Output: name, Limit: limit}, func(row map[string]any) error {
-			rows = append(rows, row)
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		result[name] = rows
-	}
-	return result, nil
-}
-
-func hasCompiledOutput(resolved Resolved, name string) bool {
-	for _, output := range resolved.Compiled.Outputs {
-		if output.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request PreviewRequest, visit func(map[string]any) error) (PreviewSummary, error) {
-	if err := contextError(ctx); err != nil {
-		return PreviewSummary{}, err
-	}
-	limit, err := normalizePreviewLimit(request.Limit)
-	if err != nil {
-		return PreviewSummary{}, err
-	}
-	if strings.TrimSpace(request.Output) == "" {
-		return PreviewSummary{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "preview output is required", nil)
-	}
-	if visit == nil {
-		return PreviewSummary{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "preview visitor is required", nil)
-	}
-	loweringStarted := time.Now()
-	stream, query, err := e.streamForOutput(resolved, request.Output, limit)
-	if err != nil {
-		if _, ok := dataframeerrors.AsUserError(err); ok {
-			return PreviewSummary{}, err
-		}
-		return PreviewSummary{}, dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeContractViolation, "preview plan compilation failed")
-	}
-	if err := contextError(ctx); err != nil {
-		return PreviewSummary{}, err
-	}
-	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
-		return PreviewSummary{}, err
-	}
-	if query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
-		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		_ = e.preparePreviewIndex(prepareCtx, *query.PreviewCoveringIndex)
-		cancel()
-		if err := contextError(ctx); err != nil {
-			return PreviewSummary{}, err
-		}
-	}
-	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
-		stream.stream = e.previewQueryRows
-	}
-	stream.withPreviewReadSnapshot = e.withPreviewReadSnapshot
-	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
-		return PreviewSummary{}, err
-	}
-	loweringDuration := time.Since(loweringStarted)
-	var previewCacheKey groupPreviewRowsKey
-	var previewCacheKeyWeight int
-	var previewCacheEnabled bool
-	var previewCacheHitRows []map[string]any
-	if query.PreviewCoveringIndex != nil && (query.PreviewCoveringIndex.PrepareAfterPreview || query.PreviewGroupScan != nil) && e.previewCollectionRevision != nil {
-		revision, revisionErr := e.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
-		if err := contextError(ctx); err != nil {
-			return PreviewSummary{}, err
-		}
-		if revisionErr == nil {
-			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Query, query.BindVars, query.PreviewCoveringIndex.Collection, revision, limit)
-			if keyOK {
-				previewCacheKey = key
-				previewCacheKeyWeight = keyWeight
-				if encodedRows, ok := e.groupPreviewRowsCache.get(key); ok {
-					if rows, decoded := decodeGroupPreviewRows(encodedRows); decoded {
-						previewCacheHitRows = rows
-					} else {
-						e.groupPreviewRowsCache.delete(key)
-					}
-				}
-				previewCacheEnabled = true
-			}
-		}
-	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: !stream.sampledAggregate, PartialValidation: query.PartialValidation}
-	for _, output := range resolved.Compiled.Outputs {
-		if output.Name == request.Output {
-			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
-			break
-		}
-	}
-	count := 0
-	var visitorErr error
-	queryStarted := time.Now()
-	consumeRow := func(row map[string]any) error {
-		if err := contextError(ctx); err != nil {
-			return err
-		}
-		if count >= limit {
-			return errPreviewLimit
-		}
-		resolvedRow, err := materializePostQueryRowWithChecks(row, stream.DynamicChecks)
-		if err != nil {
-			return err
-		}
-		includeRowIdentity := request.IncludeRowIdentity || resolved.Semantic.SemanticPlan.Bindings.IncludeRowIdentity
-		if includeRowIdentity {
-			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, query.BindVars); err != nil {
-				return err
-			}
-		}
-		public := publicPreviewRow(resolvedRow, stream.Columns, includeRowIdentity)
-		if resolved.Semantic.SemanticPlan.Bindings.IncludeSourceIdentity {
-			public[previewSourceMetadataKey] = previewRowSource(resolvedRow, query.RootResourceType, stream.sourceIdentityMode)
-		}
-		if err := visit(public); err != nil {
-			visitorErr = err
-			return err
-		}
-		count++
-		if count >= limit {
-			return errPreviewLimit
-		}
-		return nil
-	}
-	var queryErr error
-	var capture groupPreviewRowsCapture
-	if previewCacheHitRows != nil {
-		for _, row := range previewCacheHitRows {
-			if err := consumeRow(row); err != nil {
-				queryErr = err
-				break
-			}
-		}
-	} else {
-		if previewCacheEnabled {
-			capture = newGroupPreviewRowsCapture(previewCacheKeyWeight)
-		}
-		queryErr = stream.streamRaw(ctx, func(row map[string]any) error {
-			var encoded []byte
-			if previewCacheEnabled {
-				encoded = capture.encode(row)
-			}
-			rowErr := consumeRow(row)
-			if encoded != nil && (rowErr == nil || errors.Is(rowErr, errPreviewLimit)) && visitorErr == nil {
-				capture.append(encoded)
-			}
-			return rowErr
-		})
-	}
-	summary.RowCount = count
-	summary.QueryDuration = time.Since(queryStarted)
-	if visitorErr != nil {
-		return summary, normalizePreviewError(visitorErr, false)
-	}
-	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
-		e.rejectGroupProjectionDecisionAfterResourceLimit(stream, queryErr)
-		return summary, normalizePreviewError(queryErr, true)
-	}
-	if errors.Is(queryErr, errPreviewLimit) {
-		summary.Complete = false
-		summary.Truncated = true
-	}
-	if err := contextError(ctx); err != nil {
-		return summary, err
-	}
-	if err := e.confirmGroupProjectionDecision(ctx, stream); err != nil {
-		return summary, err
-	}
-	if previewCacheEnabled && previewCacheHitRows == nil && capture.cacheable &&
-		(visitorErr == nil) && (queryErr == nil || errors.Is(queryErr, errPreviewLimit)) {
-		revision, revisionErr := e.previewCollectionRevision(ctx, previewCacheKey.collection)
-		if err := contextError(ctx); err != nil {
-			return summary, err
-		}
-		if revisionErr == nil && revision == previewCacheKey.revision {
-			e.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
-		}
-	}
-	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
-		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
-	}
-	return summary, nil
-}
-
-func (e *Engine) rejectGroupProjectionDecisionAfterResourceLimit(stream OutputStream, queryErr error) {
-	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
-		return
-	}
-	decision := *stream.projectionDecision
-	decision.Factorized = false
-	e.groupPreviewRowsCache.putDecision(*stream.projectionDecisionKey, decision)
-}
-
-func (e *Engine) confirmGroupProjectionDecision(ctx context.Context, stream OutputStream) error {
-	if stream.projectionDecisionKey == nil || stream.projectionDecision == nil || e.previewCollectionRevision == nil {
-		return nil
-	}
-	key := *stream.projectionDecisionKey
-	revision, err := e.previewCollectionRevision(ctx, key.collection)
-	if ctxErr := contextError(ctx); ctxErr != nil {
-		return ctxErr
-	}
-	if err == nil && revision == key.revision {
-		e.groupPreviewRowsCache.putDecision(key, *stream.projectionDecision)
-	}
-	return nil
-}
-
-const (
-	previewSourceMetadataKey = "__loom_preview_source"
-	previewSourceSingle      = "SINGLE"
-	previewSourceComposite   = "COMPOSITE"
-	previewSourceUnavailable = "UNAVAILABLE"
-)
-
-func previewSourceIdentityMode(output lower.CompiledRecipeOutput, querySchema []lower.CompiledOutputColumn) string {
-	for _, operation := range output.Plan.Operations {
-		if operation.Kind == ir.PhysicalGroupRowsOp || operation.Kind == ir.PhysicalGroupedPivotOp {
-			return previewSourceComposite
-		}
-	}
-	for _, stage := range output.Stages {
-		if stage.Operation == string(ir.PhysicalStageCohortGroupOp) || stage.Operation == string(recipe.ConstructionGroupOp) ||
-			stage.Operation == string(recipe.ConstructionPivotOp) || stage.Operation == string(recipe.ConstructionCodedGroupOp) ||
-			stage.Operation == string(recipe.ConstructionRelatedExpandOp) {
-			return previewSourceComposite
-		}
-	}
-	if output.Plan.Engine == ir.PhysicalEngineClickHouse {
-		return previewSourceUnavailable
-	}
-	for _, column := range querySchema {
-		if column.Name == ir.PreviewSourceResourceIDColumn && column.Internal {
-			return previewSourceSingle
-		}
-	}
-	return previewSourceUnavailable
-}
-
-func previewRowSource(row map[string]any, resourceType, mode string) map[string]any {
-	switch mode {
-	case previewSourceComposite:
-		return map[string]any{"kind": previewSourceComposite}
-	case previewSourceSingle:
-		id, ok := row[ir.PreviewSourceResourceIDColumn].(string)
-		if ok && strings.TrimSpace(id) != "" && strings.TrimSpace(resourceType) != "" {
-			return map[string]any{"kind": previewSourceSingle, "resourceType": resourceType, "id": id}
-		}
-	}
-	return map[string]any{"kind": previewSourceUnavailable}
-}
-
-func normalizePreviewLimit(limit int) (int, error) {
-	if limit == 0 {
-		return DefaultPreviewLimit, nil
-	}
-	if limit < 1 || limit > MaxPreviewLimit {
-		return 0, previewAdmissionError(dataframeerrors.CodeInvalidLimit, "preview limit is outside the supported range", map[string]any{"maximum": MaxPreviewLimit})
-	}
-	return limit, nil
-}
-
-func validatePreviewPlan(query compiler.CompiledQuery, limit int, engine ir.PhysicalEngine) error {
-	if engine == ir.PhysicalEngineClickHouse {
-		if query.PlanMode != "clickhouse" || query.PlanProfile != "pinned_table_combine" || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
-			return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled ClickHouse combine plan is not in the approved preview plan class", nil)
-		}
-		return nil
-	}
-	if query.PlanMode != previewPlanMode || query.PlanProfile != previewPlanProfile || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
-		return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled preview plan is not in the approved preview plan class", nil)
-	}
-	return nil
-}
-
-func contextError(ctx context.Context) error {
-	if ctx == nil {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return dataframeerrors.Normalize(err)
-	}
-	return nil
-}
-
-func previewAdmissionError(code dataframeerrors.ErrorCode, message string, details map[string]any) error {
-	options := []dataframeerrors.ErrorOption{dataframeerrors.WithRetryable(false)}
-	if details != nil {
-		options = append(options, dataframeerrors.WithDetails(details))
-	}
-	return dataframeerrors.NewError(code, message, options...)
-}
-
-func normalizePreviewError(err error, backend bool) error {
-	if err == nil {
-		return nil
-	}
-	var drift *DynamicDriftError
-	if errors.As(err, &drift) {
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeDynamicSchemaDrift, "dynamic schema drift", dataframeerrors.WithDetails(map[string]any{"dynamic_map": drift.DynamicName, "frozen_key_count": drift.FrozenKeyCount}))
-	}
-	if userErr, ok := dataframeerrors.AsUserError(err); ok {
-		return userErr
-	}
-	if errors.Is(err, context.Canceled) {
-		return dataframeerrors.Normalize(err)
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return dataframeerrors.Wrap(err, dataframeerrors.CodePreviewTimeout, dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.CodePreviewTimeout, "")), dataframeerrors.WithRetryable(true))
-	}
-	if backend {
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	return dataframeerrors.Normalize(err)
 }
 
 func publicPreviewRow(row map[string]any, columns []string, includeRowIdentity bool) map[string]any {
@@ -1440,7 +951,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		if err != nil {
 			return err
 		}
-		operands := make([]ir.WorkspaceCombineScopeOperand, len(plan.Inputs))
+		operands := make([]irscope.WorkspaceCombineScopeOperand, len(plan.Inputs))
 		capturedByOutput := make(map[string]PrivateClickHouseArtifactInput, len(captured))
 		for _, input := range captured {
 			if _, exists := capturedByOutput[input.OutputID]; exists {
@@ -1457,7 +968,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 				if !ok {
 					return fmt.Errorf("workspace output %q was not captured", ref.WorkspaceOutputID)
 				}
-				operand, err := ir.NewWorkspaceOutputScopeOperand(inputIndex, ref, input.SourcePlan, input.ScopeIdentity, input.ScopeEvidence)
+				operand, err := irscope.NewWorkspaceOutputScopeOperand(inputIndex, ref, input.SourcePlan, input.ScopeIdentity, input.ScopeEvidence)
 				if err != nil {
 					return fmt.Errorf("workspace output %q scope provenance: %w", ref.WorkspaceOutputID, err)
 				}
@@ -1488,7 +999,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 			}
 			resolved := published[publishedIndex]
 			publishedIndex++
-			operand, err := ir.NewPublishedWorkspaceScopeOperand(inputIndex, ref, resolved, scopeIdentity)
+			operand, err := irscope.NewPublishedWorkspaceScopeOperand(inputIndex, ref, resolved, scopeIdentity)
 			if err != nil {
 				return fmt.Errorf("published output %q scope provenance: %w", ref.OutputID, err)
 			}
@@ -1504,7 +1015,7 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 		if actualPlan.Engine != ir.PhysicalEngineClickHouse || actualPlan.ClickHouseCombine == nil {
 			actualPlan = ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineClickHouse, ClickHouseCombine: &plan}
 		}
-		evidence, err := ir.NewWorkspaceCombineScopeEvidence(actualPlan, scopeIdentity, operands)
+		evidence, err := irscope.NewWorkspaceCombineScopeEvidence(actualPlan, scopeIdentity, operands)
 		if err != nil {
 			return fmt.Errorf("workspace Combine scope evidence: %w", err)
 		}
@@ -1578,21 +1089,21 @@ func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(c
 	})
 }
 
-func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHouseArtifactInput, published []ir.ResolvedClickHouseTable) (ir.WholeRelationScopeIdentity, error) {
+func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHouseArtifactInput, published []ir.ResolvedClickHouseTable) (irscope.WholeRelationScopeIdentity, error) {
 	if s.scopeEvidenceIdentity != nil || s.bindings.AuthScopeMode != "" || len(s.bindings.AuthResourcePaths) != 0 {
 		return s.workspaceScopeIdentity()
 	}
 	if _, ok := s.physicalPlan.BindVars["auth_resource_paths_unrestricted"].(bool); ok {
 		return s.workspaceScopeIdentity()
 	} else if _, exists := s.physicalPlan.BindVars["auth_resource_paths_unrestricted"]; exists {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has an invalid typed authorization mode")
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has an invalid typed authorization mode")
 	}
 	var sourceProject, sourceGeneration, sourceMode string
 	var sourcePaths []string
 	if len(captured) > 0 {
 		source := captured[0]
 		if !source.ScopeEvidence.Matches(source.SourcePlan, source.ScopeIdentity) {
-			return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input %q has no exact compiler scope evidence", source.OutputID)
+			return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input %q has no exact compiler scope evidence", source.OutputID)
 		}
 		sourceProject, sourceGeneration, sourceMode = source.ScopeIdentity.Project, source.ScopeIdentity.DatasetGeneration, source.ScopeIdentity.AuthScopeMode
 		sourcePaths = append([]string(nil), source.ScopeIdentity.AuthResourcePaths...)
@@ -1606,46 +1117,46 @@ func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHou
 			sourceMode = string(authscope.ReadScopeRestricted)
 		}
 	} else {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has no proven source from which to derive its empty-path scope")
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has no proven source from which to derive its empty-path scope")
 	}
 	if sourceProject != s.bindings.Project || sourceGeneration != s.bindings.DatasetGeneration || !sameExecutionStrings(sourcePaths, s.bindings.AuthResourcePaths) {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input scope differs from the exact output project, generation, or authorization paths")
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input scope differs from the exact output project, generation, or authorization paths")
 	}
 	if sourceMode != string(authscope.ReadScopeUnrestricted) && sourceMode != string(authscope.ReadScopeRestricted) {
-		return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input has unsupported authorization scope mode %q", sourceMode)
+		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input has unsupported authorization scope mode %q", sourceMode)
 	}
 	schemaDigest, err := compiledOutputSchemaDigest(s.outputSchema)
 	if err != nil {
-		return ir.WholeRelationScopeIdentity{}, err
+		return irscope.WholeRelationScopeIdentity{}, err
 	}
-	return ir.WholeRelationScopeIdentity{
+	return irscope.WholeRelationScopeIdentity{
 		OutputID: s.Name, Project: s.bindings.Project, DatasetGeneration: s.bindings.DatasetGeneration,
 		AuthScopeMode: sourceMode, AuthResourcePaths: sourcePaths, SchemaDigest: schemaDigest,
 	}, nil
 }
 
-func (s OutputStream) workspaceScopeIdentity() (ir.WholeRelationScopeIdentity, error) {
+func (s OutputStream) workspaceScopeIdentity() (irscope.WholeRelationScopeIdentity, error) {
 	if s.scopeEvidenceIdentity != nil {
 		identity := *s.scopeEvidenceIdentity
 		if identity.OutputID != s.Name || identity.Project != s.bindings.Project || identity.DatasetGeneration != s.bindings.DatasetGeneration ||
 			(s.bindings.AuthScopeMode != "" && identity.AuthScopeMode != string(s.bindings.AuthScopeMode)) ||
 			!sameExecutionStrings(identity.AuthResourcePaths, s.bindings.AuthResourcePaths) {
-			return ir.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine scope identity differs from its exact output bindings")
+			return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine scope identity differs from its exact output bindings")
 		}
 		if _, err := streamExecutionAuthScopeMode(s); err != nil {
-			return ir.WholeRelationScopeIdentity{}, err
+			return irscope.WholeRelationScopeIdentity{}, err
 		}
 		return identity, nil
 	}
 	mode, err := streamExecutionAuthScopeMode(s)
 	if err != nil {
-		return ir.WholeRelationScopeIdentity{}, err
+		return irscope.WholeRelationScopeIdentity{}, err
 	}
 	schemaDigest, err := compiledOutputSchemaDigest(s.outputSchema)
 	if err != nil {
-		return ir.WholeRelationScopeIdentity{}, err
+		return irscope.WholeRelationScopeIdentity{}, err
 	}
-	return ir.WholeRelationScopeIdentity{
+	return irscope.WholeRelationScopeIdentity{
 		OutputID: s.Name, Project: s.bindings.Project, DatasetGeneration: s.bindings.DatasetGeneration,
 		AuthScopeMode: string(mode), AuthResourcePaths: append([]string(nil), s.bindings.AuthResourcePaths...),
 		SchemaDigest: schemaDigest,
@@ -1723,4 +1234,71 @@ func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string
 		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, Many: column.Many, AllowUnknownKeys: column.AllowUnknownKeys}
 	}
 	return checks
+}
+
+func previewProjectionRows(ctx context.Context, query QueryRows, partitions []compiler.CompiledOutputPagePartition, keys []string, batchSize int) ([]map[string]any, error) {
+	var rows []map[string]any
+	var identities []string
+	allowed := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		allowed[key] = true
+	}
+	for partIndex, part := range partitions {
+		binds := cloneBindVars(part.RowsBindVars)
+		binds[compiler.RootPageKeysBind] = keys
+		expected := make(map[string]bool, len(part.ProjectionNames))
+		for _, name := range part.ProjectionNames {
+			expected[name] = true
+		}
+		var current []map[string]any
+		seen := make(map[string]bool)
+		err := query(ctx, part.RowsQuery, batchSize, binds, func(row map[string]any) error {
+			if len(expected) != 0 {
+				if len(row) != len(expected) {
+					return fmt.Errorf("preview projection returned an incomplete row")
+				}
+				for name := range row {
+					if !expected[name] {
+						return fmt.Errorf("preview projection returned an unexpected column %q", name)
+					}
+				}
+			}
+			key, ok := row["_key"].(string)
+			if !ok || key == "" || !allowed[key] || seen[key] {
+				return fmt.Errorf("preview projection returned missing or duplicate root identity")
+			}
+			seen[key] = true
+			current = append(current, row)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if partIndex == 0 {
+			rows = current
+			identities = make([]string, len(rows))
+			for i, row := range rows {
+				identities[i] = row["_key"].(string)
+			}
+			continue
+		}
+		if len(current) != len(rows) {
+			return nil, fmt.Errorf("preview projections returned different row counts")
+		}
+		for i, row := range current {
+			if row["_key"] != identities[i] {
+				return nil, fmt.Errorf("preview projections returned different row identities or order")
+			}
+			for name, value := range row {
+				if old, exists := rows[i][name]; exists {
+					if !reflect.DeepEqual(old, value) {
+						return nil, fmt.Errorf("preview projections returned conflicting values for %q", name)
+					}
+					continue
+				}
+				rows[i][name] = value
+			}
+		}
+	}
+	return rows, nil
 }
