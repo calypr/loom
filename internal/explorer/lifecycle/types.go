@@ -99,7 +99,7 @@ type Config struct {
 	ConstructionBaseCacheEntries int
 
 	ValidateReleaseGeneration publication.GenerationValidator
-	ActivateRelease           publication.ReleaseActivator
+	PrepareRepositoryRelease  publication.ReleasePreparer
 	PrepareRelease            publication.ReleasePreparer
 	PersistPublishedWorkspace func(context.Context, string, string, []byte) error
 	Now                       func() time.Time

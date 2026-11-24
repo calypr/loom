@@ -35,18 +35,18 @@ type publicationProjectStore struct {
 	project, storageProject string
 }
 
-func (s publicationProjectStore) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
+func (s publicationProjectStore) ActivateRepositoryGeneration(ctx context.Context, release dataset.ProjectRelease, expectedRevision int64, revisionID string) error {
 	s.t.Helper()
-	if project != s.storageProject {
-		s.t.Fatalf("activation project = %q, want storage project %q", project, s.storageProject)
+	if release.Project != s.storageProject {
+		s.t.Fatalf("activation project = %q, want storage project %q", release.Project, s.storageProject)
 	}
-	return s.fakeStore.ActivateRepositoryGeneration(ctx, project, generation, revisionID)
+	return s.fakeStore.ActivateRepositoryGeneration(ctx, release, expectedRevision, revisionID)
 }
 
 func (s publicationProjectStore) PublishAuthoring(ctx context.Context, receipt receiptmodel.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
 	s.t.Helper()
 	if receipt.Project != s.project || revision.Project != s.storageProject {
-		s.t.Fatalf("authoring receipt/revision projects = (%q, %q), want (%q, %q)", receipt.Project, revision.Project, s.project, s.storageProject)
+		s.t.Fatalf("authoring receipt/revision projects = (%q, %q), want (%q, %q)", receipt.Project, revision.Project, s.release.Project, s.storageProject)
 	}
 	return s.fakeStore.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
 }
@@ -79,7 +79,7 @@ func testRepositoryPublishReleaseCASConflict(t *testing.T, project, storageProje
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	activateErr := error(nil)
-	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
+	config.PrepareRepositoryRelease = prepareRepositoryRelease(func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr })
 	service := newTestService(t, store, config, func(setup *testServiceSetup) {
 		setup.Config.RepositoryActivator = publicationProjectStore{fakeStore: store, t: t, project: project, storageProject: storageProject}
 	})
@@ -134,5 +134,11 @@ func testRepositoryPublishReleaseCASConflict(t *testing.T, project, storageProje
 	}
 	if !errors.Is(err, dataset.ErrReleaseActivationConflict) {
 		t.Fatalf("wire error lost the store conflict sentinel: %v", err)
+	}
+}
+
+func prepareRepositoryRelease(next func(context.Context, string, string, []dataset.DataframeSelector) error) publication.ReleasePreparer {
+	return func(ctx context.Context, project, generation string, selectors []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{Project: project, Generation: generation}, 0, next(ctx, project, generation, selectors)
 	}
 }

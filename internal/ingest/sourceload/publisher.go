@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	dataset "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/lease"
 	"github.com/calypr/loom/internal/semantic"
-	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -30,18 +30,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	if record.State == SourceLoadSuperseded {
 		return SourcePublishReceipt{}, &SourcePublishConflictError{Reason: "a newer project release superseded this source load"}
 	}
-	if !record.CopyComplete || len(record.Receipts) != len(record.Plan.Files) {
-		return SourcePublishReceipt{}, ErrSourceLoadIncomplete
-	}
-	manifest := SourceManifest{Repository: record.Plan.Repository, Commit: record.Plan.Commit}
-	for _, planned := range record.Plan.Files {
-		accepted, ok := record.Receipts[planned.Path]
-		if !ok || accepted.State != SourceFileReady || accepted.Path != planned.Path {
-			return SourcePublishReceipt{}, ErrSourceLoadIncomplete
-		}
-		manifest.Files = append(manifest.Files, SourceFile{Path: planned.Path, SHA256: accepted.SHA256})
-	}
-	manifestHash, err := SourceManifestHash(manifest)
+	manifestHash, err := plannedSourceManifestHash(record)
 	if err != nil {
 		return SourcePublishReceipt{}, err
 	}
@@ -67,33 +56,9 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	defer p.releaseSourceLoadPublication(record.Key, owner)
 	workCtx, stopLease := p.renewSourceLoadPublication(ctx, record.Key, owner)
 	defer stopLease()
-	ref, err := dataset.NewRef(project, record.Generation)
-	if err != nil {
-		return SourcePublishReceipt{}, err
-	}
-	candidate, err := p.datasets.ReadManifest(workCtx, ref)
-	if err != nil {
-		return SourcePublishReceipt{}, err
-	}
 	finalizeStarted := time.Now()
-	if candidate.State == dataset.StateLoading {
-		totalRows, err := p.finalizeSourceLoadCandidate(workCtx, record)
-		if err != nil {
-			return SourcePublishReceipt{}, err
-		}
-		inventory, err := semanticarango.New(p.client)
-		if err != nil {
-			return SourcePublishReceipt{}, err
-		}
-		build := semantic.NewBuild(project, record.Generation, record.Plan.AuthResourcePath)
-		if err := inventory.CompleteSemanticInventoryBuild(workCtx, build, totalRows, ""); err != nil {
-			return SourcePublishReceipt{}, fmt.Errorf("complete candidate semantic inventory: %w", err)
-		}
-		if _, err := p.datasets.TransitionManifest(workCtx, candidate, dataset.StateStaged); err != nil {
-			return SourcePublishReceipt{}, err
-		}
-	} else if !candidate.IsStaged() {
-		return SourcePublishReceipt{}, fmt.Errorf("candidate generation is not loadable or staged")
+	if err := p.stageSourceLoad(workCtx, record); err != nil {
+		return SourcePublishReceipt{}, err
 	}
 	if err := p.prepareLegacySourceLoadActivation(workCtx, record); err != nil {
 		return SourcePublishReceipt{}, err
@@ -121,6 +86,50 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		return SourcePublishReceipt{}, readErr
 	}
 	return SourcePublishReceipt{}, fmt.Errorf("publication transaction did not complete the source load receipt")
+}
+
+func plannedSourceManifestHash(record sourceLoadRecord) (string, error) {
+	if !record.CopyComplete || len(record.Receipts) != len(record.Plan.Files) {
+		return "", ErrSourceLoadIncomplete
+	}
+	manifest := SourceManifest{Repository: record.Plan.Repository, Commit: record.Plan.Commit}
+	for _, planned := range record.Plan.Files {
+		accepted, ok := record.Receipts[planned.Path]
+		if !ok || accepted.State != SourceFileReady || accepted.Path != planned.Path {
+			return "", ErrSourceLoadIncomplete
+		}
+		manifest.Files = append(manifest.Files, SourceFile{Path: planned.Path, SHA256: accepted.SHA256})
+	}
+	return SourceManifestHash(manifest)
+}
+
+func (p *RepositorySourceLoader) stageSourceLoad(ctx context.Context, record sourceLoadRecord) error {
+	ref, err := dataset.NewRef(record.Project, record.Generation)
+	if err != nil {
+		return err
+	}
+	candidate, err := p.datasets.ReadManifest(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if candidate.IsStaged() {
+		return nil
+	}
+	if candidate.State != dataset.StateLoading {
+		return fmt.Errorf("candidate generation is not loadable or staged")
+	}
+	totalRows, err := p.finalizeSourceLoadCandidate(ctx, record)
+	if err != nil {
+		return err
+	}
+	build := semantic.NewBuild(record.Project, record.Generation, record.Plan.AuthResourcePath)
+	_, err = generation.StageManifest(ctx, p.datasets, candidate, func() error {
+		if err := p.inventory.CompleteSemanticInventoryBuild(ctx, build, totalRows, ""); err != nil {
+			return fmt.Errorf("complete candidate semantic inventory: %w", err)
+		}
+		return nil
+	})
+	return err
 }
 
 func (p *RepositorySourceLoader) claimSourceLoadPublication(ctx context.Context, key, owner, manifestHash string) (bool, error) {

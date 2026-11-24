@@ -1107,7 +1107,9 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 			}}
 			return execution, nil
 		},
-		ActivateRelease: activateRelease,
+		PrepareRepositoryRelease: func(ctx context.Context, project, generation string, selectors []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+			return dataset.ProjectRelease{Project: project, Generation: generation}, 0, activateRelease(ctx, project, generation, selectors)
+		},
 	}
 	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 

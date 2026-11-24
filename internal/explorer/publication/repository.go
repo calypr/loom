@@ -205,10 +205,24 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if owner.ManagementMode != viewer.ManagementRepository {
 		return RepositoryPublishResult{}, support.Conflict("repository_publish", "INVALID_MANAGEMENT_MODE", "default Explorer has invalid management mode", nil, nil)
 	}
-	if s.config.ActivateRelease == nil {
+	if s.config.PrepareRepositoryRelease == nil {
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "release activation is not configured", nil)
 	}
-	if err := s.config.ActivateRelease(ctx, projectid.Legacy(request.Project), request.Generation, selectorsForBundle(receipt.Bundle)); err != nil {
+	release, expectedRevision, activationErr := s.config.PrepareRepositoryRelease(ctx, bindings.Project, request.Generation, selectorsForBundle(receipt.Bundle))
+	if activationErr == nil {
+		activationErr = s.config.RepositoryActivator.ActivateRepositoryGeneration(ctx, release, expectedRevision, revision.ID)
+	}
+	var generationErr *explorer.RepositoryGenerationActivationError
+	if errors.As(activationErr, &generationErr) {
+		err := generationErr.Cause
+		if errors.Is(err, explorer.ErrDraftConflict) {
+			_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			return RepositoryPublishResult{}, support.Conflict("repository_publish", "GENERATION_ACTIVATION_FAILED", "generation activation lost a concurrent Explorer update; the prior Explorer revision was retained", nil, err)
+		}
+		_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "GENERATION_ACTIVATION_FAILED", "activate ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
+	}
+	if err := activationErr; err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
 
 			_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
@@ -222,15 +236,6 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		}
 		_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "RELEASE_ACTIVATION_FAILED", "activate published ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
-	}
-	if err := s.config.RepositoryActivator.ActivateRepositoryGeneration(ctx, bindings.Project, request.Generation, revision.ID); err != nil {
-
-		if errors.Is(err, explorer.ErrDraftConflict) {
-			_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
-			return RepositoryPublishResult{}, support.Conflict("repository_publish", "GENERATION_ACTIVATION_FAILED", "generation activation lost a concurrent Explorer update; the prior Explorer revision was retained", nil, err)
-		}
-		_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
-		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "GENERATION_ACTIVATION_FAILED", "activate ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()
 	return RepositoryPublishResult{Receipt: receipt, Owner: owner, Revision: revision, Execution: execution, Materializations: materialized, Dataset: datasetMetadata, Publication: publication}, nil

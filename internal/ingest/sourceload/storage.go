@@ -193,12 +193,12 @@ RETURN {
 	}, func(row map[string]any) error {
 		snapshot.Exists = true
 		snapshot.SourceTracked, _ = row["source_tracked"].(bool)
-		snapshot.SourceRevision = sourceLoadNumber(row["source_revision"])
+		snapshot.SourceRevision = numericInt64(row["source_revision"])
 		snapshot.Repository, _ = row["source_repository"].(string)
 		snapshot.Pending, _ = row["pending_operation_id"].(string)
 		snapshot.PendingPhase, _ = row["pending_phase"].(string)
 		snapshot.LeaseOwner, _ = row["lease_owner_id"].(string)
-		snapshot.LeaseExpiresAt = sourceLoadNumber(row["lease_expires_at"])
+		snapshot.LeaseExpiresAt = numericInt64(row["lease_expires_at"])
 		var scopes []struct {
 			ResourceType     string `json:"resource_type"`
 			AuthResourcePath string `json:"auth_resource_path"`

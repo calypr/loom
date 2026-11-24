@@ -20,6 +20,7 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/ingest/identity"
 	"github.com/calypr/loom/internal/ingest/row"
 	"github.com/calypr/loom/internal/semantic"
@@ -51,7 +52,7 @@ func TestRepositorySourceLoaderArangoResumeCopyAndEmptyReplacement(t *testing.T)
 	const repository = "https://github.com/example/clinical-data"
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets,
+		Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client),
 		BatchSize: 2, WriteAPI: "import",
 		MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
 			return activateSourceLoadForTest(ctx, client, datasets, attempt, "test-execution-"+attempt.OperationID)
@@ -124,6 +125,8 @@ RETURN {document: doc}`
 			t.Fatalf("initial edge owner = %q, want Patient", edge.SourceFile)
 		}
 	}
+
+	assertFullAndPerFileStagingAgree(t, ctx, endpoint, database, client, datasets, project, initialActive.Release.Generation, patientPath, organizationPath)
 
 	badRows := strings.Repeat(`{"resourceType":"Organization"}`+"\n", 105)
 	badPath := writeSourceLoadTempFile(t, badRows)
@@ -265,6 +268,75 @@ RETURN {document: doc}`
 	}
 }
 
+func assertFullAndPerFileStagingAgree(t *testing.T, ctx context.Context, endpoint, database string, client *arangostore.Client, datasets *datasetarango.Store, project, perFileGeneration, patientPath, organizationPath string) {
+	t.Helper()
+	meta := t.TempDir()
+	for name, src := range map[string]string{"Patient.ndjson": patientPath, "Organization.ndjson": organizationPath} {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(meta, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref, err := publication.NewRef(project, "whole-generation-control")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = generation.Load(ctx, generation.LoadOptions{
+		ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+		Dataset:           &ref, StageOnly: true, MetaDir: meta, Project: project,
+		AuthResourcePath: "/programs/example/projects/source-load-e2e",
+		FileConcurrency:  1, WorkerCount: 1, WriterCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("stage whole generation: %v", err)
+	}
+	fullManifest, err := datasets.ReadManifest(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileManifest, err := datasets.ReadManifest(ctx, publication.Ref{Project: project, Generation: perFileGeneration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullManifest.Dataset = fileManifest.Dataset
+	if !fullManifest.IsStaged() || !reflect.DeepEqual(fullManifest, fileManifest) {
+		t.Fatalf("whole and per-file staged manifests differ: whole=%+v per-file=%+v", fullManifest, fileManifest)
+	}
+	for _, resource := range []string{"Patient", "Organization"} {
+		full := sourceLoadVertexCount(t, ctx, client, project, ref.Generation, resource)
+		perFile := sourceLoadVertexCount(t, ctx, client, project, perFileGeneration, resource)
+		if full != perFile {
+			t.Fatalf("%s row count differs: whole=%d per-file=%d", resource, full, perFile)
+		}
+	}
+	if full, perFile := len(sourceLoadEdges(t, ctx, client, project, ref.Generation)), len(sourceLoadEdges(t, ctx, client, project, perFileGeneration)); full != perFile {
+		t.Fatalf("edge count differs: whole=%d per-file=%d", full, perFile)
+	}
+	inventory, err := semanticarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrestricted := true
+	page := func(generation string) []semantic.Entry {
+		t.Helper()
+		got, err := inventory.PageSemanticInventory(ctx, semantic.PageOptions{
+			Project: project, DatasetGeneration: generation, ResourceType: "Patient",
+			AuthResourcePathsUnrestricted: &unrestricted,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Entries
+	}
+	full, perFile := page(ref.Generation), page(perFileGeneration)
+	if len(full) != 2 || !reflect.DeepEqual(full, perFile) {
+		t.Fatalf("semantic inventory differs: whole=%+v per-file=%+v", full, perFile)
+	}
+}
+
 func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *arangostore.Client, project, source, target string) {
 	t.Helper()
 	store, err := semanticarango.New(client)
@@ -393,7 +465,7 @@ COLLECT WITH COUNT INTO count
 RETURN {count}`, 1, map[string]any{
 		"@collection": resourceType, "project": project, "generation": generation,
 	}, func(row map[string]any) error {
-		count = sourceLoadNumber(row["count"])
+		count = numericInt64(row["count"])
 		return nil
 	})
 	if err != nil {
@@ -475,7 +547,7 @@ func TestSourceFileLostReceiptAcknowledgementPreservesAcceptedRows(t *testing.T)
 		t.Fatal(err)
 	}
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets, BatchSize: 2,
+		Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client), BatchSize: 2,
 		MaterializeAndSelect: func(context.Context, PublicationAttempt) error {
 			return fmt.Errorf("publish must not run in upload regression")
 		},
@@ -538,7 +610,7 @@ func TestSourceLoadReconcilesLostInitialActivationAcknowledgement(t *testing.T) 
 	calls := 0
 	firstCtx, loseAck := context.WithCancel(ctx)
 	defer loseAck()
-	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{Client: client, DatasetStore: datasets, BatchSize: 2, WriteAPI: "import", MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
+	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client), BatchSize: 2, WriteAPI: "import", MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
 		calls++
 		if err := activateSourceLoadForTest(ctx, client, datasets, attempt, "execution"); err != nil {
 			return err
@@ -608,7 +680,7 @@ func TestSourceLoadReplayRetainsPublishedReleaseAfterNewerActivation(t *testing.
 	firstCtx, loseAck := context.WithCancel(ctx)
 	defer loseAck()
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets, BatchSize: 2,
+		Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client), BatchSize: 2,
 		MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
 			if err := activateSourceLoadForTest(ctx, client, datasets, attempt, "execution-"+attempt.OperationID); err != nil {
 				return err
@@ -667,6 +739,15 @@ func TestSourceLoadReplayRetainsPublishedReleaseAfterNewerActivation(t *testing.
 	if err != nil || stillActive.Release.ID != active.Release.ID || stillActive.Revision != active.Revision {
 		t.Fatalf("first replay changed the newer active release: active=%+v err=%v", stillActive, err)
 	}
+}
+
+func sourceInventoryForTest(t *testing.T, client *arangostore.Client) InventoryWriter {
+	t.Helper()
+	inventory, err := semanticarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return inventory
 }
 
 func activateSourceLoadForTest(ctx context.Context, client *arangostore.Client, datasets *datasetarango.Store, attempt PublicationAttempt, execution string) error {

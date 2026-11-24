@@ -87,7 +87,7 @@ func (fakeRevisionStore) FailRevision(context.Context, string, []viewer.Diagnost
 	return nil, errors.New("revision store is not configured")
 }
 
-func (fakeRevisionStore) ActivateRepositoryGeneration(context.Context, string, string, string) error {
+func (fakeRevisionStore) ActivateRepositoryGeneration(context.Context, dataset.ProjectRelease, int64, string) error {
 	return errors.New("revision store is not configured")
 }
 
@@ -315,7 +315,7 @@ func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []vie
 	return target, nil
 }
 
-func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisionID string) error {
+func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _ dataset.ProjectRelease, _ int64, revisionID string) error {
 	if f.order != nil {
 		*f.order = append(*f.order, "activate-generation")
 	}
@@ -323,7 +323,7 @@ func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisi
 		err := f.activationErrors[0]
 		f.activationErrors = f.activationErrors[1:]
 		if err != nil {
-			return err
+			return &explorer.RepositoryGenerationActivationError{Cause: err}
 		}
 	}
 	target := f.repositoryRevision
@@ -828,14 +828,14 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 				return successfulTestExecution(base, "PUBLISHED"), nil
 			}
 			releaseErrors := append([]error(nil), test.releaseErrors...)
-			config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error {
+			config.PrepareRepositoryRelease = prepareRepositoryRelease(func(context.Context, string, string, []dataset.DataframeSelector) error {
 				if len(releaseErrors) == 0 {
 					return nil
 				}
 				err := releaseErrors[0]
 				releaseErrors = releaseErrors[1:]
 				return err
-			}
+			})
 			service := newTestService(t, store, config)
 			request := explorerpublication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"}
 			if _, err := service.OwnerServices().Publication.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.wantDiagnostic) {

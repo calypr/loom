@@ -182,7 +182,7 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		CompileReceipt:             config.CompileReceipt, MaterializeReceipt: config.MaterializeReceipt,
 		ArtifactStore: config.ArtifactStore, PublishedReader: config.PublishedReader,
 		ArtifactTTL: config.ArtifactTTL, ArtifactMaxRows: config.ArtifactMaxRows, ArtifactMaxBytes: config.ArtifactMaxBytes,
-		ValidateReleaseGeneration: config.ValidateReleaseGeneration, ActivateRelease: config.ActivateRelease,
+		ValidateReleaseGeneration: config.ValidateReleaseGeneration, PrepareRepositoryRelease: config.PrepareRepositoryRelease,
 		PrepareRelease: config.PrepareRelease, PersistPublishedWorkspace: config.PersistPublishedWorkspace, Now: now,
 	})
 	if err != nil {

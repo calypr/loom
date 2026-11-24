@@ -422,12 +422,14 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"document_count": resourceInventorySummary.DocumentCount,
 	})
 	recordFinalization("resource_inventory")
-	if err = semanticStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
-		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
-	}
-	recordFinalization("semantic_inventory_completion")
-	inventoryComplete = true
-	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
+	stagedManifest, transitionErr := StageManifest(ctx, lifecycleStore, manifest, func() error {
+		if err := semanticStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+			return fmt.Errorf("complete semantic inventory build: %w", err)
+		}
+		recordFinalization("semantic_inventory_completion")
+		inventoryComplete = true
+		return nil
+	})
 	if transitionErr != nil {
 		return summary, transitionErr
 	}

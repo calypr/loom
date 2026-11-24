@@ -9,14 +9,9 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/semantic"
-	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
 
 func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.Context, record sourceLoadRecord) error {
-	store, err := semanticarango.New(p.client)
-	if err != nil {
-		return err
-	}
 	build := semantic.NewBuild(record.Project, record.Generation, record.Plan.AuthResourcePath)
 	if record.SourceGeneration != "" {
 		version, err := p.sourceSemanticInventoryEntryIndexVersion(ctx, record.Project, record.SourceGeneration)
@@ -27,7 +22,7 @@ func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.C
 			build.EntryIndexVersion = version
 		}
 	}
-	return store.BeginSemanticInventoryBuild(ctx, build)
+	return p.inventory.BeginSemanticInventoryBuild(ctx, build)
 }
 
 func (p *RepositorySourceLoader) sourceSemanticInventoryEntryIndexVersion(ctx context.Context, project, generation string) (int, error) {
@@ -57,7 +52,7 @@ func (p *RepositorySourceLoader) finalizeSourceLoadCandidate(ctx context.Context
 			return 0, err
 		}
 	}
-	if err := p.rebuildCandidateRelationshipCatalog(ctx, record); err != nil {
+	if err := p.rebuildCandidateRelationshipCatalog(ctx, record, identity.GeneratedResourceTypes); err != nil {
 		return 0, err
 	}
 	store, err := catalogarango.New(p.client)
@@ -75,7 +70,7 @@ func (p *RepositorySourceLoader) finalizeSourceLoadCandidate(ctx context.Context
 	return summary.DocumentCount, nil
 }
 
-func (p *RepositorySourceLoader) rebuildCandidateRelationshipCatalog(ctx context.Context, record sourceLoadRecord) error {
+func (p *RepositorySourceLoader) rebuildCandidateRelationshipCatalog(ctx context.Context, record sourceLoadRecord, resourceTypes []string) error {
 	query := `FOR edge IN fhir_edge
   FILTER edge.project == @project AND edge.dataset_generation == @generation
   FILTER edge.from_type IN @resource_types AND edge.to_type IN @resource_types
@@ -85,10 +80,6 @@ func (p *RepositorySourceLoader) rebuildCandidateRelationshipCatalog(ctx context
     WITH COUNT INTO edge_count
   SORT project, dataset_generation, auth_resource_path, from_type, label, to_type
   RETURN {project, dataset_generation, auth_resource_path, from_type, label, to_type, edge_count}`
-	identity, err := source.LoadSchemaSnapshot()
-	if err != nil {
-		return err
-	}
 	batch := make([]json.RawMessage, 0, p.batchSize)
 	flush := func() error {
 		if len(batch) == 0 {
@@ -100,14 +91,14 @@ func (p *RepositorySourceLoader) rebuildCandidateRelationshipCatalog(ctx context
 	}
 	if err := p.client.QueryRows(ctx, query, p.batchSize, map[string]any{
 		"project": record.Project, "generation": record.Generation,
-		"resource_types": identity.GeneratedResourceTypes,
+		"resource_types": resourceTypes,
 	}, func(row map[string]any) error {
 		key := catalog.RelationshipKey{
 			Project: sourceLoadString(row["project"]), DatasetGeneration: sourceLoadString(row["dataset_generation"]),
 			AuthResourcePath: sourceLoadString(row["auth_resource_path"]), FromType: sourceLoadString(row["from_type"]),
 			Label: sourceLoadString(row["label"]), ToType: sourceLoadString(row["to_type"]),
 		}
-		count := sourceLoadNumber(row["edge_count"])
+		count := numericInt64(row["edge_count"])
 		docs := catalog.RelationshipCatalogDocuments(map[catalog.RelationshipKey]int64{key: count})
 		if len(docs) != 1 {
 			return fmt.Errorf("relationship aggregate has no stable catalog identity")

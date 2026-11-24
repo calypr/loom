@@ -57,12 +57,7 @@ type projectConfigOwnerPlan struct {
 	reactivate  bool
 }
 
-type SourceLoadCommit interface {
-	PublicationCollection() string
-	CompletePublication(context.Context, store.RowQueryer, string, int64) error
-}
-
-func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest, sourceLoad SourceLoadCommit) (dataset.ActiveRelease, error) {
+func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest, sourceLoad releasecommit.SourceLoadReceipt) (dataset.ActiveRelease, error) {
 	if request.CatalogSnapshot != nil {
 		normalized, err := canonicalProjectConfigRevision(*request.CatalogSnapshot)
 		if err != nil {
@@ -101,7 +96,7 @@ func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request ex
 	return active, nil
 }
 
-func prepareProjectConfigCommit(txCtx context.Context, tx store.RowQueryer, request explorer.ProjectConfigPublishRequest, project, executionID string, sourceLoad SourceLoadCommit) (releasecommit.Participant, error) {
+func prepareProjectConfigCommit(txCtx context.Context, tx store.RowQueryer, request explorer.ProjectConfigPublishRequest, project, executionID string, sourceLoad releasecommit.SourceLoadReceipt) (releasecommit.Participant, error) {
 	execution, err := readProjectConfigExecution(txCtx, tx, executionID)
 	if err != nil {
 		return nil, err

@@ -178,7 +178,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		RowLineage:                receiptRuntime.RowLineage,
 		MaterializeReceipt:        receiptRuntime.MaterializeReceipt,
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
-		ActivateRelease:           releaseRuntime.Activate,
+		PrepareRepositoryRelease: releaseRuntime.PrepareRepository,
 		PrepareRelease:            releaseRuntime.Prepare,
 		PersistPublishedWorkspace: persistPublishedWorkspace,
 	}

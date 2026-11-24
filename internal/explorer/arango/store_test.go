@@ -1163,6 +1163,9 @@ func (c *activationClient) WithTransaction(ctx context.Context, _ store.Transact
 
 func (c *activationClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
+	if strings.Contains(query, "RETURN {release:") {
+		return visit(map[string]any{"release": map[string]any{"id": "release-a", "project": "project-a", "generation": "generation-a"}, "revision": int64(1)})
+	}
 	if strings.Contains(query, "RETURN {manifest:") {
 		return visit(compositeActivationRow())
 	}
@@ -1198,7 +1201,7 @@ func TestActivateRepositoryGenerationUsesCompositeGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := adapter.ActivateRepositoryGeneration(context.Background(), "project-a", "generation-a", "revision-a"); err != nil {
+	if err := adapter.ActivateRepositoryGeneration(context.Background(), dataset.ProjectRelease{ID: "release-a", Project: "project-a", Generation: "generation-a"}, 0, "revision-a"); err != nil {
 		t.Fatal(err)
 	}
 	if len(client.calls) != 4 {
@@ -1220,8 +1223,8 @@ func TestActivateRepositoryGenerationUsesCompositeGuards(t *testing.T) {
 	for _, call := range client.calls {
 		allQueries += call.query
 	}
-	if got := strings.Count(allQueries, "UPDATE d WITH"); got != 2 {
-		t.Fatalf("composite activation revision/dataset updates=%d, want 2:\n%s", got, allQueries)
+	if got := strings.Count(allQueries, "UPDATE d WITH"); got != 1 {
+		t.Fatalf("composite activation revision updates=%d, want 1:\n%s", got, allQueries)
 	}
 	if !strings.Contains(allQueries, "REPLACE d WITH MERGE(UNSET(d") {
 		t.Fatalf("owner activation does not remove legacy generated fields:\n%s", allQueries)
@@ -1253,7 +1256,7 @@ func TestActivationUsesTransactionsAndSingleModificationQueries(t *testing.T) {
 		{
 			name: "repository generation",
 			call: func(ctx context.Context, store *Store) error {
-				return store.ActivateRepositoryGeneration(ctx, "project-a", "generation-a", "revision-a")
+				return store.ActivateRepositoryGeneration(ctx, dataset.ProjectRelease{ID: "release-a", Project: "project-a", Generation: "generation-a"}, 0, "revision-a")
 			},
 		},
 	}
@@ -1387,4 +1390,65 @@ func projectConfigCatalogSnapshotForTest(t *testing.T, publication explorer.Proj
 	snapshot.Publication.State = string(explorer.RevisionReady)
 	snapshot.Publication.RevisionID = id
 	return &snapshot
+}
+
+func TestRepositoryActivationOwnerFailureRollsBackReleaseAgainstArango(t *testing.T) {
+	ctx, client, explorers, generations := projectConfigPublicationDB(t)
+	project := "repository-owner-rollback"
+	bundle := projectConfigTestBundle("recipe-a", "translation-1")
+	priorPublication := explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-prior", "generation-prior", "execution-prior", bundle)
+	priorRequest := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-prior", "execution-prior", bundle, "commit-prior", 0, priorPublication)
+	prior, err := explorers.PublishProjectConfigs(ctx, priorRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-candidate", "generation-candidate", "execution-candidate", bundle)
+	request := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-candidate", "execution-candidate", bundle, "commit-candidate", prior.Revision, candidate)
+	if _, err := explorers.InsertRevision(ctx, candidate.Revision); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("owner replacement failed")
+	fault := &repositoryOwnerFailureClient{TransactionalRowQueryer: client, failure: failure}
+	err = publicationdb.NewPublicationStore(fault).ActivateRepositoryGeneration(ctx, request.Release, prior.Revision, candidate.Revision.ID)
+	var phase *explorer.RepositoryGenerationActivationError
+	if !errors.Is(err, failure) || !errors.As(err, &phase) || !fault.releaseWritten {
+		t.Fatalf("activation error=%v, release written=%v", err, fault.releaseWritten)
+	}
+	active, err := generations.ReadActiveRelease(ctx, project)
+	if err != nil || active.Release.ID != prior.Release.ID || active.Revision != prior.Revision {
+		t.Fatalf("active release=%+v, err=%v; want prior %+v", active, err, prior)
+	}
+	assertProjectConfigActive(t, ctx, explorers, project, "default", priorPublication.Revision.ID)
+	stored, err := explorers.GetRevision(ctx, candidate.Revision.ID)
+	if err != nil || stored.Status != explorer.RevisionReady {
+		t.Fatalf("candidate=%+v, err=%v; want durable READY", stored, err)
+	}
+}
+
+type repositoryOwnerFailureClient struct {
+	store.TransactionalRowQueryer
+	failure        error
+	releaseWritten bool
+}
+
+func (c *repositoryOwnerFailureClient) WithTransaction(ctx context.Context, collections store.TransactionCollections, fn store.TransactionFunc) error {
+	return c.TransactionalRowQueryer.WithTransaction(ctx, collections, func(ctx context.Context, tx store.RowQueryer) error {
+		return fn(ctx, repositoryOwnerFailureRows{RowQueryer: tx, client: c})
+	})
+}
+
+type repositoryOwnerFailureRows struct {
+	store.RowQueryer
+	client *repositoryOwnerFailureClient
+}
+
+func (r repositoryOwnerFailureRows) QueryRows(ctx context.Context, query string, batch int, binds map[string]any, visit store.RowVisitor) error {
+	if strings.Contains(query, "REPLACE d WITH MERGE(UNSET(d") {
+		return r.client.failure
+	}
+	err := r.RowQueryer.QueryRows(ctx, query, batch, binds, visit)
+	if err == nil && strings.Contains(query, "RETURN {release:") {
+		r.client.releaseWritten = true
+	}
+	return err
 }

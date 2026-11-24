@@ -57,7 +57,7 @@ type AuthoringPublisher interface {
 }
 
 type RepositoryGenerationActivator interface {
-	ActivateRepositoryGeneration(context.Context, string, string, string) error
+	ActivateRepositoryGeneration(context.Context, dataset.ProjectRelease, int64, string) error
 }
 
 type RevisionStore interface {
@@ -82,3 +82,8 @@ type SelectionStore interface {
 type DraftRevisionReader interface {
 	GetDraftRevision(context.Context, string, string, string) (*DraftRevision, error)
 }
+
+type RepositoryGenerationActivationError struct{ Cause error }
+
+func (e *RepositoryGenerationActivationError) Error() string { return e.Cause.Error() }
+func (e *RepositoryGenerationActivationError) Unwrap() error { return e.Cause }

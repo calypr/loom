@@ -100,7 +100,7 @@ func TestDevRepositoryActivationConflictOnceTripsTheRealStoreCASOnce(t *testing.
 	armed.Store(true)
 
 	runtime := NewReleaseRuntime(newDevFaultReleaseService(repository), false, armed.Load())
-	activate := runtime.Activate
+	activate := repositoryActivateForTest(runtime)
 
 	err := activate(context.Background(), project, generation, nil)
 	if !errors.Is(err, ErrReleaseActivationConflict) {
@@ -141,7 +141,7 @@ func TestDevRepositoryActivationConflictUnarmedNeverFaults(t *testing.T) {
 	seedActiveRelease(t, repository, project, 3)
 	unarmed := &atomic.Bool{}
 
-	activate := NewReleaseRuntime(newDevFaultReleaseService(repository), false, unarmed.Load()).Activate
+	activate := repositoryActivateForTest(NewReleaseRuntime(newDevFaultReleaseService(repository), false, unarmed.Load()))
 	if err := activate(context.Background(), project, generation, nil); err != nil {
 		t.Fatalf("unarmed activation error = %v, want success", err)
 	}
@@ -159,7 +159,7 @@ func TestDevRepositoryActivationConflictOnceCannotJumpToLaterRequest(t *testing.
 	armed := &atomic.Bool{}
 	armed.Store(true)
 	runtime := NewReleaseRuntime(newDevFaultReleaseService(repository), false, armed.Load())
-	activate := runtime.Activate
+	activate := repositoryActivateForTest(runtime)
 
 	if err := activate(context.Background(), project, generation, nil); err != nil {
 		t.Fatalf("first activation without a pointer = %v, want the arm consumed by this request and activation to proceed", err)
@@ -203,5 +203,16 @@ func TestReleaseRuntimePrepareConsumesConflictOnlyAfterSuccessfulCreate(t *testi
 	_, expected, err = runtime.Prepare(context.Background(), "project-a", "generation-b", nil)
 	if err != nil || expected != 7 {
 		t.Fatalf("second prepare expected=%d err=%v", expected, err)
+	}
+}
+
+func repositoryActivateForTest(runtime *ReleaseRuntime) func(context.Context, string, string, []DataframeSelector) error {
+	return func(ctx context.Context, project, generation string, selectors []DataframeSelector) error {
+		release, expected, err := runtime.PrepareRepository(ctx, project, generation, selectors)
+		if err != nil {
+			return err
+		}
+		_, err = runtime.service.Releases.CompareAndSwapActivateRelease(ctx, release, expected)
+		return err
 	}
 }

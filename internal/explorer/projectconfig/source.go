@@ -1,4 +1,4 @@
-package sourcepublication
+package projectconfig
 
 import (
 	"context"
@@ -15,22 +15,21 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeauth"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
-	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
-	"github.com/calypr/loom/internal/explorer/projectconfig"
 	"github.com/calypr/loom/internal/explorer/selection"
+	"github.com/calypr/loom/internal/explorer/viewer"
 	"github.com/calypr/loom/internal/ingest/sourceload"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/releasecommit"
 )
 
-type SourcePublicationAdapterConfig struct {
+type SourcePublisherConfig struct {
 	RecipeEngine           *execution.Engine
 	PublicationTarget      publication.Target
 	RecipeName             string
 	PublishedRegistry      publication.BundleCatalog
-	Owners                 *workspacedb.WorkspaceStore
-	ViewBuilder            *publicationdb.ViewBuilderStore
-	Publisher              *publicationdb.PublicationStore
+	ListOwners             func(context.Context, string) ([]explorer.Explorer, error)
+	ReadSettings           func(context.Context, string) (viewer.ViewBuilderSettings, error)
+	Commit                 func(context.Context, explorer.ProjectConfigPublishRequest, releasecommit.SourceLoadReceipt) (dataset.ActiveRelease, error)
 	ReleaseService         *dataset.ReleaseService
 	DiscoveryCache         *discoverycache.Cache
 	ScopeResolver          *authscope.ScopeResolver
@@ -40,15 +39,15 @@ type SourcePublicationAdapterConfig struct {
 	QualityMaxDistinctKeys int64
 }
 
-type SourcePublicationAdapter struct {
-	config SourcePublicationAdapterConfig
+type SourcePublisher struct {
+	config SourcePublisherConfig
 }
 
-func NewSourcePublicationAdapter(config SourcePublicationAdapterConfig) *SourcePublicationAdapter {
-	return &SourcePublicationAdapter{config: config}
+func NewSourcePublisher(config SourcePublisherConfig) *SourcePublisher {
+	return &SourcePublisher{config: config}
 }
 
-func (a *SourcePublicationAdapter) ValidateProject(ctx context.Context, project string) error {
+func (a *SourcePublisher) ValidateProject(ctx context.Context, project string) error {
 	if a.config.ScopeResolver == nil {
 		return nil
 	}
@@ -59,7 +58,7 @@ func (a *SourcePublicationAdapter) ValidateProject(ctx context.Context, project 
 	return nil
 }
 
-func (a *SourcePublicationAdapter) MaterializeAndSelect(ctx context.Context, attempt sourceload.PublicationAttempt) error {
+func (a *SourcePublisher) MaterializeAndSelect(ctx context.Context, attempt sourceload.PublicationAttempt) error {
 	config := a.config
 	project, generation, operationID, commit := attempt.Project, attempt.Generation, attempt.OperationID, attempt.GitCommit
 	expectedRevision := attempt.ExpectedRevision
@@ -93,11 +92,11 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(ctx context.Context, att
 		executionRecord.DatasetGeneration != generation {
 		return errors.New("configured recipe did not publish the candidate generation")
 	}
-	catalogSnapshot, err := projectconfig.PrepareViewBuilderCatalogSnapshot(resolved, executionRecord, commit)
+	catalogSnapshot, err := PrepareViewBuilderCatalogSnapshot(resolved, executionRecord, commit)
 	if err != nil {
 		return fmt.Errorf("prepare view builder catalog snapshot: %w", err)
 	}
-	settings, err := config.ViewBuilder.GetViewBuilderSettings(ctx, project)
+	settings, err := config.ReadSettings(ctx, project)
 	if err != nil {
 		return fmt.Errorf("load project view builder settings: %w", err)
 	}
@@ -106,11 +105,11 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(ctx context.Context, att
 		(strings.TrimSpace(catalogRevisionID) == "" || catalogRevisionID != strings.TrimSpace(catalogRevisionID)) {
 		return fmt.Errorf("project view builder catalog anchor for recipe %q is invalid", config.RecipeName)
 	}
-	owners, err := config.Owners.List(ctx, projectid.Legacy(project))
+	owners, err := config.ListOwners(ctx, projectid.Legacy(project))
 	if err != nil {
 		return fmt.Errorf("load project-owned Explorer views: %w", err)
 	}
-	definitions, expectedConfigRevisionIDs, err := projectconfig.ProjectConfigsForSourcePublication(
+	definitions, expectedConfigRevisionIDs, err := ProjectConfigsForSourcePublication(
 		owners, config.RecipeName, catalogAnchored, catalogSnapshot,
 	)
 	if err != nil {
@@ -120,7 +119,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(ctx context.Context, att
 	for _, output := range executionRecord.Outputs {
 		selectors = append(selectors, executionRecord.Selector(output.Name))
 	}
-	configs, err := projectconfig.PrepareProjectConfigsForPublication(definitions, resolved, executionRecord, commit)
+	configs, err := PrepareProjectConfigsForPublication(definitions, resolved, executionRecord, commit)
 	if err != nil {
 		return fmt.Errorf("prepare project configs: %w", err)
 	}
@@ -133,7 +132,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(ctx context.Context, att
 	if err != nil {
 		return err
 	}
-	_, err = config.Publisher.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
+	_, err = config.Commit(ctx, explorer.ProjectConfigPublishRequest{
 		RecipeName: config.RecipeName, Configs: configs, Release: release,
 		ExpectedReleaseRevision: expectedRevision, ExpectedConfigRevisionIDs: expectedConfigRevisionIDs,
 		CatalogSnapshot: &catalogSnapshot,

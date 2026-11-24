@@ -123,22 +123,6 @@ func sourceLoadBootstrapSpec() arangostore.BootstrapSpec {
 	}}}
 }
 
-func sourceLoadNumber(value any) int64 {
-	switch typed := value.(type) {
-	case int:
-		return int64(typed)
-	case int64:
-		return typed
-	case float64:
-		return int64(typed)
-	case json.Number:
-		value, _ := typed.Int64()
-		return value
-	default:
-		return 0
-	}
-}
-
 func legacySourceStateKey(project string) string {
 	digest := sha256.Sum256([]byte(project))
 	return hex.EncodeToString(digest[:])

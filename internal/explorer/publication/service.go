@@ -15,7 +15,6 @@ import (
 )
 
 type GenerationValidator func(context.Context, string, string) error
-type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
 type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
 type Config struct {
@@ -37,7 +36,7 @@ type Config struct {
 	ArtifactMaxRows            int64
 	ArtifactMaxBytes           int64
 	ValidateReleaseGeneration  GenerationValidator
-	ActivateRelease            ReleaseActivator
+	PrepareRepositoryRelease   ReleasePreparer
 	PrepareRelease             ReleasePreparer
 	PersistPublishedWorkspace  func(context.Context, string, string, []byte) error
 	Now                        func() time.Time

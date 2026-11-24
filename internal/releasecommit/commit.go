@@ -8,6 +8,11 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
+type SourceLoadReceipt interface {
+	PublicationCollection() string
+	CompletePublication(context.Context, store.RowQueryer, string, int64) error
+}
+
 type Request struct {
 	Release                  dataset.ProjectRelease
 	ExpectedRevision         int64

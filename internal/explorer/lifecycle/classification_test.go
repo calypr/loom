@@ -254,7 +254,7 @@ func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*ports.Er
 	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
-	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
+	config.PrepareRepositoryRelease = prepareRepositoryRelease(func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr })
 	service := newTestService(t, store, config)
 	_, err := service.OwnerServices().Publication.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
 	var lifecycleErr *ports.Error
@@ -334,7 +334,7 @@ func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error
 	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
-	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return nil }
+	config.PrepareRepositoryRelease = prepareRepositoryRelease(func(context.Context, string, string, []dataset.DataframeSelector) error { return nil })
 	service := newTestService(t, store, config)
 	_, err := service.OwnerServices().Publication.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
 	var lifecycleErr *ports.Error

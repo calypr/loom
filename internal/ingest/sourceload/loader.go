@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -82,9 +83,15 @@ type PublicationAttempt struct {
 
 type SourceLoadMaterializer func(context.Context, PublicationAttempt) error
 
+type InventoryWriter interface {
+	BeginSemanticInventoryBuild(context.Context, semantic.Build) error
+	CompleteSemanticInventoryBuild(context.Context, semantic.Build, int64, string) error
+}
+
 type SourceLoadPublisherConfig struct {
 	Client               *arangostore.Client
 	DatasetStore         *datasetarango.Store
+	Inventory            InventoryWriter
 	BatchSize            int
 	WriteAPI             string
 	ValidateProject      func(context.Context, string) error
@@ -109,6 +116,7 @@ const sourceLoadCollection = "loom_source_loads"
 type RepositorySourceLoader struct {
 	client          *arangostore.Client
 	datasets        *datasetarango.Store
+	inventory       InventoryWriter
 	schema          *source.RuntimeFHIRSchema
 	batchSize       int
 	writeAPI        string
@@ -119,8 +127,8 @@ type RepositorySourceLoader struct {
 var _ SourceLoadStore = (*RepositorySourceLoader)(nil)
 
 func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySourceLoader, error) {
-	if cfg.Client == nil || cfg.DatasetStore == nil || cfg.MaterializeAndSelect == nil {
-		return nil, fmt.Errorf("source load publisher requires an Arango client, dataset store, and release callback")
+	if cfg.Client == nil || cfg.DatasetStore == nil || cfg.Inventory == nil || cfg.MaterializeAndSelect == nil {
+		return nil, fmt.Errorf("source load publisher requires an Arango client, dataset store, inventory writer, and release callback")
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 1000
@@ -132,7 +140,7 @@ func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySource
 		cfg.WriteAPI = "import"
 	}
 	return &RepositorySourceLoader{
-		client: cfg.Client, datasets: cfg.DatasetStore, schema: source.LoadRuntimeFHIRSchema(),
+		client: cfg.Client, datasets: cfg.DatasetStore, inventory: cfg.Inventory, schema: source.LoadRuntimeFHIRSchema(),
 		batchSize: cfg.BatchSize, writeAPI: cfg.WriteAPI, validateProject: cfg.ValidateProject,
 		materialize: cfg.MaterializeAndSelect,
 	}, nil
