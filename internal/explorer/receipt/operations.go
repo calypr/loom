@@ -1,4 +1,4 @@
-package output
+package receipt
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 )
 
 func (stage constructionOutputStep) reconcileDerive() error {
@@ -72,7 +72,7 @@ func (stage constructionOutputStep) reconcileDerive() error {
 		if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
 			return fmt.Errorf("derive step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
 		}
-		derived, ok := lifecycle.ConstructionDeriveSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+		derived, ok := rowsource.ConstructionDeriveSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
 		expected := ws.ConstructionSourceProjection{
 			ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 			OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
@@ -131,7 +131,7 @@ func (stage constructionOutputStep) reconcileFilter() error {
 		if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
 			return fmt.Errorf("filter step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
 		}
-		derived, ok := lifecycle.ConstructionFilterSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+		derived, ok := rowsource.ConstructionFilterSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
 		expected := ws.ConstructionSourceProjection{
 			ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 			OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
@@ -513,7 +513,7 @@ func (stage constructionOutputStep) reconcileUnpivot() error {
 		if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
 			return fmt.Errorf("unpivot step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
 		}
-		derived, ok := lifecycle.ConstructionUnpivotSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+		derived, ok := rowsource.ConstructionUnpivotSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
 		expected := ws.ConstructionSourceProjection{
 			ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
 			OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,

@@ -15,8 +15,6 @@ import (
 	"sync"
 	"testing"
 
-	receiptoutput "github.com/calypr/loom/internal/explorer/receipt/output"
-
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	compiler "github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -610,10 +608,10 @@ func TestConfiguredColumnContextResponseEncodesEmptyReadyListsAsArrays(t *testin
 }
 
 func TestConstructionInputNamesReportsTheMissingColumn(t *testing.T) {
-	_, err := receiptoutput.ConstructionInputNames(map[string]string{"present": "name"}, []string{"present", "missing"})
-	var missing *receiptoutput.ConstructionInputMissingError
+	_, err := receiptapi.ConstructionInputNames(map[string]string{"present": "name"}, []string{"present", "missing"})
+	var missing *receiptapi.ConstructionInputMissingError
 	if !errors.As(err, &missing) {
-		t.Fatalf("error = %v, want receiptoutput.ConstructionInputMissingError", err)
+		t.Fatalf("error = %v, want receipt.ConstructionInputMissingError", err)
 	}
 	if missing.ColumnID != "missing" {
 		t.Fatalf("column ID = %q, want missing", missing.ColumnID)
@@ -622,7 +620,7 @@ func TestConstructionInputNamesReportsTheMissingColumn(t *testing.T) {
 
 func TestReceiptContractFailureIsDescriptive(t *testing.T) {
 	const columnID = "source_child_v1_missing"
-	err := receiptapi.ContractFailure(fmt.Errorf("reconcile output metadata: %w", &receiptoutput.ConstructionInputMissingError{ColumnID: columnID, StepID: "pivot_1", OutputName: "missing_value"}))
+	err := receiptapi.ContractFailure(fmt.Errorf("reconcile output metadata: %w", &receiptapi.ConstructionInputMissingError{ColumnID: columnID, StepID: "pivot_1", OutputName: "missing_value"}))
 	status, response := authoringErrorForOpenAPI(context.Background(), "proposeExplorerConstruction", err)
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)

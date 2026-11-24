@@ -1,4 +1,4 @@
-package output
+package receipt
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
@@ -934,7 +934,7 @@ func unpivotSourceReconcileFixture(t *testing.T) (ws.Document, facade.CompiledRe
 		SupportedOperations: []capability.Operation{capability.OperationSelect},
 		Observed:            true, Populated: true, ObservedDocumentCount: 135,
 	})
-	facts, ok := lifecycle.ConstructionUnpivotSourceFacts(snapshot, "Patient", "multipleBirthInteger")
+	facts, ok := rowsource.ConstructionUnpivotSourceFacts(snapshot, "Patient", "multipleBirthInteger")
 	if !ok {
 		t.Fatal("the authorized snapshot does not admit Patient.multipleBirthInteger as an unpivot source")
 	}
