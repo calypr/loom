@@ -84,14 +84,10 @@ func NewRecipeExecutionAuthorizer(store RecipeExecutionStore, scopes *authscope.
 }
 
 func checkRecipeExecutionState(state materialization.BundleState) error {
-	switch state {
-	case materialization.BundleQueued, materialization.BundleRunning, materialization.BundlePublished,
-		materialization.BundlePending, materialization.BundlePreflight, materialization.BundleValidating,
-		materialization.BundleLoading, materialization.BundleReady, materialization.BundleFailed:
+	if state.Known() {
 		return nil
-	default:
-		return fmt.Errorf("unsupported bundle execution state %q", state)
 	}
+	return fmt.Errorf("unsupported bundle execution state %q", state)
 }
 
 func recipeExecutionLookupError(err error) error {
@@ -115,7 +111,7 @@ func recipeExecutionLookupError(err error) error {
 }
 
 func RecipeExecutionOutputMessage(message string, state materialization.BundleState) string {
-	if state == materialization.BundleReady || state == materialization.BundlePublished {
+	if state.Successful() {
 		return ""
 	}
 	return message

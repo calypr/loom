@@ -3,8 +3,9 @@ package population
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/construction"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/construction"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -42,15 +43,6 @@ type PopulationRoutesResponse struct {
 	Truncated           bool                    `json:"truncated"`
 	NextCursor          string                  `json:"nextCursor,omitempty"`
 	Choices             []PopulationRouteChoice `json:"choices"`
-}
-
-func findPopulationOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
 }
 
 func populationRoutePresentation(rootResourceType, terminalResourceType string, route []capability.ConstructionRouteStep) capability.ConstructionChoicePresentation {
@@ -106,7 +98,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 	if err != nil {
 		return result, err
 	}
-	document := findPopulationOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, support.Malformed("population-routes", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -207,7 +199,7 @@ func (s *Service) provePopulationRoute(ctx context.Context, authorized ports.Aut
 	return err == nil
 }
 
-func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	if len(commands) == 0 || len(commands) != len(identities) {
 		return nil, support.Malformed("commands", "population route choices must resolve one-to-one with commands", nil)
 	}
@@ -215,8 +207,9 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return nil, support.Conflict("commands", "STALE_AUTHORIZATION_SCOPE", "the authorized population route scope changed", nil, err)
 	}
+	prepared := make([]authoringv2.PreparedCommand, len(commands))
 	for index := range commands {
-		command := &commands[index]
+		command := commands[index]
 		if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID() == "" || len(command.EdgeIDs()) != 0 {
 			return nil, support.Malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
 		}
@@ -224,7 +217,7 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 		if identity.SnapshotToken != snapshot.Token || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID() {
 			return nil, support.Conflict("commands", "STALE_POPULATION_ROUTE", "the population route belongs to another table, selection, or catalog snapshot", nil, nil)
 		}
-		document := findPopulationOutput(workspace, command.OutputID)
+		document := workspace.FindOutputDocument(command.OutputID)
 		if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 			return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 		}
@@ -263,7 +256,7 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 				CatalogEdgeID: step.EdgeID, StorageDirection: step.StorageDirection,
 			})
 		}
-		command.ResolvedPopulationRoute = steps
+		prepared[index] = authoringv2.PreparedCommand{Command: command, Resolution: authoringv2.PopulationRouteResolution{Route: steps}}
 	}
-	return commands, nil
+	return prepared, nil
 }

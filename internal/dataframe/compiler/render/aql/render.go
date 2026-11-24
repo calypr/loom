@@ -95,12 +95,12 @@ func terminalProjectionPresenceNames(sequence *ir.PhysicalStageSequence, columnI
 	names := make(map[string]struct{})
 	for index := len(sequence.Stages) - 1; index >= 0; index-- {
 		stage := sequence.Stages[index]
-		output, found := physicalStageColumnByID(stage.OutputColumns, columnID)
+		output, found := ir.FindStageColumnByID(stage.OutputColumns, columnID)
 		if !found {
 			break
 		}
 		names[output.Name] = struct{}{}
-		input, found := physicalStageColumnByID(stage.InputColumns, columnID)
+		input, found := ir.FindStageColumnByID(stage.InputColumns, columnID)
 		if !found {
 			break
 		}
@@ -113,15 +113,6 @@ func terminalProjectionPresenceNames(sequence *ir.PhysicalStageSequence, columnI
 		}
 	}
 	return names
-}
-
-func physicalStageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.PhysicalStageColumn, bool) {
-	for _, column := range columns {
-		if column.ID == id {
-			return column, true
-		}
-	}
-	return ir.PhysicalStageColumn{}, false
 }
 
 type physicalRenderOptions struct {
@@ -226,7 +217,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		lines = append(lines, line...)
 	}
 	for index, unnest := range layout.unnests {
-		line, err := renderer.renderUnnest(unnest, "  ", index, 0)
+		line, err := renderer.renderUnnest(unnest, "  ", index)
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render unnest %d: %w", index+1, err)
 		}

@@ -2,10 +2,28 @@ package catalog
 
 import (
 	"context"
+	"strings"
+
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	"github.com/calypr/loom/internal/semantic"
 )
+
+type FieldProfileIdentity struct {
+	Project           string
+	DatasetGeneration string
+	AuthResourcePath  string
+	ResourceType      string
+}
+
+func NewFieldProfileIdentity(project, datasetGeneration, authResourcePath, resourceType string) FieldProfileIdentity {
+	return FieldProfileIdentity{
+		Project:           project,
+		DatasetGeneration: strings.TrimSpace(datasetGeneration),
+		AuthResourcePath:  authResourcePath,
+		ResourceType:      resourceType,
+	}
+}
 
 const (
 	RelationshipCatalogCollection = "fhir_relationship_catalog"
@@ -217,10 +235,10 @@ type RelationshipCatalogDocument struct {
 }
 
 type RelationshipKey struct {
-	Project           string
-	DatasetGeneration string
-	AuthResourcePath  string
-	FromType          string
-	Label             string
-	ToType            string
+	Project           string `json:"project"`
+	DatasetGeneration string `json:"dataset_generation"`
+	AuthResourcePath  string `json:"auth_resource_path"`
+	FromType          string `json:"from_type"`
+	Label             string `json:"label"`
+	ToType            string `json:"to_type"`
 }

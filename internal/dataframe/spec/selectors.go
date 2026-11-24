@@ -9,7 +9,6 @@ import (
 
 type Selector = fhirschema.Selector
 type SelectorStep = fhirschema.SelectorStep
-type ContainsFilter = fhirschema.ContainsFilter
 
 func ParseSelector(input string) (Selector, error) {
 	return fhirschema.ParseSelector(input)
@@ -25,7 +24,7 @@ func ParseDirectScalarSelector(input string) ([]string, error) {
 	}
 	segments := make([]string, 0, len(selector.Steps))
 	for index, step := range selector.Steps {
-		if step.Iterate || step.Index != nil || !directScalarPathSegment(step.Field) {
+		if step.Iterate || step.Index != nil || !ValidFieldPathSegment(step.Field) {
 			return nil, fmt.Errorf("selector step %d is not a direct scalar property", index)
 		}
 		segments = append(segments, step.Field)
@@ -33,7 +32,7 @@ func ParseDirectScalarSelector(input string) ([]string, error) {
 	return segments, nil
 }
 
-func directScalarPathSegment(segment string) bool {
+func ValidFieldPathSegment(segment string) bool {
 	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
 		return false
 	}
@@ -78,4 +77,16 @@ func selectorCardinality(resourceType string, selector Selector) (bool, []string
 
 func SelectorCardinality(resourceType string, selector Selector) (bool, []string, error) {
 	return selectorCardinality(resourceType, selector)
+}
+
+func PathHasPrefix(path, prefix []string) bool {
+	if len(path) < len(prefix) {
+		return false
+	}
+	for index, segment := range prefix {
+		if path[index] != segment {
+			return false
+		}
+	}
+	return true
 }

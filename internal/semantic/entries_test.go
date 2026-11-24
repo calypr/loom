@@ -23,6 +23,13 @@ func TestSemanticInventoryEntryGroupKeyUsesExactFields(t *testing.T) {
 }
 
 func TestSemanticInventoryEntryAggregatorOrderMatchesEncodedKey(t *testing.T) {
+	left := semanticInventoryEntryGroupKey{ConceptID: "a"}
+	right := semanticInventoryEntryGroupKey{ConceptID: "b"}
+	if compareSemanticInventoryEntryGroupKeys(left, right) >= 0 ||
+		compareSemanticInventoryEntryGroupKeys(right, left) <= 0 {
+		t.Fatal("equal-length concept IDs must sort lexically")
+	}
+
 	contributions := []Contribution{
 		{AuthResourcePath: "zz", ResourceType: "a", BindingID: "x", ConceptID: "2"},
 		{AuthResourcePath: "a", ResourceType: "zz", BindingID: "x", ConceptID: "1"},

@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+const MembersCollection = "loom_explorer_selection_members"
+
 func CollectMembers(ctx context.Context, store Store, selection SelectionRevision, project string) (map[string]ResourceRef, []string, error) {
 	refs := make(map[string]ResourceRef, selection.MemberCount)
 	after := ""

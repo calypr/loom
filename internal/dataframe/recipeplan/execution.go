@@ -1,6 +1,9 @@
 package recipeplan
 
-import "github.com/calypr/loom/internal/authscope"
+import (
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+)
 
 type ExecutionContext struct {
 	Project                    string
@@ -9,4 +12,5 @@ type ExecutionContext struct {
 	AuthScopeMode              authscope.ReadScopeMode
 	SelectionProject           string
 	SelectionMembersCollection string
+	GroupRowsCollections       recipe.GroupRowsCollections `json:"-"`
 }

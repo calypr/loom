@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -17,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -76,36 +79,8 @@ func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t
 	if fallbackScope < 0 || fallbackPresence <= fallbackScope {
 		t.Fatalf("cross-collection fallback lost its scope-before-presence check: scope=%d presence=%d\n%s", fallbackScope, fallbackPresence, query)
 	}
-	for _, guard := range []string{
-		"__loom_related_category_stream_root.project == @project",
-		"__loom_related_category_stream_root.dataset_generation == @dataset_generation",
-		"__loom_related_category_stream_root.auth_resource_path IN @auth_resource_paths",
-		"__loom_related_category_stream_edge_1.project == @project",
-		"__loom_related_category_stream_edge_1.dataset_generation == @dataset_generation",
-		"__loom_related_category_stream_edge_1.auth_resource_path IN @auth_resource_paths",
-		"__loom_related_category_stream_document_1.resourceType == @related_expand_0_hop_1_target_type",
-		"__loom_related_category_stream_document_1.project == @project",
-		"__loom_related_category_stream_document_1.dataset_generation == @dataset_generation",
-		"__loom_related_category_stream_document_1.auth_resource_path IN @auth_resource_paths",
-	} {
-		position := strings.Index(query, guard)
-		if position < 0 || position >= parentIdentityCollect {
-			t.Errorf("first-hop scope/type guard %q is missing or occurs after identity COLLECT (position=%d collect=%d):\n%s", guard, position, parentIdentityCollect, query)
-		}
-	}
-	for _, variable := range []string{
-		"__loom_related_category_stream_root",
-		"__loom_related_category_stream_edge_1",
-		"__loom_related_category_stream_document_1",
-		"__loom_related_category_stream_parent",
-		"__loom_related_category_stream_edge_2",
-		"__loom_related_category_stream_document_2",
-	} {
-		if !strings.Contains(query, variable+".project == @project") ||
-			!strings.Contains(query, variable+".dataset_generation == @dataset_generation") ||
-			!strings.Contains(query, variable+".auth_resource_path IN @auth_resource_paths") {
-			t.Errorf("streamed route component %q is missing project, generation, or auth scope:\n%s", variable, query)
-		}
+	if !strings.Contains(query, "__loom_related_category_stream_document_1.resourceType == @related_expand_0_hop_1_target_type") {
+		t.Errorf("first-hop lookup omitted the typed target resource guard:\n%s", query)
 	}
 	if scanned.CategoryIndex != nil {
 		t.Fatalf("streamed related category query should not synchronously prepare a terminal category index: %+v", scanned.CategoryIndex)
@@ -126,12 +101,12 @@ func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t
 			t.Errorf("typed related route did not bind exact route value %q: %#v", routeValue, scanned.BindVars)
 		}
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
+	compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
 	if scanned.OverflowWitness != nil {
 		if scanned.Proof.OverflowWitnessFingerprint == "" {
 			t.Fatal("overflow witness is not bound into the category proof")
 		}
-		assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
+		compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
 	}
 	assertCategoryScanLimitFollowsStreamedWitnesses(t, scanned.Query)
 	if scanned.BindVars[categoryLimitBind] != MaxCategoryScanValues+1 {
@@ -434,25 +409,35 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 	}
 	project := "loom_related_category_auth_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := "generation-related-category-auth"
+	fixtureProjects := map[string]struct{}{project: {}}
 	defer func() {
-		for _, collection := range []string{"Specimen", "Patient", "Observation", "fhir_edge"} {
-			query := fmt.Sprintf("FOR document IN %s FILTER document.project == @project REMOVE document IN %s", collection, collection)
-			if err := client.ExecuteAQL(ctx, query, map[string]any{"project": project}); err != nil {
-				t.Errorf("remove restricted related-category fixture from %s: %v", collection, err)
+		for fixtureProject := range fixtureProjects {
+			for _, collection := range []string{"Specimen", "Patient", "Observation", "fhir_edge"} {
+				query := fmt.Sprintf("FOR document IN %s FILTER document.project == @project REMOVE document IN %s", collection, collection)
+				if err := client.ExecuteAQL(ctx, query, map[string]any{"project": fixtureProject}); err != nil {
+					t.Errorf("remove restricted related-category fixture for project %s from %s: %v", fixtureProject, collection, err)
+				}
 			}
 		}
 	}()
 
-	insertResource := func(resourceType, id, authPath string, payload map[string]any) string {
+	type scopeIdentity struct {
+		project    string
+		generation string
+	}
+	currentScope := scopeIdentity{project: project, generation: generation}
+	const allowed, blocked = "/allowed", "/blocked"
+	insertResourceInScope := func(identity scopeIdentity, resourceType, id, authPath string, payload map[string]any) string {
 		t.Helper()
-		key := strings.ReplaceAll(project, "-", "") + "_" + id
+		fixtureProjects[identity.project] = struct{}{}
+		key := strings.ReplaceAll(identity.project, "-", "") + "_" + id
 		if payload == nil {
 			payload = map[string]any{}
 		}
 		payload["id"], payload["resourceType"] = id, resourceType
 		encoded, err := json.Marshal(map[string]any{
-			"_key": key, "id": id, "project": project, "project_id": project,
-			"dataset_generation": generation, "resourceType": resourceType,
+			"_key": key, "id": id, "project": identity.project, "project_id": identity.project,
+			"dataset_generation": identity.generation, "resourceType": resourceType,
 			"auth_resource_path": authPath,
 			"payload":            payload,
 		})
@@ -464,12 +449,16 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 		}
 		return key
 	}
-	insertEdge := func(id, fromType, fromKey, toType, toKey, authPath string) {
+	insertResource := func(resourceType, id, authPath string, payload map[string]any) string {
+		return insertResourceInScope(currentScope, resourceType, id, authPath, payload)
+	}
+	insertEdgeInScope := func(identity scopeIdentity, id, fromType, fromKey, toType, toKey, authPath string) {
 		t.Helper()
-		key := strings.ReplaceAll(project, "-", "") + "_edge_" + id
+		fixtureProjects[identity.project] = struct{}{}
+		key := strings.ReplaceAll(identity.project, "-", "") + "_edge_" + id
 		encoded, err := json.Marshal(map[string]any{
 			"_key": key, "_from": fromType + "/" + fromKey, "_to": toType + "/" + toKey,
-			"project": project, "project_id": project, "dataset_generation": generation,
+			"project": identity.project, "project_id": identity.project, "dataset_generation": identity.generation,
 			"label": "subject_Patient", "from_type": fromType, "to_type": toType,
 			"auth_resource_path": authPath,
 		})
@@ -480,7 +469,17 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 			t.Fatalf("insert scoped related-category edge %s: %v", id, err)
 		}
 	}
-	const allowed, blocked = "/allowed", "/blocked"
+	insertEdge := func(id, fromType, fromKey, toType, toKey, authPath string) {
+		insertEdgeInScope(currentScope, id, fromType, fromKey, toType, toKey, authPath)
+	}
+	addScopeProbe := func(id string, root, firstEdge, patient, secondEdge, observation scopeIdentity) {
+		t.Helper()
+		rootKey := insertResourceInScope(root, "Specimen", id+"-root", allowed, nil)
+		patientKey := insertResourceInScope(patient, "Patient", id+"-patient", allowed, nil)
+		insertEdgeInScope(firstEdge, id+"-first-edge", "Specimen", rootKey, "Patient", patientKey, allowed)
+		observationKey := insertResourceInScope(observation, "Observation", id+"-observation", allowed, map[string]any{"valueQuantity": map[string]any{"code": id}})
+		insertEdgeInScope(secondEdge, id+"-second-edge", "Observation", observationKey, "Patient", patientKey, allowed)
+	}
 	allowedSpecimen := insertResource("Specimen", "allowed-root", allowed, nil)
 	blockedSpecimen := insertResource("Specimen", "blocked-root", blocked, nil)
 	allowedPatient := insertResource("Patient", "allowed-patient", allowed, nil)
@@ -505,22 +504,24 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 	addObservation("terminal-denied", allowedPatient, "terminal-denied", allowed, blocked)
 	insertResource("Observation", "orphan", allowed, map[string]any{"valueQuantity": map[string]any{"code": "orphan"}})
 
+	foreignProject := scopeIdentity{project: project + "_foreign", generation: generation}
+	foreignGeneration := scopeIdentity{project: project, generation: generation + "_foreign"}
+	addScopeProbe("foreign-project-root", foreignProject, currentScope, currentScope, currentScope, currentScope)
+	addScopeProbe("foreign-generation-root", foreignGeneration, currentScope, currentScope, currentScope, currentScope)
+	addScopeProbe("foreign-project-first-edge", currentScope, foreignProject, currentScope, currentScope, currentScope)
+	addScopeProbe("foreign-generation-first-edge", currentScope, foreignGeneration, currentScope, currentScope, currentScope)
+	addScopeProbe("foreign-project-first-target", currentScope, currentScope, foreignProject, currentScope, currentScope)
+	addScopeProbe("foreign-generation-first-target", currentScope, currentScope, foreignGeneration, currentScope, currentScope)
+	addScopeProbe("foreign-project-second-edge", currentScope, currentScope, currentScope, foreignProject, currentScope)
+	addScopeProbe("foreign-generation-second-edge", currentScope, currentScope, currentScope, foreignGeneration, currentScope)
+	addScopeProbe("foreign-project-terminal-target", currentScope, currentScope, currentScope, currentScope, foreignProject)
+	addScopeProbe("foreign-generation-terminal-target", currentScope, currentScope, currentScope, currentScope, foreignGeneration)
+
 	bindings := recipe.RuntimeBindings{
 		Project: project, SelectionProject: project, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{allowed},
 	}
 	_, full, scanned := compileRelatedCategoryRuntimeScansWithBindings(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), bindings, MaxCategoryScanValues)
-	for _, path := range []string{
-		"__loom_related_category_stream_root.auth_resource_path IN @auth_resource_paths",
-		"__loom_related_category_stream_edge_1.auth_resource_path IN @auth_resource_paths",
-		"__loom_related_category_stream_document_1.auth_resource_path IN @auth_resource_paths",
-		"__loom_related_category_stream_edge_2.auth_resource_path IN @auth_resource_paths",
-		"__loom_related_category_stream_document_2.auth_resource_path IN @auth_resource_paths",
-	} {
-		if !strings.Contains(scanned.Query, path) {
-			t.Errorf("related-category query omitted scoped route component %q:\n%s", path, scanned.Query)
-		}
-	}
 	want := map[string]struct{}{}
 	fullRows := executeReshapeOracleQuery(t, ctx, client, full)
 	for _, row := range fullRows {
@@ -542,7 +543,12 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("restricted optimized categories = %v, native categories = %v", got, want)
 	}
-	for _, denied := range []string{"first-edge-denied", "patient-denied", "root-denied", "second-edge-denied", "terminal-denied", "orphan"} {
+	for _, denied := range []string{
+		"first-edge-denied", "patient-denied", "root-denied", "second-edge-denied", "terminal-denied", "orphan",
+		"foreign-project-root", "foreign-generation-root", "foreign-project-first-edge", "foreign-generation-first-edge",
+		"foreign-project-first-target", "foreign-generation-first-target", "foreign-project-second-edge", "foreign-generation-second-edge",
+		"foreign-project-terminal-target", "foreign-generation-terminal-target",
+	} {
 		if _, found := got[relatedCategoryValueKey(true, denied)]; found {
 			t.Errorf("restricted category scan exposed %q", denied)
 		}
@@ -726,7 +732,7 @@ func relatedCategoryScanOutput(options relatedCategoryScanOptions) recipe.Output
 		expandObservation.ContributorChoiceID = "observation-status-choice"
 		expandObservation.ContributorPredicate = &recipe.ConstructionRelatedPredicate{
 			CandidateID: "observation-status", Operator: recipe.FilterEquals,
-			Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: *options.contributorPredicate}},
+			Value: &spec.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: *options.contributorPredicate}},
 		}
 	}
 	previous := "expand_patients"

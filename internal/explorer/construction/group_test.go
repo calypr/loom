@@ -115,7 +115,7 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 		},
 	}}}
 	service := &Service{}
-	_, err = service.resolveConstructionGroupFieldSources(context.Background(), base, "observations", candidate)
+	_, err = service.resolveConstructionGroupFieldSources(context.Background(), base, candidate)
 	if got := lifecycleErrorCode(err); got != "STALE_GROUP_FIELD_CHOICE" {
 		t.Fatalf("choice from old source shape error = %v (code %q), want stale-choice rejection", err, got)
 	}
@@ -280,10 +280,10 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].Path() != "type.coding[]" {
+	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].path != "type.coding[]" {
 		t.Fatalf("observed Specimen Coding selectors = %#v, want type.coding[]", got)
 	}
-	choices, incomplete, err := (&Service{}).constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
+	choices, incomplete, err := (&Service{}).constructionGroupFieldChoices(context.Background(), base, stage, nil, false, "", "")
 	if err != nil {
 		t.Fatalf("issue related Group choices: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			{ID: "row-count", Name: "row_count", Type: "integer"},
 		},
 	}}}
-	resolved, err := service.resolveConstructionGroupFieldSources(context.Background(), base, "patients", proposal)
+	resolved, err := service.resolveConstructionGroupFieldSources(context.Background(), base, proposal)
 	if err != nil {
 		t.Fatalf("resolve Patient.id and related Coding choices: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		base.Snapshot = capability.NewSnapshot(seed.Identity, seed.Policy, capability.StatusReady, true, false, nodes, edges, allCandidates, nil)
 		base.Authorized.Snapshot = base.Snapshot
 		service := &Service{}
-		canonical, incomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
+		canonical, incomplete, err := service.constructionGroupFieldChoices(context.Background(), base, stage, nil, false, "", "")
 		if err != nil || incomplete {
 			t.Fatalf("canonical discovery: incomplete=%t error=%v", incomplete, err)
 		}
@@ -466,14 +466,14 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		if err != nil {
 			t.Fatal(err)
 		}
-		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "", "")
+		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "")
 		base.Construction = ws.Construction{Steps: []ws.ConstructionStep{{
 			ID: "saved-group", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
 			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
 				Keys: []ws.ConstructionGroupKey{{OutputColumnID: "saved-specimen", FieldSource: constructionGroupFieldBinding(source)}},
 			}},
 		}}}
-		edited, _, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "saved-group")
+		edited, _, err := service.constructionGroupFieldChoices(context.Background(), base, stage, nil, false, "", "saved-group")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -533,7 +533,7 @@ func TestConstructionGroupRowValueChoicesSkipCodingRowChoiceDiscovery(t *testing
 		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{}},
 	}}}}
 
-	choices, err := service.constructionGroupRowValueChoices(context.Background(), base, "observations", stage, "group")
+	choices, err := service.constructionGroupRowValueChoices(context.Background(), base, stage, "group")
 	if err != nil {
 		t.Fatalf("row-value choices: %v", err)
 	}

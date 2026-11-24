@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"testing"
 )
 
 func workspaceDocument(id string) Document {
@@ -155,20 +156,25 @@ func migrateStoredDocumentFixture(document Document) (Document, error) {
 	return result.Workspace.Documents[0], nil
 }
 
-func cloneStoredShapeFixture(shape *storedTableShape) (*storedTableShape, error) {
-	raw, err := json.Marshal(shape)
-	if err != nil {
-		return nil, err
-	}
-	var out *storedTableShape
-	err = json.Unmarshal(raw, &out)
-	return out, err
-}
-
 func storedDigestFixture(workspace Workspace) (string, error) {
 	raw, err := CanonicalStoredWorkspaceForMigration(workspace)
 	if err != nil {
 		return "", err
 	}
 	return workspaceDigest(raw), nil
+}
+
+func TestClonePopulationRouteStepsPreservesNilAndCopiesValues(t *testing.T) {
+	if ClonePopulationRouteSteps(nil) != nil {
+		t.Fatal("nil route became non-nil")
+	}
+	input := []PopulationRouteStep{{ResourceType: "Patient", Relationship: "subject"}}
+	cloned := ClonePopulationRouteSteps(input)
+	if len(cloned) != 1 || cloned[0] != input[0] {
+		t.Fatalf("cloned route = %#v, want %#v", cloned, input)
+	}
+	cloned[0].Relationship = "different"
+	if input[0].Relationship != "subject" {
+		t.Fatal("cloned route shares its backing array")
+	}
 }

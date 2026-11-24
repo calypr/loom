@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataset"
+
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
@@ -19,7 +23,7 @@ func (s *Service) ProjectDatasets(ctx context.Context, projectID string) ([]dfma
 		return nil, err
 	}
 	projectID = canonicalProjectID(projectID)
-	if _, err := s.authorizeProject(ctx, principal, projectID); err != nil {
+	if err := s.authorizeProject(ctx, principal, projectID); err != nil {
 		return nil, err
 	}
 	values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))
@@ -63,7 +67,7 @@ func (s *Service) Rows(ctx context.Context, input dataframemodel.DataframeRowsIn
 		return dfmaterialization.Page{}, err
 	}
 	page, err := s.reader.Page(ctx, value, dfmaterialization.PageRequest{
-		Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: stringValue(input.After),
+		Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: httpapi.OptionalString(input.After),
 		AuthResourcePaths: access.authResourcePaths, Unrestricted: access.unrestricted,
 	})
 	if err != nil {
@@ -73,13 +77,13 @@ func (s *Service) Rows(ctx context.Context, input dataframemodel.DataframeRowsIn
 	return page, nil
 }
 
-func resolveSelector(input *dataframemodel.DataframeSelectorInput) (dfmaterialization.DataframeSelector, error) {
+func resolveSelector(input *dataframemodel.DataframeSelectorInput) (dataset.DataframeSelector, error) {
 	if input == nil {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
+		return dataset.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
-	selector := dfmaterialization.DataframeSelector{Recipe: strings.TrimSpace(input.Recipe), TranslationVersion: strings.TrimSpace(input.TranslationVersion), Output: strings.TrimSpace(input.Output)}
+	selector := dataset.DataframeSelector{Recipe: strings.TrimSpace(input.Recipe), TranslationVersion: strings.TrimSpace(input.TranslationVersion), Output: strings.TrimSpace(input.Output)}
 	if !selector.Valid() {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
+		return dataset.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
 	return selector, nil
 }
@@ -111,13 +115,6 @@ func convertSort(input dataframemodel.DataframeRowsInput) *dfmaterialization.Sor
 func intValue(value *int) int {
 	if value == nil {
 		return 0
-	}
-	return *value
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
 	}
 	return *value
 }

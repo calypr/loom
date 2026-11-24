@@ -1,7 +1,9 @@
 package explorerapi
 
 import (
-	"strings"
+	"cmp"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -12,15 +14,6 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return "Explorer"
-}
 
 func pointerTo[T any](value T) *T { return &value }
 
@@ -42,7 +35,7 @@ func v2ReceiptResponse(receipt *receiptmodel.CompilationReceipt, workspace ws.Wo
 			if column.OutputID != document.Output.ID {
 				continue
 			}
-			label := firstNonEmpty(column.Label, column.PublicColumn)
+			label := cmp.Or(loomtext.FirstNonBlank(column.Label, column.PublicColumn), "Explorer")
 			coordinates := make([]loomapi.RepeatedCoordinate, 0, len(column.Coordinates))
 			for _, coordinate := range column.Coordinates {
 				coordinates = append(coordinates, loomapi.RepeatedCoordinate{BoundaryPath: coordinate.BoundaryPath, Index: coordinate.Index, Width: coordinate.Width})

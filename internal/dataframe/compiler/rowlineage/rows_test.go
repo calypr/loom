@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +15,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -117,7 +120,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	)
 
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 		IncludeRowIdentity: true,
 	}
@@ -167,16 +170,16 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		}
 	}
 
-	first := executeRowLineageOracleQuery(t, ctx, client, compilePage("assigned", 0, 1))
+	first := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage("assigned", 0, 1))
 	assertPage(first, []string{allowedID}, []string{"membership-" + revisionID + "-assigned-" + allowedID}, true, true)
-	second := executeRowLineageOracleQuery(t, ctx, client, compilePage("assigned", 1, 1))
+	second := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage("assigned", 1, 1))
 	assertPage(second, []string{missingID}, []string{"membership-" + revisionID + "-assigned-" + missingID}, true, false)
-	pastEnd := executeRowLineageOracleQuery(t, ctx, client, compilePage("assigned", 2, 1))
+	pastEnd := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage("assigned", 2, 1))
 	assertPage(pastEnd, nil, nil, true, false)
 
-	empty := executeRowLineageOracleQuery(t, ctx, client, compilePage("empty", 0, 2))
+	empty := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage("empty", 0, 2))
 	assertPage(empty, nil, nil, true, false)
-	unassigned := executeRowLineageOracleQuery(t, ctx, client, compilePage("__loom_unassigned__", 0, 2))
+	unassigned := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage("__loom_unassigned__", 0, 2))
 	assertPage(unassigned, []string{unassignedID}, []string{project + "_selected_" + unassignedID}, true, false)
 
 	groupRowsQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
@@ -219,7 +222,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile forged cross-revision row identity: %v", err)
 	}
-	assertPage(executeRowLineageOracleQuery(t, ctx, client, forged), nil, nil, false, false)
+	assertPage(recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, forged), nil, nil, false, false)
 
 	insert(revisionsCollection, map[string]any{
 		"_key": staleRevisionID, "state": "COMPLETE", "project": selectionProject, "generation": generation,

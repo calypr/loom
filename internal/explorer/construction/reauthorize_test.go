@@ -2,12 +2,10 @@ package construction
 
 import (
 	"context"
-	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -16,91 +14,7 @@ import (
 )
 
 func testConstructionStageDescriptors(workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
-	index := constructionDocumentIndex(workspace, outputID)
-	if index < 0 {
-		return nil
-	}
-	document := workspace.Documents[index]
-	columns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(document.Columns))
-	for _, column := range document.Columns {
-		columns = append(columns, receiptmodel.ReceiptConstructionStageColumn{
-			ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType, Cardinality: expression.OptionalOne,
-		})
-	}
-	allChoices := func() []receiptmodel.ReceiptConstructionOperationChoice {
-		return []receiptmodel.ReceiptConstructionOperationChoice{
-			{Kind: "PIVOT", Supported: true}, {Kind: "DERIVE", Supported: true},
-			{Kind: "FILTER", Supported: true}, {Kind: "UNPIVOT", Supported: true},
-			{Kind: "RELATED_EXPAND", Supported: true},
-		}
-	}
-	rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-		AnchorColumnID: "_key", Kind: "root", ResourceType: document.RootResourceType,
-		Label: "Original " + document.RootResourceType,
-	}
-	stages := []receiptmodel.ReceiptConstructionStage{{
-		ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: allChoices(),
-		RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
-	}}
-	var activeAnchor *receiptmodel.ReceiptConstructionActiveRelatedRecord
-	if document.Construction == nil {
-		return stages
-	}
-	for _, step := range document.Construction.Steps {
-		stageColumns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(step.Outputs))
-		for _, column := range step.Outputs {
-			stageColumns = append(stageColumns, receiptmodel.ReceiptConstructionStageColumn{
-				ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type, Cardinality: expression.OptionalOne,
-			})
-		}
-		inputStageID := recipe.ConstructionSourceProjectionID
-		if len(stages) > 1 {
-			inputStageID = stages[len(stages)-1].ID
-		}
-		stage := receiptmodel.ReceiptConstructionStage{
-			ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
-			Columns: stageColumns, Capabilities: allChoices(),
-		}
-		if related := step.Operation.RelatedExpand; related != nil {
-			route := make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route))
-			for _, hop := range related.Route {
-				route = append(route, recipe.ConstructionRelatedRouteStep{
-					EdgeID: hop.EdgeID, FromNodeID: hop.FromNodeID, ToNodeID: hop.ToNodeID,
-					FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
-					Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
-				})
-			}
-			stage.RelatedExpand = &receiptmodel.ReceiptConstructionRelatedExpand{
-				AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumnID,
-				AnchorKind: "root", AnchorNodeID: related.Route[0].FromNodeID,
-				AnchorResourceType:     related.Route[0].FromResourceType,
-				RelatedRecordColumnID:  related.RelatedRecordColumnID,
-				ParentIdentityColumnID: "__test_parent_identity", ParentIdentityColumn: "__test_parent_identity",
-				TerminalIdentityColumn: "__test_terminal_identity", TargetNodeID: related.TargetNodeID,
-				TargetResourceType: related.TargetResourceType, Route: route,
-			}
-			activeAnchor = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-				TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
-				TerminalIdentityColumn: "__test_terminal_identity",
-			}
-		} else if step.Operation.Kind != ws.ConstructionOperationFilter &&
-			step.Operation.Kind != ws.ConstructionOperationDerive &&
-			step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
-			step.Operation.Kind != ws.ConstructionOperationRelatedField {
-			activeAnchor = nil
-		}
-		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
-		if activeAnchor != nil {
-			stage.ActiveRelatedRecord = activeAnchor
-			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-				AnchorColumnID: activeAnchor.TerminalIdentityColumn, Kind: "activeRelatedRecord",
-				NodeID: activeAnchor.TargetNodeID, ResourceType: activeAnchor.TargetResourceType,
-				Label: "Current related " + activeAnchor.TargetResourceType,
-			})
-		}
-		stages = append(stages, stage)
-	}
-	return stages
+	return constructionfixtures.ConstructionStageDescriptors(workspace, outputID)
 }
 
 func TestConstructionRemovalCascadeRemovesOwnerOfDependentRelatedField(t *testing.T) {
@@ -161,10 +75,10 @@ func TestConstructionRemovalCascadeRemovesOwnerOfDependentRelatedField(t *testin
 		t.Fatalf("cascade owner of removed related-field source: %v", err)
 	}
 	wantRemoved := []string{expansion.ID, relatedField.ID, group.ID}
-	if !equalStringSlices(impact.RemovedStepIDs, wantRemoved) {
+	if !slices.Equal(impact.RemovedStepIDs, wantRemoved) {
 		t.Fatalf("removed steps = %#v, want expansion, its owned field input, and owner %#v", impact.RemovedStepIDs, wantRemoved)
 	}
-	if !equalStringSlices(constructionStepIDs(removedDocument.Construction.Steps), []string{filter.ID}) || impact.HasMissingInputs() {
+	if !slices.Equal(constructionStepIDs(removedDocument.Construction.Steps), []string{filter.ID}) || impact.HasMissingInputs() {
 		t.Fatalf("cascade did not preserve independent filter after removing owner: steps=%#v impact=%#v", constructionStepIDs(removedDocument.Construction.Steps), impact)
 	}
 }
@@ -192,10 +106,10 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 		if err != nil {
 			t.Fatalf("analyze target edit with dependent cascade: %v", err)
 		}
-		if !equalStringSlices(impact.RemovedStepIDs, []string{"expand_conditions", "expand_medications"}) {
+		if !slices.Equal(impact.RemovedStepIDs, []string{"expand_conditions", "expand_medications"}) {
 			t.Fatalf("target edit removed steps = %#v, want dependent expansion suffix", impact.RemovedStepIDs)
 		}
-		if !equalStringSlices(constructionStepIDs(updated.Construction.Steps), []string{firstStepID, "keep_root_filter"}) || impact.HasMissingInputs() {
+		if !slices.Equal(constructionStepIDs(updated.Construction.Steps), []string{firstStepID, "keep_root_filter"}) || impact.HasMissingInputs() {
 			t.Fatalf("target edit candidate = %#v, impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 		}
 	})
@@ -209,7 +123,7 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 		if err != nil {
 			t.Fatalf("analyze policy edit: %v", err)
 		}
-		if len(impact.RemovedStepIDs) != 0 || !equalStringSlices(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
+		if len(impact.RemovedStepIDs) != 0 || !slices.Equal(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
 			t.Fatalf("policy edit removed valid dependents: steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 		}
 	})
@@ -233,8 +147,8 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 		if err != nil {
 			t.Fatalf("analyze middle target edit with dependent cascade: %v", err)
 		}
-		if !equalStringSlices(impact.RemovedStepIDs, []string{"expand_medications"}) ||
-			!equalStringSlices(constructionStepIDs(updated.Construction.Steps), []string{"expand_observations", middle.ID, "keep_root_filter"}) || impact.HasMissingInputs() {
+		if !slices.Equal(impact.RemovedStepIDs, []string{"expand_medications"}) ||
+			!slices.Equal(constructionStepIDs(updated.Construction.Steps), []string{"expand_observations", middle.ID, "keep_root_filter"}) || impact.HasMissingInputs() {
 			t.Fatalf("middle target edit result = steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 		}
 	})
@@ -249,7 +163,7 @@ func TestConstructionEditCascadeKeepsChangedStepWhenItsOwnInputIsMissing(t *test
 	if err != nil {
 		t.Fatalf("analyze invalid GROUP edit: %v", err)
 	}
-	if len(impact.RemovedStepIDs) != 0 || !equalStringSlices(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
+	if len(impact.RemovedStepIDs) != 0 || !slices.Equal(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
 		t.Fatalf("edit cascade removed the changed step or its descendants: steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 	}
 	if len(impact.MissingInputs) != 1 || impact.MissingInputs[0] != (ws.ConstructionDependencyIssue{StepID: "group-records", ColumnID: "missing_source_column"}) {
@@ -258,27 +172,11 @@ func TestConstructionEditCascadeKeepsChangedStepWhenItsOwnInputIsMissing(t *test
 }
 
 func cloneLifecycleTestConstruction(t *testing.T, construction ws.Construction) ws.Construction {
-	t.Helper()
-	raw, err := json.Marshal(construction)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var clone ws.Construction
-	if err := json.Unmarshal(raw, &clone); err != nil {
-		t.Fatal(err)
-	}
-	return clone
+	return constructionfixtures.CloneJSON(t, construction)
 }
 
 func constructionWithoutStep(construction ws.Construction, stepID string) ws.Construction {
-	candidate := construction
-	candidate.Steps = make([]ws.ConstructionStep, 0, len(construction.Steps)-1)
-	for _, step := range construction.Steps {
-		if step.ID != stepID {
-			candidate.Steps = append(candidate.Steps, step)
-		}
-	}
-	return candidate
+	return constructionfixtures.ConstructionWithoutStep(construction, stepID)
 }
 
 func constructionStepIDs(steps []ws.ConstructionStep) []string {
@@ -287,18 +185,6 @@ func constructionStepIDs(steps []ws.ConstructionStep) []string {
 		ids = append(ids, step.ID)
 	}
 	return ids
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func seedRelatedExpandRemovalConstruction(t *testing.T) (ws.Workspace, ws.Construction) {
@@ -366,59 +252,7 @@ func seedRelatedExpandRemovalConstruction(t *testing.T) (ws.Workspace, ws.Constr
 }
 
 func relatedExpandRemovalTestStages(t *testing.T, workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
-	t.Helper()
-	stages := testConstructionStageDescriptors(workspace, outputID)
-	index := constructionDocumentIndex(workspace, outputID)
-	if index < 0 || workspace.Documents[index].Construction == nil {
-		t.Fatal("related expansion test workspace has no construction")
-	}
-	rootAnchor := stages[0].RelatedExpandAnchors[0]
-	var active *receiptmodel.ReceiptConstructionActiveRelatedRecord
-	for stepIndex, step := range workspace.Documents[index].Construction.Steps {
-		related := step.Operation.RelatedExpand
-		if related == nil {
-			if step.Operation.Kind != ws.ConstructionOperationFilter &&
-				step.Operation.Kind != ws.ConstructionOperationDerive &&
-				step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
-				step.Operation.Kind != ws.ConstructionOperationRelatedField {
-				active = nil
-			}
-			if active != nil {
-				stage := &stages[stepIndex+1]
-				stage.ActiveRelatedRecord = active
-				stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-					rootAnchor,
-					{AnchorColumnID: active.TerminalIdentityColumn, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related " + active.TargetResourceType},
-				}
-			}
-			continue
-		}
-		stage := &stages[stepIndex+1]
-		anchorKind, anchorNodeID, anchorResourceType := "root", related.Route[0].FromNodeID, related.Route[0].FromResourceType
-		if related.AnchorColumnID != "_key" {
-			if active == nil || active.TerminalIdentityColumn != related.AnchorColumnID {
-				t.Fatalf("step %q anchor %q does not match its prior active identity", step.ID, related.AnchorColumnID)
-			}
-			anchorKind, anchorNodeID, anchorResourceType = "activeRelatedRecord", active.TargetNodeID, active.TargetResourceType
-		}
-		terminalColumnID := "test_terminal_identity_" + step.ID
-		stage.RelatedExpand.AnchorColumnID = related.AnchorColumnID
-		stage.RelatedExpand.AnchorColumn = related.AnchorColumnID
-		stage.RelatedExpand.AnchorKind = anchorKind
-		stage.RelatedExpand.AnchorNodeID = anchorNodeID
-		stage.RelatedExpand.AnchorResourceType = anchorResourceType
-		stage.RelatedExpand.TerminalIdentityColumn = terminalColumnID
-		active = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-			TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
-			TerminalIdentityColumn: terminalColumnID,
-		}
-		stage.ActiveRelatedRecord = active
-		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-			rootAnchor,
-			{AnchorColumnID: terminalColumnID, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related " + active.TargetResourceType},
-		}
-	}
-	return stages
+	return constructionfixtures.RelatedExpandRemovalStages(t, workspace, outputID)
 }
 
 func seedGroupKeyEditConstruction(t *testing.T) (ws.Workspace, ws.Construction) {

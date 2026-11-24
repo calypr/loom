@@ -24,7 +24,7 @@ func (preview PreviewIndexes) AuditPreviewSupersededIndexes(ctx context.Context)
 	}
 	for _, collection := range collections {
 		name := collection.Name()
-		if strings.HasPrefix(name, "_") || name == previewSupersedesMigrationLedger {
+		if strings.HasPrefix(name, "_") || name == SchemaMigrationsCollection {
 			continue
 		}
 		audit.CollectionsScanned++
@@ -64,13 +64,13 @@ func (preview PreviewIndexes) AuditPreviewSupersededIndexes(ctx context.Context)
 
 func (preview PreviewIndexes) previewSupersedesLedgerExists(ctx context.Context) (bool, error) {
 	c := preview.client
-	exists, err := c.db.CollectionExists(ctx, previewSupersedesMigrationLedger)
+	exists, err := c.db.CollectionExists(ctx, SchemaMigrationsCollection)
 	if err != nil || !exists {
 		return exists, err
 	}
 	found := false
 	err = c.QueryRows(ctx, "FOR migration IN @@collection FILTER migration._key == @key LIMIT 1 RETURN {key: migration._key}", 1,
-		map[string]interface{}{"@collection": previewSupersedesMigrationLedger, "key": previewSupersedesMigrationVersion},
+		map[string]interface{}{"@collection": SchemaMigrationsCollection, "key": previewSupersedesMigrationVersion},
 		func(map[string]interface{}) error { found = true; return nil })
 	return found, err
 }

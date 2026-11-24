@@ -82,12 +82,6 @@ type frameSourceCursor struct {
 	Route       string `json:"route,omitempty"`
 }
 
-type FrameSourceFamilyCandidate struct {
-	Family    capability.SemanticFrameFamily
-	Entry     semantic.Entry
-	Candidate capability.Candidate
-}
-
 func (browse *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
 	result := BrowseFrameSourceOptionsResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Sources: []FrameSourceOption{},
@@ -121,7 +115,7 @@ func (browse *Service) BrowseFrameSourceOptions(ctx context.Context, request Bro
 	if err != nil {
 		return result, err
 	}
-	document := findSemanticBrowseOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, support.Malformed("frame-source-options", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -252,7 +246,7 @@ func (browse *Service) frameSourceOptionForRoute(
 	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	rootResourceType, contextToken, buildID string,
-	family FrameSourceFamilyCandidate,
+	family ports.FrameSourceFamilyCandidate,
 	route []capability.ConstructionRouteStep,
 ) (FrameSourceOption, bool) {
 	resolvedRoute, err := support.ReauthorizeConstructionRoute(snapshot, rootResourceType, family.Candidate.NodeID, route)
@@ -263,7 +257,7 @@ func (browse *Service) frameSourceOptionForRoute(
 	if err != nil {
 		return FrameSourceOption{}, false
 	}
-	provenCandidate, ok := semanticCandidateWithFallback(snapshot, family.Entry.Observation, provenCandidate)
+	provenCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, family.Entry.Observation, provenCandidate)
 	if !ok {
 		return FrameSourceOption{}, false
 	}
@@ -301,12 +295,8 @@ func (browse *Service) frameSourceOptionForRoute(
 	}, true
 }
 
-func invalidFrameSource(message string) error {
-	return support.Unprocessable("frame-source", "INVALID_FRAME_SOURCE", message, nil)
-}
-
-func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []FrameSourceFamilyCandidate {
-	byFamily := make(map[string]FrameSourceFamilyCandidate)
+func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []ports.FrameSourceFamilyCandidate {
+	byFamily := make(map[string]ports.FrameSourceFamilyCandidate)
 	for _, entry := range entries {
 		observation := entry.Observation
 		if observation.RuleHint != semantic.RuleHintCodedValueV1 {
@@ -318,8 +308,8 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry)
 			continue
 		}
 		binding := plan.Source.Lookup.Binding
-		candidate, ok := semanticConstructionCandidate(snapshot, observation)
-		if !ok || candidate.ResourceType != observation.Source.Type || canonicalInventoryPath(candidate.FieldPath) != semanticObservationValuePath(observation) {
+		candidate, ok := capability.SemanticConstructionCandidate(snapshot, observation)
+		if !ok {
 			continue
 		}
 		family := capability.SemanticFrameFamily{
@@ -336,10 +326,10 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry)
 		current, found := byFamily[key]
 		if !found || observation.Population > current.Entry.Observation.Population ||
 			observation.Population == current.Entry.Observation.Population && entry.ConceptID < current.Entry.ConceptID {
-			byFamily[key] = FrameSourceFamilyCandidate{Family: family, Entry: entry, Candidate: candidate}
+			byFamily[key] = ports.FrameSourceFamilyCandidate{Family: family, Entry: entry, Candidate: candidate}
 		}
 	}
-	families := make([]FrameSourceFamilyCandidate, 0, len(byFamily))
+	families := make([]ports.FrameSourceFamilyCandidate, 0, len(byFamily))
 	for _, family := range byFamily {
 		families = append(families, family)
 	}
@@ -451,13 +441,6 @@ func FrameSourceDescription(family capability.SemanticFrameFamily, route []capab
 	return "Codes and their paired values on " + where + "."
 }
 
-func FrameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []FrameSourceFamilyCandidate {
+func FrameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []ports.FrameSourceFamilyCandidate {
 	return frameSourceFamilies(snapshot, entries)
-}
-
-func SupportedFrameForms(options []capability.ConstructionChoiceOption) []FrameSourceForm {
-	return supportedFrameForms(options)
-}
-func PreservingFrameDefault(forms []FrameSourceForm) (capability.ConstructionChoiceForm, bool) {
-	return preservingFrameDefault(forms)
 }

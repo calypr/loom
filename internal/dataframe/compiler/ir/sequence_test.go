@@ -6,14 +6,12 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func TestPhysicalRelatedRowLineageTraceAcceptsScopedOrderedOwners(t *testing.T) {
+func TestPhysicalRelatedRowLineageTraceRejectsInvalidOwnerWitnesses(t *testing.T) {
 	sequence, terminal, trace, bindVars, source := validRelatedLineageFixture()
 	if err := validatePhysicalRelatedRowLineageTrace(sequence, terminal, trace, source, bindVars); err != nil {
 		t.Fatalf("valid ordered trace was rejected: %v", err)
 	}
-}
 
-func TestPhysicalRelatedRowLineageTraceRejectsInvalidOwnerWitnesses(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*PhysicalStageSequence, *PhysicalRowLineageReturn, *PhysicalRowLineageTrace, map[string]any, []PhysicalOperation)

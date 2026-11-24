@@ -267,7 +267,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 					ContributorPolicy: "ALL_MATCHES",
 					Predicate: &recipe.ConstructionRelatedPredicate{
 						CandidateID: "observation-status", Operator: recipe.FilterEquals,
-						Value: &recipe.FilterValue{Kind: recipe.FilterString, String: stringPtr("registered")},
+						Value: &spec.FilterValue{Kind: recipe.FilterString, String: stringPtr("registered")},
 					},
 					Form: "ALL", OutputColumnID: "observation-status",
 				}},
@@ -913,7 +913,7 @@ func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T)
 		ID: "filter_after_related_expand", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: expand.ID}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "observation-id", Operator: recipe.FilterEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: stringPointer("observation-1")}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: stringPointer("observation-1")}},
 		}},
 		Outputs: append([]recipe.StageColumn(nil), expand.Outputs...),
 	})
@@ -1084,7 +1084,7 @@ func relatedTraversalIDFilterPageOutput(patientID string) recipe.Output {
 				ID: "keep_matching_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient-id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
 				}},
 				Outputs: []recipe.StageColumn{patientColumn},
 			}},
@@ -1095,7 +1095,7 @@ func relatedTraversalIDFilterPageOutput(patientID string) recipe.Output {
 func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		operator   recipe.FilterOperator
+		operator   spec.FilterOperator
 		comparison string
 	}{
 		{name: "MISSING", operator: recipe.FilterMissing, comparison: "== null"},
@@ -1187,29 +1187,29 @@ func TestCompileRecipeOutputPageDirectRootExistsOrdersPredicateBeforeLimit(t *te
 }
 
 func TestCompileRecipeOutputPageRendersEveryValueFilterBeforeRootWindow(t *testing.T) {
-	stringValue := func(value string) recipe.FilterValue {
-		return recipe.FilterValue{Kind: recipe.FilterString, String: &value}
+	stringValue := func(value string) spec.FilterValue {
+		return spec.FilterValue{Kind: recipe.FilterString, String: &value}
 	}
-	decimalValue := func(value float64) recipe.FilterValue {
-		return recipe.FilterValue{Kind: recipe.FilterDecimal, Decimal: &value}
+	decimalValue := func(value float64) spec.FilterValue {
+		return spec.FilterValue{Kind: recipe.FilterDecimal, Decimal: &value}
 	}
 	tests := []struct {
 		name       string
-		operator   recipe.FilterOperator
-		values     []recipe.FilterValue
+		operator   spec.FilterOperator
+		values     []spec.FilterValue
 		columnType string
 		columnName string
 		selectExpr string
 		comparison string
 		wantBind   any
 	}{
-		{name: "NOT_EQUALS", operator: recipe.FilterNotEquals, values: []recipe.FilterValue{stringValue("excluded")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "!= @construction_filter_value", wantBind: "excluded"},
-		{name: "IN", operator: recipe.FilterIn, values: []recipe.FilterValue{stringValue("a"), stringValue("b")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "IN @construction_filter_value", wantBind: []any{"a", "b"}},
-		{name: "CONTAINS_TEXT", operator: recipe.FilterContains, values: []recipe.FilterValue{stringValue("sample")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "CONTAINS(TO_STRING(__loom_construction_input_1), @construction_filter_value)", wantBind: "sample"},
-		{name: "GT", operator: recipe.FilterGreaterThan, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "> @construction_filter_value", wantBind: 18.5},
-		{name: "GTE", operator: recipe.FilterGreaterEq, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: ">= @construction_filter_value", wantBind: 18.5},
-		{name: "LT", operator: recipe.FilterLessThan, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "< @construction_filter_value", wantBind: 18.5},
-		{name: "LTE", operator: recipe.FilterLessEq, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "<= @construction_filter_value", wantBind: 18.5},
+		{name: "NOT_EQUALS", operator: recipe.FilterNotEquals, values: []spec.FilterValue{stringValue("excluded")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "!= @construction_filter_value", wantBind: "excluded"},
+		{name: "IN", operator: recipe.FilterIn, values: []spec.FilterValue{stringValue("a"), stringValue("b")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "IN @construction_filter_value", wantBind: []any{"a", "b"}},
+		{name: "CONTAINS_TEXT", operator: recipe.FilterContains, values: []spec.FilterValue{stringValue("sample")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "CONTAINS(TO_STRING(__loom_construction_input_1), @construction_filter_value)", wantBind: "sample"},
+		{name: "GT", operator: recipe.FilterGreaterThan, values: []spec.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "> @construction_filter_value", wantBind: 18.5},
+		{name: "GTE", operator: recipe.FilterGreaterEq, values: []spec.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: ">= @construction_filter_value", wantBind: 18.5},
+		{name: "LT", operator: recipe.FilterLessThan, values: []spec.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "< @construction_filter_value", wantBind: 18.5},
+		{name: "LTE", operator: recipe.FilterLessEq, values: []spec.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "<= @construction_filter_value", wantBind: 18.5},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1283,7 +1283,7 @@ func constructionEqualsPageOutput(id string) recipe.Output {
 				ID: "keep_matching_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "specimen-id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &id}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &id}},
 				}},
 				Outputs: columns,
 			}},

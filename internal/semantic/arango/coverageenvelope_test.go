@@ -2,7 +2,6 @@ package arango
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
-	"github.com/google/uuid"
 )
 
 func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) {
@@ -25,9 +23,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	specimenA := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-a", "retained:Specimen/physical-a/logical-shared", "type", "type.coding[].code", true)
 	specimenB := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-b", "retained:Specimen/physical-b/logical-shared", "type", "type.coding[].code", false)
 	specimenContributions := []fieldprofile.SemanticCoverageSourceContribution{specimenA, specimenB}
-	if _, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, specimenContributions, 2); err != nil {
-		t.Fatalf("write Specimen source contributions failed (%v)", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "arango-partial-initial.jsonl")
 	assertSemanticCoverageEnvelopes(t, ctx, client, identity, specimenContributions)
 	specimenExpectation := semanticCoverageResourceExpectation(t, "Specimen", specimenContributions)
 	if err := adapter.CompleteSemanticCoverageResource(ctx, identity, specimenExpectation, 2); err != nil {
@@ -36,7 +32,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	if err := adapter.MarkSemanticCoverageResourceMissing(ctx, identity, "Task"); err != nil {
 		t.Fatalf("mark missing Task collection failed (%v)", err)
 	}
-	emptyPatient := NewSemanticCoverageSourceSetAccumulator("Patient", true)
+	emptyPatient := semantic.NewSourceSetAccumulator("Patient", true)
 	patientExpectation, err := emptyPatient.Snapshot(true)
 	if err != nil {
 		t.Fatalf("record empty Patient source set failed (%v)", err)
@@ -65,7 +61,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	}
 
 	aOnly := lookup(t, []string{"Patient/scope-a"}, false, specimenCandidate)
-	if aOnly.State != SemanticCoverageBuildPartial || aOnly.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if aOnly.State != semantic.SemanticCoverageBuildPartial || aOnly.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		aOnly.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(aOnly.Candidates[0].References) == 0 {
 		t.Fatalf("complete Specimen auth-A candidate under partial audit = %+v, want exact groupable proof", aOnly)
 	}
@@ -79,7 +75,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := lookup(t, test.paths, test.unrestricted, specimenCandidate)
-			if result.State != SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+			if result.State != semantic.SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 				result.Candidates[0].Status == SemanticCoverageCandidateGroupable || len(result.Candidates[0].References) != 0 {
 				t.Fatalf("combined Specimen auth candidate = %+v, want no groupable proof", result)
 			}
@@ -87,12 +83,12 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	}
 
 	task := lookup(t, []string{"Patient/scope-a"}, false, SemanticCoverageCandidatePath{ResourceType: "Task", CanonicalPath: "code.coding[].code"})
-	if task.State != SemanticCoverageBuildPartial || task.Candidates[0].ResourceState != SemanticCoverageBuildMissing ||
+	if task.State != semantic.SemanticCoverageBuildPartial || task.Candidates[0].ResourceState != semantic.SemanticCoverageBuildMissing ||
 		task.Candidates[0].ResourceReason != "SOURCE_COLLECTION_MISSING" || task.Candidates[0].Status != SemanticCoverageCandidateUnavailable || len(task.Candidates[0].References) != 0 {
 		t.Fatalf("missing Task resource candidate = %+v, want distinct MISSING certificate and no refs", task)
 	}
 	patient := lookup(t, nil, true, SemanticCoverageCandidatePath{ResourceType: "Patient", CanonicalPath: "identifier.type.coding[].code"})
-	if patient.State != SemanticCoverageBuildPartial || patient.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if patient.State != semantic.SemanticCoverageBuildPartial || patient.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		patient.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || len(patient.Candidates[0].References) != 0 {
 		t.Fatalf("existing empty Patient resource candidate = %+v, want COMPLETE certificate with raw absence", patient)
 	}
@@ -102,7 +98,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{"Patient/scope-a"}, Candidates: []SemanticCoverageCandidatePath{specimenCandidate},
 	})
-	if err != nil || staleBuild.State != SemanticCoverageBuildUnavailable || staleBuild.Reason != "BUILD_ID_MISMATCH" || len(staleBuild.Candidates[0].References) != 0 {
+	if err != nil || staleBuild.State != semantic.SemanticCoverageBuildUnavailable || staleBuild.Reason != "BUILD_ID_MISMATCH" || len(staleBuild.Candidates[0].References) != 0 {
 		t.Fatalf("stale build lookup = %+v, err=%v; want unavailable identity proof", staleBuild, err)
 	}
 	staleSchema, err := adapter.LookupSemanticCoverage(ctx, SemanticCoverageLookupOptions{
@@ -110,7 +106,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		SchemaIdentity: strings.Repeat("c", 64), SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{"Patient/scope-a"}, Candidates: []SemanticCoverageCandidatePath{specimenCandidate},
 	})
-	if err != nil || staleSchema.State != SemanticCoverageBuildUnavailable || len(staleSchema.Candidates[0].References) != 0 {
+	if err != nil || staleSchema.State != semantic.SemanticCoverageBuildUnavailable || len(staleSchema.Candidates[0].References) != 0 {
 		t.Fatalf("stale schema lookup = %+v, err=%v; want unavailable identity proof", staleSchema, err)
 	}
 
@@ -122,7 +118,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{"Patient/scope-a"}, Candidates: []SemanticCoverageCandidatePath{specimenCandidate},
 	})
-	if err != nil || building.State != SemanticCoverageBuildBuilding || len(building.Candidates[0].References) != 0 {
+	if err != nil || building.State != semantic.SemanticCoverageBuildBuilding || len(building.Candidates[0].References) != 0 {
 		t.Fatalf("in-progress resource replay lookup = %+v, err=%v; want BUILDING and no refs", building, err)
 	}
 	if err := adapter.BeginSemanticCoverageResource(ctx, identity, "Specimen"); err != nil {
@@ -134,17 +130,8 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		t.Fatalf("auth-path drift changed the physical envelope key: before=%q after=%q", oldKey, newKey)
 	}
 	replayedContributions := []fieldprofile.SemanticCoverageSourceContribution{replacedSpecimenA, specimenB}
-	firstReplay, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, replayedContributions, 2)
-	if err != nil {
-		t.Fatalf("replace Specimen source envelope after auth-path drift failed (%v)", err)
-	}
-	secondReplay, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, replayedContributions, 2)
-	if err != nil {
-		t.Fatalf("replay replaced Specimen source envelopes failed (%v)", err)
-	}
-	if firstReplay.Rows != 2 || secondReplay.Rows != 2 {
-		t.Fatalf("source envelope replacement/replay rows = (%d, %d), want two physical sources each time", firstReplay.Rows, secondReplay.Rows)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "arango-partial-replay.jsonl")
+	seedLegacySourceEnvelopeFixture(t, client, "arango-partial-replay.jsonl")
 	replayedExpectation := semanticCoverageResourceExpectation(t, "Specimen", replayedContributions)
 	if err := adapter.CompleteSemanticCoverageResource(ctx, identity, replayedExpectation, 2); err != nil {
 		t.Fatalf("republish Specimen resource certificate failed (%v)", err)
@@ -154,12 +141,12 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	}
 	assertSemanticCoverageEnvelopes(t, ctx, client, identity, replayedContributions)
 	oldPartition := lookup(t, []string{"Patient/scope-a"}, false, specimenCandidate)
-	if oldPartition.State != SemanticCoverageBuildPartial || oldPartition.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if oldPartition.State != semantic.SemanticCoverageBuildPartial || oldPartition.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		oldPartition.Candidates[0].Status == SemanticCoverageCandidateGroupable || len(oldPartition.Candidates[0].References) != 0 {
 		t.Fatalf("old authorization partition after source auth-path drift = %+v, want no old proof", oldPartition)
 	}
 	replayed := lookup(t, []string{"Patient/scope-c"}, false, specimenCandidate)
-	if replayed.State != SemanticCoverageBuildPartial || replayed.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if replayed.State != semantic.SemanticCoverageBuildPartial || replayed.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		replayed.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(replayed.Candidates[0].References) == 0 {
 		t.Fatalf("replayed Specimen auth-A proof = %+v, want current groupable proof", replayed)
 	}
@@ -186,9 +173,7 @@ func TestSemanticCoverageResourceArangoRejectsMismatchedSourceEnvelope(t *testin
 		t.Fatalf("begin mismatched-sentinel coverage build failed (%v)", err)
 	}
 	contribution := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-a", "retained:Specimen/source-a", "type", "type.coding[].code", true)
-	if _, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 2); err != nil {
-		t.Fatalf("write Specimen source envelope through the adapter failed (%v)", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "arango-mismatch.jsonl")
 	const forgedSourceID = "retained:Specimen/forged-source"
 	mutateEnvelope := `
 FOR d IN fhir_semantic_coverage
@@ -239,7 +224,7 @@ FOR d IN fhir_semantic_coverage
 		AuthResourcePaths: []string{"Patient/scope-a"},
 		Candidates:        []SemanticCoverageCandidatePath{{ResourceType: "Specimen", CanonicalPath: "type.coding[].code"}},
 	})
-	if err != nil || result.State != SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != SemanticCoverageBuildFailed ||
+	if err != nil || result.State != semantic.SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != semantic.SemanticCoverageBuildFailed ||
 		result.Candidates[0].ResourceReason == "" ||
 		result.Candidates[0].Status != SemanticCoverageCandidateUnavailable || len(result.Candidates[0].References) != 0 {
 		t.Fatalf("mismatched Specimen source-envelope lookup = %+v, err=%v; want FAILED candidate with no refs", result, err)
@@ -259,8 +244,8 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 	if err != nil {
 		t.Fatalf("construct coverage adapter failed (%v)", err)
 	}
-	project := "sc02-resource-" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
+	project := "semantic-coverage-fixture"
+	generation := "generation-1"
 	identity := SemanticCoverageBuildIdentity{
 		Project: project, DatasetGeneration: generation,
 		BuildID:        semantic.BuildID(project, generation),
@@ -295,9 +280,9 @@ func semanticCoverageResourceExpectation(
 	t *testing.T,
 	resourceType string,
 	contributions []fieldprofile.SemanticCoverageSourceContribution,
-) SemanticCoverageResourceExpectation {
+) semantic.ResourceExpectation {
 	t.Helper()
-	accumulator := NewSemanticCoverageSourceSetAccumulator(resourceType, true)
+	accumulator := semantic.NewSourceSetAccumulator(resourceType, true)
 	for _, contribution := range contributions {
 		if err := accumulator.AddSource(contribution.Identity.SourceID, contribution.Identity.AuthResourcePath); err != nil {
 			t.Fatalf("add expected %s source identity failed (%v)", resourceType, err)
@@ -397,90 +382,6 @@ func semanticCoverageResourceContribution(
 				Path: candidatePath, Kind: "code", Disposition: disposition, Reason: reason, OccurrenceCount: 1,
 				PresenceCounts: map[fieldprofile.SemanticCoveragePresence]int64{fieldprofile.SemanticCoveragePopulated: 1},
 				References:     references,
-			}},
-		}},
-	}
-}
-
-func TestEncodeSemanticCoverageSourceEnvelopeIsOneVersionedBoundedDocument(t *testing.T) {
-	contribution := semanticCoverageEnvelopeTestContribution()
-	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var envelope semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(encoded, &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.RecordKind != semanticCoverageEnvelopeRecordKind || envelope.CoverageStorageFormatVersion != fieldprofile.SemanticCoverageStorageFormatVersion {
-		t.Fatalf("envelope version = (%q, %d)", envelope.RecordKind, envelope.CoverageStorageFormatVersion)
-	}
-	if envelope.SourceRecordCount != 1 || len(envelope.Paths) != 1 || len(envelope.Paths[0].Path.Facets) != 1 {
-		t.Fatalf("source envelope did not keep its nested aggregate once: %+v", envelope)
-	}
-	if envelope.Paths[0].CanonicalPath != "code" || envelope.Paths[0].Path.Facets[0].Path != "code.coding[].code" {
-		t.Fatalf("stored path/facet identity = (%q, %q)", envelope.Paths[0].CanonicalPath, envelope.Paths[0].Path.Facets[0].Path)
-	}
-	if envelope.Paths[0].Path.OwnerPathWitnesses != nil {
-		t.Fatalf("persisted owner path witnesses: %#v", envelope.Paths[0].Path.OwnerPathWitnesses)
-	}
-	if bytes := string(encoded); strings.Contains(bytes, "RAW-SOURCE-CANARY") || strings.Contains(bytes, "OwnerPathWitnesses") || strings.Contains(bytes, "owner_path_witnesses") {
-		t.Fatalf("envelope persisted raw source/witness data: %s", bytes)
-	}
-	if strings.Contains(string(encoded), "Explanation") || strings.Contains(string(encoded), "RAW-EXPLANATION-CANARY") {
-		t.Fatalf("envelope persisted diagnostic explanation: %s", encoded)
-	}
-
-	changedAuth := contribution
-	changedAuth.Identity.AuthResourcePath = "/alternate-auth-scope"
-	changedEncoded, err := EncodeSemanticCoverageSourceEnvelope(changedAuth.BuildID, changedAuth)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var changed semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(changedEncoded, &changed); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.Key != changed.Key {
-		t.Fatalf("auth path changed physical source key: %q != %q", envelope.Key, changed.Key)
-	}
-	if envelope.AuthResourcePath == changed.AuthResourcePath {
-		t.Fatal("auth path was not updated in the replacement envelope")
-	}
-}
-
-func TestEncodeSemanticCoverageSourceEnvelopeRejectsOversizedDocument(t *testing.T) {
-	contribution := semanticCoverageEnvelopeTestContribution()
-	contribution.Paths[0].CanonicalPath = strings.Repeat("x", semanticCoverageMaximumRowBytes)
-	_, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
-	if !errors.Is(err, ErrSemanticCoverageRowTooLarge) {
-		t.Fatalf("oversized envelope error = %v", err)
-	}
-}
-
-func semanticCoverageEnvelopeTestContribution() fieldprofile.SemanticCoverageSourceContribution {
-	return fieldprofile.SemanticCoverageSourceContribution{
-		Identity: fieldprofile.SemanticCoverageSourceIdentity{
-			Project: "project", DatasetGeneration: "generation", AuthResourcePath: "/specimen",
-			SchemaIdentity: "schema-sha256", SourceKind: "retained_vertex",
-			SourceID: "retained:specimens/key-1", ResourceType: "Specimen",
-		},
-		BuildID: "inventory-build", SourceRecordCount: 1,
-		Counts:   fieldprofile.SemanticCoverageCounts{CodeableConceptOwners: 1, CodingOccurrences: 1},
-		Complete: true,
-		Diagnostics: []fieldprofile.SemanticCoverageDiagnostic{{
-			Code: "TEST_DIAGNOSTIC", CanonicalPath: "code", Explanation: "RAW-EXPLANATION-CANARY",
-		}},
-		Paths: []fieldprofile.SemanticCoveragePathAggregate{{
-			CanonicalPath: "code", Kind: fieldprofile.SemanticCoverageCodeableConcept,
-			Disposition:     fieldprofile.SemanticCoverageSemanticDisposition,
-			OccurrenceCount: 1, OwnerCount: 1, CodingCount: 1,
-			OwnerPathWitnesses: []string{"RAW-SOURCE-CANARY"},
-			Facets: []fieldprofile.SemanticCoverageFacetAggregate{{
-				Path: "code.coding[].code", Kind: "PRIMITIVE_CODE",
-				Disposition:     fieldprofile.SemanticCoverageSemanticDisposition,
-				OccurrenceCount: 1,
-				References:      []fieldprofile.SemanticCoverageReference{{Kind: fieldprofile.SemanticCoverageExactReference, ConceptID: "concept-1", BindingID: "binding-1"}},
 			}},
 		}},
 	}

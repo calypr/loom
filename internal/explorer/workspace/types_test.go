@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func TestAggregateSourceAcceptsContributorWindowsAndKeepsOrderingFirstOrderedOnly(t *testing.T) {
@@ -135,8 +136,8 @@ func testCatalog() CatalogSnapshot {
 		SourceGeneration: "g", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot",
 		Complete: true, Nodes: nodes, Edges: edges,
 		Candidates: []CatalogCandidate{
-			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
-			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
 		},
 		RoutePolicy: RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
 	}
@@ -144,13 +145,13 @@ func testCatalog() CatalogSnapshot {
 
 func TestCatalogDigestCanonicalizesConceptCandidateOrder(t *testing.T) {
 	first := testCatalog()
-	first.Candidates[0].ConceptCandidates = []ConceptCandidate{
+	first.Candidates[0].ConceptCandidates = []capability.ConceptCandidate{
 		{SourceResourceType: "Patient", SourcePath: "z", ExtensionURLPath: []string{"z"}, ObservedUnits: []string{"unit-z"}, Examples: []string{"example-z"}, Completeness: "COMPLETE", Status: "OBSERVED"},
 		{SourceResourceType: "Patient", SourcePath: "a", ExtensionURLPath: []string{"a"}, ObservedUnits: []string{"unit-a"}, Examples: []string{"example-a"}, Completeness: "COMPLETE", Status: "OBSERVED"},
 	}
 	second := first
 	second.Candidates = append([]CatalogCandidate(nil), first.Candidates...)
-	second.Candidates[0].ConceptCandidates = append([]ConceptCandidate(nil), first.Candidates[0].ConceptCandidates...)
+	second.Candidates[0].ConceptCandidates = append([]capability.ConceptCandidate(nil), first.Candidates[0].ConceptCandidates...)
 	second.Candidates[0].ConceptCandidates[0], second.Candidates[0].ConceptCandidates[1] = second.Candidates[0].ConceptCandidates[1], second.Candidates[0].ConceptCandidates[0]
 	firstDigest, err := first.Digest()
 	if err != nil {
@@ -175,17 +176,6 @@ func TestCatalogDigestCanonicalizesConceptCandidateOrder(t *testing.T) {
 	if string(canonical) == string(afterMutation) {
 		t.Fatal("canonical catalog JSON shared nested concept-candidate slices with its source")
 	}
-}
-
-func testFieldConstructionChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
-	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
-		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
-		Cardinality: cardinality, LogicalType: "string", ProjectionModes: []capability.ProjectionMode{projection},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return &choice
 }
 
 func TestEmptyBuilderStateAndBackendLeakage(t *testing.T) {
@@ -238,7 +228,7 @@ func TestContributorPredicateValidationUsesCatalogCardinalityAndKind(t *testing.
 		})
 	}
 	repeatedCatalog := catalog
-	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}, ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-family", "patient", "Patient", "name[].family", "many", capability.ProjectionArray)})
+	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}, ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "patient-family", "patient", "Patient", "name[].family", "many", capability.ProjectionArray)})
 	repeated := ContributorPredicate{CandidateID: "patient-family", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("Smith")}}
 	if err := ValidateContributorForCatalog(document, repeatedCatalog, RootOccurrenceID, document.Columns[1].Source, repeated); err == nil || !strings.Contains(err.Error(), "requires explicit ANY") {
 		t.Fatalf("repeated predicate error=%v", err)
@@ -367,7 +357,7 @@ func TestMigrateStoredWorkspaceReportsLegacyNilStepReceiptDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.OriginalNilConstructionStepLists != 1 || result.OriginalLegacyNilStepsDigest != legacyDigest || !ContainsString(result.AcceptedOriginalDigests, legacyDigest) {
+	if result.OriginalNilConstructionStepLists != 1 || result.OriginalLegacyNilStepsDigest != legacyDigest || !slices.Contains(result.AcceptedOriginalDigests, legacyDigest) {
 		t.Fatalf("legacy receipt digest relation missing: %#v want %q", result, legacyDigest)
 	}
 	if result.Workspace.Documents[0].Construction == nil || result.Workspace.Documents[0].Construction.Steps == nil {
@@ -399,7 +389,7 @@ func TestCatalogAggregateBatchMatchesIndividualChoices(t *testing.T) {
 			{ID: "obs-updated", NodeID: "observation", FieldPath: "meta.lastUpdated", LogicalType: "date_time", Cardinality: "optional_one"},
 			{ID: "report-issued", NodeID: "report", FieldPath: "issued", LogicalType: "date_time", Cardinality: "optional_one"},
 			{ID: "patient-updated", NodeID: "patient", FieldPath: "meta.lastUpdated", LogicalType: "date_time", Cardinality: "optional_one"},
-			{ID: "obs-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one", ConceptCandidates: []ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg", "cm", "furlong"}}}},
+			{ID: "obs-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one", ConceptCandidates: []capability.ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg", "cm", "furlong"}}}},
 			{ID: "repeated", NodeID: "observation", FieldPath: "effectiveDateTime", LogicalType: "date_time", Cardinality: "many", Repeated: true},
 			{ID: "missing-node", NodeID: "absent", FieldPath: "id", LogicalType: "string"},
 		},
@@ -473,7 +463,7 @@ func syntheticWideTransformationCatalog(size int) CatalogSnapshot {
 		case 3:
 			candidate.FieldPath = "valueQuantity.value"
 			candidate.LogicalType = "decimal"
-			candidate.ConceptCandidates = []ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"}}}
+			candidate.ConceptCandidates = []capability.ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"}}}
 		}
 		catalog.Candidates = append(catalog.Candidates, candidate)
 	}
@@ -577,5 +567,20 @@ func TestMigrateStoredWorkspaceRecognizesMixedNilStepDigest(t *testing.T) {
 	}
 	if !slices.Contains(migrated.AcceptedOriginalDigests, want) {
 		t.Fatalf("original mixed-null canonical digest %s absent from accepted %v; nil lists=%d", want, migrated.AcceptedOriginalDigests, migrated.OriginalNilConstructionStepLists)
+	}
+}
+
+func TestFindOutputDocumentReturnsFirstMatchAndNilWhenMissing(t *testing.T) {
+	workspace := Workspace{Documents: []Document{
+		{Output: Output{ID: "patients", Title: "first"}},
+		{Output: Output{ID: "patients", Title: "second"}},
+	}}
+
+	if got := workspace.FindOutputDocument("missing"); got != nil {
+		t.Fatalf("missing output = %#v, want nil", got)
+	}
+	got := workspace.FindOutputDocument("patients")
+	if got == nil || got.Output.Title != "first" {
+		t.Fatalf("duplicate output lookup = %#v, want first matching document", got)
 	}
 }

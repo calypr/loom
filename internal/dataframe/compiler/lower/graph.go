@@ -172,20 +172,6 @@ func graphRequiredSemiJoinNode(node recipeplan.SemanticNode, ancestorsRequired b
 	return copy
 }
 
-func CompileResolvedGraphPlan(resolved recipeplan.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
-	if len(resolved.SemanticPlan.Outputs) != 1 {
-		return ir.PhysicalPlan{}, fmt.Errorf("graph query requires exactly one output, got %d", len(resolved.SemanticPlan.Outputs))
-	}
-	output := resolved.SemanticPlan.Outputs[0]
-	context := recipeplan.ExecutionContext{
-		Project:           resolved.SemanticPlan.Bindings.Project,
-		DatasetGeneration: resolved.SemanticPlan.Bindings.DatasetGeneration,
-		AuthResourcePaths: append([]string(nil), resolved.SemanticPlan.Bindings.AuthResourcePaths...),
-		AuthScopeMode:     resolved.SemanticPlan.Bindings.AuthScopeMode,
-	}
-	return BuildGraphPhysicalPlan(output, context, limit, policy)
-}
-
 func graphAlias(node recipeplan.SemanticNode, fallback string) string {
 	if strings.TrimSpace(node.Alias) != "" {
 		return node.Alias

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	ir "github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -90,7 +91,7 @@ func validateWholeRelationIdentity(plan ir.PhysicalPlan, identity WholeRelationS
 		return fmt.Errorf("whole-relation evidence dataset generation differs from the exact physical binding")
 	}
 	paths, ok := plan.BindVars[ir.PhysicalScopeAuthPathsBind].([]string)
-	if !ok || !sameWholeRelationStrings(paths, identity.AuthResourcePaths) {
+	if !ok || !slices.Equal(paths, identity.AuthResourcePaths) {
 		return fmt.Errorf("whole-relation evidence authorization paths differ from the exact physical binding")
 	}
 	unrestricted, ok := plan.BindVars[ir.PhysicalScopeAuthPathsUnrestrictedBind].(bool)
@@ -214,7 +215,7 @@ func validateWholeRelationGroupRows(rows *ir.PhysicalGroupRows, bindVars map[str
 	if !generationOK || generation != identity.DatasetGeneration {
 		return fmt.Errorf("whole-relation GROUP_ROWS source generation differs from the authorized generation")
 	}
-	if !pathsOK || !sameWholeRelationStrings(paths, identity.AuthResourcePaths) ||
+	if !pathsOK || !slices.Equal(paths, identity.AuthResourcePaths) ||
 		!unrestrictedOK || unrestricted != (identity.AuthScopeMode == "unrestricted") {
 		return fmt.Errorf("whole-relation GROUP_ROWS source authorization differs from the exact authorized scope")
 	}
@@ -250,19 +251,7 @@ func cloneWholeRelationScopeIdentity(identity WholeRelationScopeIdentity) WholeR
 func sameWholeRelationScopeIdentity(left, right WholeRelationScopeIdentity) bool {
 	return left.OutputID == right.OutputID && left.Project == right.Project &&
 		left.DatasetGeneration == right.DatasetGeneration && left.AuthScopeMode == right.AuthScopeMode &&
-		sameWholeRelationStrings(left.AuthResourcePaths, right.AuthResourcePaths) && left.SchemaDigest == right.SchemaDigest
-}
-
-func sameWholeRelationStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
+		slices.Equal(left.AuthResourcePaths, right.AuthResourcePaths) && left.SchemaDigest == right.SchemaDigest
 }
 
 type wholeRelationScopeEvidenceIdentityV1 struct {

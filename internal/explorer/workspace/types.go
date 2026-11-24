@@ -49,7 +49,7 @@ type ImportedRecipeRef struct {
 }
 
 func (r ImportedRecipeRef) Validate() error {
-	if strings.TrimSpace(r.Name) == "" || r.Name != strings.TrimSpace(r.Name) || strings.TrimSpace(r.TranslationVersion) == "" || r.TranslationVersion != strings.TrimSpace(r.TranslationVersion) || strings.TrimSpace(r.Output) == "" || r.Output != strings.TrimSpace(r.Output) {
+	if !requiredID(r.Name) || !requiredID(r.TranslationVersion) || !requiredID(r.Output) {
 		return fmt.Errorf("imported recipe name, translationVersion, and output are required and must be trimmed")
 	}
 	if len(r.Digest) != 64 {
@@ -200,10 +200,8 @@ type CatalogCandidate struct {
 	SuggestionsComplete   bool                                      `json:"-"`
 	SuggestionsTruncated  bool                                      `json:"-"`
 	SuggestionCount       int                                       `json:"-"`
-	ConceptCandidates     []ConceptCandidate                        `json:"conceptCandidates,omitempty"`
+	ConceptCandidates     []capability.ConceptCandidate             `json:"conceptCandidates,omitempty"`
 }
-
-type ConceptCandidate = capability.ConceptCandidate
 
 type RepeatedBoundary struct {
 	Path     string `json:"path"`

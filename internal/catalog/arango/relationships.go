@@ -37,19 +37,19 @@ func (s *RelationshipStore) DiscoverReferences(ctx context.Context, opts catalog
 	}
 	rows := make([]catalog.PopulatedReference, 0, 64)
 	err := s.client.QueryRows(ctx, query, opts.CursorBatch, vars, func(row map[string]any) error {
-		fromType, fromOK := fhirschema.ConcreteResourceType(stringValue(row["from_type"]))
-		toType, toOK := fhirschema.ConcreteResourceType(stringValue(row["to_type"]))
+		fromType, fromOK := fhirschema.ConcreteResourceType(store.StringValue(row["from_type"]))
+		toType, toOK := fhirschema.ConcreteResourceType(store.StringValue(row["to_type"]))
 		if !fromOK || !toOK {
 			return nil
 		}
-		if _, ok := fhirschema.LookupTraversal(fromType, stringValue(row["label"]), toType); !ok {
+		if _, ok := fhirschema.LookupTraversal(fromType, store.StringValue(row["label"]), toType); !ok {
 			return nil
 		}
 		count, err := decodeInt64(row["edge_count"])
 		if err != nil {
-			return fmt.Errorf("decode edge_count for %s/%s/%s: %w", fromType, stringValue(row["label"]), toType, err)
+			return fmt.Errorf("decode edge_count for %s/%s/%s: %w", fromType, store.StringValue(row["label"]), toType, err)
 		}
-		rows = append(rows, catalog.PopulatedReference{DatasetGeneration: stringValue(row["dataset_generation"]), FromType: fromType, Label: stringValue(row["label"]), ToType: toType, EdgeCount: count})
+		rows = append(rows, catalog.PopulatedReference{DatasetGeneration: store.StringValue(row["dataset_generation"]), FromType: fromType, Label: store.StringValue(row["label"]), ToType: toType, EdgeCount: count})
 		return nil
 	})
 	return rows, err
@@ -74,9 +74,9 @@ func (s *RelationshipStore) AuditRelationshipEdges(ctx context.Context, opts cat
 		}
 		summary.InvalidEdgeCount += count
 		summary.InvalidRelations = append(summary.InvalidRelations, catalog.InvalidRelationship{
-			FromType:  stringValue(row["from_type"]),
-			Label:     stringValue(row["label"]),
-			ToType:    stringValue(row["to_type"]),
+			FromType:  store.StringValue(row["from_type"]),
+			Label:     store.StringValue(row["label"]),
+			ToType:    store.StringValue(row["to_type"]),
 			EdgeCount: count,
 		})
 		return nil
@@ -107,9 +107,9 @@ func (s *RelationshipStore) DiscoverRelationshipObservations(ctx context.Context
 	counts := make(map[relationshipObservationKey]int64)
 	var queryErr error
 	err := s.client.QueryRows(ctx, relationshipObservationsAQL, opts.CursorBatch, vars, func(row map[string]any) error {
-		storageFrom := stringValue(row["storage_from_type"])
-		label := stringValue(row["label"])
-		storageTo := stringValue(row["storage_to_type"])
+		storageFrom := store.StringValue(row["storage_from_type"])
+		label := store.StringValue(row["label"])
+		storageTo := store.StringValue(row["storage_to_type"])
 		count, err := decodeInt64(row["edge_count"])
 		if err != nil {
 			return fmt.Errorf("decode relationship count for %s/%s/%s: %w", storageFrom, label, storageTo, err)
@@ -120,7 +120,7 @@ func (s *RelationshipStore) DiscoverRelationshipObservations(ctx context.Context
 			result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{Code: "INVALID_RELATIONSHIP_ENDPOINT", Message: "relationship endpoint is not a concrete generated FHIR resource", StorageFromType: storageFrom, Label: label, StorageToType: storageTo, Count: count})
 			return nil
 		}
-		observation, ok, diagnostic := relationshipObservation(stringValue(row["project"]), stringValue(row["dataset_generation"]), stringValue(row["auth_resource_path"]), from, label, to, count)
+		observation, ok, diagnostic := relationshipObservation(store.StringValue(row["project"]), store.StringValue(row["dataset_generation"]), store.StringValue(row["auth_resource_path"]), from, label, to, count)
 		if !ok {
 			result.Diagnostics = append(result.Diagnostics, diagnostic)
 			return nil
@@ -236,7 +236,7 @@ func (s *RelationshipStore) RebuildRelationshipCatalog(ctx context.Context, opts
 		if err != nil {
 			return err
 		}
-		key := catalog.RelationshipKey{Project: stringValue(row["project"]), DatasetGeneration: stringValue(row["dataset_generation"]), AuthResourcePath: stringValue(row["auth_resource_path"]), FromType: stringValue(row["from_type"]), Label: stringValue(row["label"]), ToType: stringValue(row["to_type"])}
+		key := catalog.RelationshipKey{Project: store.StringValue(row["project"]), DatasetGeneration: store.StringValue(row["dataset_generation"]), AuthResourcePath: store.StringValue(row["auth_resource_path"]), FromType: store.StringValue(row["from_type"]), Label: store.StringValue(row["label"]), ToType: store.StringValue(row["to_type"])}
 		counts[key] = count
 		return nil
 	}); err != nil {

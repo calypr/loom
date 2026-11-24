@@ -130,7 +130,7 @@ func twinForeignBundle() publication.BundleExecution {
 		State: publication.BundlePublished,
 		Outputs: []publication.BundleOutputRecord{{
 			Name:     twinOutputName,
-			State:    publication.BundleReady,
+			State:    "READY",
 			RowCount: twinRowCount,
 		}},
 	}
@@ -147,7 +147,7 @@ func twinLocalBundle() publication.BundleExecution {
 			SchemaDigest:      "sha256-schema-P",
 		},
 		State:   publication.BundlePublished,
-		Outputs: []publication.BundleOutputRecord{{Name: "rows", State: publication.BundleReady, RowCount: 11}},
+		Outputs: []publication.BundleOutputRecord{{Name: "rows", State: "READY", RowCount: 11}},
 	}
 }
 
@@ -253,7 +253,7 @@ func twinAssertAuthorizedForeignBody(t *testing.T, fields map[string]any) {
 		"recipeDigest":         twinRecipeDigest,
 		"schemaDigest":         twinSchemaDigest,
 		"resolvedSchemaDigest": twinSchemaDigest,
-		"state":                string(publication.BundleReady),
+		"state":                "READY",
 	}
 	for key, expected := range want {
 		got, ok := fields[key]
@@ -273,8 +273,8 @@ func twinAssertAuthorizedForeignBody(t *testing.T, fields map[string]any) {
 	if !ok {
 		t.Fatalf("authorized output[0] is not an object: %v", outputs[0])
 	}
-	if output["name"] != twinOutputName || output["state"] != string(publication.BundleReady) {
-		t.Fatalf("authorized output[0] name/state = %v/%v, want %s/%s", output["name"], output["state"], twinOutputName, publication.BundleReady)
+	if output["name"] != twinOutputName || output["state"] != "READY" {
+		t.Fatalf("authorized output[0] name/state = %v/%v, want %s/%s", output["name"], output["state"], twinOutputName, "READY")
 	}
 	count, isNumber := output["rowCount"].(json.Number)
 	if !isNumber || count.String() != "7373737" {

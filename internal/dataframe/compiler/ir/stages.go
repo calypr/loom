@@ -381,7 +381,7 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 				if stage.Kind != PhysicalStageRelatedSourceOp || stage.RelatedSource == nil || construction.Operation != string(PhysicalStageRelatedSourceOp) {
 					return fmt.Errorf("related-source lineage must be produced by a RELATED_SOURCE stage")
 				}
-				projection, found := findPhysicalStageProjection(stage.OutputProjections, construction.OutputColumn)
+				projection, found := FindStageProjectionByName(stage.OutputProjections, construction.OutputColumn)
 				if !found || projection.Expression == nil || relatedSourceProjectionSubplan(*projection.Expression, *stage.RelatedSource) == nil {
 					return fmt.Errorf("related-source output has no typed route subplan")
 				}
@@ -422,15 +422,6 @@ func validConstructionCellTraceIdentityFields(sequence PhysicalStageSequence, fi
 		return fields[0] != "" && fields[0] == sequence.FinalRowIdentity
 	}
 	return sequence.FinalRowIdentity == "_key" && len(fields) == 2 && fields[0] == "project" && fields[1] == "_key"
-}
-
-func findPhysicalStageProjection(projections []PhysicalProjection, name string) (PhysicalProjection, bool) {
-	for _, projection := range projections {
-		if projection.Name == name {
-			return projection, true
-		}
-	}
-	return PhysicalProjection{}, false
 }
 
 func stageColumnsByID(columns []PhysicalStageColumn) map[string]PhysicalStageColumn {

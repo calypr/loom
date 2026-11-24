@@ -291,18 +291,18 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 		ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: ws.CurrentSemanticsVersion},
 		catalog,
 		"create",
-		[]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "n_patient"}}},
+		authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "n_patient"}}}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
-	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "first-hop", []authoringv2.Command{{Type: authoringv2.CommandAddRoute, OutputID: outputID, Payload: &authoringv2.RoutePayload{ParentOccurrenceID: ws.RootOccurrenceID, EdgeID: "e_encounter"}}})
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "first-hop", authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandAddRoute, OutputID: outputID, Payload: &authoringv2.RoutePayload{ParentOccurrenceID: ws.RootOccurrenceID, EdgeID: "e_encounter"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	parentOccurrenceID := workspace.Documents[0].Route.Children[0].OccurrenceID
-	_, _, err = authoringv2.ApplyCommands(workspace, catalog, "over-depth", []authoringv2.Command{{Type: authoringv2.CommandAddRoute, OutputID: outputID, Payload: &authoringv2.RoutePayload{ParentOccurrenceID: parentOccurrenceID, EdgeID: "e_self"}}})
+	_, _, err = authoringv2.ApplyCommands(workspace, catalog, "over-depth", authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandAddRoute, OutputID: outputID, Payload: &authoringv2.RoutePayload{ParentOccurrenceID: parentOccurrenceID, EdgeID: "e_self"}}}))
 	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
 		t.Fatalf("command over-depth route error = %v, want ROUTE_TOO_LONG", err)
 	}
@@ -353,11 +353,11 @@ func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T)
 	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: ws.CurrentSemanticsVersion}
 	var created []authoringv2.CommandResult
 	var err error
-	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "n_patient"}}})
+	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", Payload: &authoringv2.TablePayload{RootNodeID: "n_patient"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "column", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "c_patient_id"}}})
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "column", authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, Payload: &authoringv2.ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "c_patient_id"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -756,7 +756,7 @@ func TestCompileParallelSemanticRoutesUsesPinnedCatalogEdges(t *testing.T) {
 			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &ws.TablePresentation{Visible: &visible}},
 		},
 	}
-	occurrences, _, err := resolveSemanticRoute(document, snapshot)
+	occurrences, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}

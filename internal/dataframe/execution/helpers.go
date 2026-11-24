@@ -16,8 +16,3 @@ func sanitizeColumnName(in string) string {
 	}
 	return b.String()
 }
-
-const (
-	datasetGenerationBindKey = "dataset_generation"
-	datasetGenerationField   = "dataset_generation"
-)

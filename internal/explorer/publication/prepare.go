@@ -189,7 +189,7 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 }
 
 func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*receiptmodel.CompilationReceipt, *explorer.Revision, ports.AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
-	revision, err := s.store.GetRevision(ctx, request.RevisionID)
+	revision, err := s.config.Revisions.GetRevision(ctx, strings.TrimSpace(request.RevisionID))
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.NotFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)

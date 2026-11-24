@@ -76,8 +76,7 @@ func appendRecipeDerivedColumnsWithVariables(plan *ir.PhysicalPlan, columns []re
 	lets := make([]ir.PhysicalOperation, 0, len(columns)*2)
 
 	var compileDerived func(string) error
-	var compileOperand func(recipe.DerivedOperand, string) (derivedOperandValue, error)
-	compileOperand = func(operand recipe.DerivedOperand, owner string) (derivedOperandValue, error) {
+	compileOperand := func(operand recipe.DerivedOperand, owner string) (derivedOperandValue, error) {
 		switch operand.Kind {
 		case recipe.DerivedColumnOperand:
 			if derived, exists := derivedByName[operand.Column]; exists {

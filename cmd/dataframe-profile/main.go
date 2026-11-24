@@ -15,8 +15,6 @@ import (
 
 	compilerfixture "github.com/calypr/loom/tests/conformance"
 
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
-	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -105,7 +103,7 @@ func main() {
 			fatalf("read variables %q: %v", *variables, err)
 		}
 		var payload struct {
-			Input dataframemodel.FhirDataframeInput `json:"input"`
+			Input recipe.FhirDataframeInput `json:"input"`
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
 			fatalf("decode dataframe request %q: %v", *variables, err)
@@ -113,7 +111,7 @@ func main() {
 		if payload.Input.Project == "" || payload.Input.RootResourceType == "" {
 			fatalf("dataframe request %q do not contain a complete input", *variables)
 		}
-		bundle, err = queryapi.RecipeBundleFromInput(payload.Input)
+		bundle, err = payload.Input.Bundle()
 		if err != nil {
 			fatalf("convert dataframe request to recipe: %v", err)
 		}

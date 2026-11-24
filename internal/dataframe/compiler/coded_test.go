@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 )
 
 func TestCodedGroupPreviewWithSourceIdentityKeepsStageInputScoped(t *testing.T) {
@@ -16,7 +17,7 @@ func TestCodedGroupPreviewWithSourceIdentityKeepsStageInputScoped(t *testing.T) 
 		IncludeAuthResourcePath: true, IncludeSourceIdentity: true,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"BodyStructure/allowed"},
 	}
-	compiled := lowerConstructionOutput(t, bodyStructureCodedGroupOutput(), bindings)
+	compiled := lowerConstructionOutput(t, compilerfixtures.BodyStructureCodedGroupOutput(), bindings)
 	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestCodedGroupPreviewWithSourceIdentityKeepsStageInputScoped(t *testing.T) 
 }
 
 func TestCodedGroupInlinesPopulationSelectedRootScan(t *testing.T) {
-	output := bodyStructureCodedGroupOutput()
+	output := compilerfixtures.BodyStructureCodedGroupOutput()
 	output.Population = &recipe.PopulationConstraint{
 		SelectionRevisionID: "selection-coded-group",
 		MembershipDigest:    "sha256:coded-group-members",
@@ -85,33 +86,6 @@ func TestCodedGroupInlinesPopulationSelectedRootScan(t *testing.T) {
 	}
 	if strings.Contains(query.Query, "__loom_construction_source_projection") || strings.Contains(query.Query, "__loom_construction_coded_group_source_id") {
 		t.Fatalf("population-selected first-stage CODED_GROUP did not inline its physical root scan:\n%s", query.Query)
-	}
-}
-
-func bodyStructureCodedGroupOutput() recipe.Output {
-	const sourceID = "body_structure_id"
-	columns := []recipe.StageColumn{
-		{ID: "system_id", Name: "code_system", Type: "string", Nullable: true},
-		{ID: "version_id", Name: "code_version", Type: "string", Nullable: true},
-		{ID: "code_id", Name: "code", Type: "string", Nullable: true},
-		{ID: "count_id", Name: "source_records", Type: "integer"},
-	}
-	return recipe.Output{
-		Name: "body_structures", RootResourceType: "BodyStructure", RowGrain: "resource",
-		Fields: []recipe.Field{{Name: sourceID, ColumnID: sourceID, Expr: recipe.Expression{Select: "root.id"}}},
-		Construction: &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: sourceID, Name: sourceID}}, Steps: []recipe.ConstructionStep{{
-			ID: "group_codes", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionCodedGroupOp, CodedGroup: &recipe.ConstructionCodedGroup{
-				ConstructionID: "group_codes",
-				Source: recipe.ConstructionCodedGroupSource{
-					OccurrenceID: "base", ResourceType: "BodyStructure", CodingPath: "includedStructure[].structure.coding[]",
-					FHIRType: "Coding", Cardinality: "MANY", Shape: "ARRAY", Route: []recipe.ConstructionRelatedRouteStep{},
-				},
-				MissingKeyPolicy:     recipe.ConstructionGroupMissingKeyGroup,
-				SystemOutputColumnID: "system_id", VersionOutputColumnID: "version_id",
-				CodeOutputColumnID: "code_id", DistinctSourceCountOutputColumnID: "count_id",
-			}}, Outputs: columns,
-		}}},
 	}
 }
 

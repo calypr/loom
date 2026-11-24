@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestConstructionSourceProjectionAvailabilityUsesAuthoringCarryPolicy(t *testing.T) {
@@ -103,6 +104,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 			{ID: "active", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "active", Label: "Whether this record is in active use", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
 			{ID: "id", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "id", Label: "Logical id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
 			{ID: "patient", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "patient", Label: "Patient", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
+			{ID: "schema-only-description", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "description", Label: "Description", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: false, Populated: false},
 		},
 		nil,
 	)
@@ -128,6 +130,11 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 	}
 	if !capability.Supported || capability.ReasonCode != "" || len(capability.Choices) != 1 {
 		t.Fatalf("BodyStructure source choices = %#v, want one eligible root scalar", capability)
+	}
+	for _, choice := range capability.Choices {
+		if choice.FieldPath == "description" {
+			t.Fatal("offered a group-key choice for an unobserved, unpopulated scalar")
+		}
 	}
 	choice := capability.Choices[0]
 	if choice.FieldPath != "active" || choice.Label != "Active" || choice.FHIRType != "boolean" ||
@@ -400,16 +407,7 @@ func TestPivotLabelOnlyEditRejectsChangedInputAncestry(t *testing.T) {
 }
 
 func constructionPivotLabelFilterStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status"}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
-			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
-		},
-	}
+	return constructionfixtures.PivotFilterStep("keep_positive", "pivot_status", "group_id", "group_id", "patient_id", "Patient ID", "pivot_final", "final_value", "Final")
 }
 
 func TestConstructionNodeOccurrencesKeepsRootAndOmitsAmbiguousNodes(t *testing.T) {

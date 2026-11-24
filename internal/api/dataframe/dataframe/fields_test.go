@@ -88,7 +88,7 @@ func fr20SucceededExecution() publication.BundleExecution {
 		State: publication.BundlePublished,
 		Outputs: []publication.BundleOutputRecord{{
 			Name:     fr20OutputName,
-			State:    publication.BundleReady,
+			State:    "READY",
 			RowCount: 41,
 		}},
 	}
@@ -216,7 +216,7 @@ func TestFR20EtlFailureFieldsAbsentForSucceededExecution(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("authorized member read of own READY execution must be 200, got %d %s", status, body)
 	}
-	if fields["state"] != string(publication.BundleReady) {
+	if fields["state"] != "READY" {
 		t.Fatalf("published execution must render state READY, got %v", fields["state"])
 	}
 	for _, key := range []string{"error", "errorCode", "errorRetryable", "phase"} {
@@ -225,7 +225,7 @@ func TestFR20EtlFailureFieldsAbsentForSucceededExecution(t *testing.T) {
 		}
 	}
 	output := fr20FailedOutput(t, fields)
-	if output["state"] != string(publication.BundleReady) {
+	if output["state"] != "READY" {
 		t.Fatalf("success output state = %v, want READY", output["state"])
 	}
 	for _, key := range []string{"error", "errorCode", "errorRetryable", "phase"} {
@@ -404,7 +404,7 @@ func fr20AssertHealthyOutputsPublishNoFailureTrio(t *testing.T, shapeName, trans
 		t.Fatalf("%s/%s: body outputs do not mirror the durable set: %v", shapeName, transport, body["outputs"])
 	}
 	for i, output := range durable.Outputs {
-		healthy := output.State == publication.BundleReady || output.State == publication.BundlePublished
+		healthy := output.State == "READY" || output.State == publication.BundlePublished
 		if !healthy || output.FailureCode != "" {
 			continue
 		}
@@ -433,7 +433,7 @@ func TestFR20GenuineOutputFailureProjectsDespiteHealthyExecution(t *testing.T) {
 		outputState publication.BundleState
 	}{
 		{name: "failed-output_healthy-execution", outputState: publication.BundleFailed},
-		{name: "ready-output_own-failure-code", outputState: publication.BundleReady},
+		{name: "ready-output_own-failure-code", outputState: "READY"},
 	}
 	for _, record := range records {
 		id := fr20GenuineExecPrefix + record.name

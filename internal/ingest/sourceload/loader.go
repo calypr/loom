@@ -10,16 +10,23 @@ import (
 	"strings"
 
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
+type SourceLoadState string
+
 const (
-	SourceLoadUploading      = "UPLOADING"
-	SourceLoadReady          = "READY"
-	SourceLoadPublishPending = "PUBLISH_PENDING"
-	SourceLoadPublished      = "PUBLISHED"
-	SourceLoadSuperseded     = "SUPERSEDED"
+	SourceLoadUploading      SourceLoadState = "UPLOADING"
+	SourceLoadReady          SourceLoadState = "READY"
+	SourceLoadPublishPending SourceLoadState = "PUBLISH_PENDING"
+	SourceLoadPublished      SourceLoadState = "PUBLISHED"
+	SourceLoadSuperseded     SourceLoadState = "SUPERSEDED"
 )
+
+type SourceFileReceiptState string
+
+const SourceFileReady SourceFileReceiptState = "READY"
 
 type SourceManifestFile struct {
 	Path   string `json:"path"`
@@ -35,17 +42,17 @@ type SourceLoadPlan struct {
 }
 
 type SourceFileReceipt struct {
-	Path         string `json:"path"`
-	ResourceType string `json:"resource_type"`
-	SHA256       string `json:"sha256"`
-	Rows         int64  `json:"rows"`
-	State        string `json:"state"`
+	Path         string                 `json:"path"`
+	ResourceType string                 `json:"resource_type"`
+	SHA256       string                 `json:"sha256"`
+	Rows         int64                  `json:"rows"`
+	State        SourceFileReceiptState `json:"state"`
 }
 
 type SourceLoadStatus struct {
 	OperationID      string              `json:"operation_id"`
 	Generation       string              `json:"generation"`
-	State            string              `json:"state"`
+	State            SourceLoadState     `json:"state"`
 	BaseRevision     int64               `json:"base_revision"`
 	Files            []SourceFileReceipt `json:"files"`
 	AuthResourcePath string              `json:"-"`
@@ -64,11 +71,27 @@ func (e *SourceFileValidationError) Error() string {
 	return fmt.Sprintf("source file validation failed for %d row(s)", e.TotalErrors)
 }
 
-type SourceLoadMaterializer func(context.Context, string, string, string, string, int64) (executionID string, sourceRevision int64, err error)
+type PublicationAttempt struct {
+	Project          string
+	Generation       string
+	OperationID      string
+	GitCommit        string
+	ExpectedRevision int64
+	record           sourceLoadRecord
+	owner            string
+}
+
+type SourceLoadMaterializer func(context.Context, PublicationAttempt) error
+
+type InventoryWriter interface {
+	BeginSemanticInventoryBuild(context.Context, semantic.Build) error
+	CompleteSemanticInventoryBuild(context.Context, semantic.Build, int64, string) error
+}
 
 type SourceLoadPublisherConfig struct {
 	Client               *arangostore.Client
 	DatasetStore         *datasetarango.Store
+	Inventory            InventoryWriter
 	BatchSize            int
 	WriteAPI             string
 	ValidateProject      func(context.Context, string) error
@@ -93,6 +116,7 @@ const sourceLoadCollection = "loom_source_loads"
 type RepositorySourceLoader struct {
 	client          *arangostore.Client
 	datasets        *datasetarango.Store
+	inventory       InventoryWriter
 	schema          *source.RuntimeFHIRSchema
 	batchSize       int
 	writeAPI        string
@@ -103,8 +127,8 @@ type RepositorySourceLoader struct {
 var _ SourceLoadStore = (*RepositorySourceLoader)(nil)
 
 func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySourceLoader, error) {
-	if cfg.Client == nil || cfg.DatasetStore == nil || cfg.MaterializeAndSelect == nil {
-		return nil, fmt.Errorf("source load publisher requires an Arango client, dataset store, and release callback")
+	if cfg.Client == nil || cfg.DatasetStore == nil || cfg.Inventory == nil || cfg.MaterializeAndSelect == nil {
+		return nil, fmt.Errorf("source load publisher requires an Arango client, dataset store, inventory writer, and release callback")
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 1000
@@ -116,7 +140,7 @@ func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySource
 		cfg.WriteAPI = "import"
 	}
 	return &RepositorySourceLoader{
-		client: cfg.Client, datasets: cfg.DatasetStore, schema: source.LoadRuntimeFHIRSchema(),
+		client: cfg.Client, datasets: cfg.DatasetStore, inventory: cfg.Inventory, schema: source.LoadRuntimeFHIRSchema(),
 		batchSize: cfg.BatchSize, writeAPI: cfg.WriteAPI, validateProject: cfg.ValidateProject,
 		materialize: cfg.MaterializeAndSelect,
 	}, nil
@@ -125,7 +149,7 @@ func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySource
 func canonicalizeSourceLoadPlan(plan SourceLoadPlan) (SourceLoadPlan, SourceManifest, string, error) {
 	manifest := SourceManifest{Repository: plan.Repository, Commit: plan.Commit, Files: make([]SourceFile, len(plan.Files))}
 	for i, file := range plan.Files {
-		manifest.Files[i] = SourceFile{Path: file.Path, SHA256: file.SHA256}
+		manifest.Files[i] = SourceFile(file)
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -141,7 +165,7 @@ func canonicalizeSourceLoadPlan(plan SourceLoadPlan) (SourceLoadPlan, SourceMani
 	plan.Repository, plan.Commit = canonical.Repository, canonical.Commit
 	plan.Files = make([]SourceManifestFile, len(canonical.Files))
 	for i, file := range canonical.Files {
-		plan.Files[i] = SourceManifestFile{Path: file.Path, SHA256: file.SHA256}
+		plan.Files[i] = SourceManifestFile(file)
 	}
 	plan.AuthResourcePath = strings.TrimSpace(plan.AuthResourcePath)
 	return plan, canonical, hash, nil

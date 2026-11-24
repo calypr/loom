@@ -35,7 +35,7 @@ func TestRecipeExecutionAuthorizationStatusDistinguishesDenialFromOutage(t *test
 }
 
 func TestRecipeExecutionHTTPStatePreservesOtherPersistedStates(t *testing.T) {
-	for _, state := range []publication.BundleState{publication.BundlePending, publication.BundlePreflight, publication.BundleValidating, publication.BundleLoading, publication.BundleQueued, publication.BundleRunning, publication.BundleReady, publication.BundleFailed, "FUTURE_STATE"} {
+	for _, state := range []publication.BundleState{"PENDING", "PREFLIGHT", publication.BundleValidating, "LOADING", publication.BundleQueued, publication.BundleRunning, "READY", publication.BundleFailed, "FUTURE_STATE"} {
 		if got := recipeExecutionHTTPState(state); got != string(state) {
 			t.Errorf("HTTP state for %q = %q, want unchanged persisted state", state, got)
 		}

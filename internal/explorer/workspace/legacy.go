@@ -65,7 +65,7 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 			column.Contributor = &predicate
 			where.Where = nil
 			decision := fmt.Sprintf("semantics-v4:aggregate-where-to-contributor:%s:%s:%s", document.Output.ID, column.Column, candidate.ID)
-			if !ContainsString(migrated.MigrationDecisions, decision) {
+			if !slices.Contains(migrated.MigrationDecisions, decision) {
 				migrated.MigrationDecisions = append(migrated.MigrationDecisions, decision)
 			}
 		}
@@ -163,7 +163,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 					column.Source.Field.RelatedSelection = &RelatedSelection{Kind: "first-by-resource-key"}
 				}
 				decision := fmt.Sprintf("semantics-v3:related-first-requires-ack:%s:%s", document.Output.ID, column.Column)
-				if !ContainsString(workspace.MigrationDecisions, decision) {
+				if !slices.Contains(workspace.MigrationDecisions, decision) {
 					workspace.MigrationDecisions = append(workspace.MigrationDecisions, decision)
 				}
 				continue
@@ -181,7 +181,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 			}
 			fieldPath := strings.TrimPrefix(column.Source.Field.Path, "root.")
 			for _, candidate := range catalog.Candidates {
-				if nodes[candidate.NodeID].ResourceType != occurrence.ResourceType || strings.TrimPrefix(candidate.FieldPath, "root.") != fieldPath || len(candidate.RepeatedBoundaries) == 0 || !ContainsString(candidate.ProjectionModes, "INDEXED") {
+				if nodes[candidate.NodeID].ResourceType != occurrence.ResourceType || strings.TrimPrefix(candidate.FieldPath, "root.") != fieldPath || len(candidate.RepeatedBoundaries) == 0 || !slices.Contains(candidate.ProjectionModes, "INDEXED") {
 					continue
 				}
 				column.Source.Field.ProjectionMode = "INDEXED"

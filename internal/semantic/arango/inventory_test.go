@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
@@ -211,7 +213,17 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	assertCodePopulation(t, replayed, "shared-000", 2)
 }
 
-func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *testing.T) {
+func TestSemanticInventoryMaterializationMatchesPreaggregatedLegacyRowsAgainstArango(t *testing.T) {
+	fixtures := []semantic.Contribution{
+		inventoryAggregationFixture("a", 1, false),
+		inventoryAggregationFixture("a", 2, true),
+		inventoryAggregationFixture("a", 1, false),
+		inventoryAggregationFixture("Z", 1, false),
+	}
+	fixtureAggregates := preaggregatedLegacyInventoryFixtures(fixtures)
+	if len(fixtureAggregates) != 2 || fixtureAggregates[0].Observation.Population != 4 || !fixtureAggregates[0].Observation.ExamplesTruncated {
+		t.Fatalf("preaggregated legacy fixtures = %#v, want display a population 4 with truncation plus separate Z", fixtureAggregates)
+	}
 	owned := arangotest.Owned(t, "loom_semantic_aggregation_")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -227,12 +239,6 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 		t.Fatal(err)
 	}
 	project := "aggregation-" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	fixtures := []semantic.Contribution{
-		inventoryAggregationFixture("a", 1, false),
-		inventoryAggregationFixture("a", 2, true),
-		inventoryAggregationFixture("a", 1, false),
-		inventoryAggregationFixture("Z", 1, false),
-	}
 	var rowLevel, aggregated []semantic.Entry
 	var rawPopulation int64
 	for _, fixture := range fixtures {
@@ -243,8 +249,7 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 		if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 			t.Fatal(err)
 		}
-		contributions := make([]semantic.Contribution, 0, len(fixtures))
-		aggregator := semantic.NewAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
+		rowContributions := make([]semantic.Contribution, 0, len(fixtures))
 		for ordinal, fixture := range fixtures {
 			fixture.Project = project
 			fixture.DatasetGeneration = generation
@@ -255,18 +260,17 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 			fixture.Ordinal = ordinal
 			fixture.Key = fmt.Sprintf("row-%d-%s", ordinal, generation)
 			fixture.Observation.SchemaVersion = build.ObservationSchema
-			if index == 0 {
-				contributions = append(contributions, fixture)
-			} else if err := aggregator.Add(fixture); err != nil {
-				t.Fatal(err)
-			}
+			rowContributions = append(rowContributions, fixture)
 		}
+		contributions := rowContributions
 		if index == 1 {
-			contributions = aggregator.Documents()
+			contributions = preaggregatedLegacyInventoryFixtures(rowContributions)
 			if len(contributions) != 2 {
 				t.Fatalf("aggregated rows = %d, want two distinct ICU reducer inputs", len(contributions))
 			}
 			for ordinal, contribution := range contributions {
+				contribution.Ordinal = ordinal
+				contribution.SourceID = "META/Observation.ndjson"
 				contribution.Key = fmt.Sprintf("aggregate-%d-%s", ordinal, generation)
 				contributions[ordinal] = contribution
 			}
@@ -320,6 +324,22 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 	if aggregated[0].Observation.Population != rawPopulation {
 		t.Fatalf("aggregated population=%d, want %d", aggregated[0].Observation.Population, rawPopulation)
 	}
+}
+
+func preaggregatedLegacyInventoryFixtures(rows []semantic.Contribution) []semantic.Contribution {
+	byDisplay := make(map[string]semantic.Contribution)
+	for _, row := range rows {
+		display := row.Observation.Key.Display
+		current, exists := byDisplay[display]
+		if !exists {
+			byDisplay[display] = row
+			continue
+		}
+		current.Observation.Population += row.Observation.Population
+		current.Observation.ExamplesTruncated = current.Observation.ExamplesTruncated || row.Observation.ExamplesTruncated
+		byDisplay[display] = current
+	}
+	return []semantic.Contribution{byDisplay["a"], byDisplay["Z"]}
 }
 
 func inventoryAggregationFixture(display string, population int64, truncated bool) semantic.Contribution {
@@ -1088,21 +1108,9 @@ func assertSemanticCategoryExamples(t *testing.T, family semantic.Family, want [
 	expected := append([]string(nil), want...)
 	sort.Strings(got)
 	sort.Strings(expected)
-	if !equalStringSlices(got, expected) {
+	if !slices.Equal(got, expected) {
 		t.Fatalf("family examples = %#v, want selected Coding display/code values %#v", got, expected)
 	}
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func deleteSemanticCategoryFixtureRows(ctx context.Context, client *arangostore.Client, collection, project, generation string) error {
@@ -1135,14 +1143,14 @@ func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
 		},
 	}
 	const selectionID = `family:["Specimen","type.coding[]","urn:specimen",""]`
-	familyRow := map[string]any{"binding_id": family.BindingID, "selection_id": selectionID, "family": semanticInventoryTestRow(t, family)}
+	familyRow := map[string]any{"binding_id": family.BindingID, "selection_id": selectionID, "family": testkit.JSONMap(t, family)}
 	for _, firstFamily := range []bool{true, false} {
-		rows := []map[string]any{familyRow, semanticInventoryTestRow(t, measurement)}
+		rows := []map[string]any{familyRow, testkit.JSONMap(t, measurement)}
 		if !firstFamily {
 			rows[0], rows[1] = rows[1], rows[0]
 		}
 		client := &evidenceClient{rows: map[string][]map[string]any{
-			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)}, semanticInventoryCategoryPageAQL: rows,
+			semanticInventoryBuildsAQL: {testkit.JSONMap(t, build)}, semanticInventoryCategoryPageAQL: rows,
 		}}
 		adapter, err := New(client)
 		if err != nil {
@@ -1190,8 +1198,8 @@ func TestResolveSemanticInventoryFamilyUsesCurrentInventoryScope(t *testing.T) {
 		}
 		family := categoryTestFamily()
 		client := &evidenceClient{rows: map[string][]map[string]any{
-			semanticInventoryBuildByKeyAQL:      {semanticInventoryTestRow(t, build)},
-			semanticInventoryResolveFamiliesAQL: {semanticInventoryTestRow(t, family)},
+			semanticInventoryBuildByKeyAQL:      {testkit.JSONMap(t, build)},
+			semanticInventoryResolveFamiliesAQL: {testkit.JSONMap(t, family)},
 		}}
 		adapter, err := New(client)
 		if err != nil {
@@ -1240,8 +1248,8 @@ func TestSemanticInventoryCategoryPageRequiresEntryIndexAndPreservesExactFallbac
 	entry := semantic.Entry{BindingID: "binding", ConceptID: "concept"}
 	for _, mode := range []semantic.SelectionMode{"", semantic.ExactConcept, semantic.SystemVersionCategory} {
 		client := &evidenceClient{rows: map[string][]map[string]any{
-			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)},
-			semanticInventoryPageAQL:   {semanticInventoryTestRow(t, entry)},
+			semanticInventoryBuildsAQL: {testkit.JSONMap(t, build)},
+			semanticInventoryPageAQL:   {testkit.JSONMap(t, entry)},
 		}}
 		adapter, err := New(client)
 		if err != nil {
@@ -1271,7 +1279,7 @@ func TestResolveSemanticInventoryMixedSelectionsRequireEntryIndex(t *testing.T) 
 	build.State = semantic.Complete
 	family := categoryTestFamily()
 	client := &evidenceClient{rows: map[string][]map[string]any{
-		semanticInventoryBuildByKeyAQL: {semanticInventoryTestRow(t, build)},
+		semanticInventoryBuildByKeyAQL: {testkit.JSONMap(t, build)},
 	}}
 	adapter, err := New(client)
 	if err != nil {
@@ -1351,7 +1359,7 @@ func TestRefreshSemanticInventorySourceAvailabilityUsesExactCompletedBuildCAS(t 
 	refreshed := expected
 	refreshed.SourceAvailability = semantic.SourceAvailabilityVerified
 	client := &evidenceClient{rows: map[string][]map[string]any{
-		refreshSemanticInventorySourceAvailabilityAQL: {semanticInventoryTestRow(t, refreshed)},
+		refreshSemanticInventorySourceAvailabilityAQL: {testkit.JSONMap(t, refreshed)},
 	}}
 	adapter, err := New(client)
 	if err != nil {

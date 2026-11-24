@@ -1,0 +1,11 @@
+{
+  "query": "SELECT concat(toString(lengthUTF8(toString(__loom_left.`__loom_row_id`))), ':', toString(__loom_left.`__loom_row_id`), ':', toString(lengthUTF8(ifNull(toString(__loom_right.`__loom_row_id`), ''))), ':', ifNull(toString(__loom_right.`__loom_row_id`), '')) AS `__loom_row_id`, __loom_left.`patient_key` AS `patient_id`, __loom_right.`score_value` AS `score`, ifNull(__loom_left.`auth_resource_path`, '') AS `auth_resource_path` FROM `left_materialized` AS __loom_left ALL LEFT JOIN `right_materialized` AS __loom_right ON __loom_left.`patient_key` = __loom_right.`subject_key` AND __loom_left.`auth_resource_path` = __loom_right.`auth_resource_path` AND __loom_right.`auth_resource_path` IN ? WHERE __loom_left.`auth_resource_path` IN ? ORDER BY `__loom_row_id` ASC SETTINGS join_use_nulls = 1",
+  "binds": [
+    [
+      "/programs/p1"
+    ],
+    [
+      "/programs/p1"
+    ]
+  ]
+}

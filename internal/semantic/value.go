@@ -120,7 +120,7 @@ func semanticProjectionStatus(value map[string]any, path string) string {
 	return "SUPPORTED"
 }
 
-func semanticGeneratedValueType(resourceType, path string, value any, fallback string) string {
+func semanticGeneratedValueType(resourceType, path string, fallback string) string {
 	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, path)
 	if ok && metadata.Primitive != fhirschema.PrimitiveUnknown {
 		return string(metadata.Primitive)
@@ -142,7 +142,7 @@ func semanticObservedUnits(value any) []string {
 	}
 	units := make([]string, 0, 3)
 	for _, key := range []string{"unit", "code", "system"} {
-		if text := strings.TrimSpace(stringValue(object[key])); text != "" {
+		if text := strings.TrimSpace(StringValue(object[key])); text != "" {
 			units = append(units, text)
 		}
 	}
@@ -194,7 +194,7 @@ func semanticValueType(value any) string {
 	}
 }
 
-func stringValue(value any) string {
+func StringValue(value any) string {
 	if s, ok := value.(string); ok {
 		return s
 	}

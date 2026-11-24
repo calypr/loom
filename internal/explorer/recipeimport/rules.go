@@ -135,11 +135,7 @@ func catalogRuleProjection(rule *ws.ImportedCatalogParameters, limit int) recipe
 		Name: rule.Name, IncludePaths: rule.IncludePaths, ExcludePaths: rule.ExcludePaths,
 		Kinds: rule.Kinds, Naming: rule.Naming, MaxColumns: limit,
 	}
-	for _, override := range rule.Outputs {
-		projection.OutputOverrides = append(projection.OutputOverrides, recipe.CatalogProjectionOutputOverride{
-			FieldPath: override.FieldPath, Enabled: override.Enabled, Name: override.Name,
-		})
-	}
+	projection.OutputOverrides = append([]recipe.CatalogProjectionOutputOverride(nil), rule.Outputs...)
 	return projection
 }
 

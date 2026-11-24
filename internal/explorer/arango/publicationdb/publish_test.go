@@ -12,10 +12,11 @@ import (
 	publicationdata "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestAdoptedCatalogSnapshotIsDetachedAndKeepsExactPublishedMetadata(t *testing.T) {
-	view := projectConfigPublication(t, "adopt-project", "config-a", "recipe-a", "A", "view-revision", "generation-a", "execution-a", projectConfigTestBundle("recipe-a", "translation-1")).Revision
+	view := explorerfixtures.ProjectConfigPublication(t, "adopt-project", "config-a", "recipe-a", "A", "view-revision", "generation-a", "execution-a", projectConfigTestBundle("recipe-a", "translation-1")).Revision
 	snapshot := AdoptedCatalogSnapshot(view, "recipe-a")
 	if snapshot.ID == view.ID || !strings.HasPrefix(snapshot.ID, "catalog_") {
 		t.Fatalf("snapshot ID = %q, want independent catalog_ identity", snapshot.ID)
@@ -36,7 +37,7 @@ func TestAdoptedCatalogSnapshotIsDetachedAndKeepsExactPublishedMetadata(t *testi
 }
 
 func TestViewBuilderSourcePublicationExpectedHeadsAndExactRetry(t *testing.T) {
-	definition := projectConfigTestDefinition("default", "recipe-a", "Default")
+	definition := explorerfixtures.ProjectConfigDefinition("default", "recipe-a", "Default")
 	owner := projectConfigOwner{value: explorer.Explorer{
 		Project: "project-a", ExplorerID: "default", ManagementMode: viewer.ManagementRepository,
 		ProjectConfig: &definition, ActiveRevisionID: "revision-old",
@@ -100,15 +101,15 @@ func TestViewBuilderFrameIDsAreRecipeQualified(t *testing.T) {
 
 func TestViewBuilderDefaultRejectsRetargetingOrRemovingItsFrame(t *testing.T) {
 	settings := viewer.ViewBuilderSettings{DefaultConfigID: "default", DefaultFrameID: "recipe-a/output"}
-	valid := projectConfigTestDefinition("default", "recipe-a", "Default")
+	valid := explorerfixtures.ProjectConfigDefinition("default", "recipe-a", "Default")
 	if err := validateViewBuilderDefaultBinding(settings, valid); err != nil {
 		t.Fatalf("valid saved default rejected: %v", err)
 	}
-	retargeted := projectConfigTestDefinition("default", "recipe-b", "Default")
+	retargeted := explorerfixtures.ProjectConfigDefinition("default", "recipe-b", "Default")
 	if err := validateViewBuilderDefaultBinding(settings, retargeted); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("same-output cross-recipe retarget error = %v, want ErrDraftConflict", err)
 	}
-	missing := projectConfigTestDefinition("default", "recipe-a", "Default")
+	missing := explorerfixtures.ProjectConfigDefinition("default", "recipe-a", "Default")
 	missing.Views[0].Output = "other-output"
 	if err := validateViewBuilderDefaultBinding(settings, missing); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("removing selected output error = %v, want ErrDraftConflict", err)

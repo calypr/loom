@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -27,8 +29,6 @@ type relatedCodingSelector struct {
 	path  string
 	facts fhirschema.RowPathFacts
 }
-
-func (s relatedCodingSelector) Path() string { return s.path }
 
 type savedRelatedGroupRoute struct {
 	targetNodeID string
@@ -212,7 +212,7 @@ func resolveRelatedGroupSource(
 func groupFieldSourceChoiceFromRelated(
 	fieldContext *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	related recipe.ConstructionGroupRelatedOccurrenceFieldSource,
-	sourceShapeID, nodeID, fhirType, cardinality, shape, rowChoiceID, codingSelector string,
+	sourceShapeID, nodeID, fhirType, cardinality, shape, rowChoiceID string,
 ) capability.GroupFieldChoiceSource {
 	steps := make([]capability.GroupFieldRelatedRouteStep, len(related.Route))
 	for index, hop := range related.Route {
@@ -402,11 +402,11 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				valueType := string(observed.scalarFacts.FHIRType)
 				related, sourceShapeID, resolveErr := resolveRelatedGroupSource(compilerContext, "SCALAR", anchor, resolvedRoute, valueType, candidate.ID, candidate.FieldPath, "", "")
 				if resolveErr == nil {
-					source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, valueType, "ONE", "SCALAR", "", "")
+					source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, valueType, "ONE", "SCALAR", "")
 					source.TargetGroupStepID = targetGroupStepID
 					choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.Snapshot.Token, resolvedRoute, source, candidate)
 					if choiceErr == nil {
-						label := firstNonEmpty(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
+						label := loomtext.FirstTrimmed(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
 						choicesByID[choice.ChoiceID] = ConstructionGroupFieldChoice{
 							Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 							ValueKind: "SCALAR", Label: label, ScopeLabel: routeLabel, ValueType: candidate.LogicalType,
@@ -434,7 +434,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				if rowChoiceErr != nil {
 					continue
 				}
-				source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, "Coding", "MANY", "CODING_IDENTITY", rowChoice.ChoiceID, selector.path)
+				source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, "Coding", "MANY", "CODING_IDENTITY", rowChoice.ChoiceID)
 				choice, choiceErr := capability.NewGroupCodingIdentityChoice(base.Snapshot.Token, resolvedRoute, source)
 				if choiceErr != nil {
 					continue

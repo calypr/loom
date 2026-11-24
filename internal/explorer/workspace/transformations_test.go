@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"github.com/calypr/loom/internal/explorer/capability"
 	"strings"
 	"testing"
 )
@@ -56,7 +57,7 @@ func TestUnitNormalizationRequiresAnAdvertisedCompatiblePreset(t *testing.T) {
 		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
 		Candidates: []CatalogCandidate{{
 			ID: "observation-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one",
-			ConceptCandidates: []ConceptCandidate{{SourceResourceType: "Observation", ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"}}},
+			ConceptCandidates: []capability.ConceptCandidate{{SourceResourceType: "Observation", ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"}}},
 		}},
 	}
 	choices := AggregateTransformationCapabilitiesForCatalog(catalog, "observation-value").UnitNormalization
@@ -93,7 +94,7 @@ func TestUnitNormalizationPresetsAreNotPoisonedByOtherPopulationUnits(t *testing
 		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
 		Candidates: []CatalogCandidate{{
 			ID: "observation-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one",
-			ConceptCandidates: []ConceptCandidate{{
+			ConceptCandidates: []capability.ConceptCandidate{{
 				SourceResourceType: "Observation", ValueSelector: "valueQuantity.value",
 				ObservedUnits: []string{"cm", "kg", "furlong"}, ObservedUnitsTruncated: true,
 			}},

@@ -165,13 +165,13 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 		semantic.SourceRetained, "Observation", "Observation.code.coding[]", "urn:semantic-group-test", "v1",
 	)
 	if !semanticGroupFamilyReady(family) {
-		entry := semanticInventoryEntryForFamily(family)
+		entry := semantic.EntryForFamily(family)
 		t.Fatalf("test family is not a ready semantic Group family: %#v plan=%#v", family, semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation))
 	}
 	if path, ok := constructionSemanticGroupCodingPath("Observation", family); !ok || path != "code.coding[]" {
 		t.Fatalf("test family coding path = %q, ok=%t", path, ok)
 	}
-	if candidate, ok := semanticConstructionCandidate(snapshot, semanticInventoryEntryForFamily(family).Observation); !ok || candidate.ID != "observation-code-display" {
+	if candidate, ok := capability.SemanticConstructionCandidate(snapshot, semantic.EntryForFamily(family).Observation); !ok || candidate.ID != "observation-code-display" {
 		t.Fatalf("test family did not resolve its compiler candidate: %#v ok=%t", candidate, ok)
 	}
 	base := constructionBase{
@@ -218,7 +218,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	choiceCandidate, ok := semanticCandidateWithFallback(snapshot, anchor.Observation, candidate)
+	choiceCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, anchor.Observation, candidate)
 	if !ok {
 		t.Fatal("current fallback selectors must resolve to exact compiler-proved candidates")
 	}
@@ -235,7 +235,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	categoryChoice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, added, candidate, false)
+	categoryChoice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, added, candidate, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 	if err != nil {
 		t.Fatalf("semantic group choices on empty imported root: %v", err)
 	}
-	group, groupIncomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "MedicationAdministration", stage, semantic, incomplete, "", "")
+	group, groupIncomplete, err := service.constructionGroupFieldChoices(context.Background(), base, stage, semantic, incomplete, "", "")
 	if err != nil {
 		t.Fatalf("Group field choices on empty imported root: %v", err)
 	}

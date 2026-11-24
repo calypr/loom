@@ -11,7 +11,7 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-var _ interpretation.Repository = (*Store)(nil)
+var _ interpretation.Repository = (*InterpretationStore)(nil)
 
 func interpretationLibraryKey(project string, id interpretation.InterpretationLibraryID) string {
 	return "interpretation_library_" + db.Key(project, string(id))
@@ -28,7 +28,7 @@ func (s *InterpretationStore) ListInterpretationLibraries(ctx context.Context, r
 	}
 	result := make([]interpretation.InterpretationLibrary, 0)
 	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project SORT d.id ASC RETURN d`, 1000, map[string]any{
-		"@c": InterpretationLibrariesCollection, "project": project,
+		"@c": db.InterpretationLibrariesCollection, "project": project,
 	}, func(row map[string]any) error {
 		value, err := db.Decode[interpretation.InterpretationLibrary](row)
 		if err != nil {
@@ -56,7 +56,7 @@ func (s *InterpretationStore) GetInterpretationRevision(ctx context.Context, raw
 	}
 	var out *interpretation.InterpretationRevision
 	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.id == @id AND d.project == @project RETURN d`, 1, map[string]any{
-		"@c": InterpretationRevisionsCollection, "key": interpretationRevisionKey(id), "id": string(id), "project": project,
+		"@c": db.InterpretationRevisionsCollection, "key": interpretationRevisionKey(id), "id": string(id), "project": project,
 	}, func(row map[string]any) error {
 		value, err := db.Decode[interpretation.InterpretationRevision](row)
 		if err != nil {
@@ -120,11 +120,11 @@ func (s *InterpretationStore) CreateInterpretationRevision(ctx context.Context, 
 
 	var response map[string]any
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{
-		Write: []string{InterpretationLibrariesCollection, InterpretationRevisionsCollection},
+		Write: []string{db.InterpretationLibrariesCollection, db.InterpretationRevisionsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		return tx.QueryRows(txCtx, interpretationCreateAQL, 1, map[string]any{
-			"@libraries": InterpretationLibrariesCollection,
-			"@revisions": InterpretationRevisionsCollection,
+			"@libraries": db.InterpretationLibrariesCollection,
+			"@revisions": db.InterpretationRevisionsCollection,
 			"project":    project, "libraryId": string(libraryID),
 			"libraryKey":  interpretationLibraryKey(project, libraryID),
 			"revisionKey": interpretationRevisionKey(revision.ID),

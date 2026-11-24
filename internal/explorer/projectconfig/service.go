@@ -18,15 +18,12 @@ var projectConfigIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 type Service struct {
 	explorers *explorer.Service
+	revisions explorer.RevisionReader
 	repo      explorer.ViewBuilderRepository
 }
 
-func New(explorers *explorer.Service) *Service {
-	var repository explorer.ViewBuilderRepository
-	if explorers != nil {
-		repository = explorers.ViewBuilderStorage()
-	}
-	return &Service{explorers: explorers, repo: repository}
+func New(explorers *explorer.Service, revisions explorer.RevisionReader, repository explorer.ViewBuilderRepository) *Service {
+	return &Service{explorers: explorers, revisions: revisions, repo: repository}
 }
 
 func (v *Service) repository() (explorer.ViewBuilderRepository, error) {
@@ -41,12 +38,12 @@ func (v *Service) ViewBuilderState(ctx context.Context, project string) (viewer.
 	if err != nil {
 		return viewer.ViewBuilderState{}, err
 	}
-	storageProject := projectid.Legacy(project)
+	publicProject, storageProject := projectid.CanonicalAndLegacy(project)
 	settings, err := repository.GetViewBuilderSettings(ctx, storageProject)
 	if err != nil {
 		return viewer.ViewBuilderState{}, fmt.Errorf("read project view settings: %w", err)
 	}
-	settings.Project = projectid.Canonical(project)
+	settings.Project = publicProject
 	if settings.Catalogs == nil {
 		settings.Catalogs = map[string]string{}
 	}
@@ -59,7 +56,7 @@ func (v *Service) ViewBuilderState(ctx context.Context, project string) (viewer.
 	for _, owner := range owners {
 		if owner.ProjectConfig == nil {
 			if owner.ActiveRevisionID != "" && owner.Title != "" {
-				revision, err := v.explorers.GetRevision(ctx, owner.ActiveRevisionID)
+				revision, err := v.revisions.GetRevision(ctx, strings.TrimSpace(owner.ActiveRevisionID))
 				if err != nil {
 					return viewer.ViewBuilderState{}, fmt.Errorf("read published dataframe title: %w", err)
 				}
@@ -76,7 +73,7 @@ func (v *Service) ViewBuilderState(ctx context.Context, project string) (viewer.
 		}
 		entry := viewer.ViewBuilderConfig{Config: definition, RevisionID: owner.ActiveRevisionID}
 		if owner.ActiveRevisionID != "" {
-			revision, err := v.explorers.GetRevision(ctx, owner.ActiveRevisionID)
+			revision, err := v.revisions.GetRevision(ctx, strings.TrimSpace(owner.ActiveRevisionID))
 			if err != nil {
 				return viewer.ViewBuilderState{}, fmt.Errorf("read saved view diagnostics: %w", err)
 			}
@@ -95,7 +92,7 @@ func (v *Service) ViewBuilderState(ctx context.Context, project string) (viewer.
 	}
 	sort.Strings(recipes)
 	for _, name := range recipes {
-		revision, err := v.explorers.GetRevision(ctx, settings.Catalogs[name])
+		revision, err := v.revisions.GetRevision(ctx, strings.TrimSpace(settings.Catalogs[name]))
 		if err != nil {
 			return viewer.ViewBuilderState{}, fmt.Errorf("read published dataframe catalog: %w", err)
 		}
@@ -128,7 +125,7 @@ func (v *Service) saveViewBuilderConfig(ctx context.Context, project, id string,
 	if settings.Catalogs[request.Config.RecipeRef.Name] != request.CatalogRevisionID {
 		return explorer.ErrDraftConflict
 	}
-	snapshot, err := v.explorers.GetRevision(ctx, request.CatalogRevisionID)
+	snapshot, err := v.revisions.GetRevision(ctx, strings.TrimSpace(request.CatalogRevisionID))
 	if err != nil {
 		return fmt.Errorf("read published dataframe catalog: %w", err)
 	}
@@ -204,11 +201,4 @@ func (v *Service) List(ctx context.Context, project string) ([]explorer.Explorer
 		return nil, fmt.Errorf("Explorer service is not configured")
 	}
 	return v.explorers.List(ctx, project)
-}
-
-func (v *Service) GetRevision(ctx context.Context, revisionID string) (*explorer.Revision, error) {
-	if v == nil || v.explorers == nil {
-		return nil, fmt.Errorf("Explorer service is not configured")
-	}
-	return v.explorers.GetRevision(ctx, revisionID)
 }

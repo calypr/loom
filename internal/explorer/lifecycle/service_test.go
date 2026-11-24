@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	explorerpublication "github.com/calypr/loom/internal/explorer/publication"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -30,10 +33,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowdef"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
@@ -81,7 +87,7 @@ func (fakeRevisionStore) FailRevision(context.Context, string, []viewer.Diagnost
 	return nil, errors.New("revision store is not configured")
 }
 
-func (fakeRevisionStore) ActivateRepositoryGeneration(context.Context, string, string, string) error {
+func (fakeRevisionStore) ActivateRepositoryGeneration(context.Context, dataset.ProjectRelease, int64, string) error {
 	return errors.New("revision store is not configured")
 }
 
@@ -113,7 +119,6 @@ func (fakeSelectionStore) CleanupSelectionStaging(context.Context, time.Time, in
 
 type fakeStore struct {
 	explorer.ExplorerStore
-	fakeRevisionStore
 	fakeSelectionStore
 	listValues         []explorer.Explorer
 	state              viewer.ExplorerStateV1
@@ -310,7 +315,7 @@ func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []vie
 	return target, nil
 }
 
-func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisionID string) error {
+func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _ dataset.ProjectRelease, _ int64, revisionID string) error {
 	if f.order != nil {
 		*f.order = append(*f.order, "activate-generation")
 	}
@@ -318,7 +323,7 @@ func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisi
 		err := f.activationErrors[0]
 		f.activationErrors = f.activationErrors[1:]
 		if err != nil {
-			return err
+			return &explorer.RepositoryGenerationActivationError{Cause: err}
 		}
 	}
 	target := f.repositoryRevision
@@ -356,10 +361,12 @@ func newTestService(t *testing.T, store *fakeStore, config Config, options ...te
 
 func newTestServiceFromSetup(t *testing.T, setup testServiceSetup, options ...testServiceOption) *Service {
 	t.Helper()
+	config := ConfigWithTestStores(*setup.Config, setup.Store)
+	setup.Config = &config
 	for _, option := range options {
 		option(&setup)
 	}
-	domain, err := explorer.NewService(setup.Store)
+	domain, err := explorerfixtures.NewService(setup.Store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,51 +422,7 @@ func completedTestSelection(snapshot capability.Snapshot, resourceType string) *
 }
 
 func nativeReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
-	bundle := recipe.Bundle{
-		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
-		Name:                "native-test",
-		TranslationVersion:  "test",
-		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
-	}
-	emitted := []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
-	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
-	bundleDigest, _ := bundle.Digest()
-	workspace := ws.NewWorkspace("Patients")
-	workspace.Documents = []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
-	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
-	normalized, err := workspace.CanonicalJSON()
-	if err != nil {
-		panic(err)
-	}
-	intentDigest, err := workspace.Digest()
-	if err != nil {
-		panic(err)
-	}
-	receipt := &receiptmodel.CompilationReceipt{
-		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
-		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
-		Project:                  snapshot.Identity.Project,
-		ExplorerID:               "patients",
-		IntentDigest:             intentDigest,
-		NormalizedBundle:         normalized,
-		SnapshotToken:            snapshot.Token,
-		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		CapabilitySchemaDigest:   snapshot.Identity.SchemaDigest,
-		ShapeDigest:              snapshot.Identity.ShapeDigest,
-		SourceGeneration:         snapshot.Identity.Generation,
-		RecipeDigest:             bundleDigest,
-		ResolvedRecipeDigest:     bundleDigest,
-		ResolvedSchemaDigest:     "resolved-schema",
-		CompiledConfig:           json.RawMessage(`{}`),
-		PublicOutputContract:     contract,
-		Bundle:                   bundle,
-		EmittedColumns:           emitted,
-		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
-	}
-	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
-	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
-	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
-	return receipt
+	return constructionfixtures.NativeReceipt(snapshot)
 }
 
 func successfulTestExecution(receipt *receiptmodel.CompilationReceipt, state string) ports.Execution {
@@ -606,7 +569,7 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
@@ -865,23 +828,23 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 				return successfulTestExecution(base, "PUBLISHED"), nil
 			}
 			releaseErrors := append([]error(nil), test.releaseErrors...)
-			config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error {
+			config.PrepareRepositoryRelease = prepareRepositoryRelease(func(context.Context, string, string, []dataset.DataframeSelector) error {
 				if len(releaseErrors) == 0 {
 					return nil
 				}
 				err := releaseErrors[0]
 				releaseErrors = releaseErrors[1:]
 				return err
-			}
+			})
 			service := newTestService(t, store, config)
-			request := RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"}
-			if _, err := service.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.wantDiagnostic) {
+			request := explorerpublication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"}
+			if _, err := service.OwnerServices().Publication.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.wantDiagnostic) {
 				t.Fatalf("first publish error = %v, want %s", err, test.wantDiagnostic)
 			}
 			if store.repositoryRevision == nil || store.repositoryRevision.Status != explorer.RevisionFailed || len(store.repositoryRevision.Diagnostics) != 1 || store.repositoryRevision.Diagnostics[0].Code != test.wantDiagnostic {
 				t.Fatalf("failed revision = %#v, want retryable diagnostic %s", store.repositoryRevision, test.wantDiagnostic)
 			}
-			result, err := service.PublishRepository(context.Background(), request)
+			result, err := service.OwnerServices().Publication.PublishRepository(context.Background(), request)
 			if err != nil || result.Revision == nil || result.Revision.Status != explorer.RevisionActive {
 				t.Fatalf("retry result = %#v, err=%v", result, err)
 			}
@@ -912,7 +875,7 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 				return dataframeexecution.PreviewSummary{}, nil
 			}
 			service := newTestService(t, store, config)
-			_, err := service.Preview(context.Background(), PreviewRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+			_, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 			var value *ports.Error
 			if !errors.As(err, &value) || value.Code != test.wantCode {
 				t.Fatalf("err=%v, want %s", err, test.wantCode)
@@ -952,7 +915,7 @@ func TestPreviewIncludesStableRowIdentityForRecordsAndGroups(t *testing.T) {
 				return dataframeexecution.PreviewSummary{}, nil
 			}
 			service := newTestService(t, &fakeStore{receipt: receipt}, config)
-			_, err := service.Preview(context.Background(), PreviewRequest{
+			_, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 				Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10,
 				SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
@@ -998,7 +961,16 @@ func TestAuthorizedReceiptExecutionPreservesRestrictedEmptyScope(t *testing.T) {
 }
 
 func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
-	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	t.Run("plain project", func(t *testing.T) {
+		testPublishCommitsReleaseAndRevisionTogether(t, "project-a", "project-a")
+	})
+	t.Run("slash project", func(t *testing.T) {
+		testPublishCommitsReleaseAndRevisionTogether(t, "HTAN/Project", "HTAN-Project")
+	})
+}
+
+func testPublishCommitsReleaseAndRevisionTogether(t *testing.T, project, storageProject string) {
+	snapshot := readySnapshot(project, "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := nativeReceipt(snapshot)
 	order := []string{}
 	store := &fakeStore{receipt: receipt, order: &order}
@@ -1006,21 +978,24 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.ValidateReleaseGeneration = func(context.Context, string, string) error { order = append(order, "validate-generation"); return nil }
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		order = append(order, "prepare-release")
-		return dataset.ProjectRelease{ID: "release-a", Project: "project-a", Generation: "generation-a", GitCommit: "generation-a"}, 7, nil
+		return dataset.ProjectRelease{ID: "release-a", Project: storageProject, Generation: "generation-a", GitCommit: "generation-a"}, 7, nil
 	}
 	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		order = append(order, "materialize")
 		return successfulTestExecution(receipt, "READY"), nil
 	}
-	config.PersistPublishedWorkspace = func(_ context.Context, project, explorerID string, workspace []byte) error {
+	config.PersistPublishedWorkspace = func(_ context.Context, writeBackProject, explorerID string, workspace []byte) error {
 		order = append(order, "writeback")
-		if project != "project-a" || explorerID != "patients" || string(workspace) != string(receipt.NormalizedBundle) {
-			t.Fatalf("writeback = %s/%s %s", project, explorerID, workspace)
+		if writeBackProject != project || explorerID != "patients" || string(workspace) != string(receipt.NormalizedBundle) {
+			t.Fatalf("writeback = %s/%s %s", writeBackProject, explorerID, workspace)
 		}
 		return nil
 	}
-	service := newTestService(t, store, config)
-	result, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	projectStore := func(setup *testServiceSetup) {
+		setup.Config.AuthoringPublisher = publicationProjectStore{fakeStore: store, t: t, project: project, storageProject: storageProject}
+	}
+	service := newTestService(t, store, config, projectStore)
+	result, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err != nil || result.Revision == nil || !store.published {
 		t.Fatalf("publish = %#v, err=%v", result, err)
 	}
@@ -1032,14 +1007,14 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	}
 
 	store.publishErr = errors.New("revision write failed")
-	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var persistenceFailure *ports.Error
 	if !errors.As(err, &persistenceFailure) || persistenceFailure.Class != ports.ClassUnavailable || persistenceFailure.Code != "PERSISTENCE_UNAVAILABLE" || !errors.Is(err, store.publishErr) {
 		t.Fatalf("publish failure=%v, want unavailable PERSISTENCE_UNAVAILABLE", err)
 	}
 
 	store.publishErr = dataset.ErrReleaseActivationConflict
-	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var activationFailure *ports.Error
 	if !errors.As(err, &activationFailure) || activationFailure.Class != ports.ClassConflict || activationFailure.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("activation failure=%#v, want PUBLICATION_ACTIVATION_CONFLICT", err)
@@ -1050,8 +1025,8 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.PersistPublishedWorkspace = func(context.Context, string, string, []byte) error {
 		return errors.New("disk full")
 	}
-	service = newTestService(t, store, config)
-	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	service = newTestService(t, store, config, projectStore)
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var writebackFailure *ports.Error
 	if !errors.As(err, &writebackFailure) || writebackFailure.Code != "LOCAL_WORKSPACE_WRITEBACK_FAILED" || !store.published {
 		t.Fatalf("writeback failure published=%v, err=%v", store.published, err)
@@ -1062,8 +1037,8 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, errors.New("release preparation failed")
 	}
-	service = newTestService(t, store, config)
-	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	service = newTestService(t, store, config, projectStore)
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err == nil || store.published {
 		t.Fatalf("preparation failure published=%v, err=%v", store.published, err)
 	}
@@ -1097,7 +1072,7 @@ func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing
 				return execution, nil
 			}
 			service := newTestService(t, store, config)
-			_, err := service.Publish(context.Background(), PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID})
+			_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID})
 			var lifecycleErr *ports.Error
 			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUALITY_EVIDENCE_INVALID" {
 				t.Fatalf("quality gate error = %v", err)
@@ -1128,7 +1103,7 @@ func TestPublishPreservesPublicationInProgress(t *testing.T) {
 	}
 	service := newTestService(t, store, config)
 
-	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1157,7 +1132,7 @@ func TestPublishKeepsMaterializationFailuresUnavailable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 
-	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1185,7 +1160,7 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 	}
 	service := newTestService(t, store, config)
 
-	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1218,7 +1193,7 @@ func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 
-	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1249,7 +1224,7 @@ func TestRowDefinitionProposalProjectsExactCandidateWithoutSaving(t *testing.T) 
 	service := newTestServiceFromSetup(t, setup)
 	before := append([]byte(nil), store.created.DraftConfig...)
 	request := rowProposalRequest(store.created, snapshot)
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1288,7 +1263,7 @@ func TestRowDefinitionProposalProjectsNamedGroupAfterSavedFilter(t *testing.T) {
 	service := newTestServiceFromSetup(t, setup)
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}}
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1314,23 +1289,23 @@ func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capa
 func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T) {
 	tests := []struct {
 		name string
-		call func(*Service, constructionBase) (bool, string, string, int, error)
+		call func(*rowsource.Service, rowsource.Base) (bool, string, string, int, error)
 	}{
 
-		{name: "filter", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionFilterSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "filter", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionFilterSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
-		{name: "derive", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionDeriveSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "derive", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionDeriveSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
-		{name: "unpivot", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionUnpivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "unpivot", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionUnpivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
-		{name: "expand", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionExpandSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "expand", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionExpandSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
 	}
@@ -1342,7 +1317,7 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
 			}, Rows: ws.RecordsRowDefinition(),
 			}}
-			supported, code, reason, choices, err := test.call(service, base)
+			supported, code, reason, choices, err := test.call(service.rowSourceService, base)
 			if err != nil {
 				t.Fatalf("capability helper: %v", err)
 			}
@@ -1391,7 +1366,7 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			request := rowProposalRequest(store.created, snapshot)
 			request.Selection = selection
 			service := newTestServiceFromSetup(t, setup)
-			_, err = service.ProposeRowDefinition(context.Background(), request)
+			_, err = service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 			if lifecycleErrorCode(err) != "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED" {
 				t.Fatalf("got %v; want precise source ownership rejection", err)
 			}
@@ -1400,4 +1375,18 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			}
 		})
 	}
+}
+
+func ConfigWithTestStores(config Config, backing explorer.ExplorerStore) Config {
+	dependencies := explorerfixtures.Dependencies(backing)
+	config.ExplorerOwners = dependencies.Owners
+	config.DraftStore = dependencies.Drafts
+	config.DraftRevisions = dependencies.DraftRevisions
+	config.Revisions = dependencies.Revisions
+	config.RevisionWriter = dependencies.RevisionWriter
+	config.Receipts = dependencies.Receipts
+	config.AuthoringPublisher = dependencies.AuthoringPublisher
+	config.RepositoryActivator = dependencies.RepositoryActivator
+	config.SelectionStore = dependencies.Selections
+	return config
 }

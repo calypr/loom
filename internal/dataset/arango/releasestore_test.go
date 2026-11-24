@@ -12,7 +12,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
-	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 const rpcDatabasePrefix = "loom_verify_rpc_"
@@ -42,22 +41,6 @@ func (v rpcVerifier) VerifyPublication(_ context.Context, project, generation st
 		return dataset.PublicationVerification{}, fmt.Errorf("%w: generation %s is not %s", dataset.ErrPublicationRecordMissing, generation, v.generation)
 	}
 	return dataset.PublicationVerification{Selector: selector, ExecutionID: "execution-r2", Generation: generation, State: "PUBLISHED", Queryable: true, VerifiedAt: v.verifiedAt}, nil
-}
-
-func rpcOpen(t *testing.T, budget time.Duration) (context.Context, *arangostore.Client, *Store) {
-	t.Helper()
-	database := arangotest.Owned(t, rpcDatabasePrefix)
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
-	t.Cleanup(cancel)
-	client := database.Client
-	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
-		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
-	}
-	lifecycle, err := New(client)
-	if err != nil {
-		t.Fatalf("new dataset lifecycle store: %v", err)
-	}
-	return ctx, client, lifecycle
 }
 
 func rpcStageGeneration(t *testing.T, ctx context.Context, lifecycle *Store, project, generation string) {
@@ -162,7 +145,7 @@ func rpcPublicationRequired(t *testing.T, doc map[string]any) any {
 }
 
 func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
-	ctx, client, lifecycle := rpcOpen(t, 300*time.Second)
+	ctx, client, lifecycle := openDatasetStore(t, 300*time.Second, rpcDatabasePrefix)
 	const project, generation = "rpc-project", "rpc-generation-a"
 	rpcStageGeneration(t, ctx, lifecycle, project, generation)
 	selector := dataset.DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}

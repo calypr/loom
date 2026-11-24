@@ -15,6 +15,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -631,7 +633,7 @@ func assertConnectedGroupLineage(
 	if err != nil {
 		t.Fatalf("compile connected Group lineage for row %#v: %v", row, err)
 	}
-	lineage := executeRowLineageOracleQuery(t, ctx, client, query)
+	lineage := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, query)
 	contributors, _ := lineage["contributors"].([]any)
 	wantCount := 0
 	for _, ordinals := range wantOrdinals {
@@ -657,7 +659,7 @@ func assertConnectedGroupLineage(
 			t.Errorf("connected Group lineage root contributor = %#v, want Patient/%v", contributor, row["patient"])
 			continue
 		}
-		occurrence := connectedOccurrenceKey(t, contributor["occurrenceKey"])
+		occurrence := decodeCompilerOccurrenceKey(t, "connected Group", contributor["occurrenceKey"], "exact compact root/terminal/item/ordinal identity")
 		if len(occurrence) != 4 || occurrence["root_id"] != patientKey {
 			t.Errorf("connected Group occurrence identity = %#v, want only exact root_id, terminal_id, item_present, ordinal fields for Patient key %q", occurrence, patientKey)
 		}
@@ -718,19 +720,4 @@ func assertConnectedGroupLineage(
 	if missingRelatedRoute {
 		t.Errorf("connected Group lineage omitted the absent related route preimage")
 	}
-}
-
-func connectedOccurrenceKey(t *testing.T, raw any) map[string]any {
-	t.Helper()
-	if key, ok := raw.(map[string]any); ok {
-		return key
-	}
-	if encoded, ok := raw.(string); ok {
-		var key map[string]any
-		if err := json.Unmarshal([]byte(encoded), &key); err == nil {
-			return key
-		}
-	}
-	t.Fatalf("connected Group occurrence key = %#v, want exact compact root/terminal/item/ordinal identity", raw)
-	return nil
 }

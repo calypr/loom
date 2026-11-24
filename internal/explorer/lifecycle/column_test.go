@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -131,7 +133,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 	store.Members["selection-zero-column"] = members
 
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +155,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 	proposalID := ""
 	previewCalls := 0
-	service, err := lifecycle.New(domain, lifecycle.Config{
+	service, err := lifecycle.New(domain, lifecycle.ConfigWithTestStores(lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
@@ -164,7 +166,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 			return sourceStage, nil
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
@@ -181,7 +183,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 				Output: bindings.OutputNames[0], Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity,
 			}, visit)
 		},
-	})
+	}, store))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +203,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		}},
 		Outputs: []ws.StageColumn{{ID: "medication-id", Name: "related_medication_id", Label: "Medication FHIR resource ID", Type: "string", Nullable: true}},
 	}}}
-	response, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	response, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", ChangedStepID: "expand_medications",
 		CandidateConstruction: candidate,
@@ -229,7 +231,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 
 	proposalID = response.ProposalID
-	preview, err := service.Preview(context.Background(), lifecycle.PreviewRequest{
+	preview, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "custom", ReceiptID: response.ProposalID, OutputID: "patients", Limit: 25,
 		SinkFactory: func(_ *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

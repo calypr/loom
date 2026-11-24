@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -54,7 +56,7 @@ func aggregateTestDataset(columnCount int) Materialization {
 	for i := range columns {
 		columns[i] = Column{Name: fmt.Sprintf("facet_%03d", i), ClickHouse: "Nullable(String)"}
 	}
-	return Materialization{ID: "source:Patient", Project: "project", PhysicalTable: "physical_patient", Columns: append([]Column(nil), columns...), Selector: DataframeSelector{Recipe: "recipe", Output: "Patient"}}
+	return Materialization{ID: "source:Patient", Project: "project", PhysicalTable: "physical_patient", Columns: append([]Column(nil), columns...), Selector: dataset.DataframeSelector{Recipe: "recipe", Output: "Patient"}}
 }
 
 func TestAggregatePlanCombines156CountFacets(t *testing.T) {
@@ -266,7 +268,7 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 		{Name: "value", ClickHouse: "Nullable(Float64)"},
 		{Name: authResourcePathColumn, ClickHouse: "String"},
 	}
-	dataset := Materialization{ID: "a:Patient", Project: "a", PhysicalTable: tableA, Columns: columns, Selector: DataframeSelector{Recipe: "recipe", Output: "Patient"}}
+	dataset := Materialization{ID: "a:Patient", Project: "a", PhysicalTable: tableA, Columns: columns, Selector: dataset.DataframeSelector{Recipe: "recipe", Output: "Patient"}}
 	result, err := (&Reader{ClickHouse: client}).ExecuteAggregateBatch(ctx, dataset, AggregateBatchRequest{
 		Jobs: []AggregateJob{
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet"}, Operation: "COUNT"},

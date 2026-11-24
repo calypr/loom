@@ -10,7 +10,7 @@ import (
 
 func (r *StrictHandlers) GetDatasetGenerationStatus(ctx context.Context, request loomapi.GetDatasetGenerationStatusRequestObject) (loomapi.GetDatasetGenerationStatusResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	result, err := r.service.GetDatasetGenerationStatus(ctx, request.Project, request.Generation, optionalString(request.Params.AuthResourcePath), principal)
+	result, err := r.service.GetDatasetGenerationStatus(ctx, request.Project, request.Generation, httpapi.OptionalString(request.Params.AuthResourcePath), principal)
 	if err == nil {
 		return loomapi.GetDatasetGenerationStatus200JSONResponse(generationStatusResponse(result)), nil
 	}
@@ -34,7 +34,7 @@ func (r *StrictHandlers) CreateDatasetGeneration(ctx context.Context, request lo
 
 func (r *StrictHandlers) ActivateDatasetGeneration(ctx context.Context, request loomapi.ActivateDatasetGenerationRequestObject) (loomapi.ActivateDatasetGenerationResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	result, err := r.service.ActivateDatasetGeneration(ctx, request.Project, request.Generation, request.Params.DataframeExecutionId, optionalString(request.Params.AuthResourcePath), principal)
+	result, err := r.service.ActivateDatasetGeneration(ctx, request.Project, request.Generation, request.Params.DataframeExecutionId, httpapi.OptionalString(request.Params.AuthResourcePath), principal)
 	if err == nil {
 		return loomapi.ActivateDatasetGeneration200JSONResponse(generationActivationResponse(result)), nil
 	}
@@ -63,10 +63,3 @@ func generationActivationResponse(result *GenerationActivationResult) loomapi.Ge
 type StrictHandlers struct{ service *Handler }
 
 func NewStrictHandlers(service *Handler) *StrictHandlers { return &StrictHandlers{service: service} }
-
-func optionalString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}

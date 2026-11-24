@@ -3,8 +3,9 @@ package rowdef
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -59,7 +60,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if err != nil || workspaceDigest != owner.DraftDigest {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-change-preview", []authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: request.OutputID, Payload: &authoringv2.RowPayload{RowChange: assessment.Proposal}}})
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-change-preview", authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandApplyTableRootRebase, OutputID: request.OutputID, Payload: &authoringv2.RowPayload{RowChange: assessment.Proposal}}}))
 	if err != nil {
 		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
 	}
@@ -85,7 +86,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
-	candidateDocument := support.ProposalDocument(verified, request.OutputID)
+	candidateDocument := verified.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
 	}

@@ -18,14 +18,14 @@ func classifyError(err error) error {
 	return authpolicy.Classify(err, authpolicy.OperationQueryRead)
 }
 
-func queryInvalid(code dataframeerrors.ErrorCode, err error) error {
+func queryInvalid(err error) error {
 	if err == nil {
-		return dataframeerrors.NewError(code, "")
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
 	}
-	return dataframeerrors.Wrap(err, code, "")
+	return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 }
 
 func queryBackend(err error) error {

@@ -2,11 +2,13 @@ package semanticauthoring
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strconv"
 	"strings"
 
-	. "github.com/calypr/loom/internal/explorer/workspace"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
+	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -30,7 +32,7 @@ func (r SemanticSelectionReadiness) Addable() bool {
 }
 
 type SemanticSelectionPlan struct {
-	Source      *ColumnSource
+	Source      *ws.ColumnSource
 	LogicalType string
 	Readiness   SemanticSelectionReadiness
 }
@@ -113,7 +115,7 @@ func resolveIdentifierSelectionPlan(observation semantic.Observation) SemanticSe
 	ownerPath := strings.TrimSpace(observation.OwningScope)
 	systemPath, systemOK := relativeSemanticPath(ownerPath, observation.Key.Selector)
 	valuePath, valueOK := relativeSemanticPath(ownerPath, observation.Value.Selector)
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if ownerPath == "" || !systemOK || !valueOK || strings.TrimSpace(observation.Source.Type) == "" || logicalType == "" {
 		return semanticUnsupported("IDENTIFIER_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Identifier system/value pair.")
 	}
@@ -128,7 +130,7 @@ func resolveIdentifierSelectionPlan(observation semantic.Observation) SemanticSe
 	binding.OwnerPath = checked.OwnerSelector.CanonicalPath()
 	binding.SystemURI = checked.SystemURI
 	binding.LogicalType = checked.LogicalType
-	source := ColumnSource{Kind: SourceIdentifierBySystem, Lookup: &LookupSource{Identifier: &binding}}
+	source := ws.ColumnSource{Kind: ws.SourceIdentifierBySystem, Lookup: &ws.LookupSource{Identifier: &binding}}
 	return semanticReadyPlan(source, logicalType, observation.Status)
 }
 
@@ -148,7 +150,7 @@ func resolveExtensionSelectionPlan(observation semantic.Observation) SemanticSel
 		}
 		fallbackPaths = append(fallbackPaths, fallbackPath)
 	}
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if ownerPath == "" || !valueOK || !fallbacksOK || logicalType == "" || len(observation.ExtensionURLPath) == 0 || strings.TrimSpace(observation.ChoiceArm) == "" {
 		return semanticUnsupported("EXTENSION_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Extension URL/value binding.")
 	}
@@ -173,7 +175,7 @@ func resolveExtensionSelectionPlan(observation semantic.Observation) SemanticSel
 	if checked.UnitSelector != nil {
 		binding.UnitPath = checked.UnitSelector.CanonicalPath()
 	}
-	source := ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &binding}}
+	source := ws.ColumnSource{Kind: ws.SourceExtensionByURL, Lookup: &ws.LookupSource{Extension: &binding}}
 	return semanticReadyPlan(source, logicalType, observation.Status)
 }
 
@@ -193,12 +195,12 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 	ownerPath := strings.Trim(strings.TrimSpace(observation.OwningScope), ".")
 	keyPath := strings.Trim(strings.TrimSpace(observation.Key.Selector), ".")
 	valuePath := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || valuePath == "" || logicalType == "" {
 		return semanticUnsupported("CODED_VALUE_BINDING_INCOMPLETE", "The catalog observation does not contain a complete owner, coding key, and scalar value binding.")
 	}
 	binding := fhirbinding.CorrelatedBinding{
-		OwnerPath: ownerPath, KeyPath: QualifySemanticPath(ownerPath, keyPath),
+		OwnerPath: ownerPath, KeyPath: ws.QualifySemanticPath(ownerPath, keyPath),
 		SystemPath: "system", CodePath: "code", ValuePath: valuePath,
 		ValueFallback:         append([]string(nil), observation.Value.FallbackSelectors...),
 		FallbackOnBlankString: observation.Value.FallbackOnBlankString,
@@ -212,7 +214,7 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed coded-value paths do not match the generated FHIR schema.")
 	}
 	binding.OwnerPath = checked.OwnerSelector.CanonicalPath()
-	binding.KeyPath = QualifySemanticPath(binding.OwnerPath, checked.KeySelector.CanonicalPath())
+	binding.KeyPath = ws.QualifySemanticPath(binding.OwnerPath, checked.KeySelector.CanonicalPath())
 	binding.SystemPath = checked.SystemSelector.CanonicalPath()
 	binding.CodePath = checked.CodeSelector.CanonicalPath()
 	binding.ValuePath = checked.ValueSelector.CanonicalPath()
@@ -226,8 +228,8 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 	if checked.UnitSelector != nil {
 		binding.UnitPath = checked.UnitSelector.CanonicalPath()
 	}
-	lookup := &LookupSource{Binding: &binding, Key: &fhirbinding.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code}}
-	source := ColumnSource{Kind: SourceCodedValue, Lookup: lookup}
+	lookup := &ws.LookupSource{Binding: &binding, Key: &fhirbinding.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code}}
+	source := ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: lookup}
 	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
 }
 
@@ -254,10 +256,10 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 	}
 
 	ownerPath := strings.Trim(strings.TrimSpace(observation.OwningScope), ".")
-	keyPath := QualifySemanticPath(ownerPath, observation.Key.Selector)
-	valuePath := QualifySemanticPath(ownerPath, observation.Value.Selector)
+	keyPath := ws.QualifySemanticPath(ownerPath, observation.Key.Selector)
+	valuePath := ws.QualifySemanticPath(ownerPath, observation.Value.Selector)
 	valuePathInCoding, valueOK := relativeSemanticPath(keyPath, valuePath)
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || valuePathInCoding == "" || !valueOK ||
 		strings.Contains(valuePathInCoding, "[]") || logicalType != "string" ||
 		observation.ChoiceArm != "" || len(observation.Value.FallbackSelectors) == 0 || !observation.Value.FallbackOnBlankString {
@@ -265,7 +267,7 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 	}
 	fallbacks := make([]string, 0, len(observation.Value.FallbackSelectors))
 	for _, selector := range observation.Value.FallbackSelectors {
-		fallbackPath := QualifySemanticPath(ownerPath, selector)
+		fallbackPath := ws.QualifySemanticPath(ownerPath, selector)
 		fallbackInCoding, ok := relativeSemanticPath(keyPath, fallbackPath)
 		if !ok || fallbackInCoding == "" || strings.Contains(fallbackInCoding, "[]") {
 			return semanticUnsupported("CODED_CONCEPT_BINDING_INCOMPLETE", "The catalog observation does not contain one exact Coding identity with its matching display and code fallback.")
@@ -286,7 +288,7 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed Coding and its matching display do not match the generated FHIR schema.")
 	}
 	binding.OwnerPath = checked.OwnerSelector.CanonicalPath()
-	binding.KeyPath = QualifySemanticPath(binding.OwnerPath, checked.KeySelector.CanonicalPath())
+	binding.KeyPath = ws.QualifySemanticPath(binding.OwnerPath, checked.KeySelector.CanonicalPath())
 	binding.ValuePath = checked.ValueSelector.CanonicalPath()
 	binding.ValueFallback = make([]string, len(checked.ValueFallbacks))
 	for index := range checked.ValueFallbacks {
@@ -296,8 +298,8 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 	binding.ValueScope = checked.ValueScope
 	binding.VersionPath = checked.VersionSelector.CanonicalPath()
 	binding.LogicalType = checked.LogicalType
-	lookup := &LookupSource{Binding: &binding, Key: &fhirbinding.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code, Version: observation.Key.Version}}
-	source := ColumnSource{Kind: SourceCodedValue, Lookup: lookup}
+	lookup := &ws.LookupSource{Binding: &binding, Key: &fhirbinding.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code, Version: observation.Key.Version}}
+	source := ws.ColumnSource{Kind: ws.SourceCodedValue, Lookup: lookup}
 	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
 }
 
@@ -314,7 +316,7 @@ func relativeSemanticPath(ownerPath, fullPath string) (string, bool) {
 	return strings.TrimPrefix(fullPath, prefix), true
 }
 
-func semanticReadyPlan(source ColumnSource, logicalType, observationStatus string) SemanticSelectionPlan {
+func semanticReadyPlan(source ws.ColumnSource, logicalType, observationStatus string) SemanticSelectionPlan {
 	readiness := SemanticSelectionReadiness{Status: SemanticReadinessReady, Code: "READY", Message: "This semantic field is ready to add."}
 	if observationStatus == "DATA_QUALITY_WARNING" {
 		readiness = SemanticSelectionReadiness{Status: SemanticReadinessReadyWithWarning, Code: "DATA_QUALITY_WARNING", Message: "The FHIR structure is usable, but the observed data has a known quality warning."}
@@ -345,17 +347,8 @@ func semanticStatusPlan(status string) SemanticSelectionPlan {
 	}
 }
 
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func EnsureSemanticRoute(document *Document, catalogSnapshot CatalogSnapshot, commandID string, commandIndex, selectionIndex int, edgeIDs []string, targetResource string) (string, error) {
-	if document == nil || document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+func EnsureSemanticRoute(document *ws.Document, catalogSnapshot ws.CatalogSnapshot, commandID string, commandIndex, selectionIndex int, edgeIDs []string, targetResource string) (string, error) {
+	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return "", fmt.Errorf("table root route is invalid")
 	}
 	if catalogSnapshot.RoutePolicy.MaxHops != nil && len(edgeIDs) > *catalogSnapshot.RoutePolicy.MaxHops {
@@ -363,13 +356,13 @@ func EnsureSemanticRoute(document *Document, catalogSnapshot CatalogSnapshot, co
 	}
 	current := &document.Route
 	for edgeIndex, edgeID := range edgeIDs {
-		edge, found := CatalogEdgeByID(catalogSnapshot, edgeID)
+		edge, found := ws.CatalogEdgeByID(catalogSnapshot, edgeID)
 		if !found {
 			return "", fmt.Errorf("route edge %q was not found", edgeID)
 		}
-		from, fromFound := CatalogNodeByID(catalogSnapshot, edge.FromNodeID)
-		to, toFound := CatalogNodeByID(catalogSnapshot, edge.ToNodeID)
-		currentNodeID, currentNodeFound := CatalogNodeIDForOccurrence(document.Route, current.OccurrenceID, catalogSnapshot)
+		from, fromFound := ws.CatalogNodeByID(catalogSnapshot, edge.FromNodeID)
+		to, toFound := ws.CatalogNodeByID(catalogSnapshot, edge.ToNodeID)
+		currentNodeID, currentNodeFound := ws.CatalogNodeIDForOccurrence(document.Route, current.OccurrenceID, catalogSnapshot)
 		if !fromFound || !toFound || !currentNodeFound || edge.FromNodeID != currentNodeID || from.ResourceType != current.ResourceType {
 			return "", fmt.Errorf("route edge %q does not extend resource %q", edgeID, current.ResourceType)
 		}
@@ -377,7 +370,7 @@ func EnsureSemanticRoute(document *Document, catalogSnapshot CatalogSnapshot, co
 			return "", fmt.Errorf("route edge %q is a self-loop but self-loops are not allowed", edgeID)
 		}
 		if !catalogSnapshot.RoutePolicy.AllowRepeatedEdges {
-			used, err := RoutePathUsesCatalogEdge(document.Route, current.OccurrenceID, edgeID, catalogSnapshot)
+			used, err := ws.RoutePathUsesCatalogEdge(document.Route, current.OccurrenceID, edgeID, catalogSnapshot)
 			if err != nil {
 				return "", fmt.Errorf("route parent does not resolve to an exact path: %w", err)
 			}
@@ -393,7 +386,7 @@ func EnsureSemanticRoute(document *Document, catalogSnapshot CatalogSnapshot, co
 			}
 			existingEdgeID := child.CatalogEdgeID
 			if existingEdgeID == "" {
-				legacyEdge, err := ResolveCatalogRouteEdge(catalogSnapshot, edge.FromNodeID, *current, *child)
+				legacyEdge, err := ws.ResolveCatalogRouteEdge(catalogSnapshot, edge.FromNodeID, *current, *child)
 				if err != nil {
 					return "", fmt.Errorf("route edge %q has an ambiguous legacy occurrence: %w", edgeID, err)
 				}
@@ -409,8 +402,8 @@ func EnsureSemanticRoute(document *Document, catalogSnapshot CatalogSnapshot, co
 			matchedIndex = i
 		}
 		if matchedIndex < 0 {
-			occurrenceID := CommandGeneratedID("occ_", "semantic-route/v1", document.Output.ID, commandID, commandIndex, selectionIndex, edgeIndex, edge.ID)
-			current.Children = append(current.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label})
+			occurrenceID := ws.CommandGeneratedID("occ_", "semantic-route/v1", document.Output.ID, commandID, commandIndex, selectionIndex, edgeIndex, edge.ID)
+			current.Children = append(current.Children, ws.RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label})
 			matchedIndex = len(current.Children) - 1
 		}
 		current = &current.Children[matchedIndex]

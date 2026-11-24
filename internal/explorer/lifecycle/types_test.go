@@ -6,15 +6,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
@@ -26,13 +26,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowdef"
-	"github.com/calypr/loom/internal/explorer/semanticauthoring"
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testing.T) {
@@ -228,7 +228,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		return receipt, nil
 	}
 	service := newTestService(t, store, config)
-	replacement, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	replacement, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 4, DraftDigest: digest,
 		Mode: authoringv2.RowChangeModeReplace, OutputID: "patients", RootNodeID: "research-study",
 	})
@@ -260,7 +260,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		t.Fatal("full workspace compile succeeded although consumer still references removed patient_id")
 	}
 
-	preserved, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	preserved, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		DraftVersion: result.DraftVersion, DraftDigest: result.DraftDigest, Mode: authoringv2.RowChangeModePreserve,
 		OutputID: "patients", RootNodeID: "diagnostic-report",
@@ -285,7 +285,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		t.Fatalf("PRESERVE assessment mutated the saved consumer:\n got %#v\nwant %#v", storedAfterPreserve.Documents[0], result.Workspace.Documents[0])
 	}
 
-	capabilities, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: result.DraftVersion, ExpectedDraftDigest: result.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -316,7 +316,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	if got := compiledOutputIDs(compiledWorkspaces[len(compiledWorkspaces)-1]); !reflect.DeepEqual(got, []string{"patients"}) {
 		t.Fatalf("selected replacement reconcile scope = %#v, want target only", got)
 	}
-	if _, err := service.Preview(context.Background(), PreviewRequest{
+	if _, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: selectedReconcile.Receipt.ID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
@@ -525,7 +525,7 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 	if compileCalls != 0 {
 		t.Fatalf("compiled invalid full workspace %d times", compileCalls)
 	}
-	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	_, err = service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 2, ExpectedDraftDigest: digest,
 		OutputID: "source", StageID: recipe.ConstructionSourceProjectionID,
@@ -562,7 +562,7 @@ func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing
 		return compile(ctx, request)
 	}
 	service := newTestServiceFromSetup(t, setup)
-	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	_, err = service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: digest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -658,7 +658,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		}
 	}
 	service := newTestService(t, store, config)
-	result, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	result, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter",
 	})
@@ -679,7 +679,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if compileCalls != 1 || compiledWorkspace.Documents[0].RootResourceType != "Encounter" || compiledWorkspace.Documents[0].Route.ResourceType != "Encounter" {
 		t.Fatalf("candidate compile calls=%d workspace=%#v", compileCalls, compiledWorkspace)
 	}
-	preview, err := service.Preview(context.Background(), PreviewRequest{
+	preview, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: result.CandidateReceiptID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
@@ -694,7 +694,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if store.created.DraftVersion != 7 || store.created.DraftDigest != digest || string(store.created.DraftConfig) != string(draft) {
 		t.Fatalf("assessment wrote draft=%#v", store.created)
 	}
-	blocked, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	blocked, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []authoringv2.RouteRebaseChoice{{OccurrenceID: ws.RootOccurrenceID, EdgeID: "missing-edge"}},
 	})
@@ -704,7 +704,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateReceiptID != "" || blocked.CandidateDocument != nil || blocked.CandidateNetwork != nil || blocked.CandidateRowIdentity != nil || compileCalls != 1 {
 		t.Fatalf("blocked assessment compiled a receipt: result=%#v calls=%d", blocked, compileCalls)
 	}
-	noChange, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	noChange, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 7, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "patient",
 	})
@@ -715,7 +715,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("no-change assessment compiled a receipt: result=%#v calls=%d", noChange, compileCalls)
 	}
 
-	_, err = service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	_, err = service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 6, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter",
 	})
@@ -724,7 +724,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("stale draft error=%v", err)
 	}
 
-	replacement, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	replacement, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "patients", Mode: authoringv2.RowChangeModeReplace, SnapshotToken: snapshot.Token,
 		DraftVersion: 7, DraftDigest: digest, OutputID: "patients", RootNodeID: "report",
 	})
@@ -738,7 +738,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("replacement projection retained the old source instead of its new document: %#v", replacement)
 	}
 	previewReceiptID = replacement.CandidateReceiptID
-	if _, err := service.Preview(context.Background(), PreviewRequest{
+	if _, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: replacement.CandidateReceiptID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
@@ -973,7 +973,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		return receipt, nil
 	}
 	service := newTestService(t, store, config)
-	initial, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	initial, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "specimen",
 	})
@@ -1004,7 +1004,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 	if selectedRoute == "" {
 		t.Fatalf("assessment did not offer the exact route through the saved Patient source occurrence: %#v", initial.Assessment.Unresolved[0].Alternatives)
 	}
-	rootPatient, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	rootPatient, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "patient",
 	})
@@ -1016,7 +1016,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		t.Fatalf("root-at-source candidate route=%#v, want Patient→Condition→Patient", rootPatientRoute)
 	}
 
-	selected, err := service.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
+	selected, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), rowdef.AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "specimen",
 		RootOccurrenceID: selectedRoute,
@@ -1070,12 +1070,12 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 	}
 	service := newTestService(t, store, config)
 	request := rowdef.AssessRowChangeRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "study"}
-	blocked, err := service.AssessRowChange(context.Background(), request)
+	blocked, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), request)
 	if err != nil || blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateDocument != nil || blocked.CandidateNetwork != nil || blocked.CandidateRowIdentity != nil {
 		t.Fatalf("imported preserving root exposed a candidate: %#v error=%v", blocked, err)
 	}
 	request.Mode = authoringv2.RowChangeModeReplace
-	result, err := service.AssessRowChange(context.Background(), request)
+	result, err := service.OwnerServices().RowDefinition.AssessRowChange(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,78 +1084,6 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 	}
 	if store.saveDraftCalls != 0 || string(store.created.DraftConfig) != string(raw) || *workspace.Documents[0].ImportedRecipe != pin {
 		t.Fatal("assessing replacement detached or changed the saved pin")
-	}
-}
-
-func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
-	for _, kind := range []string{"quantity", "codeable concept"} {
-		t.Run(kind, func(t *testing.T) {
-			observation := semanticFrameCompatibilityObservation(kind)
-			currentEntry := semantic.Entry{ConceptID: "concept", BindingID: "current-binding", Observation: observation}
-			currentFamily := semanticFrameCompatibilityFamily(t, currentEntry)
-			priorFamily := currentFamily
-			priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
-			priorFamily.SchemaVersion = semantic.ObservationSchemaVersion - 1
-			priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
-			priorFamily.ValueFallbacks = nil
-			priorFamily.FallbackOnBlankString = false
-
-			projected, plan, ok := semanticbrowse.SemanticEntryForFrameFamily(currentEntry, priorFamily)
-			if !ok || !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
-				t.Fatalf("prior frame did not reauthorize against the exact current inventory: ok=%v plan=%#v family=%#v", ok, plan, priorFamily)
-			}
-			binding := plan.Source.Lookup.Binding
-			if binding.ValuePath != priorFamily.ValuePath || len(binding.ValueFallback) != 0 || binding.FallbackOnBlankString ||
-				projected.Observation.Value.Selector != observation.Value.Selector || len(projected.Observation.Value.FallbackSelectors) != 0 || projected.Observation.Value.FallbackOnBlankString {
-				t.Fatalf("legacy frame did not retain its primary-only binding: binding=%#v projected=%#v", binding, projected.Observation.Value)
-			}
-			if len(observation.Value.FallbackSelectors) > 0 && !observation.Value.FallbackOnBlankString {
-				t.Fatalf("test fixture does not exercise the new opted-in fallback: %#v", observation.Value)
-			}
-
-			for _, test := range []struct {
-				name   string
-				mutate func(*capability.SemanticFrameFamily)
-			}{
-				{name: "tampered legacy binding id", mutate: func(f *capability.SemanticFrameFamily) { f.BindingID = "not-the-v1-binding" }},
-				{name: "legacy fallback injection", mutate: func(f *capability.SemanticFrameFamily) {
-					f.ValueFallbacks = []string{"valueCodeableConcept.coding[].code"}
-				}},
-				{name: "legacy blank policy injection", mutate: func(f *capability.SemanticFrameFamily) { f.FallbackOnBlankString = true }},
-				{name: "wrong owner", mutate: func(f *capability.SemanticFrameFamily) { f.OwningScope = "component[]" }},
-				{name: "wrong key", mutate: func(f *capability.SemanticFrameFamily) { f.KeyPath = "other.coding[]" }},
-				{name: "wrong value", mutate: func(f *capability.SemanticFrameFamily) { f.ValuePath += ".changed" }},
-				{name: "wrong logical type", mutate: func(f *capability.SemanticFrameFamily) { f.LogicalType = "integer" }},
-				{name: "wrong choice arm", mutate: func(f *capability.SemanticFrameFamily) { f.ChoiceArms = []string{"valueString"} }},
-				{name: "wrong source path", mutate: func(f *capability.SemanticFrameFamily) { f.SourcePath = "other" }},
-				{name: "schema only changed", mutate: func(f *capability.SemanticFrameFamily) {
-					f.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion)
-				}},
-				{name: "unknown old versions", mutate: func(f *capability.SemanticFrameFamily) { f.SchemaVersion--; f.RuleVersion = "1" }},
-			} {
-				t.Run(test.name, func(t *testing.T) {
-					changed := priorFamily
-					test.mutate(&changed)
-					if _, _, accepted := semanticbrowse.SemanticEntryForFrameFamily(currentEntry, changed); accepted {
-						t.Fatalf("accepted tampered or unknown legacy frame identity: %#v", changed)
-					}
-
-				})
-			}
-
-			changedObservation := observation
-			changedObservation.Key.Version = "2024"
-			changedEntry := currentEntry
-			changedEntry.Observation = changedObservation
-			if _, _, accepted := semanticbrowse.SemanticEntryForFrameFamily(changedEntry, priorFamily); accepted {
-				t.Fatal("accepted a version-specific code for a prior versionless frame")
-			}
-
-			fresh, freshPlan, freshOK := semanticbrowse.SemanticEntryForFrameFamily(currentEntry, currentFamily)
-			if !freshOK || !freshPlan.Readiness.Addable() || !reflect.DeepEqual(fresh.Observation.Value, observation.Value) {
-				t.Fatalf("current frame did not keep current fallback semantics: ok=%v plan=%#v value=%#v", freshOK, freshPlan, fresh.Observation.Value)
-			}
-		})
 	}
 }
 
@@ -1241,7 +1169,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 		ResolveSemanticInventorySelections: resolver,
 	})
 
-	browsed, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+	browsed, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
 		OutputID: "out", FrameID: frame.ID,
 	})
@@ -1317,40 +1245,11 @@ func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *te
 }
 
 func semanticFrameCompatibilityObservation(kind string) semantic.Observation {
-	observation := semantic.Observation{
-		SchemaVersion: semantic.ObservationSchemaVersion,
-		Source:        semantic.Source{Type: "Observation", Canonical: "Observation.code", Path: "code"},
-		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete,
-		Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
-		Value: semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
-	}
-	if kind == "codeable concept" {
-		observation.Value = semantic.Value{
-			Selector: "valueCodeableConcept.text", Type: "string",
-			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
-		}
-		observation.ChoiceArm = "valueCodeableConcept"
-		observation.LogicalType = "string"
-	}
-	return observation
+	return constructionfixtures.SemanticFrameCompatibilityObservation(kind)
 }
 
 func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capability.SemanticFrameFamily {
-	t.Helper()
-	plan := semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation)
-	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
-		t.Fatalf("semantic compatibility fixture is not compiler-addable: %#v", plan)
-	}
-	binding := plan.Source.Lookup.Binding
-	return capability.SemanticFrameFamily{
-		BindingID: entry.BindingID, ResourceType: entry.Observation.Source.Type,
-		SourcePath: entry.Observation.Source.Path, SourceCanonical: entry.Observation.Source.Canonical, SourceProfile: entry.Observation.Source.Profile,
-		OwningScope: binding.OwnerPath, KeyPath: binding.KeyPath, ValuePath: binding.ValuePath,
-		ValueFallbacks: append([]string(nil), binding.ValueFallback...), FallbackOnBlankString: binding.FallbackOnBlankString,
-		ChoiceArms: append([]string(nil), binding.ChoiceArms...), LogicalType: binding.LogicalType,
-		RuleVersion: entry.Observation.RuleVersion, SchemaVersion: entry.Observation.SchemaVersion,
-	}
+	return constructionfixtures.SemanticFrameCompatibilityFamily(t, entry)
 }
 
 func legacyFrameCompatibilityStore(t *testing.T, frame ws.FrameDefinition) *fakeStore {
@@ -1377,63 +1276,4 @@ func legacyFrameCompatibilityStore(t *testing.T, frame ws.FrameDefinition) *fake
 		Project: "project-a", ExplorerID: "explorer", Title: "Builder", ManagementMode: viewer.ManagementInteractive,
 		DraftConfig: config, DraftVersion: 1, DraftDigest: digest,
 	}}
-}
-
-func TestCellTraceValidatesReceiptAndReturnsBoundEvidence(t *testing.T) {
-	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
-	receipt := nativeReceipt(snapshot)
-	store := &fakeStore{receipt: receipt}
-	config := testConfig(snapshot)
-	config.CellTrace = func(_ context.Context, gotReceipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
-		if gotReceipt.ID != receipt.ID || bindings.DatasetGeneration != receipt.SourceGeneration || request.Output != "patients" || request.Column != "patient_id" || request.RowID != "row-7" {
-			t.Fatalf("unexpected trace invocation: receipt=%#v bindings=%#v request=%#v", gotReceipt, bindings, request)
-		}
-		return dataframeexecution.CellTraceResult{RowID: request.RowID, Column: request.Column, Value: "Patient/7", Status: dataframeexecution.CellTraceValue, Complete: true}, nil
-	}
-	service := newTestService(t, store, config)
-	result, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-7", Column: "patient_id", Limit: 25})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Binding.ReceiptID != receipt.ID || result.Binding.ScopeDigest != receipt.AuthorizationScopeDigest || result.Trace.Value != "Patient/7" || !result.Trace.Complete {
-		t.Fatalf("unexpected result: %#v", result)
-	}
-	if result.Feature.OutputID != "patients" || result.Feature.Column != "patient_id" || result.Feature.AuthoredColumn != "patient_id" || result.Feature.OccurrenceID != "base" || result.Feature.Label != "Patient ID" {
-		t.Fatalf("unexpected feature descriptor: %#v", result.Feature)
-	}
-}
-
-func TestCellTraceMissingRowBecomesTypedNotFound(t *testing.T) {
-	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
-	receipt := nativeReceipt(snapshot)
-	config := testConfig(snapshot)
-	config.CellTrace = func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
-		return dataframeexecution.CellTraceResult{}, dataframeerrors.Wrap(
-			dataframeexecution.ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest,
-			fmt.Sprintf("published row %q was not found in output %q", request.RowID, request.Output),
-			dataframeerrors.WithDetails(map[string]any{"rowId": request.RowID, "output": request.Output}),
-		)
-	}
-	service := newTestService(t, &fakeStore{receipt: receipt}, config)
-	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-9", Column: "patient_id"})
-	var lifecycleErr *ports.Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" || lifecycleErr.Class != ports.ClassNotFound {
-		t.Fatalf("a mistyped rowId must present as a non-server-fault not-found, got %v (%T)", err, err)
-	}
-}
-
-func TestCellTraceRejectsUnknownColumnBeforeExecution(t *testing.T) {
-	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
-	receipt := nativeReceipt(snapshot)
-	config := testConfig(snapshot)
-	config.CellTrace = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
-		t.Fatal("trace executor must not run")
-		return dataframeexecution.CellTraceResult{}, nil
-	}
-	service := newTestService(t, &fakeStore{receipt: receipt}, config)
-	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-7", Column: "not_a_column"})
-	var lifecycleErr *ports.Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "UNKNOWN_OUTPUT_COLUMN" {
-		t.Fatalf("error = %v", err)
-	}
 }

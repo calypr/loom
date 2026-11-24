@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -16,6 +19,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -121,7 +126,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 				ID: "filter_group_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "group_label", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 				}},
 				Outputs: []recipe.StageColumn{
 					{ID: "group_id", Name: "group_id", Type: "string"},
@@ -138,7 +143,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
@@ -163,7 +168,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	}
 	assertLineage := func(query rowlineage.CompiledRowLineageQuery, wantFound bool, wantIDs, wantKeys []string) {
 		t.Helper()
-		got := executeRowLineageOracleQuery(t, ctx, client, query)
+		got := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, query)
 		if got["found"] != wantFound || got["hasMore"] != false {
 			t.Fatalf("lineage found/hasMore = %#v/%#v, want %t/false", got["found"], got["hasMore"], wantFound)
 		}

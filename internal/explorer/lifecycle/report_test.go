@@ -38,7 +38,7 @@ func TestPopulationMappingReportLiteralResult(t *testing.T) {
 		return dataframeexecution.PopulationMappingResult{Status: dataframeexecution.PopulationMappingComplete, SelectedCount: 3, MappedCount: 2, UnmappedCount: 1, EmittedRows: 1, UnmappedMemberIDs: []string{"file-004"}}, nil
 	}
 	service := newTestService(t, store, config)
-	result, err := service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+	result, err := service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestPopulationMappingRejectsCrossOutputCursorBeforeReadingMembers(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "other", Cursor: cursor, Limit: 10})
+	_, err = service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "other", Cursor: cursor, Limit: 10})
 	if err == nil || store.memberVisits != 0 {
 		t.Fatalf("cross-output cursor err=%v, member visits=%d", err, store.memberVisits)
 	}
@@ -98,13 +98,13 @@ func TestPopulationMappingRejectsTamperedCursorBeforeReadingMembers(t *testing.T
 		return dataframeexecution.PopulationMappingResult{Status: dataframeexecution.PopulationMappingComplete, SelectedCount: 3, MappedCount: 2, UnmappedCount: 1, EmittedRows: 1, UnmappedMemberIDs: []string{"file-004"}, HasMoreUnmapped: true}, nil
 	}
 	service := newTestService(t, store, config)
-	first, err := service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 1})
+	first, err := service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 1})
 	if err != nil || first.Report.NextCursor == "" {
 		t.Fatalf("first population report = %#v, err=%v", first.Report, err)
 	}
 	store.memberVisits = 0
 	tampered := tamperPopulationCursorMemberKey(t, first.Report.NextCursor)
-	_, err = service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Cursor: tampered, Limit: 1})
+	_, err = service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Cursor: tampered, Limit: 1})
 	if err == nil || store.memberVisits != 0 {
 		t.Fatalf("tampered cursor err=%v, member visits=%d", err, store.memberVisits)
 	}
@@ -141,7 +141,7 @@ func TestPopulationMappingIncompleteHasNoCounts(t *testing.T) {
 		return dataframeexecution.PopulationMappingResult{Status: dataframeexecution.PopulationMappingIncomplete}, nil
 	}
 	service := newTestService(t, store, config)
-	result, err := service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+	result, err := service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

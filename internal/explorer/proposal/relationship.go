@@ -123,10 +123,12 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, support.Unprocessable("source-relationship-proposal", "INVALID_IMPORTED_RELATIONSHIP", err.Error(), err)
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: request.OutputID, Payload: &authoringv2.ImportedSourcePayload{ProposalID: "candidate-preview"}}
-	if err := command.ResolveImportedDocument(updated); err != nil {
+	resolution, err := authoringv2.ResolveImportedDocument(command, updated)
+	if err != nil {
 		return fail, support.Unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
-	candidate, _, err := authoringv2.ApplyCommands(draft.workspace, s.catalog(draft.authorization.Snapshot, request.ExplorerID), "source-relationship-preview", []authoringv2.Command{command})
+	prepared := []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}
+	candidate, _, err := authoringv2.ApplyCommands(draft.workspace, s.catalog(draft.authorization.Snapshot, request.ExplorerID), "source-relationship-preview", prepared)
 	if err != nil {
 		return fail, support.Unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
@@ -148,7 +150,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, err
 	}
 
-	candidateDocument := support.ProposalDocument(verifiedCandidate, request.OutputID)
+	candidateDocument := verifiedCandidate.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return fail, support.Conflict("source-relationship-proposal", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -214,11 +216,11 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	return SourceRelationshipProposal{NativePreview: &preview, CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: draft.owner.DraftVersion, DraftDigest: draft.owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
 }
 
-func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	if len(commands) != 1 {
 		return nil, support.Malformed("commands", "source relationship Apply requires one command", nil)
 	}
-	command := &commands[0]
+	command := commands[0]
 	receipt, err := s.config.Core.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, err
@@ -234,7 +236,7 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved draft changed after Preview", nil, err)
 	}
-	base := support.ProposalDocument(current, command.OutputID)
+	base := current.FindOutputDocument(command.OutputID)
 	if base == nil {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved output is missing", nil, nil)
 	}
@@ -246,14 +248,16 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil {
 		return nil, err
 	}
-	updated := support.ProposalDocument(candidate, command.OutputID)
+	updated := candidate.FindOutputDocument(command.OutputID)
 	if updated == nil {
 		return nil, support.Conflict("commands", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}
-	if err := command.ResolveImportedDocument(*updated); err != nil {
+	resolution, err := authoringv2.ResolveImportedDocument(command, *updated)
+	if err != nil {
 		return nil, err
 	}
-	applied, _, err := authoringv2.ApplyCommands(current, s.catalog(authorized.Snapshot, explorerID), "source-relationship-apply-validation", commands)
+	prepared := []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}
+	applied, _, err := authoringv2.ApplyCommands(current, s.catalog(authorized.Snapshot, explorerID), "source-relationship-apply-validation", prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -278,5 +282,5 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if freshReceipt.IntentDigest != receipt.IntentDigest || freshReceipt.ResolvedRecipeDigest != receipt.ResolvedRecipeDigest || freshReceipt.ResolvedSchemaDigest != receipt.ResolvedSchemaDigest {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "the resolved source changed after Preview; preview again", nil, nil)
 	}
-	return commands, nil
+	return prepared, nil
 }

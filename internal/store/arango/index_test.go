@@ -75,21 +75,21 @@ func TestPreviewCoveringIndexMatchesFieldsForIdempotence(t *testing.T) {
 			Fields: append([]string(nil), fields...),
 		},
 	}
-	if !previewCoveringIndexMatches(index, fields) {
+	if !previewCoveringIndexMatchesDefinition(index, fields, nil) {
 		t.Fatal("matching index definition was not recognized")
 	}
 	index.RegularIndex.Fields = []string{"project", "dataset_generation", "auth_resource_path", "payload.type.coding"}
-	if previewCoveringIndexMatches(index, fields) {
+	if previewCoveringIndexMatchesDefinition(index, fields, nil) {
 		t.Fatal("different field tuple was treated as the same index")
 	}
 	index.RegularIndex.Fields = append([]string(nil), fields...)
 	index.Sparse = boolPointer(true)
-	if previewCoveringIndexMatches(index, fields) {
+	if previewCoveringIndexMatchesDefinition(index, fields, nil) {
 		t.Fatal("sparse index was accepted for a compiler covering index")
 	}
 	index.Sparse = boolPointer(false)
 	index.Unique = boolPointer(true)
-	if previewCoveringIndexMatches(index, fields) {
+	if previewCoveringIndexMatchesDefinition(index, fields, nil) {
 		t.Fatal("unique index was accepted for a compiler covering index")
 	}
 }
@@ -195,7 +195,7 @@ func TestEnsurePreviewCoveringIndexWithStoredValuesVerifiesExactInventory(t *tes
 	name := "loom_pivot_preview_projection"
 	t.Run("create exact definition", func(t *testing.T) {
 		fake := &fakePreviewIndexCollection{}
-		if err := ensurePreviewCoveringIndexWithStoredValues(ctx, fake, name, fields, storedValues); err != nil {
+		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues); err != nil {
 			t.Fatal(err)
 		}
 		if len(fake.indexes) != 1 || !previewCoveringIndexMatchesDefinition(fake.indexes[0], fields, storedValues) {
@@ -205,7 +205,7 @@ func TestEnsurePreviewCoveringIndexWithStoredValuesVerifiesExactInventory(t *tes
 	t.Run("refuse same name with different stored values", func(t *testing.T) {
 		wrong := previewIndexResponseWithStoredValues(name, "Observation/existing", fields, []string{"payload.other"})
 		fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{wrong}}
-		if err := ensurePreviewCoveringIndexWithStoredValues(ctx, fake, name, fields, storedValues); err == nil {
+		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues); err == nil {
 			t.Fatal("stored-values mismatch was treated as an idempotent index")
 		}
 		if !slices.Equal(fake.events, []string{}) || len(fake.indexes) != 1 {
@@ -279,7 +279,7 @@ func TestStoredValuesPreviewCoveringIndexCapRequiresPriorMigration(t *testing.T)
 		previewIndexResponse("loom_pivot_preview_other_b", "Observation/other-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
 		previewIndexResponse("loom_pivot_preview_other_c", "Observation/other-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
 	}}
-	if err := ensurePreviewCoveringIndexWithStoredValues(ctx, fake, name, fields, storedValues); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
+	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
 		t.Fatalf("unmigrated stored-values cap error = %v, want index limit", err)
 	}
 	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
@@ -298,7 +298,7 @@ func TestPreviewCoveringIndexCapRequiresPriorMigration(t *testing.T) {
 		previewIndexResponse("loom_pivot_preview_other_b", "Patient/other-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
 		previewIndexResponse("loom_pivot_preview_other_c", "Patient/other-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
 	}}
-	if err := ensurePreviewCoveringIndex(ctx, fake, name, fields); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
+	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, nil); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
 		t.Fatalf("unmigrated capped inventory error = %v, want index limit", err)
 	}
 	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
@@ -316,7 +316,7 @@ func TestPreviewCoveringIndexAtCapIsIdempotentAfterMigration(t *testing.T) {
 		previewIndexResponse("loom_pivot_preview_other_b", "Patient/other-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
 		previewIndexResponse("loom_pivot_preview_other_c", "Patient/other-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
 	}}
-	if err := ensurePreviewCoveringIndex(ctx, fake, name, fields); err != nil {
+	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {

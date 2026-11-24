@@ -10,6 +10,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/lease"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -560,7 +562,7 @@ func (w *Writer) validateRow(input map[string]any) (map[string]any, int, error) 
 		if !ok {
 			return nil, 0, fmt.Errorf("private artifact auth_resource_path must be a string")
 		}
-		if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted && (path == "" || !contains(w.manifest.Identity.AuthResourcePaths, path)) {
+		if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted && (path == "" || !slices.Contains(w.manifest.Identity.AuthResourcePaths, path)) {
 			return nil, 0, fmt.Errorf("private artifact row authorization path is outside the exact restricted scope")
 		}
 	}
@@ -805,7 +807,7 @@ func (a *Artifact) LeaseContext(ctx context.Context) (context.Context, context.C
 	}
 	go func() {
 		select {
-		case <-a.lease.lost:
+		case <-a.lease.renewal.Lost():
 			cancel()
 		case <-leaseCtx.Done():
 		}
@@ -887,66 +889,38 @@ func (m *Manager) validTableName(table string) bool {
 }
 
 type leaseKeeper struct {
-	catalog  Catalog
-	id       string
-	owner    string
-	ttl      time.Duration
-	stopCh   chan struct{}
-	done     chan struct{}
-	lost     chan struct{}
+	renewal  *lease.Renewal
 	stopOnce sync.Once
-	lostOnce sync.Once
-	mu       sync.Mutex
-	err      error
 }
 
 func startLease(catalog Catalog, id, owner string, ttl time.Duration) *leaseKeeper {
-	lease := &leaseKeeper{catalog: catalog, id: id, owner: owner, ttl: ttl, stopCh: make(chan struct{}), done: make(chan struct{}), lost: make(chan struct{})}
-	go lease.run()
-	return lease
-}
-
-func (l *leaseKeeper) run() {
-	defer close(l.done)
-	ticker := time.NewTicker(l.ttl / 3)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-l.stopCh:
-			return
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			owned, err := l.catalog.Renew(ctx, l.id, l.owner, time.Now().UTC().Add(l.ttl))
-			cancel()
-			if err != nil || !owned {
-				if err == nil {
-					err = ErrLeaseLost
-				}
-				l.mu.Lock()
-				l.err = errors.Join(ErrLeaseLost, err)
-				l.mu.Unlock()
-				l.lostOnce.Do(func() { close(l.lost) })
-				return
-			}
+	renewal := lease.StartRenewal(context.Background(), ttl/3, func(context.Context) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		owned, err := catalog.Renew(ctx, id, owner, time.Now().UTC().Add(ttl))
+		if err != nil {
+			return errors.Join(ErrLeaseLost, err)
 		}
-	}
+		if !owned {
+			return errors.Join(ErrLeaseLost, ErrLeaseLost)
+		}
+		return nil
+	})
+	return &leaseKeeper{renewal: renewal}
 }
 
 func (l *leaseKeeper) check() error {
-	if l == nil {
+	if l == nil || l.renewal == nil {
 		return ErrLeaseLost
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.err
+	return l.renewal.Err()
 }
 
 func (l *leaseKeeper) stop() {
-	if l == nil {
+	if l == nil || l.renewal == nil {
 		return
 	}
-	l.stopOnce.Do(func() { close(l.stopCh) })
-	<-l.done
+	l.stopOnce.Do(func() { l.renewal.Stop(nil) })
 }
 
 func toClickHouseColumns(columns []Column) []clickhouse.Column {
@@ -955,15 +929,6 @@ func toClickHouseColumns(columns []Column) []clickhouse.Column {
 		result[index] = clickhouse.Column{Name: column.Name, Type: column.ClickHouseType}
 	}
 	return result
-}
-
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func boundedCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {

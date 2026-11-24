@@ -2097,9 +2097,10 @@ components:
     FhirFieldPredicateOperation:
       type: string
       enum: [CONTAINS]
-      x-go-type: dataframe.FhirFieldPredicateOperation
+      x-go-type: recipe.FhirFieldPredicateOperation
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFieldPredicateInput:
       type: object
       required: [path, value]
@@ -2107,9 +2108,10 @@ components:
         path: {type: string}
         op: {$ref: '#/components/schemas/FhirFieldPredicateOperation'}
         value: {type: string}
-      x-go-type: dataframe.FhirFieldPredicateInput
+      x-go-type: recipe.FhirFieldPredicateInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFieldSelectorInput:
       type: object
       required: [valuePath]
@@ -2117,15 +2119,17 @@ components:
         sourcePath: {type: string}
         where: {$ref: '#/components/schemas/FhirFieldPredicateInput'}
         valuePath: {type: string}
-      x-go-type: dataframe.FhirFieldSelectorInput
+      x-go-type: recipe.FhirFieldSelectorInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirValueMode:
       type: string
       enum: [AUTO, FIRST, ALL, DISTINCT]
-      x-go-type: dataframe.FhirValueMode
+      x-go-type: recipe.FhirValueMode
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFieldSelectInput:
       type: object
       required: [name]
@@ -2137,27 +2141,31 @@ components:
         fallbackFieldRefs: {type: array, items: {type: string}, default: []}
         fallbackSelectors: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectorInput'}, default: []}
         valueMode: {$ref: '#/components/schemas/FhirValueMode'}
-      x-go-type: dataframe.FhirFieldSelectInput
+      x-go-type: recipe.FhirFieldSelectInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFilterOperator:
       type: string
       enum: [EQUALS, NOT_EQUALS, IN, EXISTS, MISSING, CONTAINS_TEXT, GT, GTE, LT, LTE]
-      x-go-type: dataframe.FhirFilterOperator
+      x-go-type: recipe.FhirFilterOperator
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFilterQuantifier:
       type: string
       enum: [ANY, ALL, NONE]
-      x-go-type: dataframe.FhirFilterQuantifier
+      x-go-type: recipe.FhirFilterQuantifier
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFilterValueKind:
       type: string
       enum: [STRING, CODE, BOOLEAN, INTEGER, DECIMAL, DATE, DATE_TIME]
-      x-go-type: dataframe.FhirFilterValueKind
+      x-go-type: recipe.FhirFilterValueKind
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirCodeValueInput:
       type: object
       required: [code]
@@ -2165,9 +2173,10 @@ components:
         system: {type: string}
         code: {type: string}
         display: {type: string}
-      x-go-type: dataframe.FhirCodeValueInput
+      x-go-type: recipe.FhirCodeValueInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFilterValueInput:
       type: object
       required: [kind]
@@ -2180,9 +2189,10 @@ components:
         decimal: {type: number, format: double}
         date: {type: string}
         dateTime: {type: string}
-      x-go-type: dataframe.FhirFilterValueInput
+      x-go-type: recipe.FhirFilterValueInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirFilterInput:
       type: object
       required: [select, operator]
@@ -2192,9 +2202,10 @@ components:
         operator: {$ref: '#/components/schemas/FhirFilterOperator'}
         quantifier: {$ref: '#/components/schemas/FhirFilterQuantifier'}
         values: {type: array, items: {$ref: '#/components/schemas/FhirFilterValueInput'}, default: []}
-      x-go-type: dataframe.FhirFilterInput
+      x-go-type: recipe.FhirFilterInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirPivotDiscoveryInput:
       type: object
       required: [maxColumns]
@@ -2202,9 +2213,10 @@ components:
         family: {type: string}
         path: {type: string}
         maxColumns: {type: integer}
-      x-go-type: dataframe.FhirPivotDiscoveryInput
+      x-go-type: recipe.FhirPivotDiscoveryInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirPivotInput:
       type: object
       required: [name]
@@ -2215,15 +2227,17 @@ components:
         valueSelector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
         columns: {type: array, items: {type: string}, default: []}
         discovery: {$ref: '#/components/schemas/FhirPivotDiscoveryInput'}
-      x-go-type: dataframe.FhirPivotInput
+      x-go-type: recipe.FhirPivotInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirAggregateOperation:
       type: string
       enum: [COUNT, COUNT_DISTINCT, EXISTS, DISTINCT_VALUES]
-      x-go-type: dataframe.FhirAggregateOperation
+      x-go-type: recipe.FhirAggregateOperation
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirAggregateInput:
       type: object
       required: [name, operation]
@@ -2236,9 +2250,10 @@ components:
         predicatePath: {type: string}
         predicateEquals: {type: string}
         valueMode: {$ref: '#/components/schemas/FhirValueMode'}
-      x-go-type: dataframe.FhirAggregateInput
+      x-go-type: recipe.FhirAggregateInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirRepresentativeSliceInput:
       type: object
       required: [name, limit]
@@ -2249,15 +2264,17 @@ components:
         wherePath: {type: string}
         whereEquals: {type: string}
         fields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}, default: []}
-      x-go-type: dataframe.FhirRepresentativeSliceInput
+      x-go-type: recipe.FhirRepresentativeSliceInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirColumnNaming:
       type: string
       enum: [PATH, PATH_SUFFIX]
-      x-go-type: dataframe.FhirColumnNaming
+      x-go-type: recipe.FhirColumnNaming
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirCatalogProjectionInput:
       type: object
       required: [name, maxColumns]
@@ -2269,15 +2286,17 @@ components:
         naming: {$ref: '#/components/schemas/FhirColumnNaming'}
         valueMode: {$ref: '#/components/schemas/FhirValueMode'}
         maxColumns: {type: integer}
-      x-go-type: dataframe.FhirCatalogProjectionInput
+      x-go-type: recipe.FhirCatalogProjectionInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirTraversalMatchMode:
       type: string
       enum: [OPTIONAL, REQUIRED]
-      x-go-type: dataframe.FhirTraversalMatchMode
+      x-go-type: recipe.FhirTraversalMatchMode
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirTraversalStepInput:
       type: object
       required: [edgeLabel, toResourceType, alias]
@@ -2293,9 +2312,10 @@ components:
         slices: {type: array, items: {$ref: '#/components/schemas/FhirRepresentativeSliceInput'}, default: []}
         catalogProjections: {type: array, items: {$ref: '#/components/schemas/FhirCatalogProjectionInput'}, default: []}
         traverse: {type: array, items: {$ref: '#/components/schemas/FhirTraversalStepInput'}, default: []}
-      x-go-type: dataframe.FhirTraversalStepInput
+      x-go-type: recipe.FhirTraversalStepInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirDataframeInput:
       type: object
       required: [rootResourceType]
@@ -2314,9 +2334,10 @@ components:
         traverse: {type: array, items: {$ref: '#/components/schemas/FhirTraversalStepInput'}}
         limit: {type: integer}
         cursor: {type: string}
-      x-go-type: dataframe.FhirDataframeInput
+      x-go-type: recipe.FhirDataframeInput
       x-go-type-import:
-        path: github.com/calypr/loom/internal/api/dataframe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+        name: recipe
     FhirDataframeRequest:
       type: object
       required: [input]

@@ -16,7 +16,7 @@ func structuralUserRejection(message string) error {
 	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, message, dataframeerrors.WithRetryable(false))
 }
 
-func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (OutputPlan, error) {
+func buildRecipeOutput(output recipe.Output) (OutputPlan, error) {
 	if !fhirschema.HasResource(output.RootResourceType) {
 		return OutputPlan{}, structuralUserRejection(fmt.Sprintf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType))
 	}

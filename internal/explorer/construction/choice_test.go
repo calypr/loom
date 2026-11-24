@@ -12,7 +12,18 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
+
+func resolveSemanticConstructionChoiceForTest(ctx context.Context, authorized ports.AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot ws.CatalogSnapshot, explorerID, rootResourceType, semanticContextToken, tokenBuildID, buildID string, entries map[string]semantic.Entry, families map[string]semantic.Family, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.SemanticBindingChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
+	return resolveSemanticConstructionChoice(resolveSemanticConstructionChoiceRequest{
+		ctx: ctx, authorized: authorized, snapshot: snapshot, catalogSnapshot: catalogSnapshot,
+		explorerID: explorerID, rootResourceType: rootResourceType,
+		semanticContextToken: semanticContextToken, tokenBuildID: tokenBuildID, buildID: buildID,
+		entries: entries, families: families, selection: selection,
+		choiceIdentity: choiceIdentity, identity: identity,
+	})
+}
 
 func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOptionalRoute(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -61,7 +72,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, primary, false)
+	choice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, primary, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +91,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		if option.Form == capability.ConstructionChoiceOwnerRecords {
 			continue
 		}
-		resolved, _, err := resolveSemanticConstructionChoice(
+		resolved, _, err := resolveSemanticConstructionChoiceForTest(
 			context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 			"explorer-a", "Medication", contextToken, buildID, buildID,
 			map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -100,7 +111,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	scalarEntry := entry
 	scalarEntry.Observation.Value.FallbackSelectors = nil
 	scalarEntry.Observation.Value.FallbackOnBlankString = false
-	scalarChoice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, scalarEntry, primary, false)
+	scalarChoice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, route, scalarEntry, primary, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +131,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		t.Fatalf("routed scalar semantic source = %#v", scalarIdentity.Source)
 	}
 	for _, option := range scalarFieldChoice.Options {
-		resolved, _, err := resolveSemanticConstructionChoice(
+		resolved, _, err := resolveSemanticConstructionChoiceForTest(
 			context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 			"explorer-a", "Medication", contextToken, buildID, buildID,
 			map[string]semantic.Entry{semanticChoiceKey(scalarEntry.ConceptID, scalarEntry.BindingID): scalarEntry}, nil,
@@ -139,7 +150,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootChoice, err := semanticInventoryConstructionChoiceForRoute(snapshot, rootContextToken, buildID, nil, entry, primary, false)
+	rootChoice, err := capability.SemanticConstructionChoiceForRoute(snapshot, rootContextToken, buildID, nil, entry, primary, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +170,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Cardinality: primary.Cardinality,
 		ConstructionChoice: &rootFieldChoice,
 	}}}
-	rootResolved, _, err := resolveSemanticConstructionChoice(
+	rootResolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, rootCatalogSnapshot,
 		"explorer-a", "Observation", rootContextToken, buildID, buildID,
 		map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -217,7 +228,7 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		"patients", "Observation", contextToken, buildID, buildID,
 		map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -238,10 +249,10 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 
 func TestSchemaFieldCandidateChoiceRecompilesWithoutObservedCatalogEntry(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := schemaFieldsTestSnapshot(scope, nil)
+	snapshot := explorerfixtures.SchemaFieldsSnapshot(scope, nil)
 	snapshot.Nodes[0].RowRootEligible = true
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
-	candidate, ok := uniqueCapabilityCandidate(snapshot, schemaFieldCandidateID(snapshot.Token, "patient-node", "gender"))
+	candidate, ok := capability.UniqueCapabilityCandidate(snapshot, capability.SchemaFieldCandidateID(snapshot.Token, "patient-node", "gender"))
 	if !ok {
 		t.Fatal("generated field identity was not resolved")
 	}
@@ -267,9 +278,9 @@ func TestSchemaFieldCandidateChoiceRecompilesWithoutObservedCatalogEntry(t *test
 }
 
 func TestSchemaFieldCandidateMissingGenderHasNoObservedOrOperationClaims(t *testing.T) {
-	snapshot := schemaFieldsTestSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
-	id := schemaFieldCandidateID(snapshot.Token, "patient-node", "gender")
-	candidate, ok := resolveSchemaFieldCandidate(snapshot, id)
+	snapshot := explorerfixtures.SchemaFieldsSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
+	id := capability.SchemaFieldCandidateID(snapshot.Token, "patient-node", "gender")
+	candidate, ok := capability.ResolveSchemaFieldCandidate(snapshot, id)
 	if !ok || candidate.FieldPath != "gender" || candidate.LogicalType != "string" || candidate.Cardinality != "optional_one" {
 		t.Fatalf("generated candidate = %#v, found=%v", candidate, ok)
 	}
@@ -279,19 +290,19 @@ func TestSchemaFieldCandidateMissingGenderHasNoObservedOrOperationClaims(t *test
 }
 
 func TestSchemaFieldCandidateRejectsWrongSnapshotNodeAndPath(t *testing.T) {
-	snapshot := schemaFieldsTestSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
+	snapshot := explorerfixtures.SchemaFieldsSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
 	for _, id := range []string{
-		schemaFieldCandidateID("another-snapshot", "patient-node", "gender"),
-		schemaFieldCandidateID(snapshot.Token, "outside-node", "gender"),
-		schemaFieldCandidateID(snapshot.Token, "patient-node", "notAField"),
+		capability.SchemaFieldCandidateID("another-snapshot", "patient-node", "gender"),
+		capability.SchemaFieldCandidateID(snapshot.Token, "outside-node", "gender"),
+		capability.SchemaFieldCandidateID(snapshot.Token, "patient-node", "notAField"),
 		"schema_field.invalid",
 	} {
-		if candidate, ok := resolveSchemaFieldCandidate(snapshot, id); ok {
+		if candidate, ok := capability.ResolveSchemaFieldCandidate(snapshot, id); ok {
 			t.Fatalf("accepted unavailable identity %q: %#v", id, candidate)
 		}
 	}
 	snapshot.Nodes[0].Populated = false
-	if _, ok := resolveSchemaFieldCandidate(snapshot, schemaFieldCandidateID(snapshot.Token, "patient-node", "gender")); ok {
+	if _, ok := capability.ResolveSchemaFieldCandidate(snapshot, capability.SchemaFieldCandidateID(snapshot.Token, "patient-node", "gender")); ok {
 		t.Fatal("accepted an unpopulated node")
 	}
 }

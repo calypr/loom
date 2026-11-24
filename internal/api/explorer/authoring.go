@@ -19,13 +19,6 @@ import (
 	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 )
 
-func optionalString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 func directAuthoringJSON[T any](value any) (T, error) {
 	var result T
 	raw, err := json.Marshal(value)
@@ -181,7 +174,7 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 	status := http.StatusInternalServerError
 	code, message, stage, path := "INTERNAL_ERROR", "", "internal", ""
 	var details map[string]any
-	var cause error = err
+	cause := err
 	typed := false
 	var lifecycleErr *ports.Error
 	var authoringErr *explorer.AuthoringError

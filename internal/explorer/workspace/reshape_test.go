@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -27,7 +28,7 @@ func TestMigrateStoredTableShapeWorkspaceMatchesLegacyGoldens(t *testing.T) {
 			if got.MigratedCanonicalDigest != workspaceDigest(want) {
 				t.Fatalf("migrated digest=%q want=%q", got.MigratedCanonicalDigest, workspaceDigest(want))
 			}
-			if !ContainsString(got.AcceptedOriginalDigests, got.OriginalCanonicalDigest) || got.OriginalCanonicalDigest == got.MigratedCanonicalDigest || !got.DigestChanged {
+			if !slices.Contains(got.AcceptedOriginalDigests, got.OriginalCanonicalDigest) || got.OriginalCanonicalDigest == got.MigratedCanonicalDigest || !got.DigestChanged {
 				t.Fatalf("receipt digest change is not explicit: %#v", got)
 			}
 		})

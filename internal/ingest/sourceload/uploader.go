@@ -163,7 +163,7 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
 		return SourceFileReceipt{}, errors.Join(err, cleanupErr)
 	}
-	receipt := SourceFileReceipt{Path: planned.Path, ResourceType: resourceType, SHA256: digest, Rows: rows, State: "READY"}
+	receipt := SourceFileReceipt{Path: planned.Path, ResourceType: resourceType, SHA256: digest, Rows: rows, State: SourceFileReady}
 	if err := p.completeSourceLoadFile(ctx, record.Key, planned.Path, owner, receipt); err != nil {
 		latest, found, readErr := p.readSourceLoad(context.WithoutCancel(ctx), record.Key)
 		if readErr != nil {

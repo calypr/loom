@@ -87,7 +87,7 @@ func relatedGroupPreviewShapeFor(plan ir.PhysicalPlan, sequence *ir.PhysicalStag
 	if !ok {
 		return relatedGroupPreviewShape{}, false
 	}
-	groupKeyColumn, ok := relatedGroupPreviewStageColumnByID(first.OutputColumns, related.RelatedRecordColumnID)
+	groupKeyColumn, ok := ir.FindStageColumnByID(first.OutputColumns, related.RelatedRecordColumnID)
 	if !ok || groupKeyColumn.Internal || groupKeyColumn.Kind != "string" ||
 		(groupKeyColumn.Cardinality != "required_one" && groupKeyColumn.Cardinality != "optional_one") ||
 		!relatedGroupPreviewProjectsResourceID(first, groupKeyColumn) {
@@ -273,15 +273,6 @@ func relatedGroupPreviewProjectsResourceID(stage ir.PhysicalConstructionStage, c
 	return false
 }
 
-func relatedGroupPreviewStageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.PhysicalStageColumn, bool) {
-	for _, column := range columns {
-		if column.ID == id {
-			return column, true
-		}
-	}
-	return ir.PhysicalStageColumn{}, false
-}
-
 func relatedGroupPreviewRootContributorColumn(columns []ir.PhysicalStageColumn, resourceType string) (ir.PhysicalStageColumn, bool) {
 	for _, column := range columns {
 		if column.RootContributorResourceType == resourceType && column.Name == "_key" && column.ID == "_key" &&
@@ -456,9 +447,9 @@ func renderRelatedGroupPreviewFrontier(
 		fmt.Sprintf("      RETURN {identity: %s, patientDocs: %s}", candidateIdentity, patientDocs),
 		"  )",
 		fmt.Sprintf("  FOR %s IN %s", candidate, candidateGroups),
-		fmt.Sprintf("    FILTER LENGTH(("),
+		"    FILTER LENGTH((",
 		fmt.Sprintf("      FOR %s IN %s.patientDocs", patientDoc, candidate),
-		fmt.Sprintf("        FILTER LENGTH(("),
+		"        FILTER LENGTH((",
 		fmt.Sprintf("          FOR %s IN @@%s", edge, traversal.EdgeCollectionBindKey),
 		fmt.Sprintf("            FILTER %s.%s == %s.id", edge, targetEndpoint, patientDoc),
 		fmt.Sprintf("            FILTER %s.label == @%s", edge, traversal.EdgeLabelBindKey),

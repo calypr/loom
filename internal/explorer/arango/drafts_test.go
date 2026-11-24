@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,7 +28,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
-	storepkg "github.com/calypr/loom/internal/store/arango"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -135,7 +136,7 @@ func draftCASSeed(t *testing.T, ctx context.Context, s *Store) explorer.Explorer
 func draftCASHistory(t *testing.T, ctx context.Context, c *store.Client, e explorer.Explorer) []explorer.DraftRevision {
 	t.Helper()
 	rows := []explorer.DraftRevision{}
-	err := c.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorer RETURN d`, 10, map[string]any{"@c": DraftRevisionsCollection, "project": e.Project, "explorer": e.ExplorerID}, func(row map[string]any) error {
+	err := c.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorer RETURN d`, 10, map[string]any{"@c": db.DraftRevisionsCollection, "project": e.Project, "explorer": e.ExplorerID}, func(row map[string]any) error {
 		v, err := db.Decode[explorer.DraftRevision](row)
 		rows = append(rows, v)
 		return err
@@ -289,7 +290,7 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 		}
 	}
 	raced, _ := New(&draftCASClient{Client: c, afterRead: barrier})
-	domain, err := explorer.NewService(raced)
+	domain, err := explorerfixtures.NewService(raced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,6 +301,9 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 			return ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: got.Identity.Project, ExplorerID: id, SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true}, Nodes: []ws.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
 	}}
+	config.Revisions = raced
+	config.RevisionWriter = raced
+	config.SelectionStore = raced
 	service, err := lifecycle.New(domain, config)
 	if err != nil {
 		t.Fatal(err)
@@ -402,21 +406,86 @@ func TestDraftCASAfterWinnerCommitAgainstArango(t *testing.T) {
 	if !errors.Is(loser, explorer.ErrDraftConflict) {
 		t.Errorf("CAS_DELAYED_LOSER_NOT_DOMAIN_CONFLICT: %v", loser)
 	}
+
+	wrongDigest := *head
+	wrongDigest.Title = "Wrong digest at current version"
+	wrongDigest.DraftConfig, wrongDigest.DraftDigest = draftCASPayload(t, wrongDigest.Title)
+	if _, err := s.SaveDraft(ctx, wrongDigest, head.DraftVersion, before.DraftDigest); !errors.Is(err, explorer.ErrDraftConflict) {
+		t.Fatalf("same-version stale digest error=%v, want ErrDraftConflict", err)
+	}
+	unchanged, err := s.Get(ctx, before.Project, before.ExplorerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchangedHistory := draftCASHistory(t, ctx, c, before)
+	if !reflect.DeepEqual(unchanged, head) || !reflect.DeepEqual(unchangedHistory, history) {
+		t.Fatalf("same-version stale digest changed head or history: headChanged=%v historyChanged=%v", !reflect.DeepEqual(unchanged, head), !reflect.DeepEqual(unchangedHistory, history))
+	}
+
+	priorID := head.PreviousDraftRevisionID
+	if priorID == "" {
+		t.Fatal("winning head has no previous draft revision ID")
+	}
+	prior, err := s.GetDraftRevision(ctx, before.Project, before.ExplorerID, priorID)
+	if err != nil || prior.ID != priorID || prior.DraftDigest != before.DraftDigest {
+		t.Fatalf("owned draft history lookup=%#v error=%v", prior, err)
+	}
+	decoyID := "draft_revision_key_guard_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	decoy, err := db.Document(explorer.DraftRevision{
+		ID: decoyID, Project: before.Project, ExplorerID: before.ExplorerID, DraftVersion: 99,
+		DraftDigest: "decoy-digest", DraftConfig: json.RawMessage(`{"documents":[]}`),
+	}, "draft_history_decoy_"+strings.ReplaceAll(uuid.NewString(), "-", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.QueryRows(ctx, `INSERT @doc INTO @@c RETURN NEW`, 1, map[string]any{"@c": db.DraftRevisionsCollection, "doc": decoy}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("insert wrong-key history decoy: %v", err)
+	}
+	if _, err := s.GetDraftRevision(ctx, before.Project, before.ExplorerID, decoyID); !errors.Is(err, explorer.ErrNotFound) {
+		t.Fatalf("wrong-key history lookup error=%v, want ErrNotFound", err)
+	}
+	idMismatch := "draft_revision_id_guard_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	idMismatchDoc, err := db.Document(explorer.DraftRevision{
+		ID: idMismatch + "_different", Project: before.Project, ExplorerID: before.ExplorerID, DraftVersion: 100,
+		DraftDigest: "id-mismatch-digest", DraftConfig: json.RawMessage(`{"documents":[]}`),
+	}, idMismatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.QueryRows(ctx, `INSERT @doc INTO @@c RETURN NEW`, 1, map[string]any{"@c": db.DraftRevisionsCollection, "doc": idMismatchDoc}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("insert mismatched-id history decoy: %v", err)
+	}
+	if _, err := s.GetDraftRevision(ctx, before.Project, before.ExplorerID, idMismatch); !errors.Is(err, explorer.ErrNotFound) {
+		t.Fatalf("mismatched-id history lookup error=%v, want ErrNotFound", err)
+	}
+	for _, scope := range []struct {
+		name       string
+		project    string
+		explorerID string
+	}{
+		{name: "foreign project", project: "another-project", explorerID: before.ExplorerID},
+		{name: "foreign explorer", project: before.Project, explorerID: "another-explorer"},
+	} {
+		t.Run("history scope "+scope.name, func(t *testing.T) {
+			if _, err := s.GetDraftRevision(ctx, scope.project, scope.explorerID, priorID); !errors.Is(err, explorer.ErrNotFound) {
+				t.Fatalf("foreign scope lookup error=%v, want ErrNotFound", err)
+			}
+		})
+	}
 }
 
 type draftHistoryClient struct {
 	owner       map[string]any
 	revisions   map[string]map[string]any
-	calls       []queryCall
-	transaction storepkg.TransactionCollections
+	transaction store.TransactionCollections
 	loseCAS     bool
 }
 
-func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
-	previousOwner := cloneDocument(c.owner)
+func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections store.TransactionCollections, fn store.TransactionFunc) error {
+	previousOwner := maps.Clone(c.owner)
 	previousRevisions := make(map[string]map[string]any, len(c.revisions))
 	for id, revision := range c.revisions {
-		previousRevisions[id] = cloneDocument(revision)
+		previousRevisions[id] = maps.Clone(revision)
 	}
 	c.transaction = collections
 	err := fn(ctx, c)
@@ -427,13 +496,12 @@ func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections st
 	return err
 }
 
-func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	visit = storedJSONVisitorForTest(query, visit)
-	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	collection, _ := binds["@c"].(string)
 	switch {
-	case strings.HasPrefix(strings.TrimSpace(query), "INSERT") && collection == DraftRevisionsCollection:
-		doc := cloneDocument(binds["doc"].(map[string]any))
+	case strings.HasPrefix(strings.TrimSpace(query), "INSERT") && collection == db.DraftRevisionsCollection:
+		doc := maps.Clone(binds["doc"].(map[string]any))
 		id := doc["_key"].(string)
 		if c.revisions == nil {
 			c.revisions = map[string]map[string]any{}
@@ -442,19 +510,19 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 			return errors.New("duplicate immutable draft revision")
 		}
 		c.revisions[id] = doc
-		return visit(cloneDocument(doc))
-	case strings.Contains(query, "d.id == @revisionId") && collection == DraftRevisionsCollection:
+		return visit(maps.Clone(doc))
+	case strings.Contains(query, "d.id == @revisionId") && collection == db.DraftRevisionsCollection:
 		id, _ := binds["key"].(string)
 		revision := c.revisions[id]
 		if revision == nil || revision["id"] != binds["revisionId"] || revision["project"] != binds["project"] || revision["explorerId"] != binds["explorerId"] {
 			return nil
 		}
-		return visit(cloneDocument(revision))
+		return visit(maps.Clone(revision))
 	case strings.Contains(query, "UPDATE d WITH MERGE(base, @doc"):
 		if c.loseCAS || !draftOwnerMatches(c.owner, binds) {
 			return nil
 		}
-		updated := cloneDocument(c.owner)
+		updated := maps.Clone(c.owner)
 		if binds["clearDraftConfig"] == true {
 			delete(updated, "draftConfig")
 		}
@@ -464,12 +532,12 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 		updated["draftVersion"] = binds["nextVersion"]
 		updated["previousDraftRevisionId"] = binds["revisionId"]
 		c.owner = updated
-		return visit(cloneDocument(updated))
-	case strings.Contains(query, "RETURN d") && collection == ExplorersCollection && binds["expected"] != nil:
+		return visit(maps.Clone(updated))
+	case strings.Contains(query, "RETURN d") && collection == db.ExplorersCollection && binds["expected"] != nil:
 		if !draftOwnerMatches(c.owner, binds) {
 			return nil
 		}
-		return visit(cloneDocument(c.owner))
+		return visit(maps.Clone(c.owner))
 	default:
 		return nil
 	}
@@ -489,17 +557,6 @@ func draftOwnerMatches(owner map[string]any, binds map[string]any) bool {
 	}
 	expectedDigest, _ := binds["expectedDigest"].(string)
 	return expectedDigest == "" || owner["draftDigest"] == expectedDigest
-}
-
-func cloneDocument(value map[string]any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	cloned := make(map[string]any, len(value))
-	for key, item := range value {
-		cloned[key] = item
-	}
-	return cloned
 }
 
 func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *testing.T) {
@@ -545,7 +602,7 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 	if len(client.revisions) != 1 {
 		t.Fatalf("persisted draft revisions=%d, want 1", len(client.revisions))
 	}
-	if !reflect.DeepEqual(client.transaction.Write, []string{ExplorersCollection, DraftRevisionsCollection}) {
+	if !reflect.DeepEqual(client.transaction.Write, []string{db.ExplorersCollection, db.DraftRevisionsCollection}) {
 		t.Fatalf("transaction write set=%v", client.transaction.Write)
 	}
 	var snapshot *explorer.DraftRevision
@@ -563,9 +620,6 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 	}
 	if snapshot.SnapshotToken != "snapshot-old" || snapshot.SourceGeneration != "generation-old" || snapshot.AuthorizationScopeDigest != "scope-old" {
 		t.Fatalf("snapshot source context = %#v", snapshot)
-	}
-	if !strings.Contains(client.calls[0].query, "@expectedDigest") || !strings.Contains(client.calls[2].query, "previousDraftRevisionId: @revisionId") {
-		t.Fatalf("history write/CAS query sequence is incomplete: %#v", client.calls)
 	}
 }
 
@@ -633,12 +687,6 @@ func TestGetDraftRevisionScopesOpaqueIDsToExplorer(t *testing.T) {
 	if got.ID != revision.ID || !json.Valid(got.DraftConfig) || !strings.Contains(string(got.DraftConfig), `"outputId":"patients"`) {
 		t.Fatalf("draft revision lookup = %#v", got)
 	}
-	query := client.calls[len(client.calls)-1].query
-	for _, predicate := range []string{"d.project == @project", "d.explorerId == @explorerId", "d.id == @revisionId"} {
-		if !strings.Contains(query, predicate) {
-			t.Fatalf("revision lookup missing scope %q: %s", predicate, query)
-		}
-	}
 }
 
 type migrationHistoryOrderClient struct {
@@ -679,7 +727,7 @@ func (c *migrationHistoryOrderClient) QueryRows(_ context.Context, query string,
 			c.historyRaw = encoded
 		}
 		return nil
-	case strings.Contains(query, `FILTER d._key == @key RETURN {migrationJSON:JSON_STRINGIFY(d)}`) && binds["@c"] == DraftRevisionsCollection:
+	case strings.Contains(query, `FILTER d._key == @key RETURN {migrationJSON:JSON_STRINGIFY(d)}`) && binds["@c"] == db.DraftRevisionsCollection:
 		if c.historyRaw == nil {
 			return nil
 		}

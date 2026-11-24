@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type dataframeDefaultStore struct {
@@ -91,11 +92,11 @@ func TestBuilderUsesVirtualDefaultDataframeWithoutWritingOwner(t *testing.T) {
 	store := &dataframeDefaultStore{owners: map[string]explorer.Explorer{
 		"project-a\x00default": {Project: "project-a", ExplorerID: "default", DraftConfig: append(json.RawMessage(nil), viewerWorkspace...)},
 	}}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, defaultDataframeConfig(snapshot))
+	service, err := New(domain, ConfigWithTestStores(defaultDataframeConfig(snapshot), store))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +122,11 @@ func TestBuilderCorruptStoredDefaultDraftFailsClosedBeforeActiveBundle(t *testin
 	store := &dataframeDefaultStore{owners: map[string]explorer.Explorer{
 		"project-a\x00" + DefaultDataframeID: {Project: "project-a", ExplorerID: DefaultDataframeID, DraftVersion: 2, DraftConfig: json.RawMessage(`not-json`), ActiveRevisionID: "broken-active"},
 	}}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, defaultDataframeConfig(snapshot))
+	service, err := New(domain, ConfigWithTestStores(defaultDataframeConfig(snapshot), store))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,12 +140,12 @@ func TestBuilderCorruptStoredDefaultDraftFailsClosedBeforeActiveBundle(t *testin
 func TestConcurrentFirstDefaultDataframeApplySeedsAndCASesOnce(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	store := &dataframeDefaultStore{owners: map[string]explorer.Explorer{}}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	config := defaultDataframeConfig(snapshot)
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, store))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,11 +194,11 @@ func TestConcurrentFirstDefaultDataframeApplySeedsAndCASesOnce(t *testing.T) {
 func TestCreateCopiesVirtualDefaultWithoutPersistingDefaultOwner(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	store := &dataframeDefaultStore{owners: map[string]explorer.Explorer{}}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, defaultDataframeConfig(snapshot))
+	service, err := New(domain, ConfigWithTestStores(defaultDataframeConfig(snapshot), store))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,8 +242,8 @@ func (s *reviewHistoryStore) GetDraftRevision(context.Context, string, string, s
 func TestUndoFirstDefaultApply(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	store := &reviewHistoryStore{dataframeDefaultStore: &dataframeDefaultStore{owners: map[string]explorer.Explorer{}}}
-	domain, _ := explorer.NewService(store)
-	service, _ := New(domain, defaultDataframeConfig(snapshot))
+	domain, _ := explorerfixtures.NewService(store)
+	service, _ := New(domain, ConfigWithTestStores(defaultDataframeConfig(snapshot), store))
 	workspace := defaultDataframeFixture()
 	digest, _ := workspace.Digest()
 	response, err := service.ApplyCommands(context.Background(), "project-a", DefaultDataframeID, authoringv2.ApplyCommandsRequest{CommandID: "rename-first", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "People", Payload: &authoringv2.TablePayload{}}}}, "actor")

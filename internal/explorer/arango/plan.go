@@ -22,17 +22,13 @@ type SourcePlanMigrationReport struct {
 
 func MigrateStoredSourcePlan(ctx context.Context, client *store.Client, project, explorerID string, dryRun bool) (SourcePlanMigrationReport, error) {
 	report := SourcePlanMigrationReport{DryRun: dryRun}
-	adapter, err := New(client)
-	if err != nil {
-		return report, err
-	}
 	type storedOwner struct {
 		explorer.Explorer
 		Revision string `json:"_rev"`
 	}
 	var stored storedOwner
-	err = client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorer RETURN d`, true), 1,
-		map[string]any{"@c": ExplorersCollection, "key": explorerKey(project, explorerID), "project": project, "explorer": explorerID}, func(row map[string]any) error {
+	err := client.QueryRows(ctx, db.MigrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorer RETURN d`, true), 1,
+		map[string]any{"@c": db.ExplorersCollection, "key": explorerKey(project, explorerID), "project": project, "explorer": explorerID}, func(row map[string]any) error {
 			value, decodeErr := db.DecodeMigrationJSON[storedOwner](row["migrationJSON"])
 			stored = value
 			return decodeErr
@@ -65,7 +61,7 @@ func MigrateStoredSourcePlan(ctx context.Context, client *store.Client, project,
 	}
 	owner.DraftDigest = report.DraftDigest
 	owner.LastAuthoringCommandID, owner.LastAuthoringCommandDigest, owner.LastAuthoringCommandResults = "", "", nil
-	updated, err := adapter.saveDraft(ctx, owner, owner.DraftVersion, []string{oldDigest}, &draftMigrationWrite{revision: stored.Revision})
+	updated, err := NewDraftStore(client).saveDraft(ctx, owner, owner.DraftVersion, []string{oldDigest}, &draftMigrationWrite{revision: stored.Revision})
 	if err != nil {
 		return report, err
 	}

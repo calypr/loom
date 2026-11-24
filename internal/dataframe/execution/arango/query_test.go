@@ -34,33 +34,25 @@ func TestClassifyDataframeQueryErrorPreservesArangoMemoryLimit(t *testing.T) {
 	}
 }
 
-func TestClassifyDataframeQueryErrorPreservesArangoOutOfMemory(t *testing.T) {
-	driverErr := shared.ArangoError{
-		HasError:     true,
-		Code:         500,
-		ErrorNum:     shared.ErrOutOfMemory,
-		ErrorMessage: "out of memory",
+func TestClassifyDataframeQueryErrorPreservesArangoResourceLimits(t *testing.T) {
+	tests := []struct {
+		name     string
+		errorNum int
+		message  string
+		wantCode string
+	}{
+		{name: "out of memory", errorNum: shared.ErrOutOfMemory, message: "out of memory", wantCode: string(dataframeerrors.CodeQueryBackendOutOfMemory)},
+		{name: "other resource limit", errorNum: shared.ErrResourceLimit, message: "resource limit exceeded", wantCode: string(dataframeerrors.CodeQueryResourceLimitExceeded)},
 	}
-
-	err := ClassifyDataframeQueryError(driverErr)
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok || userErr.Code() != string(dataframeerrors.CodeQueryBackendOutOfMemory) {
-		t.Fatalf("ClassifyDataframeQueryError() = %#v, want %s", userErr, dataframeerrors.CodeQueryBackendOutOfMemory)
-	}
-}
-
-func TestClassifyDataframeQueryErrorPreservesOtherArangoResourceLimit(t *testing.T) {
-	driverErr := shared.ArangoError{
-		HasError:     true,
-		Code:         500,
-		ErrorNum:     shared.ErrResourceLimit,
-		ErrorMessage: "resource limit exceeded",
-	}
-
-	err := ClassifyDataframeQueryError(driverErr)
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok || userErr.Code() != string(dataframeerrors.CodeQueryResourceLimitExceeded) {
-		t.Fatalf("ClassifyDataframeQueryError() = %#v, want %s", userErr, dataframeerrors.CodeQueryResourceLimitExceeded)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			driverErr := shared.ArangoError{HasError: true, Code: 500, ErrorNum: test.errorNum, ErrorMessage: test.message}
+			err := ClassifyDataframeQueryError(driverErr)
+			userErr, ok := dataframeerrors.AsUserError(err)
+			if !ok || userErr.Code() != test.wantCode {
+				t.Fatalf("ClassifyDataframeQueryError() = %#v, want %s", userErr, test.wantCode)
+			}
+		})
 	}
 }
 
@@ -94,33 +86,27 @@ func TestClassifyDataframeQueryErrorPreservesUnlistedPivotCategory(t *testing.T)
 	}
 }
 
-func TestClassifyDataframeQueryErrorPreservesPivotCellCardinality(t *testing.T) {
-	driverErr := shared.ArangoError{
-		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
-		ErrorMessage: "AQL: TABLE_PIVOT_CELL_CARDINALITY (while executing)",
+func TestClassifyDataframeQueryErrorPreservesNonRetryableDomainErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{name: "pivot cell cardinality", message: "AQL: TABLE_PIVOT_CELL_CARDINALITY (while executing)", want: string(dataframeerrors.CodeTablePivotCellCardinality)},
+		{name: "unassigned explicit group", message: "AQL: EXPLICIT_GROUP_UNASSIGNED_MEMBER (while executing)", want: string(dataframeerrors.CodeExplicitGroupUnassignedMember)},
 	}
-	err := ClassifyDataframeQueryError(driverErr)
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok || userErr.Code() != string(dataframeerrors.CodeTablePivotCellCardinality) || userErr.Retryable() {
-		t.Fatalf("classified error=%#v, want non-retryable %s", userErr, dataframeerrors.CodeTablePivotCellCardinality)
-	}
-	if !errors.Is(err, driverErr) {
-		t.Fatal("classified error did not preserve the Arango cause")
-	}
-}
-
-func TestClassifyDataframeQueryErrorPreservesUnassignedExplicitGroup(t *testing.T) {
-	driverErr := shared.ArangoError{
-		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
-		ErrorMessage: "AQL: EXPLICIT_GROUP_UNASSIGNED_MEMBER (while executing)",
-	}
-	err := ClassifyDataframeQueryError(driverErr)
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok || userErr.Code() != string(dataframeerrors.CodeExplicitGroupUnassignedMember) || userErr.Retryable() {
-		t.Fatalf("classified error=%#v, want non-retryable %s", userErr, dataframeerrors.CodeExplicitGroupUnassignedMember)
-	}
-	if !errors.Is(err, driverErr) {
-		t.Fatal("classified error did not preserve the Arango cause")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			driverErr := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert, ErrorMessage: test.message}
+			err := ClassifyDataframeQueryError(driverErr)
+			userErr, ok := dataframeerrors.AsUserError(err)
+			if !ok || userErr.Code() != test.want || userErr.Retryable() {
+				t.Fatalf("classified error=%#v, want non-retryable %s", userErr, test.want)
+			}
+			if !errors.Is(err, driverErr) {
+				t.Fatal("classified error did not preserve the Arango cause")
+			}
+		})
 	}
 }
 

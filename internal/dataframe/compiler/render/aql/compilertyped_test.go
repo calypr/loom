@@ -8,11 +8,8 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 )
-
-func categoryScanIdentifierByte(value byte) bool {
-	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
-}
 
 func TestTypedCategoryTerminalOwnsRootHintDistinctAndLimitWithoutMutatingSource(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
@@ -49,5 +46,5 @@ func TestTypedCategoryTerminalOwnsRootHintDistinctAndLimitWithoutMutatingSource(
 	if distinct < 0 || limit < distinct || rendered.BindVars[categoryLimitBind] != 5 || strings.Contains(rendered.Query[:distinct], "LIMIT @__loom_category_limit") {
 		t.Fatal("typed terminal must bound only after distinct with overflow row")
 	}
-	assertCategoryScanBindVarsMatchQuery(t, rendered.Query, rendered.BindVars)
+	compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, rendered.Query, rendered.BindVars)
 }

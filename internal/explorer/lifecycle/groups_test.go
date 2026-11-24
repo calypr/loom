@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type explicitGroupSelectionFixture struct {
@@ -178,7 +179,7 @@ func (r *explicitGroupRepositoryFixture) AbortExplicitGroupRevision(_ context.Co
 func TestCreateExplicitGroupRevisionPreservesEmptyAndOverlappingMemberships(t *testing.T) {
 	service, selectionStore, repository := explicitGroupServiceFixture(t)
 	request := explicitGroupCreateFixtureRequest(selectionStore.header.ID)
-	result, err := service.CreateExplicitGroupRevision(context.Background(), request)
+	result, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestCreateExplicitGroupRevisionPreservesEmptyAndOverlappingMemberships(t *t
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("stored memberships = %#v err=%v, want %#v", got, err, want)
 	}
-	retry, err := service.CreateExplicitGroupRevision(context.Background(), request)
+	retry, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), request)
 	if err != nil || retry.RevisionID != result.RevisionID || repository.completeCalls != 1 {
 		t.Fatalf("idempotent retry = %#v err=%v completeCalls=%d", retry, err, repository.completeCalls)
 	}
@@ -208,7 +209,7 @@ func TestCreateExplicitGroupRevisionRejectsForeignMembersBeforeStaging(t *testin
 	service, selectionStore, repository := explicitGroupServiceFixture(t)
 	request := explicitGroupCreateFixtureRequest(selectionStore.header.ID)
 	request.Groups[0].MemberIDs = []string{"member-a", "not-a-source-member"}
-	_, err := service.CreateExplicitGroupRevision(context.Background(), request)
+	_, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), request)
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "EXPLICIT_GROUP_FOREIGN_MEMBER" {
 		t.Fatalf("foreign member error = %v", err)
@@ -221,7 +222,7 @@ func TestCreateExplicitGroupRevisionRejectsForeignMembersBeforeStaging(t *testin
 func TestCreateExplicitGroupRevisionAbortsFailedStagingWithoutCompletion(t *testing.T) {
 	service, selectionStore, repository := explicitGroupServiceFixture(t)
 	repository.appendErr = errors.New("injected membership write error")
-	_, err := service.CreateExplicitGroupRevision(context.Background(), explicitGroupCreateFixtureRequest(selectionStore.header.ID))
+	_, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), explicitGroupCreateFixtureRequest(selectionStore.header.ID))
 	if err == nil || repository.abortCalls != 1 || repository.completeCalls != 0 || repository.header != nil {
 		t.Fatalf("failed write left partial revision: err=%v abort=%d complete=%d header=%#v", err, repository.abortCalls, repository.completeCalls, repository.header)
 	}
@@ -245,12 +246,12 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 	}
 	selection.MembershipDigest = explorerselection.MembershipDigest(members)
 	selectionStore := &explicitGroupSelectionFixture{header: selection, members: members}
-	persistence, err := explorer.NewService(selectionStore)
+	persistence, err := explorerfixtures.NewService(selectionStore)
 	if err != nil {
 		t.Fatal(err)
 	}
 	repository := &explicitGroupRepositoryFixture{}
-	service, err := New(persistence, Config{
+	service, err := New(persistence, ConfigWithTestStores(Config{
 		Capability: ports.CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (ports.AuthorizedCapability, error) {
 			if project != "project" || token != "snapshot-token" {
 				return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
@@ -259,7 +260,7 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 		}},
 		ExplicitGroupRepository: repository,
 		Now:                     func() time.Time { return completedAt.Add(time.Minute) },
-	})
+	}, selectionStore))
 	if err != nil {
 		t.Fatal(err)
 	}

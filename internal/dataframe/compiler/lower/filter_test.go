@@ -4,16 +4,18 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestRootIDFilterUsesIndexedDocumentIdentityBeforeExpansion(t *testing.T) {
-	for _, operator := range []recipe.FilterOperator{recipe.FilterEquals, recipe.FilterIn} {
+	for _, operator := range []spec.FilterOperator{recipe.FilterEquals, recipe.FilterIn} {
 		t.Run(string(operator), func(t *testing.T) {
-			values := []recipe.FilterValue{{Kind: recipe.FilterString, String: stringPointer("selected-observation")}}
+			values := []spec.FilterValue{{Kind: recipe.FilterString, String: stringPointer("selected-observation")}}
 			if operator == recipe.FilterIn {
-				values = append(values, recipe.FilterValue{Kind: recipe.FilterString, String: stringPointer("another-observation")})
+				values = append(values, spec.FilterValue{Kind: recipe.FilterString, String: stringPointer("another-observation")})
 			}
 			output := compileExpansionRecipeOutput(t, recipe.Output{
 				Name: "ScopedCodings", RootResourceType: "Observation", RootOccurrenceID: "observation-root", RowGrain: "expanded",
@@ -53,8 +55,8 @@ func TestRootIDFilterUsesIndexedDocumentIdentityBeforeExpansion(t *testing.T) {
 
 func TestRootIDNarrowingDoesNotChangeOtherFields(t *testing.T) {
 	for _, filter := range []recipe.Filter{
-		{Select: "root.component[].valueString", Operator: recipe.FilterEquals, Quantifier: recipe.QuantifierAny, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: stringPointer("selected-value")}}},
-		{Select: "root.identifier[].value", Operator: recipe.FilterIn, Quantifier: recipe.QuantifierAny, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: stringPointer("selected-identifier")}}},
+		{Select: "root.component[].valueString", Operator: recipe.FilterEquals, Quantifier: recipe.QuantifierAny, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: stringPointer("selected-value")}}},
+		{Select: "root.identifier[].value", Operator: recipe.FilterIn, Quantifier: recipe.QuantifierAny, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: stringPointer("selected-identifier")}}},
 	} {
 		t.Run(filter.Select+string(filter.Quantifier), func(t *testing.T) {
 			output := compileExpansionRecipeOutput(t, recipe.Output{

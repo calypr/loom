@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -21,7 +23,7 @@ const (
 )
 
 type ExportRequest struct {
-	Selector *DataframeSelector `json:"selector,omitempty"`
+	Selector *dataset.DataframeSelector `json:"selector,omitempty"`
 	Columns  []string
 	Filters  []Filter
 	Sort     *Sort

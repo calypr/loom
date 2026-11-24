@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/semanticfixtures"
 )
 
 func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	components := make([]any, 1000)
 	for i := range components {
-		components[i] = inventoryTestComponent(fmt.Sprintf("code-%04d", i), "v1", "label")
+		components[i] = semanticfixtures.InventoryComponent(fmt.Sprintf("code-%04d", i), "v1", "label")
 	}
 	payload := map[string]any{"resourceType": "Observation", "component": components}
 	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
@@ -60,72 +61,10 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	}
 }
 
-func TestSemanticInventoryAggregatorCoalescesOnlyEqualReducerInputs(t *testing.T) {
-	base := semantic.Contribution{
-		Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope",
-		ResourceType: "Observation", BuildID: semantic.BuildID("project", "generation"), SourceID: "Observation.ndjson#1",
-		ConceptID: "concept", BindingID: "binding", Example: "example",
-		Observation: semantic.Observation{
-			SchemaVersion: 4,
-			Source:        semantic.Source{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "value"},
-			Key:           semantic.Key{Selector: "code", System: "system", Version: "version", Code: "code", Display: "display"},
-			Value:         semantic.Value{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}, FallbackOnBlankString: true},
-			OwningScope:   "scope", ExtensionURLPath: []string{"extension", "url"}, ChoiceArm: "valueString",
-			LogicalType: "string", ObservedUnits: []string{"mg"}, Completeness: semantic.CompletenessComplete,
-			Population: 1, Examples: []string{"example"}, RuleHint: "rule", RuleVersion: "1",
-		},
-	}
-	aggregator := semantic.NewAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
-	if err := aggregator.Add(base); err != nil {
-		t.Fatal(err)
-	}
-	duplicate := base
-	duplicate.Observation.Population = 2
-	duplicate.Observation.ExamplesTruncated = true
-	if err := aggregator.Add(duplicate); err != nil {
-		t.Fatal(err)
-	}
-	changed := duplicate
-	changed.Observation.Value.FallbackSelectors = nil
-	changed.Observation.Population = 1
-	if err := aggregator.Add(changed); err != nil {
-		t.Fatal(err)
-	}
-	documents := aggregator.Documents()
-	if len(documents) != 2 {
-		t.Fatalf("documents = %d, want one coalesced row and one distinct reducer input", len(documents))
-	}
-	if documents[0].Ordinal != 0 || documents[1].Ordinal != 1 {
-		t.Fatalf("ordinals = %d, %d, want stable contiguous ordinals", documents[0].Ordinal, documents[1].Ordinal)
-	}
-	for _, document := range documents {
-		if document.SourceID != "META/Observation.ndjson" || document.Key == "" {
-			t.Fatalf("unstable identity fields: source_id=%q key=%q", document.SourceID, document.Key)
-		}
-		if document.Observation.Population == 3 {
-			if !document.Observation.ExamplesTruncated {
-				t.Fatal("examples_truncated = false, want OR of source values")
-			}
-			if document.Example != "example" {
-				t.Fatalf("example = %q, want unchanged minimum input", document.Example)
-			}
-		}
-	}
-	retry := semantic.NewAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
-	for _, contribution := range []semantic.Contribution{base, duplicate, changed} {
-		if err := retry.Add(contribution); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if !reflect.DeepEqual(documents, retry.Documents()) {
-		t.Fatal("retry aggregation changed deterministic documents")
-	}
-}
-
 func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t *testing.T) {
 	components := make([]any, 1000)
 	for i := range components {
-		components[i] = inventoryTestComponent(fmt.Sprintf("retained-%04d", i), "v1", "same label")
+		components[i] = semanticfixtures.InventoryComponent(fmt.Sprintf("retained-%04d", i), "v1", "same label")
 	}
 	emitter := semantic.NewEmitter("project", "generation")
 	contributions := make([]semantic.Contribution, 0, len(components))
@@ -358,24 +297,12 @@ func TestSemanticInventoryPageDigestBindsFrameBindingFilter(t *testing.T) {
 	}
 }
 
-func inventoryTestComponent(code, version, display string) map[string]any {
-	return map[string]any{
-		"code": map[string]any{"coding": []any{map[string]any{
-			"system":  "urn:inventory",
-			"version": version,
-			"code":    code,
-			"display": display,
-		}}},
-		"valueQuantity": map[string]any{"value": 1.0, "unit": "mg"},
-	}
-}
-
 func inventoryTestObservation(version, display string) semantic.Observation {
 	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
 	var observation semantic.Observation
 	profiler.ObservePayloadWithInventory(map[string]any{
 		"resourceType": "Observation",
-		"component":    []any{inventoryTestComponent("glucose", version, display)},
+		"component":    []any{semanticfixtures.InventoryComponent("glucose", version, display)},
 	}, map[string]float64{}, "Observation.ndjson#1", func(contribution semantic.Contribution) {
 		observation = contribution.Observation
 	})

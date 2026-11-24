@@ -146,10 +146,6 @@ func TestExpandedCodingGroupLineageReusesRoutedAncestorOccurrence(t *testing.T) 
 		stage.Group.CodingKey.SourceUnnest.Owner.Route[0].OccurrenceID != "observation-owner" {
 		t.Fatalf("Coding Group did not retain the exact Patient-to-Observation owner route: %#v", stage.Group.CodingKey.SourceUnnest.Owner.Route)
 	}
-	var operationKinds []string
-	for _, operation := range output.Plan.Operations {
-		operationKinds = append(operationKinds, string(operation.Kind))
-	}
 	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("routed expanded Coding Group row lineage is unavailable: %#v", capability)
 	}

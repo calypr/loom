@@ -17,6 +17,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 const (
@@ -34,26 +35,11 @@ const (
 )
 
 func rs05RootProjection(columnID, ownerStepID string) ws.ConstructionSourceProjection {
-	return ws.ConstructionSourceProjection{
-		ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: ws.RootOccurrenceID,
-		FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
-	}
+	return constructionfixtures.PivotSourceRootProjection(columnID, ownerStepID, filterSourceField)
 }
 
 func rs05PivotStep(id string, groupKeys ...string) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     id,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
-			ConstructionID: id, GroupKeyIDs: groupKeys,
-			CategoryColumnID: rs05CategoryCol, ValueColumnID: rs05ValueCol,
-			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
-		}},
-		Outputs: []ws.StageColumn{{ID: "pval", Name: "pval", Label: "pval", Type: "string"}},
-	}
+	return constructionfixtures.PivotSourceStep(id, groupKeys, rs05CategoryCol, rs05ValueCol)
 }
 
 func rs05CountOwned(projections []ws.ConstructionSourceProjection, ownerStepID string) int {
@@ -85,104 +71,24 @@ func rs05HasOwnedHelper(steps []ws.ConstructionStep, ownerID string) bool {
 	return false
 }
 
-func rs05CloneConstruction(c ws.Construction) ws.Construction {
-	out := c
-	out.Steps = append([]ws.ConstructionStep(nil), c.Steps...)
-	for index := range out.Steps {
-		step := out.Steps[index]
-		if step.Inputs != nil {
-			step.Inputs = append([]ws.ConstructionInputRef(nil), step.Inputs...)
-		}
-		if step.Outputs != nil {
-			step.Outputs = append([]ws.StageColumn(nil), step.Outputs...)
-		}
-		out.Steps[index] = step
-	}
-	if c.SourceProjections != nil {
-		out.SourceProjections = append([]ws.ConstructionSourceProjection(nil), c.SourceProjections...)
-	} else {
-		out.SourceProjections = nil
-	}
-	return out
-}
-
-func rs05OtherHelperStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: rs05Helper2ID, OwnerStepID: rs05OtherPivotID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
-			ChoiceID: "seed-choice-two", OutputColumnID: rs05OtherColumn,
-			Source: ws.ConstructionRelatedFieldSource{
-				Kind: capability.ConstructionChoiceSourceField, CandidateID: "seed-cand", NodeID: filterSourceRootNode,
-				ResourceType: filterSourceRootType, Path: filterSourceField,
-				Cardinality: "optional_one", LogicalType: "boolean",
-			},
-		}},
-		Outputs: []ws.StageColumn{{ID: "public-key", Name: "public_key", Label: "Public key", Type: "string"},
-			{ID: rs05OtherColumn, Name: "pv_two_col", Label: "BodyStructure.active", Type: "boolean", Nullable: true}},
-	}
+func rs05CloneConstruction(construction ws.Construction) ws.Construction {
+	return constructionfixtures.CloneConstructionSlices(construction)
 }
 
 func rs05HelperStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: rs05HelperID, OwnerStepID: rs05PivotID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
-			ChoiceID: "seed-choice", OutputColumnID: rs05HelperColumn,
-			Source: ws.ConstructionRelatedFieldSource{
-				Kind: capability.ConstructionChoiceSourceField, CandidateID: "seed-cand", NodeID: filterSourceRootNode,
-				ResourceType: filterSourceRootType, Path: filterSourceField,
-				Cardinality: "optional_one", LogicalType: "boolean",
-			},
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: rs05HelperColumn, Name: "pv_col", Label: "BodyStructure.active", Type: "boolean", Nullable: true},
-		},
-	}
+	return constructionfixtures.PivotSourceHelperStep(rs05PivotID, rs05HelperID, rs05HelperColumn, filterSourceRootNode, filterSourceRootType, filterSourceField, filterSourceIdentity)
 }
 
 func rs05SeedPivotStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     rs05PivotID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05HelperID}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
-			ConstructionID: rs05PivotID, GroupKeyIDs: []string{filterSourceIdentity},
-			CategoryColumnID: rs05HelperColumn, ValueColumnID: "pval",
-			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: "pval", Name: "pval", Label: "pval", Type: "integer"},
-		},
-	}
+	return constructionfixtures.PivotSourceSeedPivotStep(rs05PivotID, rs05HelperID, rs05HelperColumn, filterSourceIdentity)
 }
 
 func rs05SeedFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     rs05FilterID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
-			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
-		}},
-		Outputs: outputs,
-	}
+	return constructionfixtures.FilterStep(rs05FilterID, columnID, outputs)
 }
 
 func rs05SeedDurable() ws.Construction {
-	return ws.Construction{
-		Version: ws.ConstructionVersion,
-		Steps: []ws.ConstructionStep{
-			rs05SeedFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
-			rs05HelperStep(),
-			rs05SeedPivotStep(),
-		},
-		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05HelperColumn, rs05PivotID)},
-	}
+	return constructionfixtures.PivotSourceSeedDurable(rs05FilterID, filterSourceIdentity, rs05HelperID, rs05HelperColumn, rs05PivotID, filterSourceIdentity, filterSourceField, filterSourceIdentityColumns())
 }
 
 func rs05SeedCleared() ws.Construction {
@@ -193,13 +99,6 @@ func rs05SeedCleared() ws.Construction {
 			rs05SeedPivotStep(),
 		},
 	}
-}
-
-func rs05FilterOwnedDurable() ws.Construction {
-	durable := rs05SeedDurable()
-	durable.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
-	durable.SourceProjections = append(durable.SourceProjections, rs05FilterOwnedProjection())
-	return durable
 }
 
 func rs05FilterOwnedProjection() ws.ConstructionSourceProjection {
@@ -223,8 +122,7 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 	cleared := rs05SeedCleared()
 	base := filterSourceBase(snapshot, durable)
 
-	preparedA, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest(rs05FilterID, nil), rs05CloneConstruction(cleared))
+	preparedA, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest(rs05FilterID, nil).RowSourceRequest(), rs05CloneConstruction(cleared))
 	if err != nil {
 		t.Fatalf("prepare filter (no filterSources) failed: %v", err)
 	}
@@ -232,9 +130,9 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 
 	clearedB := rs05CloneConstruction(cleared)
 	clearedB.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
-	preparedB, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest(rs05FilterID,
-			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), clearedB)
+	preparedB, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		clearedB)
 	if err != nil {
 		t.Fatalf("prepare filter with signed filterSource failed: %v", err)
 	}
@@ -258,7 +156,7 @@ func TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves(t *testing.T) {
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:xop", OutputID: filterSourceOutput,
 		ChangedStepID: rs05FilterID,
 	}
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate)
 	if err != nil {
 		t.Fatalf("filter prepare with foreign pivot-two: %v", err)
 	}
@@ -276,9 +174,9 @@ func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 
 	clearedForFilter := rs05CloneConstruction(cleared)
 	clearedForFilter.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest(rs05FilterID,
-			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), clearedForFilter)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		clearedForFilter)
 	if err != nil {
 		t.Fatalf("prepare filter against cleared durable: %v", err)
 	}
@@ -306,9 +204,9 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 			rs05PivotStep(rs05OtherPivotID, "public-key"),
 		},
 	}
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction),
-		filterSourceProposalRequest(rs05FilterID,
-			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction), filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		candidate)
 	if err != nil {
 		t.Fatalf("filter SET while the other pivot source was cleared: %v", err)
 	}
@@ -318,15 +216,6 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 	if !rs05HasProjection(prepared.SourceProjections, filterSourceColumn, rs05FilterID) {
 		t.Fatalf("filter SET did not materialize its own signed projection: %#v", prepared.SourceProjections)
 	}
-}
-
-func rs05IndexOwned(projections []ws.ConstructionSourceProjection, ownerStepID string) int {
-	for index, projection := range projections {
-		if projection.OwnerStepID == ownerStepID {
-			return index
-		}
-	}
-	return -1
 }
 
 func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
@@ -430,15 +319,7 @@ func rs05PublicOutputs(withPcol bool) []ws.StageColumn {
 }
 
 func rs05ProposeFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     rs05FilterID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
-			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
-		}},
-		Outputs: outputs,
-	}
+	return constructionfixtures.FilterStep(rs05FilterID, columnID, outputs)
 }
 
 func rs05ProposePivotStep(groupKeys ...string) ws.ConstructionStep {
@@ -496,7 +377,7 @@ func TestProposeConstructionFilterEditDoesNotRestoreClearedPivotSourceInput(t *t
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
 	}
-	proposal, err := service.ProposeConstruction(context.Background(),
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05FilterID, cleared))
 	if err != nil {
 		t.Fatalf("propose filter edit with cleared Pivot source input: %v", err)
@@ -536,7 +417,7 @@ func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05FilterID, cleared)
 	request.FilterSources = []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose filter source SET with cleared Pivot source input: %v", err)
 	}
@@ -574,7 +455,7 @@ func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05PivotID, cleared)
 	request.PivotSources = []construction.ConstructionPivotSourceSelection{}
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose pivot [] clear with a foreign filter source: %v", err)
 	}
@@ -599,7 +480,7 @@ func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T)
 		},
 	}
 	rs05ProposeSaveDraft(t, store, clearedDurable)
-	proposal, err := service.ProposeConstruction(context.Background(),
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05FilterID, rs05CloneConstruction(clearedDurable)))
 	if err != nil {
 		t.Fatalf("propose filter edit against cleared durable: %v", err)
@@ -612,40 +493,13 @@ func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T)
 	}
 }
 
-func rs05BaseWithHelperStage(base constructionBase) constructionBase {
-	base.Stages = append(append([]receiptmodel.ReceiptConstructionStage(nil), base.Stages...), receiptmodel.ReceiptConstructionStage{
-		ID: rs05HelperID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_FIELD",
-		Columns: []receiptmodel.ReceiptConstructionStageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: rs05HelperColumn, Name: "pv_col", Label: "BodyStructure.active", Type: "boolean"},
-		},
-	})
-	return base
-}
-
 const (
 	rs05DeriveID     = "derive-total"
 	rs05DeriveColumn = "derive-private-input"
 )
 
 func rs05DeriveLaneStep(literal int64) ws.ConstructionStep {
-	value := literal
-	return ws.ConstructionStep{
-		ID:     rs05DeriveID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
-			ConstructionID:     rs05DeriveID,
-			OutputColumnID:     "derived_total",
-			Operation:          ws.ConstructionDerivedAdd,
-			Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &value}},
-			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: func() *int64 { three := int64(3); return &three }()}},
-			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
-		},
-	}
+	return constructionfixtures.DeriveLaneStep(rs05DeriveID, filterSourceIdentity, literal)
 }
 
 func rs05DeriveOwnedProjection() ws.ConstructionSourceProjection {
@@ -672,8 +526,7 @@ func TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput(t *testing.T) {
 	cleared := rs05SeedCleared()
 	cleared.Steps = append(cleared.Steps, rs05DeriveLaneStep(9))
 
-	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
-		rs05DeriveRequest(rs05DeriveID), rs05CloneConstruction(cleared))
+	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, rs05DeriveRequest(rs05DeriveID).RowSourceRequest(), rs05CloneConstruction(cleared))
 	if err != nil {
 		t.Fatalf("derive preparation after the pivot clear: %v", err)
 	}
@@ -701,9 +554,9 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing
 			rs05DeriveLaneStep(2),
 		},
 	}
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction),
-		filterSourceProposalRequest(rs05FilterID,
-			[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, baseConstruction), filterSourceProposalRequest(rs05FilterID,
+		[]rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(),
+		candidate)
 	if err != nil {
 		t.Fatalf("filter SET while the derive source was cleared: %v", err)
 	}
@@ -761,7 +614,7 @@ func TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput(t *t
 		},
 	}
 	cleared.Steps[2].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05DeriveID}}
-	proposal, err := service.ProposeConstruction(context.Background(),
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05DeriveID, cleared))
 	if err != nil {
 		t.Fatalf("propose derive edit with cleared Pivot source input: %v", err)
@@ -834,10 +687,11 @@ func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing
 	candidate.Steps[0].Operation.Derive.Left = left
 	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
 
-	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
-		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
-			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
-		}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
+		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("derive SET while the foreign Filter source was cleared: %v", err)
 	}
@@ -883,10 +737,11 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
-	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
-			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
-		}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
+		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("unpivot SET while the foreign Filter source was cleared: %v", err)
 	}
@@ -920,10 +775,11 @@ func TestXopPortDeriveSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	candidate.Steps[0].Operation.Derive.Left = left
 	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
 
-	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
-		deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
-			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
-		}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithDeriveSources(context.Background(), base, deriveSourcePatientProposalRequest(deriveSourceStep, []rowsource.ConstructionDeriveSourceSelection{
+		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("derive SET with a partially carried Pivot chain: %v", err)
 	}
@@ -974,10 +830,11 @@ func TestXopPortUnpivotSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
 
-	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
-		unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
-			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
-		}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, unpivotPatientProposalRequest(unpivotSourceStep, []rowsource.ConstructionUnpivotSourceSelection{
+		{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
+	}).RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("unpivot SET with a partially carried Pivot chain: %v", err)
 	}
@@ -1007,48 +864,6 @@ func fs1r6Projection(columnID, ownerStepID, fieldPath, logicalType string) ws.Co
 	return ws.ConstructionSourceProjection{
 		ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: ws.RootOccurrenceID,
 		FieldPath: fieldPath, FHIRType: logicalType, LogicalType: logicalType, Label: "BodyStructure." + fieldPath,
-	}
-}
-
-func TestFS1SignedSlotCollisionPredicateIsOrderInvariant(t *testing.T) {
-	doc := filterSourceDocument()
-	step := func(id string, kind ws.ConstructionOperationKind) ws.ConstructionStep {
-		return ws.ConstructionStep{ID: id, Operation: ws.ConstructionOperation{Kind: kind}}
-	}
-	newSlot := step("filter-new", ws.ConstructionOperationFilter)
-	carrier := step("derive-carrier", ws.ConstructionOperationDerive)
-	pivot := step("pivot-one", ws.ConstructionOperationPivot)
-
-	carrierPair := []ws.ConstructionSourceProjection{
-		fs1r6Projection("slot_a", "derive-carrier", filterSourceField, "boolean"),
-		fs1r6Projection("slot_b", "filter-new", filterSourceField, "boolean"),
-	}
-	pivotPair := []ws.ConstructionSourceProjection{
-		fs1r6Projection("pivot_input", "pivot-one", filterSourceField, "boolean"),
-		fs1r6Projection("slot_b", "filter-new", filterSourceField, "boolean"),
-	}
-	distinct := []ws.ConstructionSourceProjection{
-		fs1r6Projection("slot_a", "derive-carrier", "description", "string"),
-		fs1r6Projection("slot_b", "filter-new", filterSourceField, "boolean"),
-	}
-
-	for _, row := range []struct {
-		name        string
-		steps       []ws.ConstructionStep
-		projections []ws.ConstructionSourceProjection
-		slot        string
-		want        bool
-	}{
-		{"carrier forward [carrier, new]", []ws.ConstructionStep{carrier, newSlot}, carrierPair, "slot_b", true},
-		{"carrier reverse [new, carrier]", []ws.ConstructionStep{newSlot, carrier}, carrierPair, "slot_b", true},
-		{"carrier reverse checked from the other slot", []ws.ConstructionStep{newSlot, carrier}, carrierPair, "slot_a", true},
-		{"pivot-first vs pivot-owned field", []ws.ConstructionStep{pivot, newSlot}, pivotPair, "slot_b", false},
-		{"signed-first vs pivot-owned field", []ws.ConstructionStep{newSlot, pivot}, pivotPair, "slot_b", false},
-		{"distinct field reverse", []ws.ConstructionStep{newSlot, carrier}, distinct, "slot_b", false},
-	} {
-		if got := constructionRootFieldAlreadyProjected(doc, row.steps, row.projections, row.slot, filterSourceField); got != row.want {
-			t.Errorf("%s: constructionRootFieldAlreadyProjected = %v, want %v (set comparison must not depend on arrival order)", row.name, got, row.want)
-		}
 	}
 }
 
@@ -1082,7 +897,7 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 		request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 			filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 		})
-		_, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate)
+		_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate)
 		if code := fs1r6LaneCode(err); code != "FILTER_SOURCE_CANNOT_CROSS_STAGE" {
 			t.Fatalf("pivot-first signed filter slot on the pivot's field: code=%q err=%v, want FILTER_SOURCE_CANNOT_CROSS_STAGE refusal (never silent accept, never catch-all 500)", code, err)
 		}
@@ -1120,7 +935,7 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 			OutputID: filterSourceOutput, ChangedStepID: "melt-step",
 			UnpivotSources: []rowsource.ConstructionUnpivotSourceSelection{{ChoiceID: filterSourceRowChoice(t, snapshot, filterSourceField).ChoiceID, ColumnID: "melt_slot"}},
 		}
-		_, err := service.constructionCandidateWithUnpivotSources(context.Background(), base, request, candidate)
+		_, err := service.rowSourceService.ConstructionCandidateWithUnpivotSources(context.Background(), base, request.RowSourceRequest(), candidate)
 		if code := fs1r6LaneCode(err); code != "UNPIVOT_SOURCE_CANNOT_CROSS_STAGE" {
 			t.Fatalf("pivot-first signed melt input on the pivot's field: code=%q err=%v, want UNPIVOT_SOURCE_CANNOT_CROSS_STAGE refusal", code, err)
 		}
@@ -1159,7 +974,7 @@ func TestFS1ForwardAndReverseSignedCarrierCollisionRefusedNamed(t *testing.T) {
 			request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 				filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 			})
-			_, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate)
+			_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate)
 			if code := fs1r6LaneCode(err); code != "FILTER_SOURCE_FIELD_ALREADY_PROJECTED" {
 				t.Fatalf("%s: code=%q err=%v, want the named FILTER_SOURCE_FIELD_ALREADY_PROJECTED refusal in both arrival directions", row.order, code, err)
 			}
@@ -1186,7 +1001,7 @@ func TestFS1LegitNonCollisionReverseOrderStillAccepted(t *testing.T) {
 	request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{
 		filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn),
 	})
-	if _, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, candidate); err != nil {
+	if _, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), candidate); err != nil {
 		t.Fatalf("distinct-field reverse-order signed slot must stay accepted, got %v", err)
 	}
 }
@@ -1282,7 +1097,7 @@ func TestFS1FullProposeRefusesSignedStepInsertedBeforeCommittedPivot(t *testing.
 	candidate.Steps = append([]ws.ConstructionStep{fs1r6SignedFilterStep()}, durable.Steps...)
 	selection := fs1r6SignedSlotRequest()
 	selection.ChoiceID = harness.choice(t, "multipleBirthInteger").ChoiceID
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "fs1r6_filter", CandidateConstruction: candidate,
@@ -1304,7 +1119,7 @@ func TestFS1FullProposeReverseDirectionRefusedAtBoundary(t *testing.T) {
 	candidate.Steps = append(candidate.Steps, signed)
 	selection := fs1r6SignedSlotRequest()
 	selection.ChoiceID = harness.choice(t, "multipleBirthInteger").ChoiceID
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "fs1r6_filter", CandidateConstruction: candidate,

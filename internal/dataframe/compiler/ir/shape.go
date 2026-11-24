@@ -3,6 +3,7 @@ package ir
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -487,7 +488,7 @@ func sameProjectionPresence(left, right *PhysicalProjectionPresence) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	if left.Source.Variable != right.Source.Variable || left.Source.BindKey != right.Source.BindKey || !equalStrings(left.Source.Path, right.Source.Path) || len(left.Paths) != len(right.Paths) {
+	if left.Source.Variable != right.Source.Variable || left.Source.BindKey != right.Source.BindKey || !slices.Equal(left.Source.Path, right.Source.Path) || len(left.Paths) != len(right.Paths) {
 		return false
 	}
 	for index := range left.Paths {
@@ -498,18 +499,6 @@ func sameProjectionPresence(left, right *PhysicalProjectionPresence) bool {
 			if left.Paths[index][partIndex] != right.Paths[index][partIndex] {
 				return false
 			}
-		}
-	}
-	return true
-}
-
-func equalStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
 		}
 	}
 	return true

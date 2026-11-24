@@ -49,7 +49,7 @@ type sourceLoadRecord struct {
 	Plan                 SourceLoadPlan               `json:"plan"`
 	PlanHash             string                       `json:"plan_hash"`
 	Generation           string                       `json:"generation"`
-	State                string                       `json:"state"`
+	State                SourceLoadState              `json:"state"`
 	BaseRevision         int64                        `json:"base_revision"`
 	SourceGeneration     string                       `json:"source_generation,omitempty"`
 	LegacySourceRevision int64                        `json:"legacy_source_revision"`
@@ -121,22 +121,6 @@ func sourceLoadBootstrapSpec() arangostore.BootstrapSpec {
 	return arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{
 		Name: sourceLoadCollection, Indexes: [][]string{{"project", "operation_id"}, {"project", "state"}},
 	}}}
-}
-
-func sourceLoadNumber(value any) int64 {
-	switch typed := value.(type) {
-	case int:
-		return int64(typed)
-	case int64:
-		return typed
-	case float64:
-		return int64(typed)
-	case json.Number:
-		value, _ := typed.Int64()
-		return value
-	default:
-		return 0
-	}
 }
 
 func legacySourceStateKey(project string) string {

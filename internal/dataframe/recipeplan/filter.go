@@ -124,7 +124,7 @@ func recipeFilterKind(primitive fhirschema.PrimitiveKind, canonical string) (spe
 	}
 }
 
-func recipeFilterValues(values []recipe.FilterValue) ([]spec.FilterValue, error) {
+func recipeFilterValues(values []spec.FilterValue) ([]spec.FilterValue, error) {
 	out := make([]spec.FilterValue, 0, len(values))
 	for index, input := range values {
 		value := input

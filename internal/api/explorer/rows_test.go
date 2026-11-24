@@ -31,6 +31,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -111,7 +112,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(graph)
+	store, err := newTestExplorerArangoStore(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		t.Fatal(err)
 	}
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
-	receipt, err := receiptapi.Compile(ctx, ports.CompileReceiptRequest{Project: "project-a", ExplorerID: "published-rows", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: authorized}, nil, engine, service, nil, nil)
+	receipt, err := receiptapi.Compile(ctx, ports.CompileReceiptRequest{Project: "project-a", ExplorerID: "published-rows", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: authorized}, nil, engine, store, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +189,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		return saved, 0, err
 	}, MaterializeReceipt: receiptapi.NewMaterializer(engine, target, registry, nil, nil, 2, 1024*1024, 100, 100)}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	path := "/api/v1/projects/project-a/explorers/published-rows"
 	response := requestJSON(t, app, http.MethodPost, path+"/authoring/v2/publish", fmt.Sprintf(`{"receiptId":%q}`, receipt.ID))
 	if response.StatusCode != http.StatusOK {
@@ -244,16 +245,16 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		freshStore, err := explorerarango.New(freshGraph)
+		freshStore, err := newTestExplorerArangoStore(freshGraph)
 		if err != nil {
 			t.Fatal(err)
 		}
-		freshService, err := explorer.NewService(freshStore)
+		freshService, err := explorerfixtures.NewService(freshStore)
 		if err != nil {
 			t.Fatal(err)
 		}
 		freshApp := fiber.New()
-		registerGeneratedExplorerTestRoutes(freshApp, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, freshService, config)
+		registerGeneratedExplorerTestRoutes(t, freshApp, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, freshService, config, freshStore)
 		viewerResponse := requestJSON(t, freshApp, http.MethodGet, path, "")
 		if viewerResponse.StatusCode != http.StatusOK {
 			t.Fatalf("fresh Viewer HTTP%d: %s", viewerResponse.StatusCode, viewerResponse.Body)

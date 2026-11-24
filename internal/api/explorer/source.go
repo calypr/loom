@@ -9,7 +9,6 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 )
@@ -39,7 +38,7 @@ func (r *Handlers) ProposeExplorerSourceRelationship(ctx context.Context, reques
 				return encoder.Visit, nil
 			}
 		}
-		value, err := h.application.ProposeSourceRelationship(ctx, input)
+		value, err := h.owners.Proposal.ProposeSourceRelationship(ctx, input)
 		if err != nil {
 			var authoringError *explorer.AuthoringError
 			if input.IncludePreview && !errors.As(err, &authoringError) {
@@ -79,7 +78,7 @@ func (r *Handlers) BrowseExplorerFrameSourceOptions(ctx context.Context, request
 		if body == nil {
 			return result, explorer.MalformedRouteError("frame-source-options", nil)
 		}
-		request := lifecycle.BrowseFrameSourceOptionsRequest{
+		request := semanticbrowse.BrowseFrameSourceOptionsRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, OutputID: body.OutputId,
 		}
 		if body.ResourceType != nil {
@@ -94,7 +93,7 @@ func (r *Handlers) BrowseExplorerFrameSourceOptions(ctx context.Context, request
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.BrowseFrameSourceOptions(ctx, request)
+		value, err := h.owners.SemanticBrowse.BrowseFrameSourceOptions(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -155,7 +154,7 @@ func (r *Handlers) BrowseExplorerSemanticInventory(ctx context.Context, request 
 		if body.Limit != nil {
 			req.Limit = *body.Limit
 		}
-		value, err := h.application.BrowseSemanticInventory(ctx, req)
+		value, err := h.owners.SemanticBrowse.BrowseSemanticInventory(ctx, req)
 		if err != nil {
 			return result, err
 		}

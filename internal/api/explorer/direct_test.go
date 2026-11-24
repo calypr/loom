@@ -30,7 +30,7 @@ func (c recipeExecutionCatalogFixture) GetExecution(context.Context, string) (pu
 
 func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 	owner.ActiveRevisionID = revision.ID
 	store.Explorers[explorerfixtures.Key("project-a", "files")] = owner
 	store.Mu.Unlock()
-	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
+	handlers := newExplorerHTTPHandlers(t, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, store)
 	for _, tc := range []struct {
 		name    string
 		failure error
@@ -86,11 +86,11 @@ func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 
 func TestMissingProjectConfigIsNotCreatedOnRead(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
+	handlers := newExplorerHTTPHandlers(t, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, store)
 	_, err = handlers.getExplorer(context.Background(), "project-a", "default")
 	var failure *explorerLegacyOperationError
 	if !errors.As(err, &failure) || failure.status != 404 {
@@ -105,7 +105,7 @@ func TestMissingProjectConfigIsNotCreatedOnRead(t *testing.T) {
 
 func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 	owner.ActiveRevisionID = revision.ID
 	store.Explorers[explorerfixtures.Key("project-a", "files")] = owner
 	store.Mu.Unlock()
-	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
+	handlers := newExplorerHTTPHandlers(t, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, store)
 	scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 		return []string{"allowed", "denied"}, nil
 	}})
@@ -253,6 +253,37 @@ func TestLegacyFailureCarriesExplicitRetryabilityForActivationMiss(t *testing.T)
 	}
 	if retryBlock, ok := body["details"].(map[string]any); !ok || retryBlock["retryable"] != false {
 		t.Fatalf("F-B28 RED: explicit retryable=false from the lifecycle error details never reached the client body: %v", body)
+	}
+}
+
+func TestLifecycleErrorStatusMatchesAcrossLegacyAndAuthoringEnvelopes(t *testing.T) {
+	tests := []struct {
+		class  ports.ErrorClass
+		status int
+	}{
+		{ports.ClassMalformed, http.StatusBadRequest},
+		{ports.ClassForbidden, http.StatusForbidden},
+		{ports.ClassNotFound, http.StatusNotFound},
+		{ports.ClassConflict, http.StatusConflict},
+		{ports.ClassUnprocessable, http.StatusUnprocessableEntity},
+		{ports.ClassUnavailable, http.StatusServiceUnavailable},
+		{ports.ClassInternal, http.StatusInternalServerError},
+	}
+	for _, test := range tests {
+		t.Run(string(test.class), func(t *testing.T) {
+			lifecycleErr := &ports.Error{Class: test.class, Stage: "status-test", Code: "STATUS_TEST", Message: "status mapping"}
+			legacyStatus, legacyResponse := explorerErrorResponse(lifecycleLegacyFailure(lifecycleErr))
+			authoringStatus, authoringResponse := authoringErrorForOpenAPI(context.Background(), "status-test", lifecycleErr)
+			if legacyStatus != test.status || authoringStatus != test.status {
+				t.Fatalf("status mapping = legacy %d, authoring %d, want %d", legacyStatus, authoringStatus, test.status)
+			}
+			if legacyResponse.Error.Diagnostic != nil || legacyResponse.Diagnostics != nil {
+				t.Fatalf("legacy envelope gained authoring diagnostics: %#v", legacyResponse)
+			}
+			if authoringResponse.Error.Diagnostic == nil || authoringResponse.Diagnostics == nil {
+				t.Fatalf("authoring envelope lost diagnostics: %#v", authoringResponse)
+			}
+		})
 	}
 }
 

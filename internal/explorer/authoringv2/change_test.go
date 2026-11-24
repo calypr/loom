@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/capability"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func rowChangeWorkspace() ws.Workspace {
@@ -106,7 +107,7 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 		t.Fatalf("assessment mutated workspace\nbefore=%s\nafter=%s", before, after)
 	}
 
-	rebased, _, err := ApplyCommands(workspace, catalog, "apply-rebase", []Command{{Type: CommandApplyTableRootRebase, Payload: &RowPayload{RowChange: assessment.Proposal}}})
+	rebased, _, err := ApplyCommands(workspace, catalog, "apply-rebase", CommandsWithoutResolution([]Command{{Type: CommandApplyTableRootRebase, Payload: &RowPayload{RowChange: assessment.Proposal}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,10 +735,10 @@ func TestApplyRowChangeRejectsStaleProposalWithoutPartialMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, catalog, "atomic-rebase", []Command{
+	_, _, err = ApplyCommands(workspace, catalog, "atomic-rebase", CommandsWithoutResolution([]Command{
 		{Type: CommandRenameTable, OutputID: "patients", Title: "Renamed", Payload: &TablePayload{}},
 		{Type: CommandApplyTableRootRebase, Payload: &RowPayload{RowChange: assessment.Proposal}},
-	})
+	}))
 	if err == nil || !strings.Contains(err.Error(), "ROW_REBASE_PROPOSAL_STALE") {
 		t.Fatalf("stale proposal error=%v", err)
 	}
@@ -757,7 +758,7 @@ func replacementCatalog() ws.CatalogSnapshot {
 		ID: "report-id", NodeID: "report", FieldPath: "id", Cardinality: "optional_one",
 		Label: "Report ID", LogicalType: "string", ProjectionModes: []string{"VALUE"},
 		DefaultProjectionMode: "VALUE",
-		ConstructionChoice:    testFieldConstructionChoice(catalog.SnapshotToken, "report-id", "report", "DiagnosticReport", "id", "optional_one", capability.ProjectionScalar),
+		ConstructionChoice:    capabilityfixtures.FieldConstructionChoice(catalog.SnapshotToken, "report-id", "report", "DiagnosticReport", "id", "optional_one", capability.ProjectionScalar),
 	})
 	return catalog
 }

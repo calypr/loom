@@ -9,10 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/digest"
 )
 
 const ConstructionChoiceIDMaxLength = 16384
@@ -551,6 +554,77 @@ type ConstructionChoice struct {
 	Options      []ConstructionChoiceOption     `json:"options"`
 }
 
+func ConstructionChoiceFieldOptionsMatch(semanticChoice, fieldChoice ConstructionChoice) bool {
+	fieldOptions := make([]ConstructionChoiceOption, 0, len(semanticChoice.Options))
+	for _, option := range semanticChoice.Options {
+		if option.Form != ConstructionChoiceOwnerRecords {
+			fieldOptions = append(fieldOptions, option)
+		}
+	}
+	return reflect.DeepEqual(fieldOptions, fieldChoice.Options)
+}
+
+func ConstructionChoiceIdentityMatches(choice ConstructionChoice, submittedID string, identity ConstructionChoiceIdentity) bool {
+	if choice.ChoiceID == submittedID {
+		return true
+	}
+	return identity.Version == "construction-choice/v1" && len(identity.Route) == 0 && reflect.DeepEqual(choice.Source, identity.Source)
+}
+
+func UniqueCapabilityCandidate(snapshot Snapshot, candidateID string) (Candidate, bool) {
+	var match Candidate
+	found := false
+	for _, candidate := range snapshot.Candidates {
+		if candidate.ID != candidateID {
+			continue
+		}
+		if found {
+			return Candidate{}, false
+		}
+		match, found = candidate, true
+	}
+	if found {
+		return match, true
+	}
+	return ResolveSchemaFieldCandidate(snapshot, candidateID)
+}
+
+func SchemaFieldCandidateID(snapshotToken, nodeID, path string) string {
+	identity, _ := json.Marshal([3]string{snapshotToken, nodeID, path})
+	return "schema_field." + base64.RawURLEncoding.EncodeToString(identity)
+}
+
+func ResolveSchemaFieldCandidate(snapshot Snapshot, candidateID string) (Candidate, bool) {
+	const prefix = "schema_field."
+	if !strings.HasPrefix(candidateID, prefix) || len(candidateID) > 4096 {
+		return Candidate{}, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(candidateID, prefix))
+	if err != nil {
+		return Candidate{}, false
+	}
+	var identity [3]string
+	if json.Unmarshal(payload, &identity) != nil || identity[0] != snapshot.Token ||
+		candidateID != SchemaFieldCandidateID(identity[0], identity[1], identity[2]) {
+		return Candidate{}, false
+	}
+	node, ok := snapshot.Node(identity[1])
+	if !ok || !node.Populated || !digest.IsSHA256(snapshot.Identity.SchemaDigest) {
+		return Candidate{}, false
+	}
+	for _, field := range spec.SchemaFieldDescriptors(node.ResourceType) {
+		if field.Path != identity[2] {
+			continue
+		}
+		return Candidate{
+			ID: candidateID, NodeID: node.ID, ResourceType: node.ResourceType,
+			FieldPath: field.Path, Label: node.ResourceType + "." + field.Path,
+			LogicalType: field.PrimitiveType, Cardinality: field.Cardinality,
+		}, true
+	}
+	return Candidate{}, false
+}
+
 type ConstructionChoicePresentation struct {
 	Summary string                   `json:"summary"`
 	Facts   []ConstructionChoiceFact `json:"facts"`
@@ -748,7 +822,7 @@ func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRout
 		}
 	} else if source.SourceRole != "CURRENT_ITEM" || source.Shape != "CODING_IDENTITY" || source.CanonicalPath != source.OwnerSelector ||
 		rowChoice.Occurrence.OccurrenceID != source.OwnerOccurrenceID || rowChoice.Occurrence.NodeID != source.NodeID ||
-		rowChoice.Occurrence.ResourceType != source.OwnerResourceType || !equalConstructionRouteSteps(rowChoice.Occurrence.Route, route) ||
+		rowChoice.Occurrence.ResourceType != source.OwnerResourceType || !slices.Equal(rowChoice.Occurrence.Route, route) ||
 		rowChoice.Path != source.OwnerSelector || source.CandidateID != "" {
 		return ConstructionChoice{}, fmt.Errorf("Coding identity choice must pin the exact current Coding item selector")
 	}
@@ -772,23 +846,11 @@ func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRout
 	}, nil
 }
 
-func equalConstructionRouteSteps(left, right []ConstructionRouteStep) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func constructionRouteHasSuffix(full, suffix []ConstructionRouteStep) bool {
 	if len(suffix) == 0 || len(suffix) > len(full) {
 		return false
 	}
-	return equalConstructionRouteSteps(full[len(full)-len(suffix):], suffix)
+	return slices.Equal(full[len(full)-len(suffix):], suffix)
 }
 
 func validGroupFieldSourceRole(role string) bool {

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -97,7 +99,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 		t.Fatalf("Document.AnalyzeConstructionCandidate dependent FILTER input type = %q, want decimal", got)
 	}
 
-	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: versionBefore, ExpectedDraftDigest: digestBefore, OutputID: "patients",
 		ChangedStepID: "group-records", CandidateConstruction: candidate,
@@ -124,7 +126,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 		t.Fatal("ProposeConstruction changed the accepted draft before Apply")
 	}
 
-	preview, err := service.Preview(context.Background(), PreviewRequest{
+	preview, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

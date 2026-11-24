@@ -16,6 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
@@ -245,7 +248,7 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 	}
 	execute := func(t *testing.T, output recipe.Output) []map[string]any {
 		t.Helper()
-		query := compileGraphRowsFixtureWithBindings(t, output, recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"})
+		query := compileGraphRowsFixtureWithBindings(t, output, recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "graph-fixture"})
 		if qualified {
 			for _, name := range append(append([]string{}, query.PublicColumns...), query.PivotFields...) {
 				if strings.Contains(name, "logical_key") {
@@ -734,7 +737,7 @@ func TestGraphRowsIndependentFixturePlansCompile(t *testing.T) {
 
 func compileGraphRowsFixture(t *testing.T, output recipe.Output) model.CompiledQuery {
 	t.Helper()
-	bindings := recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: "fixture-v1", AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"}
+	bindings := recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: "fixture-v1", AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "graph-fixture"}
 	return compileGraphRowsFixtureWithBindings(t, output, bindings)
 }
 func compileGraphRowsFixtureWithBindings(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) model.CompiledQuery {
@@ -850,7 +853,7 @@ func graphRowsFixtureSourceExpanded(policy recipe.ExpansionEmptyPolicy) recipe.O
 
 func graphRowsFixtureOneDistinct(subject string) recipe.Output {
 	output := graphRowsFixtureSource(false, false)
-	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &subject}}}}
+	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &subject}}}}
 	columns := graphRowsFixtureSourceColumns()
 	output.Construction = &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{{ID: "one-distinct-observation", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
 		AnchorColumnID: "_key", ChoiceID: "one-distinct-observation", SourceOccurrenceID: "observation", Source: recipe.ConstructionRelatedFieldSource{CandidateID: "observation-value", NodeID: "observation", ResourceType: "Observation", Path: "Observation.valueInteger", Cardinality: "optional_one", LogicalType: "integer"}, Route: graphRowsFixtureObservationRoute(), ContributorPolicy: "ALL_MATCHES", Form: "ALL", RowValuePolicy: recipe.ConstructionRowValueOne, OutputColumnID: "observation-value",

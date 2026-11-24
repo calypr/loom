@@ -17,7 +17,6 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/capability"
 	store "github.com/calypr/loom/internal/store/arango"
-	storepkg "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -349,11 +348,11 @@ type capabilitySnapshotClient struct {
 	row   map[string]any
 }
 
-func (c *capabilitySnapshotClient) WithTransaction(ctx context.Context, _ storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
+func (c *capabilitySnapshotClient) WithTransaction(ctx context.Context, _ store.TransactionCollections, fn store.TransactionFunc) error {
 	return fn(ctx, c)
 }
 
-func (c *capabilitySnapshotClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *capabilitySnapshotClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	if query == capabilitySnapshotGetByIdentityAQL && c.row != nil {
 		storedIdentity, _ := c.row["identity"].(map[string]any)
@@ -375,7 +374,7 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot := testCapabilitySnapshot()
+	snapshot := readyCapabilitySnapshot()
 	client.row, err = canonicalSnapshotDocument(snapshot, capabilitySnapshotKey(snapshot.Token))
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +420,8 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 		"d.identity.authorizationScopeDigest == @authorizationScopeDigest",
 		`NOT_NULL(d.identity.cacheVersion, "") == @cacheVersion`,
 		"d.identity.protocolVersion == @protocolVersion", "d.identity.compilerVersion == @compilerVersion",
-		"d.status IN @statuses",
+		`NOT_NULL(d.identity.shapeDigest, "") == @shapeDigest`,
+		`d.status == "READY" AND d.complete == true AND d.truncated == false`,
 	} {
 		if !strings.Contains(identityCall.query, required) {
 			t.Fatalf("identity query missing %q:\n%s", required, identityCall.query)
@@ -444,7 +444,7 @@ func TestCapabilitySnapshotStoreCacheVersionSeparatesIdentityAndKeepsLegacyToken
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := testCapabilitySnapshot()
+	legacy := readyCapabilitySnapshot()
 	client.row, err = canonicalSnapshotDocument(legacy, capabilitySnapshotKey(legacy.Token))
 	if err != nil {
 		t.Fatal(err)
@@ -498,4 +498,29 @@ func testCapabilitySnapshot() capability.Snapshot {
 		capability.Policy{}, capability.StatusFailed, false, false, nil, nil, nil,
 		[]capability.Diagnostic{{Code: "failed", Message: "diagnostic"}},
 	)
+}
+
+func readyCapabilitySnapshot() capability.Snapshot {
+	previous := testCapabilitySnapshot()
+	return capability.NewSnapshot(previous.Identity, previous.Policy, capability.StatusReady, true, false, previous.Nodes, previous.Edges, previous.Candidates, previous.Diagnostics)
+}
+
+func TestCapabilitySnapshotStoreRejectsUnusableWritesBeforeQuery(t *testing.T) {
+	client := &capabilitySnapshotClient{}
+	adapter, err := NewCapabilitySnapshotStore(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []capability.Snapshot{
+		testCapabilitySnapshot(),
+		capability.NewSnapshot(testCapabilitySnapshot().Identity, capability.Policy{}, capability.StatusBuilding, false, false, nil, nil, nil, nil),
+		capability.NewSnapshot(testCapabilitySnapshot().Identity, capability.Policy{}, capability.StatusBuilding, true, true, nil, nil, nil, nil),
+	} {
+		if _, err := adapter.Put(context.Background(), snapshot); !errors.Is(err, capability.ErrInvalidSnapshot) {
+			t.Fatalf("unusable cache write error = %v", err)
+		}
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("unusable writes issued %d queries", len(client.calls))
+	}
 }

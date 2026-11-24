@@ -7,7 +7,6 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/capability"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func deriveSourceLogicalTypeIsNumeric(logicalType string) bool {
@@ -46,17 +45,8 @@ var deriveSourceReasons = rowSourceLaneReasons{
 }
 
 func validateDeriveSourceColumns(steps []ws.ConstructionStep, deriveID string, sources []ConstructionDeriveSourceSelection) error {
-	index := constructionStepIndex(steps, deriveID)
-	if index < 0 || steps[index].Operation.Derive == nil {
-		return fmt.Errorf("the selected Derive step is unavailable")
-	}
-	operandIDs := deriveOperandColumnIDs(steps[index].Operation.Derive)
-	for _, source := range sources {
-		if !containsConstructionColumnIDLocal(operandIDs, source.ColumnID) {
-			return fmt.Errorf("deriveSources columnId %q is not a column operand of the Derive step", source.ColumnID)
-		}
-	}
-	return nil
+	return validateConstructionSourceColumns(steps, deriveID, ws.ConstructionOperationDerive,
+		constructionSourceSelectionIDs(sources, func(source ConstructionDeriveSourceSelection) string { return source.ColumnID }))
 }
 
 func containsConstructionColumnIDLocal(ids []string, want string) bool {
@@ -109,57 +99,11 @@ func clearConstructionDeriveOwnedSources(base, candidate ws.Construction, derive
 }
 
 func constructionOwnedDeriveSourceColumnID(construction ws.Construction, stageID, path string) string {
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-		if index < 0 {
-			continue
-		}
-		step := construction.Steps[index]
-		if step.Operation.Kind != ws.ConstructionOperationDerive || step.Operation.Derive == nil ||
-			!containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID) ||
-			constructionStepInputStageID(step) != stageID {
-			continue
-		}
-		return projection.ColumnID
-	}
-	return ""
+	return constructionOwnedSourceColumnID(construction, stageID, path, ws.ConstructionOperationDerive)
 }
 
 func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (ws.ConstructionSourceProjection, bool) {
-	path := canonicalRowPath(fieldPath)
-	if strings.TrimSpace(rootResourceType) == "" || path == "" {
-		return ws.ConstructionSourceProjection{}, false
-	}
-	for _, node := range snapshot.Nodes {
-		if !node.RowRootEligible || node.ResourceType != rootResourceType {
-			continue
-		}
-		candidate, ok := uniqueRowSourceCandidate(snapshot, node.ID, rootResourceType, path)
-		if !ok || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
-			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
-			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) ||
-			!deriveSourceLogicalTypeIsNumeric(candidate.LogicalType) {
-			continue
-		}
-		schemaIndex, err := fhirschema.GeneratedIndex()
-		if err != nil {
-			continue
-		}
-		facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
-		if err != nil || facts.CanonicalPath != path || facts.Shape != fhirschema.RowPathScalar ||
-			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
-			continue
-		}
-		return ws.ConstructionSourceProjection{
-			OccurrenceID: ws.RootOccurrenceID, FieldPath: facts.CanonicalPath,
-			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
-			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
-		}, true
-	}
-	return ws.ConstructionSourceProjection{}, false
+	return constructionSourceFacts(snapshot, rootResourceType, fieldPath, deriveSourceLogicalTypeIsNumeric)
 }
 
 func ConstructionHasDeriveSourceInput(construction ws.Construction) bool {

@@ -18,8 +18,10 @@ import (
 )
 
 type legacyRegistryClient struct {
-	recipes    []map[string]any
-	executions []map[string]any
+	recipes         []map[string]any
+	executions      []map[string]any
+	queries         []string
+	afterUsageQuery func()
 }
 
 func (c *legacyRegistryClient) InsertBatchRaw(_ context.Context, collection string, data []json.RawMessage, _ bool, _ string) error {
@@ -31,9 +33,9 @@ func (c *legacyRegistryClient) InsertBatchRaw(_ context.Context, collection stri
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			return err
 		}
-		key := stringValue(doc["_key"])
+		key := arangostore.StringValue(doc["_key"])
 		for i := range c.recipes {
-			if stringValue(c.recipes[i]["_key"]) == key {
+			if arangostore.StringValue(c.recipes[i]["_key"]) == key {
 				c.recipes[i] = doc
 				continue
 			}
@@ -46,19 +48,20 @@ func (c *legacyRegistryClient) InsertBatchRaw(_ context.Context, collection stri
 }
 
 func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int, vars map[string]interface{}, visit arangostore.RowVisitor) error {
+	c.queries = append(c.queries, query)
 	if strings.Contains(query, "RETURN {replaced: true}") {
 		for _, execution := range c.executions {
 			if matchesRecipeIdentity(execution, vars) {
 				return nil
 			}
 		}
-		key := stringValue(vars["key"])
+		key := arangostore.StringValue(vars["key"])
 		document, ok := vars["document"].(map[string]any)
 		if !ok {
 			return errors.New("replacement document has unexpected type")
 		}
 		for i := range c.recipes {
-			if stringValue(c.recipes[i]["_key"]) == key {
+			if arangostore.StringValue(c.recipes[i]["_key"]) == key {
 				c.recipes[i] = document
 				if err := visit(map[string]any{"replaced": true}); err != nil {
 					return err
@@ -68,7 +71,7 @@ func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int,
 		}
 		return nil
 	}
-	collection := stringValue(vars["@collection"])
+	collection := arangostore.StringValue(vars["@collection"])
 	if collection == "loom_dataframe_bundle_executions" {
 		for _, doc := range c.executions {
 			if !matchesRecipeIdentity(doc, vars) {
@@ -84,6 +87,11 @@ func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int,
 				return err
 			}
 		}
+		if strings.Contains(query, "RETURN {used: true}") && c.afterUsageQuery != nil {
+			afterUsageQuery := c.afterUsageQuery
+			c.afterUsageQuery = nil
+			afterUsageQuery()
+		}
 		return nil
 	}
 
@@ -92,13 +100,13 @@ func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int,
 		if !matchesRecipeIdentity(doc, vars) {
 			continue
 		}
-		if version, ok := vars["translationVersion"]; ok && stringValue(doc["translationVersion"]) != stringValue(version) {
+		if version, ok := vars["translationVersion"]; ok && arangostore.StringValue(doc["translationVersion"]) != arangostore.StringValue(version) {
 			continue
 		}
 		matching = append(matching, doc)
 	}
 	sort.Slice(matching, func(i, j int) bool {
-		return stringValue(matching[i]["translationVersion"]) > stringValue(matching[j]["translationVersion"])
+		return arangostore.StringValue(matching[i]["translationVersion"]) > arangostore.StringValue(matching[j]["translationVersion"])
 	})
 	if len(matching) > 0 {
 		if err := visit(matching[0]); err != nil {
@@ -110,7 +118,7 @@ func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int,
 
 func containsRecipeKey(docs []map[string]any, key string) bool {
 	for _, doc := range docs {
-		if stringValue(doc["_key"]) == key {
+		if arangostore.StringValue(doc["_key"]) == key {
 			return true
 		}
 	}
@@ -118,15 +126,15 @@ func containsRecipeKey(docs []map[string]any, key string) bool {
 }
 
 func matchesRecipeIdentity(doc map[string]any, vars map[string]interface{}) bool {
-	name := stringValue(vars["name"])
-	version := stringValue(vars["translationVersion"])
-	docName := stringValue(doc["name"])
+	name := arangostore.StringValue(vars["name"])
+	version := arangostore.StringValue(vars["translationVersion"])
+	docName := arangostore.StringValue(doc["name"])
 	if docName == "" {
-		docName = stringValue(doc["Name"])
+		docName = arangostore.StringValue(doc["Name"])
 	}
-	docVersion := stringValue(doc["translationVersion"])
+	docVersion := arangostore.StringValue(doc["translationVersion"])
 	if docVersion == "" {
-		docVersion = stringValue(doc["TranslationVersion"])
+		docVersion = arangostore.StringValue(doc["TranslationVersion"])
 	}
 	return docName == name && (version == "" || docVersion == version)
 }
@@ -220,6 +228,58 @@ func TestRegistryReplaceRecipeVersionAndUsage(t *testing.T) {
 	}
 	if err := registry.ReplaceRecipeVersion(context.Background(), original); !errors.Is(err, recipe.ErrRecipeVersionImmutable) {
 		t.Fatalf("ReplaceRecipeVersion() error = %v, want ErrRecipeVersionImmutable", err)
+	}
+}
+
+func TestRecipeVersionUsageReadsBothStoredSpellings(t *testing.T) {
+	for name, execution := range map[string]map[string]any{
+		"current": {"name": "files", "translationVersion": "1"},
+		"legacy":  {"Name": "files", "TranslationVersion": "1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &legacyRegistryClient{executions: []map[string]any{execution}}
+			registry, err := New(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			used, err := registry.RecipeVersionUsed(context.Background(), "files", "1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !used {
+				t.Fatalf("RecipeVersionUsed() = false for %s spelling", name)
+			}
+			if len(client.queries) != 1 || !strings.Contains(client.queries[0], "doc.Name == @name") || !strings.Contains(client.queries[0], "doc.TranslationVersion == @translationVersion") {
+				t.Fatalf("publication usage query dropped a legacy spelling: %v", client.queries)
+			}
+		})
+	}
+}
+
+func TestRecipeVersionReplacementKeepsAtomicUsageGuard(t *testing.T) {
+	client := &legacyRegistryClient{}
+	registry, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := legacyEntry("1", "digest-1", "document_reference")
+	replacement := legacyEntry("1", "digest-2", "document_reference_changed")
+	if err := registry.SaveRecipe(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	client.afterUsageQuery = func() {
+		client.executions = append(client.executions, map[string]any{"Name": "files", "TranslationVersion": "1"})
+	}
+	_, err = (recipe.PersistentRegistry{Store: registry}).RegisterVersion(context.Background(), replacement.Bundle)
+	if !errors.Is(err, recipe.ErrRecipeVersionImmutable) {
+		t.Fatalf("RegisterVersion() error = %v, want ErrRecipeVersionImmutable", err)
+	}
+	loaded, err := registry.LoadRecipeVersion(context.Background(), "files", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Digest != original.Digest {
+		t.Fatalf("recipe changed after a concurrent execution appeared: digest = %q, want %q", loaded.Digest, original.Digest)
 	}
 }
 

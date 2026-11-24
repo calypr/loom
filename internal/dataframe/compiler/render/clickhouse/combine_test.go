@@ -60,24 +60,11 @@ func TestRenderKeyJoinPinsExactInputsAndPreservesLeftRows(t *testing.T) {
 	inputs[0].ScopeDigest = "scope-left"
 	inputs[1].ScopeDigest = "scope-right"
 
-	rendered, err := RenderCombine(plan, inputs, "project-a")
+	rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 	if err != nil {
 		t.Fatalf("RenderCombine() error = %v", err)
 	}
-	for _, expected := range []string{
-		"ALL LEFT JOIN",
-		"__loom_left.`auth_resource_path` = __loom_right.`auth_resource_path`",
-		"__loom_right.`auth_resource_path` IN ?",
-		"WHERE __loom_left.`auth_resource_path` IN ?",
-		"SETTINGS join_use_nulls = 1",
-	} {
-		if !strings.Contains(rendered.Query, expected) {
-			t.Errorf("query does not contain %q: %s", expected, rendered.Query)
-		}
-	}
-	if strings.Contains(rendered.Query, "WHERE `__loom_right`") {
-		t.Fatalf("right scope filter moved into WHERE and would drop unmatched left rows: %s", rendered.Query)
-	}
+	assertCombineRenderGolden(t, rendered.Query, rendered.Args)
 	wantArgs := []any{[]string{"/programs/p1"}, []string{"/programs/p1"}}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("query args = %#v, want right ON args then left WHERE args %#v", rendered.Args, wantArgs)
@@ -118,7 +105,7 @@ func TestRenderKeyJoinUsesOrdinaryEqualityForNullableScalarKeys(t *testing.T) {
 		}),
 	}
 
-	rendered, err := RenderCombine(plan, inputs, "project-a")
+	rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 	if err != nil {
 		t.Fatalf("RenderCombine() rejected a nullable scalar key: %v", err)
 	}
@@ -172,7 +159,7 @@ func TestRenderMembershipUsesOrdinaryEqualityForNullableCompositeKeys(t *testing
 				}),
 			}
 
-			rendered, err := RenderCombine(plan, inputs, "project-a")
+			rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 			if err != nil {
 				t.Fatalf("RenderCombine() rejected nullable scalar keys: %v", err)
 			}
@@ -218,7 +205,7 @@ func TestRenderMembershipStillRejectsUnsupportedNullableKeyTypes(t *testing.T) {
 					{ID: "member", Name: "member", ClickHouseType: rightType, Nullable: true},
 				}),
 			}
-			if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "same supported scalar base type") {
+			if _, err := RenderCombineWithLimit(plan, inputs, "project-a", 0); err == nil || !strings.Contains(err.Error(), "same supported scalar base type") {
 				t.Fatalf("membership accepted unsupported nullable key type %q: %v", rightType, err)
 			}
 		})
@@ -248,7 +235,7 @@ func TestRenderAppendMapsIndependentStableColumnIDs(t *testing.T) {
 			{ID: "right-subject-id", Name: "subject", ClickHouseType: "String"},
 		}),
 	}
-	rendered, err := RenderCombine(plan, inputs, "project-a")
+	rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 	if err != nil {
 		t.Fatalf("RenderCombine() error = %v", err)
 	}
@@ -282,7 +269,7 @@ func TestRenderAppendEmitsTypedNullForMissingNullableInput(t *testing.T) {
 		}),
 	}
 
-	rendered, err := RenderCombine(plan, inputs, "project-a")
+	rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 	if err != nil {
 		t.Fatalf("RenderCombine() error = %v", err)
 	}
@@ -319,7 +306,7 @@ func TestRenderAppendRejectsMismatchedBasePhysicalTypes(t *testing.T) {
 			{ID: "right-age", Name: "age", LogicalType: "integer", ClickHouseType: "Int32"},
 		}),
 	}
-	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "incompatible source type") {
+	if _, err := RenderCombineWithLimit(plan, inputs, "project-a", 0); err == nil || !strings.Contains(err.Error(), "incompatible source type") {
 		t.Fatalf("mismatched base physical type error = %v", err)
 	}
 }
@@ -352,7 +339,7 @@ func TestRenderMembershipUsesDistinctRightKeysAndFailsClosedOnScopeMismatch(t *t
 		inputs[i].Unrestricted = false
 		inputs[i].AuthResourcePaths = []string{"/programs/p1"}
 	}
-	rendered, err := RenderCombine(plan, inputs, "project-a")
+	rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 	if err != nil {
 		t.Fatalf("RenderCombine() error = %v", err)
 	}
@@ -365,7 +352,7 @@ func TestRenderMembershipUsesDistinctRightKeysAndFailsClosedOnScopeMismatch(t *t
 		t.Fatalf("membership args = %#v", rendered.Args)
 	}
 	inputs[1].AuthResourcePaths = []string{"/programs/p2"}
-	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "same authorization scope") {
+	if _, err := RenderCombineWithLimit(plan, inputs, "project-a", 0); err == nil || !strings.Contains(err.Error(), "same authorization scope") {
 		t.Fatalf("mismatched authorization scopes error = %v", err)
 	}
 }
@@ -392,12 +379,12 @@ func TestRenderCombineRejectsWrongExactRevisionAndMissingStableColumnID(t *testi
 		}),
 	}
 	inputs[0].RevisionID = "different-execution"
-	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "exact table/revision/output") {
+	if _, err := RenderCombineWithLimit(plan, inputs, "project-a", 0); err == nil || !strings.Contains(err.Error(), "exact table/revision/output") {
 		t.Fatalf("wrong exact revision error = %v", err)
 	}
 	inputs[0].RevisionID = "execution-left"
 	inputs[1].Columns[1].ID = "legacy-no-id"
-	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "missing exact input column") {
+	if _, err := RenderCombineWithLimit(plan, inputs, "project-a", 0); err == nil || !strings.Contains(err.Error(), "missing exact input column") {
 		t.Fatalf("missing stable column ID error = %v", err)
 	}
 }
@@ -470,7 +457,7 @@ func TestRenderCompositeCombineConsumesExactPrivatePrefixArtifact(t *testing.T) 
 	if _, err := RenderCompositeClickHouseCombine(combine, prefix, []ir.ResolvedClickHouseTable{right}, badArtifact, expected, "project-a", 0); err == nil || !strings.Contains(err.Error(), "exact compiled prefix identity") {
 		t.Fatalf("renderer accepted a same-stage artifact from a different output: %v", err)
 	}
-	if _, err := RenderCombine(combine, []ir.ResolvedClickHouseTable{right}, "project-a"); err == nil || !strings.Contains(err.Error(), "private stage outside a composite plan") {
+	if _, err := RenderCombineWithLimit(combine, []ir.ResolvedClickHouseTable{right}, "project-a", 0); err == nil || !strings.Contains(err.Error(), "private stage outside a composite plan") {
 		t.Fatalf("standalone Combine accepted private input: %v", err)
 	}
 }
@@ -604,7 +591,7 @@ func TestRenderNullableCompositeMembershipClickHouseSemantics(t *testing.T) {
 							{ID: "k2", Name: "k2", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true},
 						},
 					}
-					rendered, err := RenderCombine(plan, inputs, "project-a")
+					rendered, err := RenderCombineWithLimit(plan, inputs, "project-a", 0)
 					if err != nil {
 						t.Fatalf("render nullable membership: %v", err)
 					}

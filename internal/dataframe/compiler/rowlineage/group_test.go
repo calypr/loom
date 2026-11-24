@@ -11,6 +11,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+	"github.com/calypr/loom/internal/testkit/recipetest"
 	"github.com/google/uuid"
 )
 
@@ -78,7 +80,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted,
 		AuthResourcePaths: []string{"Observation/visible"},
 	}
-	output := constructionCodedGroupTestOutput()
+	output := compilerfixtures.ObservationCodedGroupOutput()
 	compiled := lowerConstructionOutput(t, output, bindings)
 	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -130,7 +132,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 		}
 	}
 	for offset, id := range []string{"coded-a", "coded-b", "coded-c"} {
-		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(getRowID(codedRow), offset))
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(getRowID(codedRow), offset))
 		contributors, _ := result["contributors"].([]any)
 		wantMore := offset < 2
 		if result["found"] != true || result["hasMore"] != wantMore || len(contributors) != 1 {
@@ -139,13 +141,13 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 		assertContributor(contributors[0], id)
 	}
 	missingRowID := getRowID(missingRow)
-	missing := executeRowLineageOracleQuery(t, ctx, client, compilePage(missingRowID, 0))
+	missing := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(missingRowID, 0))
 	missingContributors, _ := missing["contributors"].([]any)
 	if missing["found"] != true || missing["hasMore"] != true || len(missingContributors) != 1 {
 		t.Fatalf("valid missing-code row lineage = %#v, want its first contributor and another page", missing)
 	}
 	assertContributor(missingContributors[0], "missing-a")
-	missingSecond := executeRowLineageOracleQuery(t, ctx, client, compilePage(missingRowID, 1))
+	missingSecond := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(missingRowID, 1))
 	missingSecondContributors, _ := missingSecond["contributors"].([]any)
 	if missingSecond["found"] != true || missingSecond["hasMore"] != false || len(missingSecondContributors) != 1 {
 		t.Fatalf("second missing-code row lineage page = %#v, want final contributor", missingSecond)
@@ -162,7 +164,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 		t.Fatal(err)
 	}
 	for _, forgedID := range []string{"forged-coded-row-id", string(wrongStageBytes)} {
-		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(forgedID, 0))
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(forgedID, 0))
 		if result["found"] != false || result["hasMore"] != false || len(result["contributors"].([]any)) != 0 {
 			t.Errorf("forged/wrong-stage CODED_GROUP identity disclosed contributors: %#v", result)
 		}

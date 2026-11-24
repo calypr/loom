@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -160,7 +163,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	insert("fhir_edge", edges...)
 
 	bindings := recipe.RuntimeBindings{
-		Project: resourceProject, SelectionProject: project, DatasetGeneration: generation,
+		Project: resourceProject, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	groupRows := func(after string) *recipe.GroupRows {
@@ -309,11 +312,9 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 				}
 			}
 		}
-		many := []string{"a", "b", missingID, wrongGenerationID, wrongProjectID}
+		many := []string{"a", "b"}
 		if !filtered {
 			many = []string{"a", "b", filteredID, missingID, wrongGenerationID, wrongProjectID}
-		} else {
-			many = []string{"a", "b"}
 		}
 		want := map[string][]string{"many": many, "one": {"c"}, "no_matches": {"no_observation"}, "zero": {}, "__loom_unassigned__": {"unassigned"}}
 		if !reflect.DeepEqual(ids, want) {
@@ -343,7 +344,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		ID: "exclude_filtered", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 		}},
 		Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}},
 	}}
@@ -431,7 +432,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: recipe.ConstructionRowValueAll}, {ColumnID: "gender", Policy: recipe.ConstructionRowValueOne}, {ColumnID: "identifiers", Policy: recipe.ConstructionRowValueAll}}},
 		Fields: []recipe.Field{{Name: "ids", ColumnID: "ids", Expr: recipe.Expression{Select: "root.id"}}, {Name: "gender", ColumnID: "gender", Expr: recipe.Expression{Select: "root.gender"}}, {Name: "identifiers", ColumnID: "identifiers", Expr: recipe.Expression{Select: "root.identifier[].value"}}},
 	}
-	bindings := recipe.RuntimeBindings{Project: resourceProject, SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
+	bindings := recipe.RuntimeBindings{Project: resourceProject, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	compiled := lowerConstructionOutput(t, output, bindings)
 	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -485,7 +486,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		}, Steps: []recipe.ConstructionStep{{
 			ID: "keep_a", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-				ColumnID: "ids", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
+				ColumnID: "ids", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
 			}},
 			Outputs: []recipe.StageColumn{{ID: "ids", Name: "ids", Type: "string"}, {ID: "gender", Name: "gender", Type: "string"}, {ID: "identifiers", Name: "identifiers", Type: "string"}},
 		}}}
@@ -521,7 +522,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		}, Steps: []recipe.ConstructionStep{{
 			ID: "keep_pair", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-				ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
+				ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
 			}},
 			Outputs: []recipe.StageColumn{
 				{ID: "group_id", Name: "group_id", Type: "string"},

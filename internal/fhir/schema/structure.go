@@ -80,8 +80,7 @@ func (i *Index) RepeatedCodingPaths(root DefinitionName) ([]string, error) {
 
 	paths := make(map[string]struct{})
 	var visit func([]Element, string, map[DefinitionName]bool) error
-	var visitDefinition func(DefinitionName, string, map[DefinitionName]bool) error
-	visitDefinition = func(name DefinitionName, prefix string, active map[DefinitionName]bool) error {
+	visitDefinition := func(name DefinitionName, prefix string, active map[DefinitionName]bool) error {
 		if active[name] {
 			return nil
 		}
@@ -145,8 +144,7 @@ func (i *Index) HasRepeatedCodingPath(root DefinitionName) (bool, error) {
 	visited := make(map[DefinitionName]bool)
 	found := false
 	var visit func([]Element) error
-	var visitDefinition func(DefinitionName) error
-	visitDefinition = func(name DefinitionName) error {
+	visitDefinition := func(name DefinitionName) error {
 		if visited[name] {
 			return nil
 		}

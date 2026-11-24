@@ -135,7 +135,15 @@ func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	if len(migrated.MigrationDecisions) != 1 || migrated.MigrationDecisions[0] != "semantics-v2:repeated-first-to-indexed:patients:names" {
 		t.Fatalf("migration decisions = %#v", migrated.MigrationDecisions)
 	}
-	legacyDigest, err := migrateMissingRowsBeforeCurrent(legacy).Digest()
+	legacyRaw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalizedLegacy, err := ws.DecodeStoredWorkspaceForMigration(legacyRaw)
+	if err != nil {
+		t.Fatalf("normalize legacy workspace through stored-workspace decoder: %v", err)
+	}
+	legacyDigest, err := normalizedLegacy.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}

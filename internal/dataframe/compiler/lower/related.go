@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -16,9 +18,10 @@ func lowerConstructionRelatedField(
 	inputByID map[string]CompiledOutputColumn,
 	outputByID map[string]recipe.StageColumn,
 	inputSchema []CompiledOutputColumn,
-	inputRow string,
+	context constructionLoweringContext,
 	trackPresence bool,
 ) (ir.PhysicalStageRelatedField, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputRow := context.inputRow
 	anchor, found := activeRelatedRecordColumn(inputSchema)
 	if !found || anchor.RelatedRecordAnchor == nil {
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field requires an active exact terminal record identity")
@@ -41,7 +44,7 @@ func lowerConstructionRelatedField(
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("active terminal record identity is absent from the input schema")
 	}
 	declaration, ok := outputByID[related.OutputColumnID]
-	if !ok || declaration.Nullable == false {
+	if !ok || !declaration.Nullable {
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field output must exist and be nullable")
 	}
 	if declaration.Type != "" && declaration.Type != "INFER" && declaration.Type != source.LogicalType {
@@ -56,7 +59,7 @@ func lowerConstructionRelatedField(
 				return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field cannot expose hidden input column %q", output.ID)
 			}
 			prior.Name = output.Name
-			prior.Label = constructionFirstNonEmpty(output.Label, prior.Label, output.Name)
+			prior.Label = loomtext.FirstNonBlank(output.Label, prior.Label, output.Name)
 			compiled = append(compiled, prior)
 			projections = append(projections, ir.PhysicalProjection{
 				Name: output.Name, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputByID[output.ID].Name}},
@@ -67,7 +70,7 @@ func lowerConstructionRelatedField(
 			return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field output schema contains unexpected column ID %q", output.ID)
 		}
 		compiled = append(compiled, CompiledOutputColumn{
-			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+			ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 			SemanticPath: "related_field:" + source.CandidateID, Kind: source.LogicalType,
 			Cardinality: string(expression.OptionalOne), Nullable: true,
 		})

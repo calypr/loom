@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -333,7 +335,7 @@ func relatedPresenceNullOnlyPivotOutput(unlistedPolicy recipe.PivotUnlistedCateg
 	}
 	output.Construction.Steps = steps
 	if len(rootIDs) > 0 {
-		values := make([]recipe.FilterValue, 0, len(rootIDs))
+		values := make([]spec.FilterValue, 0, len(rootIDs))
 		for _, rootID := range rootIDs {
 			values = append(values, reshapeOracleStringFilter(rootID))
 		}

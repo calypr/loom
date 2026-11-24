@@ -7,14 +7,15 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func applyUpdateImportedSourceStepVariants(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyUpdateImportedSourceStepVariants(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	position := documentIndex(workspace, command.OutputID)
-	if position < 0 || command.resolvedImportedDocument == nil {
+	resolvedDocument, ok := resolution.(ImportedDocumentResolution)
+	if position < 0 || !ok {
 		return result, fmt.Errorf("source change requires a lifecycle-resolved imported document")
 	}
 	current := workspace.Documents[position]
-	resolved := *command.resolvedImportedDocument
+	resolved := resolvedDocument.Document
 	if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
 		return result, fmt.Errorf("source change does not match its pinned output")
 	}
@@ -25,6 +26,6 @@ func applyUpdateImportedSourceStepVariants(workspace *ws.Workspace, catalog ws.C
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 }
 
-func applySetFrameSourceVariants(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
-	return applyFrameSourceCommand(workspace, command)
+func applySetFrameSourceVariants(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
+	return applyFrameSourceCommand(workspace, command, resolution)
 }

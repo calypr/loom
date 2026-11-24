@@ -134,12 +134,7 @@ func (r *Resolver) Resolve(ctx context.Context, project, requestedGeneration str
 		}
 		built, buildErr := builder.Build(ctx)
 		if buildErr != nil {
-			_, _ = r.snapshots.Put(ctx, built)
 			return nil, buildErr
-		}
-		if !built.Usable() {
-			_, _ = r.snapshots.Put(ctx, built)
-			return nil, capability.ErrSnapshotUnavailable
 		}
 		stored, putErr := r.snapshots.Put(ctx, built)
 		if putErr != nil {

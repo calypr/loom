@@ -175,7 +175,7 @@ func TestOpenAPIStatusCoverageFollowsTypedLocalHelpers(t *testing.T) {
 }
 
 func declaredOpenAPIStatuses() (map[string]map[int]struct{}, error) {
-	spec, err := loomapi.GetSwagger()
+	spec, err := loomapi.GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("load embedded OpenAPI document: %w", err)
 	}

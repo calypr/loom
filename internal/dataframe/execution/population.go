@@ -23,16 +23,6 @@ const (
 	PopulationMappingIncomplete PopulationMappingStatus = "INCOMPLETE"
 )
 
-type populationMemberReader interface {
-	VisitMembers(context.Context, func(string) error) error
-}
-
-type PopulationMemberReaderFunc func(context.Context, func(string) error) error
-
-func (f PopulationMemberReaderFunc) VisitMembers(ctx context.Context, visit func(string) error) error {
-	return f(ctx, visit)
-}
-
 type PopulationMappingRequest struct {
 	Output             string
 	AfterMemberID      string

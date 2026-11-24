@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -338,17 +339,17 @@ func assertWalkLimit(t *testing.T, err error, kind WalkLimitKind, limit int) {
 	}
 }
 
-func TestWalkMemberValuesWithResourceTypesResolvesContainedResource(t *testing.T) {
+func TestWalkMembersWithResourceTypesResolvesContainedResource(t *testing.T) {
 	index := resourceDispatchIndex(t, schema.Element{
 		Name: "contained", JSONType: schema.JSONTypeArray, ArrayElementType: "Resource",
 		ArrayElements: []schema.Element{{Name: "resourceType", JSONType: "string"}},
 	})
-	payload := map[string]any{"contained": []any{
-		map[string]any{"resourceType": "Observation", "observationOnly": "seen"},
-		map[string]any{"resourceType": "Patient"},
-	}}
+	payload := []byte(`{"contained":[{"resourceType":"Observation","observationOnly":"seen"},{"resourceType":"Patient"}]}`)
 	var facts []MemberFact
-	diagnostics, err := WalkMemberValuesWithResourceTypes(index, "DispatchEnvelope", payload, []schema.ResourceType{"Observation"}, func(fact MemberFact) error {
+	diagnostics, err := WalkMembersWithResourceTypes(index, "DispatchEnvelope", payload, []schema.ResourceType{"Observation"}, func(fact MemberFact) error {
+		if err := json.Unmarshal(fact.RawJSON, &fact.Value); err != nil {
+			return err
+		}
 		facts = append(facts, fact)
 		return nil
 	})

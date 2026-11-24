@@ -27,6 +27,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 const (
@@ -41,40 +42,11 @@ const (
 )
 
 func filterSourceSnapshot(token string) capability.Snapshot {
-	return capability.NewSnapshot(
-		capability.SnapshotIdentity{
-			Project: filterSourceProject, Generation: token, AuthorizationScopeDigest: "scope",
-			SchemaDigest: "schema-a", ResourceInventoryDigest: "resources", RelationshipDigest: "relationships",
-			FieldDigest: "fields", ProtocolVersion: "protocol", CompilerVersion: "compiler",
-			TraversalPolicyVersion: "traversal", ProjectionPolicyVersion: "projection",
-		},
-		capability.Policy{Route: capability.RoutePolicy{Version: "traversal", AllowsRepeatedEdges: true, AllowsSelfLoops: true}},
-		capability.StatusReady, true, false,
-		[]capability.Node{{ID: filterSourceRootNode, ResourceType: filterSourceRootType, RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 4}},
-		nil,
-		[]capability.Candidate{
-			{ID: "bs-id", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: "id", Label: "Logical id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 4},
-			{ID: "bs-active", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: filterSourceField, Label: "Whether this record is in active use", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 4},
-			{ID: "bs-description", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: "description", Label: "Description", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: false, Populated: false},
-			{ID: "bs-patient", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: "patient", Label: "Patient", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 4},
-		},
-		nil,
-	)
+	return constructionfixtures.FilterSourceSnapshot(token, filterSourceProject, filterSourceRootNode, filterSourceRootType, filterSourceIdentity, filterSourceField)
 }
 
 func filterSourceDocument() ws.Document {
-	return ws.Document{
-		Kind:             ws.Kind,
-		Output:           ws.Output{ID: filterSourceOutput, Title: "Body structures"},
-		RootResourceType: filterSourceRootType,
-		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: filterSourceRootType},
-		Rows:             ws.RecordsRowDefinition(),
-		Columns: []ws.Column{{
-			ColumnID: filterSourceIdentity, Column: "body_structure_id", Label: "Body structure ID",
-			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
-			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-		}},
-	}
+	return constructionfixtures.FilterSourceDocument(filterSourceOutput, "Body structures", filterSourceRootType, filterSourceIdentity, "body_structure_id", filterSourceField)
 }
 
 func filterSourceIdentityColumns() []ws.StageColumn {
@@ -123,48 +95,17 @@ func filterSourceBase(snapshot capability.Snapshot, construction ws.Construction
 }
 
 func filterSourceFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     "filter-active",
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
-			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
-		}},
-		Outputs: outputs,
-	}
+	return constructionfixtures.FilterSourceFilterStep(columnID, outputs)
 }
 
 func filterSourceBool(value bool) *bool { return &value }
 
 func filterSourceGroupStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     "group-first",
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
-			ConstructionID: "group-first", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
-			Keys:       []ws.ConstructionGroupKey{{InputColumnID: filterSourceIdentity, OutputColumnID: "group_key"}},
-			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "rows"}},
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
-			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
-		},
-	}
+	return constructionfixtures.FilterSourceGroupStep(filterSourceIdentity)
 }
 
 func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path string) capability.RowChoice {
-	t.Helper()
-	choices, err := filterSourceResolver(t).ListRowChoices(context.Background(), snapshot, filterSourceDocument())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
-			return choice
-		}
-	}
-	t.Fatalf("planner omitted the %s root field choice: %#v", path, choices)
-	return capability.RowChoice{}
+	return constructionfixtures.FilterSourceRowChoice(t, snapshot, filterSourceDocument(), path)
 }
 
 func filterSourceSelection(t *testing.T, snapshot capability.Snapshot, path, columnID string) rowsource.ConstructionFilterSourceSelection {
@@ -182,7 +123,7 @@ func filterSourceProposalRequest(changedStepID string, sources []rowsource.Const
 
 func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-discovery")
-	result, err := filterSourceService(t).constructionFilterSourceCapability(context.Background(),
+	result, err := filterSourceService(t).rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +131,7 @@ func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(
 	if !result.Supported || result.ReasonCode != "" || result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("filter source capability = %#v, want a supported source-stage capability", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionFilterSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -234,7 +175,7 @@ func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t 
 	service := filterSourceService(t)
 	const titleLabel = "Whether this record is in active use"
 
-	result, err := service.constructionFilterSourceCapability(context.Background(),
+	result, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
@@ -255,8 +196,7 @@ func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t 
 	candidate := construction
 	candidate.Steps[0].Operation.Filter.ColumnID = filterSourceColumn
 	candidate.Steps[0].Outputs = append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction),
-		filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction), filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(), candidate)
 	if err != nil {
 		t.Fatalf("prepare filter sources: %v", err)
 	}
@@ -279,7 +219,7 @@ func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T)
 		}
 	}
 	service := filterSourceService(t)
-	result, err := service.constructionFilterSourceCapability(context.Background(),
+	result, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
@@ -300,8 +240,7 @@ func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T)
 	candidate := construction
 	candidate.Steps[0].Operation.Filter.ColumnID = filterSourceColumn
 	candidate.Steps[0].Outputs = append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction),
-		filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction), filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(), candidate)
 	if err != nil {
 		t.Fatalf("prepare filter sources with empty-Title candidate: %v", err)
 	}
@@ -336,7 +275,7 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 	advertise := func(label string) string {
 		t.Helper()
 		service := newTestService(t, &fakeStore{}, Config{RowChoicePlanner: labeledRowSourceChoicePlanner{inner: filterSourceResolver(t), label: label}})
-		result, err := service.constructionFilterSourceCapability(context.Background(),
+		result, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 			filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 		if err != nil {
 			t.Fatal(err)
@@ -357,9 +296,8 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 	}
 
 	service := filterSourceService(t)
-	projection, err := service.resolveConstructionFilterSource(context.Background(),
-		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
-		filterSourceProposalRequest("filter-active", nil), recipe.ConstructionSourceProjectionID,
+	projection, err := service.rowSourceService.ResolveConstructionFilterSource(context.Background(),
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceProposalRequest("filter-active", nil).RowSourceRequest(), recipe.ConstructionSourceProjectionID,
 		filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn))
 	if err != nil {
 		t.Fatalf("resolve with blank candidate label: %v", err)
@@ -368,7 +306,7 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 		t.Fatalf("durable label = %q, want the exact legacy 'Type.path' fallback", projection.Label)
 	}
 
-	facts, ok := ConstructionFilterSourceFacts(snapshot, filterSourceRootType, filterSourceField)
+	facts, ok := rowsource.ConstructionFilterSourceFacts(snapshot, filterSourceRootType, filterSourceField)
 	if !ok || facts.Label != projection.Label {
 		t.Fatalf("facts label = %q (ok %v), want the durable label %q", facts.Label, ok, projection.Label)
 	}
@@ -377,7 +315,7 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 func TestConstructionFilterSourceCapabilityRefusesStaleStageAndRowChangingPrefix(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-stages")
 	service := filterSourceService(t)
-	stale, err := service.constructionFilterSourceCapability(context.Background(),
+	stale, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, "frontend-invented-stage")
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +325,7 @@ func TestConstructionFilterSourceCapabilityRefusesStaleStageAndRowChangingPrefix
 	}
 	blocked := filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{filterSourceGroupStep()}})
 	blocked.Stages = append(blocked.Stages, receiptmodel.ReceiptConstructionStage{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
-	blockedStage, err := service.constructionFilterSourceCapability(context.Background(), blocked, filterSourceOutput, "group-first")
+	blockedStage, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(), blocked, filterSourceOutput, "group-first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +337,7 @@ func TestConstructionFilterSourceCapabilityRefusesStaleStageAndRowChangingPrefix
 func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-unpopulated")
 	service := filterSourceService(t)
-	result, err := service.constructionFilterSourceCapability(context.Background(),
+	result, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
@@ -414,9 +352,8 @@ func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(
 	if _, err := capability.DecodeRowChoiceID(unpopulated.ChoiceID); err != nil {
 		t.Fatalf("crafted schema-only candidate produced no signed token: %v", err)
 	}
-	projection, err := service.resolveConstructionFilterSource(context.Background(),
-		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}),
-		filterSourceProposalRequest("filter-active", nil), recipe.ConstructionSourceProjectionID,
+	projection, err := service.rowSourceService.ResolveConstructionFilterSource(context.Background(),
+		filterSourceBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), filterSourceProposalRequest("filter-active", nil).RowSourceRequest(), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionFilterSourceSelection{ChoiceID: unpopulated.ChoiceID, ColumnID: filterSourceColumn})
 	if err == nil {
 		t.Fatalf("unpopulated field was admitted as a filter source projection: %#v", projection)
@@ -434,7 +371,7 @@ func TestConstructionFilterSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 	request := filterSourceProposalRequest("filter-active", nil)
 
 	foreign := filterSourceRowChoice(t, other, filterSourceField)
-	if _, err := service.resolveConstructionFilterSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
+	if _, err := service.rowSourceService.ResolveConstructionFilterSource(context.Background(), base, request.RowSourceRequest(), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionFilterSourceSelection{ChoiceID: foreign.ChoiceID, ColumnID: filterSourceColumn}); err == nil {
 		t.Fatal("a choice issued against another snapshot was accepted")
 	} else if code := lifecycleErrorCode(err); code != "INVALID_FILTER_SOURCE_CHOICE" {
@@ -446,14 +383,14 @@ func TestConstructionFilterSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 		t.Fatalf("signed choice is not a three-part token: %q", parts)
 	}
 	forged := parts[0] + "." + parts[1] + "." + strings.Repeat("0", len(parts[2]))
-	if _, err := service.resolveConstructionFilterSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
+	if _, err := service.rowSourceService.ResolveConstructionFilterSource(context.Background(), base, request.RowSourceRequest(), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionFilterSourceSelection{ChoiceID: forged, ColumnID: filterSourceColumn}); err == nil {
 		t.Fatal("a tampered choice token was accepted")
 	} else if code := lifecycleErrorCode(err); code != "INVALID_FILTER_SOURCE_CHOICE" {
 		t.Fatalf("tampered token error = %v, want INVALID_FILTER_SOURCE_CHOICE", err)
 	}
 
-	if _, err := service.resolveConstructionFilterSource(context.Background(), base, request, recipe.ConstructionSourceProjectionID,
+	if _, err := service.rowSourceService.ResolveConstructionFilterSource(context.Background(), base, request.RowSourceRequest(), recipe.ConstructionSourceProjectionID,
 		rowsource.ConstructionFilterSourceSelection{ChoiceID: "rc1.not-a-real-token.deadbeef", ColumnID: filterSourceColumn}); err == nil {
 		t.Fatal("an invented choice token was accepted")
 	}
@@ -471,8 +408,7 @@ func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *te
 	candidate.Steps[0].Operation.Filter.ColumnID = filterSourceColumn
 	candidate.Steps[0].Outputs = append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
 
-	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	prepared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(), candidate)
 	if err != nil {
 		t.Fatalf("prepare filter sources: %v", err)
 	}
@@ -525,8 +461,7 @@ func TestConstructionFilterSourceRequiresMatchingColumnAndIgnoresNonFilterSteps(
 	}}
 	base := filterSourceBase(snapshot, construction)
 
-	_, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, "filter_source_other")}), construction)
+	_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, "filter_source_other")}).RowSourceRequest(), construction)
 	if err == nil {
 		t.Fatal("a filter source whose columnId is not its filter column was accepted")
 	}
@@ -534,8 +469,7 @@ func TestConstructionFilterSourceRequiresMatchingColumnAndIgnoresNonFilterSteps(
 		t.Fatalf("mismatched column error = %v, want FILTER_SOURCE_COLUMN_MISMATCH", err)
 	}
 
-	unedited, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest("missing-step", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), construction)
+	unedited, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest("missing-step", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(), construction)
 	if err != nil {
 		t.Fatalf("filterSources with an unknown changed step failed: %v", err)
 	}
@@ -565,8 +499,7 @@ func TestConstructionFilterSourceCannotCrossRowChangingPrefix(t *testing.T) {
 		},
 	})
 
-	_, err := service.constructionCandidateWithFilterSources(context.Background(), base,
-		filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	_, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), base, filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}).RowSourceRequest(), candidate)
 	if err == nil {
 		t.Fatal("a root filter source was carried across a GROUP")
 	}
@@ -631,8 +564,7 @@ func TestConstructionFilterSourceRemovalStripsProjectionAndRefusesDanglingFilter
 		t.Fatalf("a saved filter-owned construction is not durable authoring state: %v", err)
 	}
 
-	cleared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, saved),
-		filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{}), saved)
+	cleared, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, saved), filterSourceProposalRequest("filter-active", []rowsource.ConstructionFilterSourceSelection{}).RowSourceRequest(), saved)
 	if err != nil {
 		t.Fatalf("clearing the filter source selection failed: %v", err)
 	}
@@ -671,8 +603,7 @@ func TestConstructionFilterSourceLeavesSelectedColumnFilterBehaviorUnchanged(t *
 	if _, _, err := document.AnalyzeConstructionCandidate(construction, "filter-active", nil); err != nil {
 		t.Fatalf("existing selected-column filter no longer compiles: %v", err)
 	}
-	unchanged, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction),
-		filterSourceProposalRequest("filter-active", nil), construction)
+	unchanged, err := service.rowSourceService.ConstructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction), filterSourceProposalRequest("filter-active", nil).RowSourceRequest(), construction)
 	if err != nil {
 		t.Fatalf("filter request without filterSources failed: %v", err)
 	}
@@ -705,22 +636,22 @@ func TestConstructionFilterSourceSelectionsRequireExactDeduplicatedFacts(t *test
 	}
 }
 
-func TestConstructionFilterSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
+func TestDeriveSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
-	structFields := make(map[string]bool, reflect.TypeOf(rowsource.ConstructionFilterSourceChoice{}).NumField())
-	for index := range reflect.TypeOf(rowsource.ConstructionFilterSourceChoice{}).NumField() {
-		tag := strings.Split(reflect.TypeOf(rowsource.ConstructionFilterSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
+	structFields := make(map[string]bool, reflect.TypeOf(rowsource.SourceChoice{}).NumField())
+	for index := range reflect.TypeOf(rowsource.SourceChoice{}).NumField() {
+		tag := strings.Split(reflect.TypeOf(rowsource.SourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
 		structFields[tag] = true
 	}
 	if !reflect.DeepEqual(structFields, wantFields) {
-		t.Fatalf("rowsource.ConstructionFilterSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
+		t.Fatalf("rowsource.SourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
 	}
 	for _, pivotExtra := range []string{"occurrenceId", "fhirType", "valueType", "isIdentifier", "isReference"} {
 		if structFields[pivotExtra] {
 			t.Fatalf("pivot-style field %q must never appear on a filter source choice: %#v", pivotExtra, structFields)
 		}
 	}
-	encoded, err := json.Marshal(rowsource.ConstructionFilterSourceChoice{
+	encoded, err := json.Marshal(rowsource.SourceChoice{
 		ChoiceID: "rc1.a.b", FieldPath: filterSourceField, Label: "BodyStructure.active", LogicalType: "boolean", IsPopulated: true,
 	})
 	if err != nil {
@@ -754,7 +685,7 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 		if stageID != recipe.ConstructionSourceProjectionID {
 			base.Stages = append(base.Stages, receiptmodel.ReceiptConstructionStage{ID: stageID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"})
 		}
-		result, err := service.constructionFilterSourceCapability(context.Background(), base, filterSourceOutput, stageID)
+		result, err := service.rowSourceService.ConstructionFilterSourceCapability(context.Background(), base, filterSourceOutput, stageID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -813,7 +744,7 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 
 func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceInput(t *testing.T) {
 	harness := newFilterSourceHarness(t)
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -828,7 +759,7 @@ func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceI
 	if result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("filter source input stage = %#v, want the selected source stage", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionFilterSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -866,7 +797,7 @@ func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
 
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         "filter-birth",
@@ -939,7 +870,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 				filterSourcePatientFilterStep("patient-id"),
 			}})
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
-			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+			proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 				ChangedStepID:         "filter-birth",
@@ -982,7 +913,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 				saved.SourceProjections[0].FieldPath != "multipleBirthInteger" {
 				t.Fatalf("applied construction lost the durable filter projection: %#v", saved)
 			}
-			capabilities, capErr := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+			capabilities, capErr := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 				Project: applied.Project, ExplorerID: applied.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest,
 				OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -1028,7 +959,7 @@ func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T
 	}
 	harness.saveDraft(t, durable)
 	restoreChoice := harness.choice(t, "multipleBirthInteger").ChoiceID
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -1048,7 +979,7 @@ func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T
 
 	harness.unobserveBirthCount()
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
-	_, err = harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err = harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "filter-birth",
@@ -1377,7 +1308,7 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 		t.Run(row.name, func(t *testing.T) {
 			base := filterSourceBase(row.snapshot, row.construction)
 			base.Stages = append(base.Stages, row.stages...)
-			result, err := row.service.constructionFilterSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
+			result, err := row.service.rowSourceService.ConstructionFilterSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("filter source capability: %v", err)
 			}
@@ -1443,7 +1374,7 @@ func TestConstructionFilterSourceCapabilityNamesInventoryFailureDistinctly(t *te
 	distinct := map[string]bool{}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
-			result, err := row.service.constructionFilterSourceCapability(context.Background(),
+			result, err := row.service.rowSourceService.ConstructionFilterSourceCapability(context.Background(),
 				filterSourceBase(row.snapshot, empty), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 			if row.wantFail {
 				if err == nil {

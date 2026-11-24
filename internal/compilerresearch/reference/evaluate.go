@@ -31,7 +31,7 @@ func Evaluate(output recipe.Output, documents []Document) ([]Row, error) {
 		return publicProjectionRows(output, rows), nil
 	}
 	for _, step := range output.Construction.Steps {
-		rows, columns, err = evaluateStep(step, rows, columns)
+		rows, columns, err = evaluateStep(step, rows)
 		if err != nil {
 			return nil, fmt.Errorf("step %q (%s): %w", step.ID, step.Operation.Kind, err)
 		}
@@ -191,7 +191,7 @@ func publicProjectionRows(output recipe.Output, rows []Row) []Row {
 	return result
 }
 
-func evaluateStep(step recipe.ConstructionStep, input []Row, inputColumns []recipe.StageColumn) ([]Row, []recipe.StageColumn, error) {
+func evaluateStep(step recipe.ConstructionStep, input []Row) ([]Row, []recipe.StageColumn, error) {
 	op := step.Operation
 	var rows []Row
 	switch op.Kind {

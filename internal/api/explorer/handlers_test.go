@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
@@ -31,6 +32,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	storearango "github.com/calypr/loom/internal/store/arango"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -282,7 +284,7 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,10 +310,10 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+			return store.GetCompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
@@ -324,7 +326,7 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture.app = app
 	return fixture, rows
 }
@@ -819,7 +821,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(client)
+	store, err := newTestExplorerArangoStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -842,7 +844,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -867,10 +869,10 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+			return store.GetCompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
@@ -883,7 +885,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture.app = app
 
 	typed := c19TypedRow()
@@ -948,7 +950,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = restartClient.Close(context.Background()) })
-	restartStore, err := explorerarango.New(restartClient)
+	restartStore, err := newTestExplorerArangoStore(restartClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1035,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(client)
+	store, err := newTestExplorerArangoStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1061,7 +1063,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,10 +1086,10 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+			return store.GetCompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
@@ -1100,7 +1102,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture := &coreProtocolFixture{t: t, app: app, snapshot: snapshot, workspace: workspace, initialDigest: digest, basePath: "/api/v1/projects/project-a/explorers/core-protocol/authoring/v2"}
 
 	saved, ack := fixture.saveLabel("core-arango-save-1", "Patient Identifier", 1, digest)
@@ -1234,11 +1236,11 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = restartClient.Close(context.Background()) })
-	restartStore, err := explorerarango.New(restartClient)
+	restartStore, err := newTestExplorerArangoStore(restartClient)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restartDomain, err := explorer.NewService(restartStore)
+	restartDomain, err := explorerfixtures.NewService(restartStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1260,7 +1262,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if !bytes.Equal(restartedRaw, expectedRaw) {
 		t.Fatalf("fresh service draft bytes differ from the committed truth\nexpected=%s\npersisted=%s", expectedRaw, restartedRaw)
 	}
-	restartedReceipt, err := restartDomain.CompilationReceiptForExplorer(ctx, "project-a", "core-protocol", compiled.ReceiptId)
+	restartedReceipt, err := restartStore.GetCompilationReceiptForExplorer(ctx, "project-a", "core-protocol", compiled.ReceiptId)
 	if err != nil {
 		t.Fatalf("fresh service lost the persisted receipt %s: %v", compiled.ReceiptId, err)
 	}
@@ -1301,10 +1303,10 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("refused stale save wrote ghost bytes into the persisted draft")
 	}
 
-	if count := countDocuments(ctx, t, restartClient, explorerarango.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
+	if count := countDocuments(ctx, t, restartClient, explorerdb.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorers holds %d documents for project-a/core-protocol, want exactly 1", count)
 	}
-	if count := countDocuments(ctx, t, restartClient, explorerarango.DraftRevisionsCollection, "project-a", "core-protocol"); count != 1 {
+	if count := countDocuments(ctx, t, restartClient, explorerdb.DraftRevisionsCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorer_draft_revisions holds %d documents for project-a/core-protocol, want exactly 1 (the captured pre-command head)", count)
 	}
 }
@@ -1423,5 +1425,15 @@ func TestConstructionInputsDirectHandlerChecksProjectReadBeforeCatalog(t *testin
 	var authoringErr *explorer.AuthoringError
 	if !errors.As(err, &authoringErr) || authoringErr.Status != 403 {
 		t.Fatalf("project read denial = %v, want 403 authoring error", err)
+	}
+}
+
+func TestUnconfiguredHandlersReturnExistingUnavailableError(t *testing.T) {
+	handlers := NewHandlers(Config{})
+	_, err := handlers.createExplorer(context.Background(), "program/project", "", nil)
+	var failure *explorerLegacyOperationError
+	if !errors.As(err, &failure) || failure.status != http.StatusInternalServerError ||
+		failure.code != "INTERNAL_ERROR" || failure.message != "Explorer lifecycle is not configured" {
+		t.Fatalf("unconfigured create error = %v, want existing unavailable response", err)
 	}
 }

@@ -161,7 +161,7 @@ func orphPublishRecipeEdit(t *testing.T, h *orphHarness, store *ClickHouseBundle
 	if err != nil {
 		t.Fatalf("edit-1 FindExecutionByKey(%s): %v", firstKey, err)
 	}
-	if firstExec.State.Canonical() != pubpublication.BundlePublished {
+	if !firstExec.State.Successful() {
 		t.Fatalf("edit-1 precondition: state %q, want PUBLISHED", firstExec.State)
 	}
 	firstTable = firstResult.Outputs[0].PhysicalName
@@ -215,7 +215,7 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 
 	_, secondExec, firstTable, secondTable, firstKey, secondKey, _ := orphPublishRecipeEdit(t, h, store)
 
-	selector := pubpublication.DataframeSelector{Recipe: "orph-recipe", TranslationVersion: "v1", Output: "orph_out"}
+	selector := dataset.DataframeSelector{Recipe: "orph-recipe", TranslationVersion: "v1", Output: "orph_out"}
 
 	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {
 		t.Fatalf("production Reconcile returned error: %v", err)
@@ -229,10 +229,10 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	orphanTablePresent := orphTablePresent(t, h, ctx, firstTable)
 	t.Logf("ORPH_OBSERVED post-sweep: orphan state=%q error=%q, orphan table %s present=%v", orphanExec.State, orphanExec.Error, firstTable, orphanTablePresent)
 
-	if orphanExec.State.Canonical() == pubpublication.BundlePublished && orphanTablePresent {
+	if orphanExec.State.Successful() && orphanTablePresent {
 		t.Fatalf("REGRESSION (F-B19 growth returns; archived CONFIRMED text): recipe edit #1 left key %q as PUBLISHED but no pointer names it; after one FULL production reconcile sweep it remains state=%q with ClickHouse table %q still present. The sweep cannot reach it and no janitor reclaims pointer-orphaned PUBLISHED rows or their tables => one permanently retained bundle+table per recipe edit (unbounded ClickHouse/Arango growth, widening name-latest mis-bind surface per FindExecutionBySelector publishedAt DESC at bundle_registry.go). Formal arms: PointerOrphanLifecycle m-po-bug violates, m-po-fixed complete-clean.", firstKey, orphanExec.State, firstTable)
 	}
-	if orphanExec.State.Canonical() != pubpublication.BundleFailed {
+	if pubpublication.DecodeBundleState(orphanExec.State) != pubpublication.BundleFailed {
 		t.Fatalf("unexpected: orphan %q post-sweep state=%q, want FAILED via the janitor arm", firstKey, orphanExec.State)
 	}
 	if orphanTablePresent {
@@ -243,7 +243,7 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	}
 
 	live, err := h.registry.FindExecutionByKey(ctx, secondKey)
-	if err != nil || live.State.Canonical() != pubpublication.BundlePublished {
+	if err != nil || !live.State.Successful() {
 		t.Fatalf("janitor arm harmed the live execution %s: state=%+v err=%v", secondKey, live, err)
 	}
 	if !orphTablePresent(t, h, ctx, secondTable) {
@@ -283,7 +283,7 @@ func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstAran
 		t.Fatalf("sweep with binding: %v", err)
 	}
 	bound, err := h.registry.FindExecutionByKey(ctx, firstKey)
-	if err != nil || bound.State.Canonical() != pubpublication.BundlePublished {
+	if err != nil || !bound.State.Successful() {
 		t.Fatalf("REGRESSION (bound data loss): janitor touched the ACTIVE-release-bound orphan %s: state=%+v err=%v", firstKey, bound, err)
 	}
 	if !orphTablePresent(t, h, ctx, firstTable) {
@@ -300,7 +300,7 @@ func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstAran
 	if err != nil {
 		t.Fatalf("post-unbind FindExecutionByKey: %v", err)
 	}
-	if retired.State.Canonical() != pubpublication.BundleFailed || orphTablePresent(t, h, ctx, firstTable) {
+	if pubpublication.DecodeBundleState(retired.State) != pubpublication.BundleFailed || orphTablePresent(t, h, ctx, firstTable) {
 		t.Fatalf("non-convergence: after unbinding, orphan %s stayed state=%q tablePresent=%v — recurring janitor must converge", firstKey, retired.State, orphTablePresent(t, h, ctx, firstTable))
 	}
 	t.Logf("VERDICT PREVENTED (Repair-4 safety): binding veto held (no claim/drop), unbinding converged to FAILED+dropped on the next sweep — binding-aware recurring janitor on real stores.")

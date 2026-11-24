@@ -50,28 +50,28 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeTablePivotCellCardinality, "private query details"),
 			wantClass: ports.ClassUnprocessable,
 			wantCode:  string(dataframeerrors.CodeTablePivotCellCardinality),
-			wantCause: categoryScanTestCause,
+			wantCause: errCategoryScanTestCause,
 		},
 		{
 			name:      "wrapped backend resource limit",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeQueryMemoryLimitExceeded, "private query details"),
 			wantClass: ports.ClassUnavailable,
 			wantCode:  string(dataframeerrors.CodeQueryMemoryLimitExceeded),
-			wantCause: categoryScanTestCause,
+			wantCause: errCategoryScanTestCause,
 		},
 		{
 			name:      "wrapped receipt conflict",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeRecipeContractViolation, "private receipt details"),
 			wantClass: ports.ClassConflict,
 			wantCode:  string(dataframeerrors.CodeRecipeContractViolation),
-			wantCause: categoryScanTestCause,
+			wantCause: errCategoryScanTestCause,
 		},
 		{
 			name:      "wrapped forbidden error",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeForbidden, "private authorization details"),
 			wantClass: ports.ClassForbidden,
 			wantCode:  string(dataframeerrors.CodeForbidden),
-			wantCause: categoryScanTestCause,
+			wantCause: errCategoryScanTestCause,
 		},
 		{
 			name:      "wrapped cancellation",
@@ -81,24 +81,24 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 		},
 		{
 			name:      "preclassified lifecycle error",
-			scanErr:   &ports.Error{Class: ports.ClassNotFound, Stage: "receipt", Code: "COMPILE_RECEIPT_NOT_FOUND", Message: "receipt unavailable", Cause: categoryScanTestCause},
+			scanErr:   &ports.Error{Class: ports.ClassNotFound, Stage: "receipt", Code: "COMPILE_RECEIPT_NOT_FOUND", Message: "receipt unavailable", Cause: errCategoryScanTestCause},
 			wantClass: ports.ClassNotFound,
 			wantCode:  "COMPILE_RECEIPT_NOT_FOUND",
-			wantCause: categoryScanTestCause,
+			wantCause: errCategoryScanTestCause,
 		},
 		{
 			name:      "untyped execution failure",
-			scanErr:   fmt.Errorf("execute category query with secret-bind-value: %w", categoryScanTestCause),
+			scanErr:   fmt.Errorf("execute category query with secret-bind-value: %w", errCategoryScanTestCause),
 			wantClass: ports.ClassInternal,
 			wantCode:  "CATEGORY_DISCOVERY_FAILED",
-			wantCause: categoryScanTestCause,
+			wantCause: errCategoryScanTestCause,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service, request := constructionCategoryDiscoveryErrorFixture(t, test.scanErr)
-			_, err := service.DiscoverConstructionCategories(context.Background(), request)
+			_, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 			if err == nil {
 				t.Fatal("DiscoverConstructionCategories() error = nil")
 			}
@@ -129,11 +129,11 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 	}
 }
 
-var categoryScanTestCause = errors.New("private query bind sentinel")
+var errCategoryScanTestCause = errors.New("private query bind sentinel")
 
 func wrappedCategoryUserError(t *testing.T, code dataframeerrors.ErrorCode, detail string) error {
 	t.Helper()
-	return fmt.Errorf("scan callback: %w", dataframeerrors.Wrap(categoryScanTestCause, code, detail))
+	return fmt.Errorf("scan callback: %w", dataframeerrors.Wrap(errCategoryScanTestCause, code, detail))
 }
 
 func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Service, construction.ConstructionCategoryDiscoveryRequest) {

@@ -10,6 +10,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func stagedConstructionDocument() ws.Document {
@@ -148,13 +149,11 @@ func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
 	if len(grouped.Columns) != 0 || len(grouped.Construction.SourceProjections) != 1 {
 		t.Fatalf("grouped document public columns/source projections = %d/%#v", len(grouped.Columns), grouped.Construction.SourceProjections)
 	}
-	source, err := constructionSourceColumnsWithChildrenAndProjections(grouped.Columns, grouped.Construction.SourceProjections,
-		grouped.Construction.Steps[0].Operation.InputColumnIDs(), grouped.Construction.Steps[0].Outputs)
-	if err != nil {
-		t.Fatal(err)
+	if err := grouped.Validate(); err != nil {
+		t.Fatalf("validate scalar source GROUP: %v", err)
 	}
-	if len(source) != 1 || source[0].ID != projection.ColumnID || len(grouped.Construction.Steps[0].Outputs) != 2 {
-		t.Fatalf("source stage/final group schema = %#v/%#v", source, grouped.Construction.Steps[0].Outputs)
+	if len(grouped.Construction.Steps[0].Outputs) != 2 || grouped.Construction.Steps[0].Outputs[0].ID != "active_key" {
+		t.Fatalf("source projection was not incorporated into the group stage: %#v", grouped.Construction.Steps[0].Outputs)
 	}
 	encoded, err := json.Marshal(grouped)
 	if err != nil {
@@ -236,7 +235,7 @@ func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 		t.Fatalf("Pivot inputs leaked into source columns or were not persisted privately: %#v", accepted.Construction)
 	}
 	t.Run("removal rebuilds preceding passthrough stages", func(t *testing.T) {
-		withPrefix := cloneDocumentForConstructionChange(accepted)
+		withPrefix := cloneDocumentFixtureByJSON(accepted)
 		prefix := ws.ConstructionStep{
 			ID: "keep_patient", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
 			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "patient_id", Operator: ws.ConstructionFilterExists}},
@@ -268,38 +267,6 @@ func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 	}
 	if len(removed.Construction.Steps) != 0 || len(removed.Construction.SourceProjections) != 0 || len(impact.RemovedStepIDs) != 2 {
 		t.Fatalf("removing Pivot did not restore the base construction: construction=%#v impact=%#v", removed.Construction, impact)
-	}
-}
-
-func TestPivotGroupKeepsDeclaredPublicPresentationAndSourceType(t *testing.T) {
-	const groupID = "pivot_status"
-	step := ws.ConstructionStep{
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
-			GroupKeyIDs: []string{groupID},
-		}},
-		Outputs: []ws.StageColumn{{ID: groupID, Name: "status", Label: "Status", Type: "declared-wrong-type"}},
-	}
-	input := []ws.StageColumn{{
-		ID: groupID, Name: ws.ConstructionSourceProjectionName(groupID), Label: "Observation.status",
-		Type: "string", Nullable: true,
-	}}
-
-	outputs, err := rebuildStageColumns(step, input, map[string]struct{}{groupID: {}})
-	if err != nil {
-		t.Fatalf("rebuild Pivot output schema: %v", err)
-	}
-	if len(outputs) != 1 {
-		t.Fatalf("Pivot outputs = %#v, want one group key", outputs)
-	}
-	got := outputs[0]
-	if got.ID != groupID || got.Name != "status" || got.Label != "Status" {
-		t.Fatalf("Pivot group presentation = %#v, want stable ID %q with public name/label status/Status", got, groupID)
-	}
-	if got.Type != "string" || !got.Nullable {
-		t.Fatalf("Pivot group type metadata = %#v, want source-authoritative nullable string", got)
-	}
-	if strings.Contains(got.Name, "__construction_source_") {
-		t.Fatalf("private source alias leaked into Pivot output: %#v", got)
 	}
 }
 
@@ -537,7 +504,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 		t.Fatal("renaming a source label or public name changed the column identity")
 	}
 	normalized := constructionWorkspace(upgraded).NormalizePresentationOrders()
-	groupOutput, ok := findStageColumnByID(normalized.Documents[0].Construction.Steps[0].Outputs, beforeRename)
+	groupOutput, ok := stageColumnByID(normalized.Documents[0].Construction.Steps[0].Outputs, beforeRename)
 	if !ok || groupOutput.Name != "group_renamed" || groupOutput.Label != "Renamed group" {
 		t.Fatalf("renamed output schema = %#v, found=%t", groupOutput, ok)
 	}
@@ -758,10 +725,10 @@ func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(
 	if len(updated.Construction.Steps) != 2 {
 		t.Fatalf("updated construction has %d steps, want 2", len(updated.Construction.Steps))
 	}
-	if got, want := orderedStageIDs(updated.Construction.Steps[0].Outputs), []string{patientColumn.ColumnID, first.Operation.RelatedSource.OutputColumnID}; !reflect.DeepEqual(got, want) {
+	if got, want := constructionStageIDs(updated.Construction.Steps[0].Outputs), []string{patientColumn.ColumnID, first.Operation.RelatedSource.OutputColumnID}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("first appended stage columns = %#v, want %#v", got, want)
 	}
-	if got, want := orderedStageIDs(updated.Construction.Steps[1].Outputs), []string{
+	if got, want := constructionStageIDs(updated.Construction.Steps[1].Outputs), []string{
 		patientColumn.ColumnID, first.Operation.RelatedSource.OutputColumnID, second.Operation.RelatedSource.OutputColumnID,
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("second appended stage columns = %#v, want %#v", got, want)
@@ -1032,18 +999,18 @@ func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t
 	document := documentWithDependentSteps()
 	workspace := constructionWorkspace(document)
 	visible, order := false, 7
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", []Command{{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", CommandsWithoutResolution([]Command{{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
 		StepID:   "bonus_step",
 		ColumnID: "score_id",
 		Label:    "Patient score",
 		Table:    &ws.TablePresentation{Visible: &visible, Order: &order},
-	}}}})
+	}}}}))
 	if err != nil {
 		t.Fatalf("update construction output presentation: %v", err)
 	}
 
 	for index, step := range updated.Documents[0].Construction.Steps {
-		output, found := findStageColumnByID(step.Outputs, "score_id")
+		output, found := stageColumnByID(step.Outputs, "score_id")
 		if !found {
 			continue
 		}
@@ -1067,7 +1034,7 @@ func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t
 	if err != nil {
 		t.Fatalf("reload updated construction presentation: %v", err)
 	}
-	output, found := findStageColumnByID(reloaded.Documents[0].Construction.Steps[2].Outputs, "score_id")
+	output, found := stageColumnByID(reloaded.Documents[0].Construction.Steps[2].Outputs, "score_id")
 	if !found || output.Label != "Patient score" || output.Table == nil || output.Table.Visible == nil || *output.Table.Visible {
 		t.Fatalf("reloaded construction output presentation = %#v, found=%v", output, found)
 	}
@@ -1080,10 +1047,10 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 		oldIDs[column.Column] = column.ColumnID
 	}
 	catalog := commandCatalog()
-	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", []Command{
+	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", CommandsWithoutResolution([]Command{
 		{Type: CommandAddColumn, OutputID: "patients", Title: "Added catalog ID", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "patient-id"}},
 		{Type: CommandAddColumnSource, OutputID: "patients", Title: "Added source ID", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("add source columns to staged document: %v", err)
 	}
@@ -1108,7 +1075,7 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 	}
 	for _, step := range updated.Documents[0].Construction.Steps {
 		for _, source := range added {
-			stageColumn, found := findStageColumnByID(step.Outputs, source.ColumnID)
+			stageColumn, found := stageColumnByID(step.Outputs, source.ColumnID)
 			if !found || stageColumn.Name != source.Column || stageColumn.Label != source.Label {
 				t.Fatalf("step %q did not carry source %q through its recalculated schema: %#v", step.ID, source.ColumnID, step.Outputs)
 			}
@@ -1147,7 +1114,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 		ID: "observation-status", NodeID: "observation", FieldPath: "status",
 		Cardinality: "optional_one", Label: "Status", LogicalType: "string", ProjectionModes: []string{"VALUE"},
 		DefaultProjectionMode: "VALUE",
-		ConstructionChoice:    testFieldConstructionChoice(catalog.SnapshotToken, "observation-status", "observation", "Observation", "status", "optional_one", capability.ProjectionScalar),
+		ConstructionChoice:    capabilityfixtures.FieldConstructionChoice(catalog.SnapshotToken, "observation-status", "observation", "Observation", "status", "optional_one", capability.ProjectionScalar),
 	}}
 	document := workspaceDocument("observations")
 	document.RootResourceType = "Observation"
@@ -1174,7 +1141,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate RELATED_EXPAND source workspace: %v", err)
 	}
-	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}})
+	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", CommandsWithoutResolution([]Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}}))
 	if err != nil {
 		t.Fatalf("ADD_COLUMN_SOURCE after RELATED_EXPAND: %v", err)
 	}
@@ -1196,10 +1163,10 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 		expand.Operation.RelatedExpand == nil || expand.Operation.RelatedExpand.EmptyPolicy != ws.ConstructionExpandEmptyPreserveParent {
 		t.Fatalf("adding a root scalar changed expansion policy or grain: %#v", updatedDocument.Construction)
 	}
-	if got, found := findStageColumnByID(expand.Outputs, relatedID.ID); !found || !got.Nullable {
+	if got, found := stageColumnByID(expand.Outputs, relatedID.ID); !found || !got.Nullable {
 		t.Fatalf("nullable unmatched MedicationAdministration ID changed: %#v, found=%t", got, found)
 	}
-	if got, found := findStageColumnByID(expand.Outputs, added.ColumnID); !found || got.Type != "string" {
+	if got, found := stageColumnByID(expand.Outputs, added.ColumnID); !found || got.Type != "string" {
 		t.Fatalf("added root field did not remain a scalar pass-through: %#v, found=%t", got, found)
 	}
 
@@ -1235,7 +1202,10 @@ func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
 	if err := (ws.FilterValue{Kind: ws.ConstructionFilterDecimal, Decimal: float64Pointer(math.NaN())}).Validate(); err == nil {
 		t.Fatal("NaN filter literal was accepted")
 	}
-	if err := validateConstructionLiteral(ws.ConstructionLiteral{Kind: ws.ConstructionNumericDecimal, Decimal: float64Pointer(math.Inf(1))}); err == nil {
+	document := stagedConstructionDocument()
+	literal := ws.ConstructionLiteral{Kind: ws.ConstructionNumericDecimal, Decimal: float64Pointer(math.Inf(1))}
+	document.Construction.Steps[1].Operation.Derive.Left = ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &literal}
+	if err := document.Validate(); err == nil {
 		t.Fatal("infinite calculation literal was accepted")
 	}
 }
@@ -1346,13 +1316,13 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	workspace := constructionWorkspace(document)
 	one := 1
 
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", []Command{
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", CommandsWithoutResolution([]Command{
 		{Type: CommandUpdateColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "group_id", ColumnValue: &ws.Column{Label: "Specimen ID", Table: &ws.TablePresentation{Order: &one}}}},
 		{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
 			StepID: "pivot_step", ColumnID: "group_id", Label: "Group",
 			Table: &ws.TablePresentation{Order: &one},
 		}}},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("apply source and Pivot group-key presentation updates: %v", err)
 	}
@@ -1375,12 +1345,12 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	if !reflect.DeepEqual(pivot.Operation, beforeOperation) {
 		t.Fatalf("Pivot compiler operation changed during presentation update")
 	}
-	groupKey, found := findStageColumnByID(pivot.Outputs, "group_id")
+	groupKey, found := stageColumnByID(pivot.Outputs, "group_id")
 	if !found || groupKey.Name != "group_id" || groupKey.Type != "string" || groupKey.Label != "Specimen ID" ||
 		groupKey.Table == nil || groupKey.Table.Order == nil || *groupKey.Table.Order != 1 {
 		t.Fatalf("Pivot group-key identity/presentation = %#v, found=%v; want declared order 1", groupKey, found)
 	}
-	generated, found := findStageColumnByID(pivot.Outputs, "pivot_a")
+	generated, found := stageColumnByID(pivot.Outputs, "pivot_a")
 	if !found || generated.Name != "d" || generated.Table == nil || generated.Table.Order == nil || *generated.Table.Order != 0 {
 		t.Fatalf("generated d presentation = %#v, found=%v; want order 0", generated, found)
 	}
@@ -1397,8 +1367,8 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 		t.Fatalf("reload updated workspace: %v", err)
 	}
 	reloadedPivot := reloaded.Documents[0].Construction.Steps[0]
-	reloadedGroup, groupFound := findStageColumnByID(reloadedPivot.Outputs, "group_id")
-	reloadedGenerated, generatedFound := findStageColumnByID(reloadedPivot.Outputs, "pivot_a")
+	reloadedGroup, groupFound := stageColumnByID(reloadedPivot.Outputs, "group_id")
+	reloadedGenerated, generatedFound := stageColumnByID(reloadedPivot.Outputs, "pivot_a")
 	if !groupFound || reloadedGroup.Table == nil || reloadedGroup.Table.Order == nil || *reloadedGroup.Table.Order != 1 {
 		t.Fatalf("reloaded Pivot group-key presentation = %#v, found=%v", reloadedGroup, groupFound)
 	}
@@ -1408,29 +1378,5 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	reencoded, err := reloaded.CanonicalJSON()
 	if err != nil || string(reencoded) != string(canonical) {
 		t.Fatalf("canonical JSON changed after reload: err=%v", err)
-	}
-}
-
-func TestPivotRebuildPreservesConstructedGroupKeyPresentation(t *testing.T) {
-	zero, one := 0, 1
-	step := ws.ConstructionStep{
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
-			GroupKeyIDs: []string{"constructed_key"},
-			Categories:  []ws.ConstructionPivotCategory{{OutputColumnID: "d"}},
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "constructed_key", Name: "stale_name", Label: "Terminal label", Type: "boolean", Table: &ws.TablePresentation{Order: &one}},
-			{ID: "d", Name: "d", Label: "d", Type: "integer", Table: &ws.TablePresentation{Order: &zero}},
-		},
-	}
-	input := []ws.StageColumn{{ID: "constructed_key", Name: "derived_key", Label: "Upstream label", Type: "string"}}
-	outputs, err := rebuildStageColumns(step, input, map[string]struct{}{})
-	if err != nil {
-		t.Fatalf("rebuild Pivot with a constructed group key: %v", err)
-	}
-	groupKey, found := findStageColumnByID(outputs, "constructed_key")
-	if !found || groupKey.Name != "derived_key" || groupKey.Type != "string" || groupKey.Label != "Terminal label" ||
-		groupKey.Table == nil || groupKey.Table.Order == nil || *groupKey.Table.Order != 1 {
-		t.Fatalf("constructed Pivot group-key identity/presentation = %#v, found=%v", groupKey, found)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
@@ -54,7 +56,7 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 			return nil, fmt.Errorf("construction source column %q has no public physical projection", declaration.Name)
 		}
 		compiled.ID, compiled.Name = declaration.ID, declaration.Name
-		compiled.Label = constructionFirstNonEmpty(declaration.Label, compiled.Label, declaration.Name)
+		compiled.Label = loomtext.FirstNonBlank(declaration.Label, compiled.Label, declaration.Name)
 		compiled.SourceChild = lineage.CloneSourceChild(declaration.SourceChild)
 		resolved = append(resolved, compiled)
 		seenIDs[declaration.ID], seenNames[declaration.Name] = true, true
@@ -160,9 +162,9 @@ func constructionPresenceCompanionName(outputName, columnID string) string {
 	return "__loom_presence_" + hex.EncodeToString(digest[:8])
 }
 
-func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, categoryIDs map[string]bool) ([]CompiledOutputColumn, error) {
+func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, categoryIDs map[string]bool) []CompiledOutputColumn {
 	if plan == nil || len(categoryIDs) == 0 {
-		return schema, nil
+		return schema
 	}
 	projections := map[string]ir.PhysicalProjection{}
 	returnIndex := -1
@@ -178,7 +180,7 @@ func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []
 		}
 	}
 	if returnIndex < 0 {
-		return schema, nil
+		return schema
 	}
 	result := append([]CompiledOutputColumn(nil), schema...)
 	for index := range result {
@@ -203,7 +205,7 @@ func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []
 			Name: companion, Hidden: true, Presence: &presence, PresenceOutput: true,
 		})
 	}
-	return result, nil
+	return result
 }
 
 func cloneConstructionPresencePaths(paths [][]string) [][]string {

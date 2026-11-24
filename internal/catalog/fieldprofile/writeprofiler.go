@@ -3,13 +3,16 @@ package fieldprofile
 import (
 	"errors"
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
-	"github.com/calypr/loom/internal/semantic"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/catalog"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/semantic"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/digest"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -114,20 +117,8 @@ func (p *Profiler) observePayload(
 
 var ErrProfilerIdentityMismatch = errors.New("catalog profiler identity mismatch")
 
-type profilerIdentity struct {
-	project           string
-	datasetGeneration string
-	authResourcePath  string
-	resourceType      string
-}
-
-func (p *Profiler) normalizedIdentity() profilerIdentity {
-	return profilerIdentity{
-		project:           p.project,
-		datasetGeneration: strings.TrimSpace(p.datasetGeneration),
-		authResourcePath:  p.authResourcePath,
-		resourceType:      p.resourceType,
-	}
+func (p *Profiler) normalizedIdentity() catalog.FieldProfileIdentity {
+	return catalog.NewFieldProfileIdentity(p.project, p.datasetGeneration, p.authResourcePath, p.resourceType)
 }
 
 func (p *Profiler) Merge(other *Profiler) error {
@@ -140,14 +131,14 @@ func (p *Profiler) Merge(other *Profiler) error {
 		return fmt.Errorf(
 			"%w: destination project=%q generation=%q auth_resource_path=%q resource_type=%q; source project=%q generation=%q auth_resource_path=%q resource_type=%q",
 			ErrProfilerIdentityMismatch,
-			identity.project,
-			identity.datasetGeneration,
-			identity.authResourcePath,
-			identity.resourceType,
-			otherIdentity.project,
-			otherIdentity.datasetGeneration,
-			otherIdentity.authResourcePath,
-			otherIdentity.resourceType,
+			identity.Project,
+			identity.DatasetGeneration,
+			identity.AuthResourcePath,
+			identity.ResourceType,
+			otherIdentity.Project,
+			otherIdentity.DatasetGeneration,
+			otherIdentity.AuthResourcePath,
+			otherIdentity.ResourceType,
 		)
 	}
 	if p.budget == other.budget && p.budget != nil {
@@ -209,8 +200,8 @@ func (p *Profiler) Merge(other *Profiler) error {
 	return nil
 }
 
-func (p *Profiler) Documents() []FieldCatalogDocument {
-	out := make([]FieldCatalogDocument, 0, len(p.stats))
+func (p *Profiler) Documents() []fieldcatalog.FieldCatalogDocument {
+	out := make([]fieldcatalog.FieldCatalogDocument, 0, len(p.stats))
 	paths := make([]string, 0, len(p.stats))
 	for path := range p.stats {
 		paths = append(paths, path)
@@ -220,7 +211,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 	enrichmentTruncated := p.enrichmentTruncated
 	enrichmentComplete := !enrichmentTruncated
 	if len(paths) == 0 && enrichmentTruncated {
-		return []FieldCatalogDocument{{
+		return []fieldcatalog.FieldCatalogDocument{{
 			Key:        "fpe_" + digest.Digest("field-profile-status/v1", p.project, datasetGeneration, p.authResourcePath, p.resourceType),
 			RecordType: FieldProfileStatusRecordType, Project: p.project, DatasetGeneration: datasetGeneration,
 			AuthResourcePath: p.authResourcePath, ResourceType: p.resourceType,
@@ -231,7 +222,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		stat := p.stats[path]
 		distinctValues := append([]string(nil), stat.distinctValues...)
 		pivotColumns := append([]string(nil), stat.pivotColumns...)
-		extensionValues := append([]ExtensionValueObservation(nil), stat.extensionValues...)
+		extensionValues := append([]fieldcatalog.ExtensionValueObservation(nil), stat.extensionValues...)
 		semanticObservations := make([]semantic.Observation, 0, len(stat.semanticObservations))
 		for _, observation := range stat.semanticObservations {
 			semanticObservations = append(semanticObservations, semanticObservationValues(observation))
@@ -269,7 +260,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			}
 			return extensionValues[i].ValuePath < extensionValues[j].ValuePath
 		})
-		out = append(out, FieldCatalogDocument{
+		out = append(out, fieldcatalog.FieldCatalogDocument{
 			Key:                   fieldCatalogKeyForGeneration(p.project, datasetGeneration, p.authResourcePath, p.resourceType, stat.path),
 			Project:               p.project,
 			DatasetGeneration:     datasetGeneration,
@@ -406,11 +397,24 @@ func fieldStatsWeight(path, kind string) int {
 	return 96 + len(path) + len(kind)
 }
 
-func distinctValueWeight(value string) int { return 32 + len(value) }
+func (p *Profiler) addBoundedDistinctValue(stat *fieldCatalogStats, value string, set map[string]struct{}, values *[]string, limit int) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if _, ok := set[value]; ok {
+		return
+	}
+	if len(value) > p.limits.MaxDistinctValueBytes || len(*values) >= limit || !p.reserve(32+len(value)) {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	set[value] = struct{}{}
+	*values = append(*values, value)
+}
 
-func pivotColumnWeight(value string) int { return 32 + len(value) }
-
-func (p *Profiler) addExtensionValueWithLimits(stat *fieldCatalogStats, observation ExtensionValueObservation) {
+func (p *Profiler) addExtensionValueWithLimits(stat *fieldCatalogStats, observation fieldcatalog.ExtensionValueObservation) {
 	observation.URL = strings.TrimSpace(observation.URL)
 	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
 	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
@@ -443,7 +447,7 @@ func (p *Profiler) addExtensionValueWithLimits(stat *fieldCatalogStats, observat
 	stat.extensionValues = append(stat.extensionValues, observation)
 }
 
-func extensionValueWeight(observation ExtensionValueObservation) int {
+func extensionValueWeight(observation fieldcatalog.ExtensionValueObservation) int {
 	weight := 64 + len(observation.URL) + len(observation.SourcePath) + len(observation.ValuePath) + len(observation.ValueType)
 	for _, path := range observation.URLPath {
 		weight += len(path)
@@ -452,40 +456,14 @@ func extensionValueWeight(observation ExtensionValueObservation) int {
 }
 
 func (p *Profiler) addDistinctWithLimits(stat *fieldCatalogStats, value string) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return
-	}
-	if _, ok := stat.distinctSet[value]; ok {
-		return
-	}
-	if len(value) > p.limits.MaxDistinctValueBytes || len(stat.distinctValues) >= p.limits.MaxDistinctValuesPerField || !p.reserve(distinctValueWeight(value)) {
-		stat.distinctTruncated = true
-		p.truncated = true
-		return
-	}
-	stat.distinctSet[value] = struct{}{}
-	stat.distinctValues = append(stat.distinctValues, value)
+	p.addBoundedDistinctValue(stat, value, stat.distinctSet, &stat.distinctValues, p.limits.MaxDistinctValuesPerField)
 }
 
 func (p *Profiler) addPivotColumnWithLimits(stat *fieldCatalogStats, value string) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return
-	}
-	if _, ok := stat.pivotColumnSet[value]; ok {
-		return
-	}
-	if len(value) > p.limits.MaxDistinctValueBytes || len(stat.pivotColumns) >= p.limits.MaxPivotColumnsPerField || !p.reserve(pivotColumnWeight(value)) {
-		stat.distinctTruncated = true
-		p.truncated = true
-		return
-	}
-	stat.pivotColumnSet[value] = struct{}{}
-	stat.pivotColumns = append(stat.pivotColumns, value)
+	p.addBoundedDistinctValue(stat, value, stat.pivotColumnSet, &stat.pivotColumns, p.limits.MaxPivotColumnsPerField)
 }
 
-func extensionObservationKey(observation ExtensionValueObservation) string {
+func extensionObservationKey(observation fieldcatalog.ExtensionValueObservation) string {
 	return observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
 }
 
@@ -511,7 +489,7 @@ func walkExtensionValuesWithAncestors(value any, path string, profiler *Profiler
 					continue
 				}
 				valuePath, valueType := extensionValueMapping(key, raw)
-				profiler.addExtensionValueWithLimits(stat, ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)})
+				profiler.addExtensionValueWithLimits(stat, fieldcatalog.ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)})
 			}
 		}
 		for _, key := range sortedKeys(typed) {
@@ -670,7 +648,7 @@ func observationValueSelectorFromPayload(payload map[string]any) string {
 		return "valueQuantity.value"
 	}
 	if value, ok := payload["valueCodeableConcept"].(map[string]any); ok {
-		if strings.TrimSpace(stringValue(value["text"])) != "" {
+		if strings.TrimSpace(semantic.StringValue(value["text"])) != "" {
 			return "valueCodeableConcept.text"
 		}
 		if len(codeableConceptColumns(value)) > 0 {

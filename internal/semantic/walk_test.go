@@ -28,10 +28,10 @@ func TestWalkFindsDatatypesFromSyntheticFutureDefinition(t *testing.T) {
 			t.Errorf("walker did not report referenced datatype %q", want)
 		}
 	}
-	if got := findOccurrence(t, occurrences, "component[].identifier"); got.OwnerPath != "component[0].identifier" {
+	if got := findOccurrence(t, occurrences, occurrenceByCanonicalPath, "component[].identifier"); got.OwnerPath != "component[0].identifier" {
 		t.Fatalf("first component identifier owner path = %q", got.OwnerPath)
 	}
-	if got := findOccurrence(t, occurrences, "extension[].extension[].valueIdentifier"); got.ReferencedType != "Identifier" {
+	if got := findOccurrence(t, occurrences, occurrenceByCanonicalPath, "extension[].extension[].valueIdentifier"); got.ReferencedType != "Identifier" {
 		t.Fatalf("nested extension choice occurrence = %#v", got)
 	}
 }
@@ -44,11 +44,11 @@ func TestWalkUsesGeneratedIndexOnObservationFixture(t *testing.T) {
 	payload := readNDJSONLine(t, testkit.FixturePath(t, "devloop-fixture/Observation.ndjson"), 4)
 	occurrences := walkOccurrences(t, index, "Observation", payload)
 
-	concept := findOccurrence(t, occurrences, "code")
+	concept := findOccurrence(t, occurrences, occurrenceByCanonicalPath, "code")
 	if concept.ReferencedType != "CodeableConcept" {
 		t.Fatalf("Observation.code type = %q, want CodeableConcept", concept.ReferencedType)
 	}
-	coding := findOccurrence(t, occurrences, "code.coding[]")
+	coding := findOccurrence(t, occurrences, occurrenceByCanonicalPath, "code.coding[]")
 	if coding.ReferencedType != "Coding" || coding.OwnerPath != "code.coding[0]" {
 		t.Fatalf("Observation.code.coding occurrence = %#v", coding)
 	}
@@ -131,7 +131,7 @@ func TestWalkReturnsAnExactCopyOfEachReferencedObject(t *testing.T) {
 	index := futureIndex(t)
 	payload := []byte("{\n  \"identifiers\": [{\"system\": \"urn:one\", \"value\": \"A\"}]\n}")
 	occurrences := walkOccurrences(t, index, "FutureRoot", payload)
-	got := findOccurrence(t, occurrences, "identifiers[]")
+	got := findOccurrence(t, occurrences, occurrenceByCanonicalPath, "identifiers[]")
 	want := json.RawMessage(`{"system": "urn:one", "value": "A"}`)
 	if !bytes.Equal(got.RawJSON, want) {
 		t.Fatalf("raw object = %s, want %s", got.RawJSON, want)
@@ -364,14 +364,30 @@ func readNDJSONLine(t *testing.T, fixturePath string, lineNumber int) []byte {
 	return nil
 }
 
-func findOccurrence(t *testing.T, occurrences []Occurrence, canonicalPath string) Occurrence {
+type occurrenceLookup uint8
+
+const (
+	occurrenceByCanonicalPath occurrenceLookup = iota
+	occurrenceByOwnerPath
+)
+
+func findOccurrence(t *testing.T, occurrences []Occurrence, lookup occurrenceLookup, path string) Occurrence {
 	t.Helper()
 	for _, occurrence := range occurrences {
-		if occurrence.CanonicalPath == canonicalPath {
+		matches := false
+		switch lookup {
+		case occurrenceByCanonicalPath:
+			matches = occurrence.CanonicalPath == path
+		case occurrenceByOwnerPath:
+			matches = occurrence.OwnerPath == path
+		default:
+			t.Fatalf("unknown occurrence lookup %d", lookup)
+		}
+		if matches {
 			return occurrence
 		}
 	}
-	t.Fatalf("no occurrence at canonical path %q", canonicalPath)
+	t.Fatalf("no occurrence for lookup %d at %q", lookup, path)
 	return Occurrence{}
 }
 
@@ -380,7 +396,7 @@ func assertComponentOwners(t *testing.T, occurrences []Occurrence, first, second
 	quantityValues := map[string]int{"alpha": 10, "beta": 20}
 	for index, want := range []string{first, second} {
 		prefix := fmt.Sprintf("component[%d].", index)
-		identifierOccurrence := occurrenceAtOwner(t, occurrences, prefix+"identifier")
+		identifierOccurrence := findOccurrence(t, occurrences, occurrenceByOwnerPath, prefix+"identifier")
 		var identifier struct {
 			Value string `json:"value"`
 		}
@@ -394,7 +410,7 @@ func assertComponentOwners(t *testing.T, occurrences []Occurrence, first, second
 			t.Errorf("%sidentifier boundaries = %#v, want index %d", prefix, identifierOccurrence.RepeatedBoundaries, index)
 		}
 
-		quantity := occurrenceAtOwner(t, occurrences, prefix+"quantity")
+		quantity := findOccurrence(t, occurrences, occurrenceByOwnerPath, prefix+"quantity")
 		var quantityValue struct {
 			Value int `json:"value"`
 		}
@@ -405,7 +421,7 @@ func assertComponentOwners(t *testing.T, occurrences []Occurrence, first, second
 			t.Errorf("%squantity has owner %q and value %d", prefix, quantity.OwnerPath, quantityValue.Value)
 		}
 
-		concept := occurrenceAtOwner(t, occurrences, prefix+"concept")
+		concept := findOccurrence(t, occurrences, occurrenceByOwnerPath, prefix+"concept")
 		var conceptText struct {
 			Text string `json:"text"`
 		}
@@ -416,15 +432,4 @@ func assertComponentOwners(t *testing.T, occurrences []Occurrence, first, second
 			t.Errorf("%sconcept has owner %q and text %q, want %q", prefix, concept.OwnerPath, conceptText.Text, want)
 		}
 	}
-}
-
-func occurrenceAtOwner(t *testing.T, occurrences []Occurrence, ownerPath string) Occurrence {
-	t.Helper()
-	for _, occurrence := range occurrences {
-		if occurrence.OwnerPath == ownerPath {
-			return occurrence
-		}
-	}
-	t.Fatalf("no occurrence has concrete owner path %q", ownerPath)
-	return Occurrence{}
 }

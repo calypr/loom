@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/testkit/recipetest"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -66,7 +68,7 @@ func appendWorkspaceRowsBundle(offset int64, filtered bool) recipe.Bundle {
 		threshold := int64(2)
 		left.Construction.Steps = append(left.Construction.Steps, recipe.ConstructionStep{
 			ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}},
-			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "value-id", Operator: recipe.FilterGreaterThan, Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &threshold}}}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "value-id", Operator: recipe.FilterGreaterThan, Values: []spec.FilterValue{{Kind: recipe.FilterInteger, Integer: &threshold}}}},
 			Outputs:   append([]recipe.StageColumn(nil), left.Construction.Steps[1].Outputs...),
 		})
 	}

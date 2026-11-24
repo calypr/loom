@@ -63,5 +63,5 @@ func semanticStringFromRaw(raw json.RawMessage) string {
 	if !ok {
 		return ""
 	}
-	return stringValue(value)
+	return semantic.StringValue(value)
 }

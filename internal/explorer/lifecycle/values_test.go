@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
@@ -117,7 +118,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 			}
 			request := constructionProposalPivotRequest(store.created, snapshot, test.categories)
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), request)
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 			if test.wantCode != "" {
 				if got := lifecycleErrorCode(err); got != test.wantCode {
 					t.Fatalf("proposal error code = %q, want %q; error = %v", got, test.wantCode, err)
@@ -217,7 +218,7 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 			request.CandidateConstruction.Steps = append(request.CandidateConstruction.Steps, constructionPivotFilterStep())
 			request.ChangedStepID = "keep_positive"
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), request)
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 			if err != nil {
 				t.Fatalf("unrelated saved Pivot must not reject the proposal: %v", err)
 			}
@@ -244,7 +245,7 @@ func TestProposeConstructionChangedPivotProbeErrorStillRejects(t *testing.T) {
 	}
 	request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err == nil {
 		t.Fatalf("changed Pivot probe error must reject the proposal, got %#v", proposal)
 	}
@@ -281,16 +282,7 @@ func constructionProposalPivotSetupWithUnrelatedStep(t *testing.T) (testServiceS
 }
 
 func constructionPivotFilterStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status"}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
-			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
-		},
-	}
+	return constructionfixtures.PivotFilterStep("keep_positive", "pivot_status", "group_id", "group_id", "patient_id", "Patient ID", "pivot_final", "final_value", "Final")
 }
 
 func constructionProposalPivotFixture(t *testing.T) (*Service, *fakeStore, capability.Snapshot, string, string) {

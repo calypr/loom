@@ -17,11 +17,6 @@ const (
 	pivotKindObservation         = "observation_code_value"
 )
 
-type FieldCatalogDocument = fieldcatalog.FieldCatalogDocument
-type ExtensionValueObservation = fieldcatalog.ExtensionValueObservation
-type PopulatedFieldOptions = fieldcatalog.PopulatedFieldOptions
-type PopulatedField = fieldcatalog.PopulatedField
-
 type Profiler struct {
 	project                  string
 	datasetGeneration        string
@@ -58,7 +53,7 @@ type fieldCatalogStats struct {
 	pivotItemSource       string
 	pivotItemResourceType string
 	pivotValueSelectors   []string
-	extensionValues       []ExtensionValueObservation
+	extensionValues       []fieldcatalog.ExtensionValueObservation
 	extensionValueSet     map[string]struct{}
 	semanticObservations  map[string]*semanticObservationStats
 }

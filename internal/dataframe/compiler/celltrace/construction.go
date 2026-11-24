@@ -144,11 +144,11 @@ func ConstructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 	producerIndex := -1
 	for index := len(sequence.Stages) - 1; index >= 0; index-- {
 		stage := sequence.Stages[index]
-		outputColumn, hasOutput := stageColumnByID(stage.OutputColumns, selected.ID)
+		outputColumn, hasOutput := ir.FindStageColumnByID(stage.OutputColumns, selected.ID)
 		if !hasOutput {
 			continue
 		}
-		if _, wasInput := stageColumnByID(stage.InputColumns, selected.ID); !wasInput {
+		if _, wasInput := ir.FindStageColumnByID(stage.InputColumns, selected.ID); !wasInput {
 			producerIndex = index
 			lineage.ProducerStageID = stage.ID
 			lineage.Operation = string(stage.Kind)
@@ -207,7 +207,7 @@ func ConstructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 	}
 
 	if producerIndex < 0 {
-		sourceColumn, exists := stageColumnByID(sequence.SourceColumns, selected.ID)
+		sourceColumn, exists := ir.FindStageColumnByID(sequence.SourceColumns, selected.ID)
 		if !exists || sourceColumn.Internal {
 			return nil, fmt.Errorf("cell trace output column ID %q has no source or construction producer", selected.ID)
 		}
@@ -233,7 +233,7 @@ func ConstructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 				break
 			}
 			for _, input := range lineage.Inputs {
-				if _, exists := stageColumnByID(stage.InputColumns, input.ColumnID); !exists {
+				if _, exists := ir.FindStageColumnByID(stage.InputColumns, input.ColumnID); !exists {
 					lineage.OmissionCode = "CONSTRUCTION_TRACE_INPUT_NOT_PRESERVED"
 					lineage.Inputs = nil
 					break
@@ -284,7 +284,7 @@ func constructionRelatedSourceTrace(stage ir.PhysicalConstructionStage, outputCo
 	if stage.Kind != ir.PhysicalStageRelatedSourceOp || stage.RelatedSource == nil {
 		return nil, false
 	}
-	projection, found := StageProjectionByName(stage.OutputProjections, outputColumn)
+	projection, found := ir.FindStageProjectionByName(stage.OutputProjections, outputColumn)
 	if !found || projection.Expression == nil {
 		return nil, false
 	}
@@ -299,7 +299,7 @@ func constructionRelatedSourceTrace(stage ir.PhysicalConstructionStage, outputCo
 		subplanSource.Cardinality != ir.PhysicalArrayCardinality || subplanSource.NullBehavior != ir.PhysicalEmptyOnNull {
 		return nil, false
 	}
-	anchor, found := stageColumnByID(stage.InputColumns, stage.RelatedSource.AnchorColumnID)
+	anchor, found := ir.FindStageColumnByID(stage.InputColumns, stage.RelatedSource.AnchorColumnID)
 	if !found || !anchor.Internal || !anchor.Identity || anchor.Name != "_key" {
 		return nil, false
 	}
@@ -316,7 +316,7 @@ func constructionRelatedSourceTrace(stage ir.PhysicalConstructionStage, outputCo
 }
 
 func constructionDerivedTraceInputs(stage ir.PhysicalConstructionStage, outputColumn string) ([]ir.PhysicalStageColumn, bool) {
-	projection, found := StageProjectionByName(stage.OutputProjections, outputColumn)
+	projection, found := ir.FindStageProjectionByName(stage.OutputProjections, outputColumn)
 	if !found {
 		return nil, false
 	}

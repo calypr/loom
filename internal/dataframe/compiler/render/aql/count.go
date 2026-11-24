@@ -6,11 +6,12 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (RenderedPhysicalPlan, bool, error) {
-	if stage, sourceProjection, rootVariable, ok := terminalRelatedEligibilityCategoryScanOnly(plan, sequence, options); ok {
-		return renderRelatedEligibilityCategoryScan(plan, sequence, options, stage, sourceProjection, rootVariable)
+	if stage, sourceProjection, _, ok := terminalRelatedEligibilityCategoryScanOnly(plan, sequence, options); ok {
+		return renderRelatedEligibilityCategoryScan(plan, options, stage, sourceProjection)
 	}
 	if !terminalRelatedEligibilityCountRowsOnly(plan, sequence, options) {
 		return RenderedPhysicalPlan{}, false, nil
@@ -178,14 +179,14 @@ func terminalRelatedEligibilityCategoryScanOnly(plan ir.PhysicalPlan, sequence *
 		stage.Filter.Expression.Exists == nil || len(stage.DerivedLets) != 0 || stage.RowIdentityColumn != "_key" {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
-	if !hasStageIdentity(sequence.SourceColumns, "_key") || !hasStageIdentity(stage.InputColumns, "_key") || !hasStageIdentity(stage.OutputColumns, "_key") {
+	if !hasStageIdentity(sequence.SourceColumns) || !hasStageIdentity(stage.InputColumns) || !hasStageIdentity(stage.OutputColumns) {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
 	selectedColumn, selectedColumnOK := publicScalarCategoryStageColumn(sequence.FinalColumns, options.terminalProjectionColumn)
 	if !selectedColumnOK {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
-	stageProjection, found := stageOutputProjection(stage.OutputProjections, selectedColumn.Name)
+	stageProjection, found := ir.FindStageProjectionByName(stage.OutputProjections, selectedColumn.Name)
 	if !found || stageProjection.Hidden || stageProjection.Expression != nil || stageProjection.Value.Variable != stage.InputRowVariable ||
 		stageProjection.Value.BindKey != "" || len(stageProjection.Value.Path) != 1 {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
@@ -279,16 +280,7 @@ func publicScalarCategoryStageColumn(columns []ir.PhysicalStageColumn, name stri
 	return ir.PhysicalStageColumn{}, false
 }
 
-func stageOutputProjection(projections []ir.PhysicalProjection, name string) (ir.PhysicalProjection, bool) {
-	for _, projection := range projections {
-		if projection.Name == name {
-			return projection, true
-		}
-	}
-	return ir.PhysicalProjection{}, false
-}
-
-func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions, stage ir.PhysicalConstructionStage, sourceProjection ir.PhysicalProjection, rootVariable string) (RenderedPhysicalPlan, bool, error) {
+func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, options physicalRenderOptions, stage ir.PhysicalConstructionStage, sourceProjection ir.PhysicalProjection) (RenderedPhysicalPlan, bool, error) {
 	reverse, ok, err := buildRelatedEligibilityReverseFrontier(plan, stage, "related_category_", "__loom_related_category_terminal_collection")
 	if err != nil || !ok {
 		return RenderedPhysicalPlan{}, false, err
@@ -444,7 +436,7 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 		sequence.SourceRowIdentity != "_key" {
 		return false
 	}
-	if !hasStageIdentity(sequence.SourceColumns, "_key") || !hasStageIdentity(eligibility.InputColumns, "_key") || !hasStageIdentity(eligibility.OutputColumns, "_key") {
+	if !hasStageIdentity(sequence.SourceColumns) || !hasStageIdentity(eligibility.InputColumns) || !hasStageIdentity(eligibility.OutputColumns) {
 		return false
 	}
 	scopeAllowed, scopeAllowedOK := plan.BindVars["scope_allowed"].(bool)
@@ -464,9 +456,9 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 	return true
 }
 
-func hasStageIdentity(columns []ir.PhysicalStageColumn, name string) bool {
+func hasStageIdentity(columns []ir.PhysicalStageColumn) bool {
 	for _, column := range columns {
-		if column.Name == name {
+		if column.Name == "_key" {
 			return column.Internal && column.Identity && column.Kind == "string" && column.Cardinality == "required_one"
 		}
 	}
@@ -501,7 +493,7 @@ func relatedCountRoute(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage,
 		label, labelOK := plan.BindVars[traversal.EdgeLabelBindKey].(string)
 		edgeCollection, edgeCollectionOK := plan.BindVars[traversal.EdgeCollectionBindKey].(string)
 		if !sourceOK || !targetOK || !labelOK || !edgeCollectionOK || sourceType != currentType || traversal.SourceVariable != currentVariable ||
-			targetType == "" || label == "" || edgeCollection != "fhir_edge" || traversal.EdgeVariable == "" ||
+			targetType == "" || label == "" || edgeCollection != fhirschema.EdgeCollection || traversal.EdgeVariable == "" ||
 			traversal.Strategy != ir.PhysicalTraversalEndpointLookup {
 			return nil, false
 		}

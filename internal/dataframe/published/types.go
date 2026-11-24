@@ -10,8 +10,6 @@ import (
 type State string
 
 const authResourcePathColumn = "auth_resource_path"
-const projectIDColumn = "project_id"
-
 const StateReady State = "READY"
 
 type Column struct {
@@ -24,8 +22,6 @@ type Column struct {
 	Repeated     bool   `json:"repeated,omitempty"`
 	LoomOwned    bool   `json:"loomOwned,omitempty"`
 }
-
-type DataframeSelector = dataset.DataframeSelector
 
 type Materialization struct {
 	ID                string                         `json:"id"`
@@ -51,7 +47,7 @@ type Materialization struct {
 	Error             string                         `json:"error,omitempty"`
 	FailureCode       string                         `json:"failureCode,omitempty"`
 	FailureRetryable  bool                           `json:"failureRetryable,omitempty"`
-	Selector          DataframeSelector              `json:"selector"`
+	Selector          dataset.DataframeSelector      `json:"selector"`
 	SourceRow         *publication.SourceRowMetadata `json:"sourceRow,omitempty"`
 }
 

@@ -165,11 +165,9 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 			expectedIndex++
 		}
 		if expectedIndex == len(candidateSteps)-1 && candidateSteps[expectedIndex].ID == changedStepID {
-			firstChanged = len(base.Construction.Steps)
 			expectedIndex++
 		} else if start, ok := appendedRelatedSourceSuffixStart(base.Construction.Steps, candidateSteps, expectedIndex, changedStepID); ok {
 			appendedRelatedSourceStart = start
-			firstChanged = start
 			expectedIndex = len(candidateSteps)
 		} else {
 			return d, ConstructionImpact{}, fmt.Errorf("new changed step %q must be appended at the end", changedStepID)
@@ -322,4 +320,27 @@ func (d Document) ProposeStepRemoval(stepID string, removeStepIDs []string) (Doc
 		}
 	}
 	return candidate, impact, nil
+}
+
+func (workspace Workspace) DocumentIndex(outputID string) int {
+	index := -1
+	for candidate := range workspace.Documents {
+		if workspace.Documents[candidate].Output.ID != outputID {
+			continue
+		}
+		if index >= 0 {
+			return -1
+		}
+		index = candidate
+	}
+	return index
+}
+
+func (workspace Workspace) FindOutputDocument(outputID string) *Document {
+	for index := range workspace.Documents {
+		if workspace.Documents[index].Output.ID == outputID {
+			return &workspace.Documents[index]
+		}
+	}
+	return nil
 }

@@ -215,9 +215,9 @@ func (r *recordingGenerationRunner) RunGeneration(_ context.Context, req Generat
 	return generation.LoadSummary{Files: len(entries)}, nil
 }
 
-func allowAllHandler(t *testing.T, runner *recordingGenerationRunner) *Handler {
+func allowAllHandler(t *testing.T, load GenerationLoader) *Handler {
 	t.Helper()
-	service, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration})
+	service, err := NewService(ServiceConfig{LoadGeneration: load})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestCreateDatasetGenerationStagesFilesThatArriveBeforeScalarFields(t *testi
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
 	runner := &recordingGenerationRunner{}
-	handler := allowAllHandler(t, runner)
+	handler := allowAllHandler(t, runner.RunGeneration)
 	patient := []byte("{\"resourceType\":\"Patient\",\"id\":\"1\"}\n")
 	specimen := []byte("{\"resourceType\":\"Specimen\",\"id\":\"2\"}\n")
 	body, boundary := orderedMultipart(t, []orderedPart{
@@ -324,7 +324,7 @@ func TestCreateDatasetGenerationRejectsBundleWithoutStagingAnything(t *testing.T
 			tempDir := t.TempDir()
 			t.Setenv("TMPDIR", tempDir)
 			runner := &recordingGenerationRunner{}
-			handler := allowAllHandler(t, runner)
+			handler := allowAllHandler(t, runner.RunGeneration)
 			body, boundary := orderedMultipart(t, tc.parts)
 
 			_, err := handler.CreateDatasetGeneration(context.Background(), "P1", "generation-1", multipart.NewReader(bytes.NewReader(body), boundary), nil)
@@ -342,7 +342,7 @@ func TestCreateDatasetGenerationRejectsBundleWithoutStagingAnything(t *testing.T
 
 func TestCreateDatasetGenerationMalformedAndAbsentBodyAreInvalidInput(t *testing.T) {
 	t.Run("absent body", func(t *testing.T) {
-		handler := allowAllHandler(t, &recordingGenerationRunner{})
+		handler := allowAllHandler(t, (&recordingGenerationRunner{}).RunGeneration)
 		_, err := handler.CreateDatasetGeneration(context.Background(), "P1", "generation-1", nil, nil)
 		assertFiberStatus(t, err, fiber.StatusUnsupportedMediaType)
 	})
@@ -351,7 +351,7 @@ func TestCreateDatasetGenerationMalformedAndAbsentBodyAreInvalidInput(t *testing
 		tempDir := t.TempDir()
 		t.Setenv("TMPDIR", tempDir)
 		runner := &recordingGenerationRunner{}
-		handler := allowAllHandler(t, runner)
+		handler := allowAllHandler(t, runner.RunGeneration)
 		body, boundary := orderedMultipart(t, []orderedPart{
 			{field: "file", filename: "Patient.ndjson", content: []byte("{\"resourceType\":\"Patient\"}\n")},
 		})
@@ -366,7 +366,7 @@ func TestCreateDatasetGenerationMalformedAndAbsentBodyAreInvalidInput(t *testing
 	})
 
 	t.Run("empty boundary", func(t *testing.T) {
-		handler := allowAllHandler(t, &recordingGenerationRunner{})
+		handler := allowAllHandler(t, (&recordingGenerationRunner{}).RunGeneration)
 		_, err := handler.CreateDatasetGeneration(context.Background(), "P1", "generation-1", multipart.NewReader(strings.NewReader("nothing"), ""), nil)
 		assertFiberStatus(t, err, fiber.StatusUnsupportedMediaType)
 	})
@@ -940,7 +940,7 @@ func TestCreateDatasetGenerationRejectedAuthorizationAndLoaderFailureLeaveNoFile
 		t.Setenv("TMPDIR", tempDir)
 		sentinel := errors.New("loader exploded")
 		runner := &recordingGenerationRunner{err: sentinel}
-		handler := allowAllHandler(t, runner)
+		handler := allowAllHandler(t, runner.RunGeneration)
 		body, boundary := orderedMultipart(t, []orderedPart{
 			{field: "file", filename: "Patient.ndjson", content: []byte("{\"resourceType\":\"Patient\",\"id\":\"1\"}\n")},
 			{field: "defer_activation", content: []byte("true")},
@@ -959,8 +959,8 @@ func TestCreateDatasetGenerationRejectedAuthorizationAndLoaderFailureLeaveNoFile
 
 func TestGetDatasetGenerationStatusMapsMissingManifest(t *testing.T) {
 	service, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: &activationManifestStore{readErr: publication.ErrManifestNotFound},
+		LoadGeneration: activationGenerationRunner{}.RunGeneration,
+		Manifests:      &activationManifestStore{readErr: publication.ErrManifestNotFound},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -980,8 +980,8 @@ func TestGetDatasetGenerationStatusMapsMissingManifest(t *testing.T) {
 func TestGetDatasetGenerationStatusAuthorizesBeforeManifestLookup(t *testing.T) {
 	store := &activationManifestStore{manifest: activationManifest(t, "project-a", "generation-a")}
 	service, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: store,
+		LoadGeneration: activationGenerationRunner{}.RunGeneration,
+		Manifests:      store,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1169,7 +1169,7 @@ func measureStagingRun(t *testing.T, path string, rep int, baseline bool) stagin
 		t.Fatalf("TMPDIR not in effect: os.TempDir()=%s tempDir=%s", resolved, tempDir)
 	}
 	runner := &spilloverRunner{}
-	handler := spilloverHandler(t, runner)
+	handler := allowAllHandler(t, runner.RunGeneration)
 	body, boundary := spilloverMultipart(t, true)
 	payload := int64(len(body))
 
@@ -1205,19 +1205,6 @@ func measureStagingRun(t *testing.T, path string, rep int, baseline bool) stagin
 		peakBytes:   peak,
 		elapsed:     elapsed,
 	}
-}
-
-func spilloverHandler(t *testing.T, runner *spilloverRunner) *Handler {
-	t.Helper()
-	service, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler, err := NewHandler(Config{Service: service, Authorizer: authscope.AllowAllAuthorizer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return handler
 }
 
 func spilloverMultipart(t *testing.T, deferActivation bool) ([]byte, string) {
@@ -1259,7 +1246,7 @@ func TestCreateDatasetGenerationLeaksNoSpilloverTempFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
 	runner := &spilloverRunner{}
-	handler := spilloverHandler(t, runner)
+	handler := allowAllHandler(t, runner.RunGeneration)
 	body, boundary := spilloverMultipart(t, true)
 
 	if _, err := handler.CreateDatasetGeneration(context.Background(), "P1", "generation-1", multipart.NewReader(bytes.NewReader(body), boundary), nil); err != nil {
@@ -1393,7 +1380,7 @@ func TestCreateDatasetGenerationSpilloverDisposedOnValidationRejection(t *testin
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
 	runner := &spilloverRunner{}
-	handler := spilloverHandler(t, runner)
+	handler := allowAllHandler(t, runner.RunGeneration)
 	body, boundary := spilloverMultipart(t, true)
 
 	if _, err := handler.CreateDatasetGeneration(context.Background(), "P1", "  ", multipart.NewReader(bytes.NewReader(body), boundary), nil); err == nil {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/publication"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -19,8 +21,39 @@ import (
 )
 
 func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevision(t *testing.T) {
+	t.Run("plain project", func(t *testing.T) {
+		testRepositoryPublishReleaseCASConflict(t, "project-a", "project-a")
+	})
+	t.Run("slash project", func(t *testing.T) {
+		testRepositoryPublishReleaseCASConflict(t, "HTAN/Project", "HTAN-Project")
+	})
+}
+
+type publicationProjectStore struct {
+	*fakeStore
+	t                       *testing.T
+	project, storageProject string
+}
+
+func (s publicationProjectStore) ActivateRepositoryGeneration(ctx context.Context, release dataset.ProjectRelease, expectedRevision int64, revisionID string) error {
+	s.t.Helper()
+	if release.Project != s.storageProject {
+		s.t.Fatalf("activation project = %q, want storage project %q", release.Project, s.storageProject)
+	}
+	return s.fakeStore.ActivateRepositoryGeneration(ctx, release, expectedRevision, revisionID)
+}
+
+func (s publicationProjectStore) PublishAuthoring(ctx context.Context, receipt receiptmodel.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
+	s.t.Helper()
+	if receipt.Project != s.project || revision.Project != s.storageProject {
+		s.t.Fatalf("authoring receipt/revision projects = (%q, %q), want (%q, %q)", receipt.Project, revision.Project, s.release.Project, s.storageProject)
+	}
+	return s.fakeStore.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
+}
+
+func testRepositoryPublishReleaseCASConflict(t *testing.T, project, storageProject string) {
 	visible := true
-	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	snapshot := readySnapshot(project, "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	workspace := ws.Workspace{
 		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Default"},
 		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}}}, Rows: ws.RecordsRowDefinition()}},
@@ -46,11 +79,13 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	activateErr := error(nil)
-	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
-	service := newTestService(t, store, config)
+	config.PrepareRepositoryRelease = prepareRepositoryRelease(func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr })
+	service := newTestService(t, store, config, func(setup *testServiceSetup) {
+		setup.Config.RepositoryActivator = publicationProjectStore{fakeStore: store, t: t, project: project, storageProject: storageProject}
+	})
 
-	publish := func(commit string) (RepositoryPublishResult, error) {
-		return service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
+	publish := func(commit string) (publication.RepositoryPublishResult, error) {
+		return service.OwnerServices().Publication.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: project, Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
 	}
 
 	first, err := publish("commit-prior")
@@ -99,5 +134,11 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 	}
 	if !errors.Is(err, dataset.ErrReleaseActivationConflict) {
 		t.Fatalf("wire error lost the store conflict sentinel: %v", err)
+	}
+}
+
+func prepareRepositoryRelease(next func(context.Context, string, string, []dataset.DataframeSelector) error) publication.ReleasePreparer {
+	return func(ctx context.Context, project, generation string, selectors []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{Project: project, Generation: generation}, 0, next(ctx, project, generation, selectors)
 	}
 }

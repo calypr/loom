@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -57,7 +59,7 @@ func ViewBuilderCatalogFromRevision(revision Revision) (viewer.ViewBuilderCatalo
 
 	materializedByOutput := make(map[string]viewer.Materialization, len(revision.Materializations))
 	for _, materialization := range revision.Materializations {
-		outputID := firstNonEmptyString(materialization.OutputID, materialization.Output)
+		outputID := loomtext.FirstNonBlank(materialization.OutputID, materialization.Output)
 		if outputID == "" {
 			return viewer.ViewBuilderCatalog{}, invalidViewBuilder("catalog revision %q has an unnamed materialization", revision.ID)
 		}

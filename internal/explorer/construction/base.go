@@ -69,7 +69,7 @@ func (s constructionBaseLoader) load(ctx context.Context, project, explorerID, s
 		return Base{}, err
 	}
 	if s.cache != nil {
-		s.cache.Put(key, constructionBaseCacheValue{receipt: compiled.receipt, stages: compiled.stages})
+		s.cache.Put(key, constructionBaseCacheValue(compiled))
 	}
 	return validation.base(compiled.receipt, compiled.stages), nil
 }
@@ -112,7 +112,7 @@ func (s constructionBaseLoader) validateConstructionBase(ctx context.Context, pr
 	if err != nil || actualDigest != owner.DraftDigest {
 		return constructionBaseValidation{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	documentIndex := constructionDocumentIndex(workspace, outputID)
+	documentIndex := workspace.DocumentIndex(outputID)
 	if documentIndex < 0 {
 		return constructionBaseValidation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
@@ -253,8 +253,8 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	loader := constructionBaseLoader{
 		cache: s.constructionBaseCache, capability: s.config.Capability,
 		sourceStage: s.config.ConstructionSourceStage, selectionMembersCollection: s.config.SelectionMembersCollection,
-		canCompile: s.config.CompileReceipt != nil, compile: s.compile,
-		verifyProposalReceipt: s.verifyProposalReceipt, getOwner: s.getOwner,
+		canCompile: s.config.CompileReceipt != nil, compile: s.config.Core.Compile,
+		verifyProposalReceipt: s.config.Core.VerifyProposalReceipt, getOwner: s.config.Core.GetOwner,
 	}
 	return loader.load(ctx, project, explorerID, snapshotToken, draftVersion, draftDigest, outputID)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -163,10 +164,10 @@ func (s *Store) FailRevision(_ context.Context, id string, diagnostics []viewer.
 	return &value, nil
 }
 
-func (s *Store) ActivateRepositoryGeneration(_ context.Context, project, _ string, revisionID string) error {
+func (s *Store) ActivateRepositoryGeneration(_ context.Context, release dataset.ProjectRelease, _ int64, revisionID string) error {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	return s.activateLocked(project, "default", revisionID)
+	return s.activateLocked(release.Project, "default", revisionID)
 }
 
 func (s *Store) activateLocked(project, explorerID, revisionID string) error {

@@ -88,16 +88,7 @@ type Contribution struct {
 	Observation       Observation `json:"observation"`
 }
 
-func fileContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID string, ordinal int) string {
-	return digest.Digest("semantic-inventory-contribution/v1", project, datasetGeneration,
-		authResourcePath, resourceType, buildID, sourceID, strconv.Itoa(ordinal))
-}
-
 // Essential: spilled inventory runs need the original source-file and ordinal key contract.
-func ContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID string, ordinal int) string {
-	return fileContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID, ordinal)
-}
-
 type Entry struct {
 	ConceptID   string      `json:"concept_id"`
 	BindingID   string      `json:"binding_id"`
@@ -135,6 +126,27 @@ type Family struct {
 	Population        int64        `json:"population"`
 	Examples          []string     `json:"examples,omitempty"`
 	ExamplesTruncated bool         `json:"examples_truncated"`
+}
+
+func EntryForFamily(family Family) Entry {
+	return Entry{
+		ConceptID: family.FamilyID, BindingID: family.BindingID,
+		Observation: Observation{
+			SchemaVersion:     family.SchemaVersion,
+			Source:            family.Source,
+			Key:               Key{Selector: family.KeySelector, System: family.System, Version: family.Version},
+			Value:             family.Value,
+			OwningScope:       family.OwningScope,
+			LogicalType:       family.LogicalType,
+			Completeness:      family.Completeness,
+			Status:            family.Status,
+			Population:        family.Population,
+			Examples:          append([]string(nil), family.Examples...),
+			ExamplesTruncated: family.ExamplesTruncated,
+			RuleHint:          RuleHintCodedCategoryV1,
+			RuleVersion:       family.RuleVersion,
+		},
+	}
 }
 
 func FamilyID(reference FamilyReference) string {

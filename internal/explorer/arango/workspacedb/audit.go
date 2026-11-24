@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -77,7 +78,7 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 	if r.DigestRelations == nil {
 		r.DigestRelations = map[string]int{}
 	}
-	if !containsAuditString(r.Collections, collection) {
+	if !slices.Contains(r.Collections, collection) {
 		r.Collections = append(r.Collections, collection)
 		sort.Strings(r.Collections)
 	}
@@ -195,14 +196,6 @@ func AuditString(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &text)
 	return text
 }
-func containsAuditString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
 
 func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, object map[string]json.RawMessage, authoritative bool) WorkspaceAuditEntry {
 	entry := WorkspaceAuditEntry{Collection: collection, Key: key, Path: path, Authoritative: authoritative, Immutable: collection == db.DraftRevisionsCollection || collection == db.RevisionsCollection || collection == db.CompilationReceiptsCollection, Features: []string{}}
@@ -216,12 +209,12 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 	for _, document := range documents {
 		if tableShape, present := document["tableShape"]; present && strings.TrimSpace(string(tableShape)) != "null" {
 			entry.TableShapeDocuments++
-			if !containsAuditString(entry.Features, "legacy-table-shape") {
+			if !slices.Contains(entry.Features, "legacy-table-shape") {
 				entry.Features = append(entry.Features, "legacy-table-shape")
 			}
 		}
 		if rows, present := document["rows"]; !present || strings.TrimSpace(string(rows)) == "null" {
-			if !containsAuditString(entry.Features, "missing-record-rows") {
+			if !slices.Contains(entry.Features, "missing-record-rows") {
 				entry.Features = append(entry.Features, "missing-record-rows")
 			}
 		}
@@ -242,13 +235,13 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 				"legacy-coded-source-kind":  AuditString(source["kind"]) == "codingBySystem" || AuditString(source["kind"]) == "observationComponentByCode",
 				"legacy-aggregate-temporal": aggregate["temporal"] != nil,
 			} {
-				if present && !containsAuditString(entry.Features, feature) {
+				if present && !slices.Contains(entry.Features, feature) {
 					entry.Features = append(entry.Features, feature)
 				}
 			}
 			if source["wherePath"] != nil || source["whereEquals"] != nil || aggregate["where"] != nil {
 				entry.NeedsPinnedCatalog = true
-				if !containsAuditString(entry.Features, "legacy-contributor") {
+				if !slices.Contains(entry.Features, "legacy-contributor") {
 					entry.Features = append(entry.Features, "legacy-contributor")
 				}
 			}

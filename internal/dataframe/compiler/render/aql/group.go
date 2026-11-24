@@ -311,7 +311,7 @@ func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, index RootIndex,
 	for variable := range physicalPlanVariableNames(sourcePlan) {
 		renderer.reservedVars[variable] = struct{}{}
 	}
-	lines := make([]string, 0, 48)
+	var lines []string
 	if assessment {
 		lines, err = renderer.renderSemanticGroupProjectionAssessment(source.Query, root, semantic)
 	} else {
@@ -671,7 +671,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 		}
 
 		coding.EmptyPolicy = ir.PhysicalUnnestPreserveParent
-		codingLines, unnestErr := r.renderUnnest(coding, "  ", 0, 0)
+		codingLines, unnestErr := r.renderUnnest(coding, "  ", 0)
 		if unnestErr != nil {
 			return nil, "", fmt.Errorf("render related Group Coding expansion: %w", unnestErr)
 		}

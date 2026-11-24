@@ -53,9 +53,22 @@ type AQLExecutor interface {
 	ExecuteAQL(context.Context, string, map[string]interface{}) error
 }
 
+type CollectionBootstrapClient interface {
+	RowQueryer
+	BatchInserter
+	AQLExecutor
+	CollectionExists(context.Context, string) (bool, error)
+	Bootstrap(context.Context, BootstrapSpec) error
+}
+
 type RowBatchClient interface {
 	RowQueryer
 	BatchInserter
+}
+
+type TransactionalRowQueryer interface {
+	RowQueryer
+	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error
 }
 
 type TransactionalRowClient interface {

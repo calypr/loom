@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -19,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -80,7 +83,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,10 +104,10 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+			return store.GetCompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
@@ -116,7 +119,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 			}, visit)
 		},
 	}
-	lifecycleService, err := lifecycle.New(domain, serviceConfig)
+	lifecycleService, err := lifecycle.New(domain, lifecycleConfigForTest(serviceConfig, explorerfixtures.Dependencies(store)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +141,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 	if len(reconciled.Receipt.Bundle.Outputs) != 1 || reconciled.Receipt.Bundle.Outputs[0].Name != "patients" {
 		t.Fatalf("selected reconcile receipt is not scoped to the requested output: %#v", reconciled.Receipt.Bundle.Outputs)
 	}
-	if _, err := lifecycleService.Preview(context.Background(), lifecycle.PreviewRequest{
+	if _, err := lifecycleService.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: reconciled.Receipt.ID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
@@ -158,7 +161,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 		t.Fatalf("scoped receipt response builder/outputs mismatch: builder=%#v outputs=%#v", response.Builder, response.Outputs)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	outputID := "patients"
 	body, err := json.Marshal(loomapi.ReconcileRequest{SnapshotToken: snapshot.Token, DraftVersion: 3, DraftDigest: digest, OutputId: &outputID})
 	if err != nil {

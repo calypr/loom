@@ -2,6 +2,7 @@ package compilerfixtures
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func RelatedExpandOracleOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.Output {
@@ -25,7 +26,7 @@ func RelatedExpandOracleOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.O
 				ID: "filter_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient-active", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
 				}}, Outputs: filteredColumns,
 			},
 			{

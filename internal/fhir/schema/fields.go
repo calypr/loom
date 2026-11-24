@@ -88,7 +88,7 @@ func ResolvePath(resourceType, canonicalPath string) (ResolvedPath, bool) {
 	if !ok {
 		return ResolvedPath{}, false
 	}
-	var currentProps []generatedProperty = def.Properties
+	currentProps := def.Properties
 	var current generatedProperty
 	for _, part := range parts {
 		name := strings.TrimSuffix(part, "[]")

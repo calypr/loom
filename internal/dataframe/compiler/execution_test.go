@@ -634,10 +634,7 @@ func TestPreviewSourceIdentityNeverRegainsSingleAfterGroupOrPivot(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, included, err := withPreviewSourceResourceID(test.output, basePlan)
-			if err != nil {
-				t.Fatal(err)
-			}
+			_, included := withPreviewSourceResourceID(test.output, basePlan)
 			if included {
 				t.Fatal("composite output regained a SINGLE source projection")
 			}

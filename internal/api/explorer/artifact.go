@@ -1,11 +1,17 @@
 package explorerapi
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"mime"
 	"net/http"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+	"github.com/calypr/loom/internal/explorer/publication"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -16,7 +22,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
@@ -32,7 +37,7 @@ func (r *Handlers) PrepareExplorerArtifact(ctx context.Context, request loomapi.
 		if body == nil {
 			return response, explorer.MalformedRouteError("artifact", errors.New("request body is required"))
 		}
-		result, err := h.application.PrepareArtifact(ctx, lifecycle.ArtifactRequest{
+		result, err := h.owners.Publication.PrepareArtifact(ctx, publication.ArtifactRequest{
 			Project: project, ExplorerID: explorerID, RevisionID: body.RevisionId,
 			OutputID: body.OutputId, IdempotencyKey: body.IdempotencyKey,
 		})
@@ -60,7 +65,7 @@ func (r *Handlers) DownloadExplorerArtifact(ctx context.Context, request loomapi
 		if h == nil || h.application == nil {
 			return response, explorer.ExplorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured")
 		}
-		reader, record, err := h.application.OpenArtifact(ctx, lifecycle.ArtifactOpenRequest{Project: project, ExplorerID: explorerID, ArtifactID: artifactID})
+		reader, record, err := h.owners.Publication.OpenArtifact(ctx, publication.ArtifactOpenRequest{Project: project, ExplorerID: explorerID, ArtifactID: artifactID})
 		if err != nil {
 			return response, err
 		}
@@ -110,7 +115,7 @@ func (h *Handlers) previewSavedReceiptWithTimeout(ctx context.Context, project, 
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var encoder *previewResponseEncoder
-	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.owners.Core.Preview(previewCtx, authoringcore.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		var encoderErr error
 		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
@@ -135,13 +140,13 @@ func (h *Handlers) publishReceipt(ctx context.Context, project, explorerID, auth
 	if body == nil {
 		return result, explorer.MalformedRouteError("publish", errors.New("receiptId is required"))
 	}
-	value, err := h.application.Publish(ctx, lifecycle.PublishRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, Actor: authscope.SubjectFromContext(ctx)})
+	value, err := h.owners.Publication.Publish(ctx, publication.PublishRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, err
 	}
 	outputs := make([]loomapi.PublicationOutput, 0, len(value.Revision.Materializations))
 	for _, materialization := range value.Revision.Materializations {
-		outputs = append(outputs, loomapi.PublicationOutput{OutputId: firstNonEmpty(materialization.OutputID, materialization.Output), State: "READY", MaterializationId: materialization.MaterializationID})
+		outputs = append(outputs, loomapi.PublicationOutput{OutputId: cmp.Or(loomtext.FirstNonBlank(materialization.OutputID, materialization.Output), "Explorer"), State: "READY", MaterializationId: materialization.MaterializationID})
 	}
 	return loomapi.PublishResponse{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderPublication, ReceiptId: value.Receipt.ID, RevisionId: value.Revision.ID, State: string(value.Revision.Status), Outputs: outputs, Diagnostics: []loomapi.Diagnostic{}}, nil
 }

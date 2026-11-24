@@ -3,7 +3,6 @@ package rowsource
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -82,17 +82,8 @@ var unpivotSourceReasons = rowSourceLaneReasons{
 }
 
 func validateUnpivotSourceColumns(steps []ws.ConstructionStep, unpivotID string, sources []ConstructionUnpivotSourceSelection) error {
-	index := constructionStepIndex(steps, unpivotID)
-	if index < 0 || steps[index].Operation.Unpivot == nil {
-		return fmt.Errorf("the selected Unpivot step is unavailable")
-	}
-	inputIDs := unpivotInputColumnIDs(steps[index].Operation.Unpivot)
-	for _, source := range sources {
-		if !containsConstructionColumnIDLocal(inputIDs, source.ColumnID) {
-			return fmt.Errorf("unpivotSources columnId %q is not a melt input of the Unpivot step", source.ColumnID)
-		}
-	}
-	return nil
+	return validateConstructionSourceColumns(steps, unpivotID, ws.ConstructionOperationUnpivot,
+		constructionSourceSelectionIDs(sources, func(source ConstructionUnpivotSourceSelection) string { return source.ColumnID }))
 }
 
 func clearConstructionUnpivotOwnedSources(base, candidate ws.Construction, unpivotID string) (ws.Construction, error) {
@@ -136,57 +127,11 @@ func clearConstructionUnpivotOwnedSources(base, candidate ws.Construction, unpiv
 }
 
 func constructionOwnedUnpivotSourceColumnID(construction ws.Construction, stageID, path string) string {
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-		if index < 0 {
-			continue
-		}
-		step := construction.Steps[index]
-		if step.Operation.Kind != ws.ConstructionOperationUnpivot || step.Operation.Unpivot == nil ||
-			!containsConstructionColumnIDLocal(unpivotInputColumnIDs(step.Operation.Unpivot), projection.ColumnID) ||
-			constructionStepInputStageID(step) != stageID {
-			continue
-		}
-		return projection.ColumnID
-	}
-	return ""
+	return constructionOwnedSourceColumnID(construction, stageID, path, ws.ConstructionOperationUnpivot)
 }
 
 func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (ws.ConstructionSourceProjection, bool) {
-	path := canonicalRowPath(fieldPath)
-	if strings.TrimSpace(rootResourceType) == "" || path == "" {
-		return ws.ConstructionSourceProjection{}, false
-	}
-	for _, node := range snapshot.Nodes {
-		if !node.RowRootEligible || node.ResourceType != rootResourceType {
-			continue
-		}
-		candidate, ok := uniqueRowSourceCandidate(snapshot, node.ID, rootResourceType, path)
-		if !ok || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
-			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
-			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) ||
-			!unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
-			continue
-		}
-		schemaIndex, err := fhirschema.GeneratedIndex()
-		if err != nil {
-			continue
-		}
-		facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
-		if err != nil || facts.CanonicalPath != path || facts.Shape != fhirschema.RowPathScalar ||
-			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
-			continue
-		}
-		return ws.ConstructionSourceProjection{
-			OccurrenceID: ws.RootOccurrenceID, FieldPath: facts.CanonicalPath,
-			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
-			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
-		}, true
-	}
-	return ws.ConstructionSourceProjection{}, false
+	return constructionSourceFacts(snapshot, rootResourceType, fieldPath, unpivotSourceLogicalTypeIsMeltEligible)
 }
 
 func ConstructionHasUnpivotSourceInput(construction ws.Construction) bool {
@@ -217,66 +162,9 @@ func (s *Service) ConstructionUnpivotSourceCapability(
 	base Base,
 	outputID, stageID string,
 ) (ConstructionUnpivotSourceCapability, error) {
-	result := ConstructionUnpivotSourceCapability{StageID: stageID, Choices: []ConstructionUnpivotSourceChoice{}}
-	if importedSourceChoiceUnavailable(base.Document) {
-		result.Supported = true
-		return result, nil
-	}
-	if _, found := constructionReceiptStage(base.Stages, stageID); !found {
-		result.ReasonCode = "STALE_STAGE_REFERENCE"
-		result.Reason = "the selected stage is not present in the current compiled output"
-		return result, nil
-	}
-	enumeration := rowSourceEnumeration{
-		rootReachable:     constructionRootProjectionCanReachStage(base.Construction, stageID),
-		plannerConfigured: s.config.RowChoicePlanner != nil,
-	}
-	if enumeration.rootReachable && enumeration.plannerConfigured {
-		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
-		if err != nil {
-			result.ReasonCode, result.Reason = rowSourceInventoryFailure(unpivotSourceReasons)
-			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
-				fmt.Errorf("list authorized root unpivot source choices for output %q: %w", outputID, err))
-		}
-		for _, choice := range choices {
-			if rowSourceChoiceIsStaleVersion(choice, base.Snapshot) {
-				enumeration.skip(rowSourceSkipVersion)
-				continue
-			}
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
-				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
-				enumeration.skip(rowSourceSkipRoute)
-				continue
-			}
-			candidate, ok := constructionGroupSourceCandidate(base.Snapshot, choice)
-			if !ok {
-				enumeration.skip(rowSourceCandidateSkipClass(base.Snapshot, choice))
-				continue
-			}
-			if !unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
-				enumeration.skip(rowSourceSkipType)
-				continue
-			}
-			result.Choices = append(result.Choices, ConstructionUnpivotSourceChoice{
-				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
-				Label:       constructionFieldDisplayLabel(base.Document.RootResourceType, choice.Path, candidate.Label, choice.Label),
-				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
-				ColumnID: constructionOwnedUnpivotSourceColumnID(base.Construction, stageID, choice.Path),
-			})
-		}
-	}
-	sort.SliceStable(result.Choices, func(i, j int) bool {
-		if result.Choices[i].FieldPath != result.Choices[j].FieldPath {
-			return result.Choices[i].FieldPath < result.Choices[j].FieldPath
-		}
-		return result.Choices[i].ChoiceID < result.Choices[j].ChoiceID
-	})
-	if len(result.Choices) == 0 {
-		result.ReasonCode, result.Reason = enumeration.decision(unpivotSourceReasons)
-		return result, nil
-	}
-	result.Supported = true
-	return result, nil
+	result, err := s.constructionSourceCapability(ctx, base, outputID, stageID, unpivotSourceReasons, "unpivot",
+		unpivotSourceLogicalTypeIsMeltEligible, constructionOwnedUnpivotSourceColumnID)
+	return ConstructionUnpivotSourceCapability(result), err
 }
 
 func (s *Service) ResolveConstructionUnpivotSource(
@@ -288,41 +176,41 @@ func (s *Service) ResolveConstructionUnpivotSource(
 ) (ws.ConstructionSourceProjection, error) {
 	identity, err := capability.DecodeRowChoiceID(selection.ChoiceID)
 	if err != nil {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_UNPIVOT_SOURCE_CHOICE", "the selected unpivot source field choice is invalid", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_UNPIVOT_SOURCE_CHOICE", "the selected unpivot source field choice is invalid", err)
 	}
 	if s.config.RowChoiceResolver == nil {
 		return ws.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized unpivot source choice resolution is not configured", nil)
 	}
 	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_UNPIVOT_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_UNPIVOT_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil)
 	}
-	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, ports.RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 		Snapshot: base.Snapshot.Clone(), Route: base.Document.Route,
-		RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
+		RowChoiceID: selection.ChoiceID, ExpectedKind: ports.RowChoiceFieldGroup,
 	})
 	if resolveErr != nil || identity.Kind != capability.RowChoiceFieldGroupKey ||
 		identity.Occurrence.OccurrenceID != ws.RootOccurrenceID ||
 		identity.Path != resolved.FieldPath || identity.Reference ||
 		identity.Cardinality != capability.RowChoiceOne || identity.Shape != capability.RowChoiceScalar ||
 		resolved.OccurrenceID != ws.RootOccurrenceID {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_UNPIVOT_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, resolveErr)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_UNPIVOT_SOURCE_CHOICE", "reload the current populated root scalar field choice", resolveErr)
 	}
 	rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
 	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_UNPIVOT_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_UNPIVOT_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil)
 	}
 	candidate, found := uniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
 	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
 		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_UNPIVOT_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_UNPIVOT_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
 	}
 	if !unpivotSourceLogicalTypeIsTableScalar(candidate.LogicalType) {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_UNPIVOT_SOURCE_FIELD", "the physical table compiler refuses this logical type as an unpivot melt value column", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_UNPIVOT_SOURCE_FIELD", "the physical table compiler refuses this logical type as an unpivot melt value column", nil)
 	}
 	if !unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", "the unpivot melt lane refuses date and date_time value columns; the physical compiler's acceptance of the date family is not consent for this channel", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", "the unpivot melt lane refuses date and date_time value columns; the physical compiler's acceptance of the date family is not consent for this channel", nil)
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
 	if err != nil {
@@ -331,7 +219,7 @@ func (s *Service) ResolveConstructionUnpivotSource(
 	facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootNode.ResourceType), resolved.FieldPath)
 	if err != nil || facts.CanonicalPath != resolved.FieldPath || facts.Shape != fhirschema.RowPathScalar ||
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_UNPIVOT_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("STALE_UNPIVOT_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", err)
 	}
 	label := constructionFieldDisplayLabel(base.Document.RootResourceType, facts.CanonicalPath, candidate.Label)
 	return ws.ConstructionSourceProjection{
@@ -355,31 +243,29 @@ func (s *Service) ConstructionCandidateWithUnpivotSources(
 	}
 	unpivot := candidate.Steps[changedIndex].Operation.Unpivot
 	if unpivot == nil {
-		return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_REQUIRES_UNPIVOT", "unpivotSources can only be applied to an Unpivot step", nil)
+		return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_REQUIRES_UNPIVOT", "unpivotSources can only be applied to an Unpivot step", nil)
 	}
 	if len(request.UnpivotSources) == 0 {
 		cleared, err := clearConstructionUnpivotOwnedSources(base.Construction, candidate, request.ChangedStepID)
 		if err != nil {
-			return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+			return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
 		return cleared, nil
 	}
 	acceptedStageID := constructionStepInputStageID(candidate.Steps[changedIndex])
 	if acceptedStageID == "" {
-		return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_STAGE_UNAVAILABLE", "the Unpivot input stage cannot be resolved", nil)
+		return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_STAGE_UNAVAILABLE", "the Unpivot input stage cannot be resolved", nil)
 	}
 	if _, found := constructionReceiptStage(base.Stages, acceptedStageID); !found {
-		return ws.Construction{}, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the unpivot source choices are not bound to an accepted stage", nil, nil)
+		return ws.Construction{}, conflict("STALE_STAGE_REFERENCE", "the unpivot source choices are not bound to an accepted stage", nil)
 	}
 	inputIDs := unpivotInputColumnIDs(unpivot)
 	if len(request.UnpivotSources) > len(inputIDs) {
-		return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_COLUMN_MISMATCH",
-			fmt.Sprintf("unpivotSources carries %d selections but the edited Unpivot step melts %d value inputs", len(request.UnpivotSources), len(inputIDs)), nil)
+		return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_COLUMN_MISMATCH", fmt.Sprintf("unpivotSources carries %d selections but the edited Unpivot step melts %d value inputs", len(request.UnpivotSources), len(inputIDs)), nil)
 	}
 	for _, selection := range request.UnpivotSources {
 		if !containsConstructionColumnIDLocal(inputIDs, selection.ColumnID) {
-			return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_COLUMN_MISMATCH",
-				fmt.Sprintf("unpivotSources columnId %q is not a melt input of the edited Unpivot step", selection.ColumnID), nil)
+			return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_COLUMN_MISMATCH", fmt.Sprintf("unpivotSources columnId %q is not a melt input of the edited Unpivot step", selection.ColumnID), nil)
 		}
 	}
 
@@ -425,8 +311,7 @@ func (s *Service) ConstructionCandidateWithUnpivotSources(
 
 	for _, projection := range resolved {
 		if constructionRootFieldAlreadyProjected(base.Document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
-			return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_FIELD_ALREADY_PROJECTED",
-				fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this melt input", projection.FieldPath), nil)
+			return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_FIELD_ALREADY_PROJECTED", fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this melt input", projection.FieldPath), nil)
 		}
 	}
 
@@ -450,8 +335,7 @@ func (s *Service) ConstructionCandidateWithUnpivotSources(
 		}
 	}
 	if !unpivotMeltKindsSatisfiable(meltKinds) {
-		return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_TYPES_INCOMPATIBLE",
-			"the melted value columns, including the selected root field, cannot share one scalar value type; the physical table compiler refuses this melt (tableScalarKindsCompatible)", nil)
+		return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_TYPES_INCOMPATIBLE", "the melted value columns, including the selected root field, cannot share one scalar value type; the physical table compiler refuses this melt (tableScalarKindsCompatible)", nil)
 	}
 
 	steps := make([]ws.ConstructionStep, len(candidate.Steps))
@@ -459,7 +343,7 @@ func (s *Service) ConstructionCandidateWithUnpivotSources(
 	for index := 0; index < changedIndex; index++ {
 		step := &steps[index]
 		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
-			return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation into the Unpivot input", nil)
+			return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation into the Unpivot input", nil)
 		}
 		outputs := make([]ws.StageColumn, 0, len(step.Outputs)+len(resolved))
 		for _, output := range step.Outputs {
@@ -487,63 +371,11 @@ func (s *Service) ConstructionCandidateWithUnpivotSources(
 
 	candidate.Steps, candidate.SourceProjections = steps, projections
 	if err := validateUnpivotSourceColumns(candidate.Steps, request.ChangedStepID, request.UnpivotSources); err != nil {
-		return ws.Construction{}, unprocessable("construction-proposal", "UNPIVOT_SOURCE_COLUMN_MISMATCH", err.Error(), err)
+		return ws.Construction{}, unprocessable("UNPIVOT_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, nil
 }
 
 func (s *Service) ReauthorizeConstructionUnpivotSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
-	if s.config.RowChoicePlanner == nil {
-		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized unpivot source choice planning is not configured", nil)
-	}
-	var choices []capability.RowChoice
-	planned := false
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" {
-			continue
-		}
-		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-		if index < 0 {
-			return fmt.Errorf("unpivot source projection %q names a missing owner step", projection.ColumnID)
-		}
-		step := construction.Steps[index]
-		if step.Operation.Kind != ws.ConstructionOperationUnpivot {
-			continue
-		}
-		if step.Operation.Unpivot == nil || !containsConstructionColumnIDLocal(unpivotInputColumnIDs(step.Operation.Unpivot), projection.ColumnID) {
-			return fmt.Errorf("unpivot source projection %q is not a melt input of its owner Unpivot step", projection.ColumnID)
-		}
-		if !planned {
-			listed, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
-			if err != nil {
-				return fmt.Errorf("list authorized root unpivot source choices for output %q: %w", outputID, err)
-			}
-			choices, planned = listed, true
-		}
-		matched := false
-		for _, choice := range choices {
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
-				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) != canonicalRowPath(projection.FieldPath) {
-				continue
-			}
-			if _, found := base.Snapshot.Node(choice.NodeID); !found {
-				continue
-			}
-			derived, ok := ConstructionUnpivotSourceFacts(base.Snapshot, base.Document.RootResourceType, projection.FieldPath)
-			if !ok {
-				continue
-			}
-			expected := ws.ConstructionSourceProjection{
-				ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
-				OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
-				FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
-			}
-			matched = reflect.DeepEqual(expected, projection)
-			break
-		}
-		if !matched {
-			return fmt.Errorf("unpivot source projection %q no longer matches an authorized populated root scalar field", projection.ColumnID)
-		}
-	}
-	return nil
+	return s.reauthorizeConstructionSources(ctx, base, outputID, construction, unpivotSourceReauthorization)
 }

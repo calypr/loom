@@ -9,6 +9,28 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
+func TestCloneRowCopiesTopLevelAndRetainsNestedValues(t *testing.T) {
+	nested := map[string]any{"items": []string{"original"}}
+	original := map[string]any{"value": "original", "nested": nested}
+
+	cloned := CloneRow(original)
+	original["value"] = "changed"
+	nested["items"].([]string)[0] = "changed"
+
+	if cloned["value"] != "original" {
+		t.Fatalf("top-level value = %v, want original", cloned["value"])
+	}
+	if cloned["nested"].(map[string]any)["items"].([]string)[0] != "changed" {
+		t.Fatal("nested values were copied instead of retained")
+	}
+
+	clonedNil := CloneRow(nil)
+	if clonedNil == nil {
+		t.Fatal("CloneRow(nil) returned nil")
+	}
+	clonedNil["value"] = "writable"
+}
+
 func TestBundleIdentityCanonicalizesAuthorizationPathSet(t *testing.T) {
 	first := BundleIdentity{
 		Name:              "recipe",
@@ -182,7 +204,7 @@ type exactExecutionFixture struct {
 	output              BundleOutputRecord
 }
 
-func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
+func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector dataset.DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
 	f.project, f.generation, f.selector = project, generation, selector
 	return f.execution, f.output, nil
 }
@@ -191,8 +213,8 @@ func TestPublicationVerificationUsesExactSelectorAndQueryableEvidence(t *testing
 	verifiedAt := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	selector := dataset.DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}
 	exact := &exactExecutionFixture{
-		execution: BundleExecution{ID: "execution-a", BundleIdentity: BundleIdentity{DatasetGeneration: "commit-a"}, State: BundleReady},
-		output:    BundleOutputRecord{Selector: selector, Name: "Patient", State: BundleReady, VerifiedAt: &verifiedAt, PhysicalTable: "patient_a"},
+		execution: BundleExecution{ID: "execution-a", BundleIdentity: BundleIdentity{DatasetGeneration: "commit-a"}, State: "READY"},
+		output:    BundleOutputRecord{Selector: selector, Name: "Patient", State: "READY", VerifiedAt: &verifiedAt, PhysicalTable: "patient_a"},
 	}
 	result, err := (publicationVerificationStore{executions: exact}).VerifyPublication(context.Background(), "project-a", "commit-a", selector)
 	if err != nil {

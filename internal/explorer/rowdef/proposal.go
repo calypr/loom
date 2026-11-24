@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -92,7 +93,7 @@ func CheckRowDefinitionProposalResult(workspace ws.Workspace, receipt *receiptmo
 	return nil
 }
 
-func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string) (ws.Document, error) {
+func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string) error {
 	baseWithoutRows := base
 	candidateWithoutRows := candidate
 	baseWithoutRows.Documents = append([]ws.Document(nil), base.Documents...)
@@ -109,22 +110,22 @@ func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string)
 		}
 	}
 	if baseDocument < 0 || candidateDocument < 0 || baseDocument != candidateDocument {
-		return ws.Document{}, fmt.Errorf("output %q is missing or moved in the candidate workspace", outputID)
+		return fmt.Errorf("output %q is missing or moved in the candidate workspace", outputID)
 	}
 	if reflect.DeepEqual(base.Documents[baseDocument].Rows, candidate.Documents[candidateDocument].Rows) {
-		return ws.Document{}, fmt.Errorf("candidate row definition does not change output %q", outputID)
+		return fmt.Errorf("candidate row definition does not change output %q", outputID)
 	}
 	for index := range base.Documents {
 		if index != baseDocument && !reflect.DeepEqual(base.Documents[index].Rows, candidate.Documents[index].Rows) {
-			return ws.Document{}, fmt.Errorf("candidate changes rows for output %q outside the requested output", base.Documents[index].Output.ID)
+			return fmt.Errorf("candidate changes rows for output %q outside the requested output", base.Documents[index].Output.ID)
 		}
 		baseWithoutRows.Documents[index].Rows = ws.RowDefinition{}
 		candidateWithoutRows.Documents[index].Rows = ws.RowDefinition{}
 	}
 	if !reflect.DeepEqual(baseWithoutRows, candidateWithoutRows) {
-		return ws.Document{}, fmt.Errorf("candidate changes authoring fields outside Document.Rows")
+		return fmt.Errorf("candidate changes authoring fields outside Document.Rows")
 	}
-	return candidate.Documents[candidateDocument], nil
+	return nil
 }
 
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
@@ -164,7 +165,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err != nil || baseDigest != owner.DraftDigest {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	baseDocument := support.ProposalDocument(workspace, request.OutputID)
+	baseDocument := workspace.FindOutputDocument(request.OutputID)
 	if baseDocument == nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
@@ -187,7 +188,8 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 		return RowDefinitionProposal{}, support.Unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: request.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: "proposal-preview"}}
-	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
+	resolution, err := authoringv2.ResolveRowDefinitionProposal(command, rows)
+	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, request.ExplorerID)
@@ -195,11 +197,11 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", []authoringv2.Command{command})
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	if _, err := rowDefinitionWorkspaceChange(comparisonBase, candidateWorkspace, request.OutputID); err != nil {
+	if err := rowDefinitionWorkspaceChange(comparisonBase, candidateWorkspace, request.OutputID); err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
 	candidateDigest, err := candidateWorkspace.Digest()
@@ -241,7 +243,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 		return RowDefinitionProposal{}, err
 	}
 
-	candidateDocument := support.ProposalDocument(verifiedCandidate, request.OutputID)
+	candidateDocument := verifiedCandidate.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -373,7 +375,7 @@ func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *recei
 	return s.config.Core.VerifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
-func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
+func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, *receiptmodel.CompilationReceipt, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyRowDefinitionProposal {
 		return nil, nil, support.Malformed("commands", "APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request", nil)
 	}
@@ -397,7 +399,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if currentDigest != binding.DraftDigest {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft no longer matches the proposal base", nil, nil)
 	}
-	baseDocument := support.ProposalDocument(current, command.OutputID)
+	baseDocument := current.FindOutputDocument(command.OutputID)
 	if baseDocument == nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the proposal output is missing from the saved draft", nil, nil)
 	}
@@ -412,7 +414,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if err != nil {
 		return nil, nil, err
 	}
-	candidateDocument := support.ProposalDocument(candidate, command.OutputID)
+	candidateDocument := candidate.FindOutputDocument(command.OutputID)
 	if candidateDocument == nil {
 		return nil, nil, support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt does not contain the requested output", nil, nil)
 	}
@@ -429,14 +431,15 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if err != nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be canonicalized for the proposal", nil, err)
 	}
-	if _, err := rowDefinitionWorkspaceChange(comparisonBase, candidate, command.OutputID); err != nil {
+	if err := rowDefinitionWorkspaceChange(comparisonBase, candidate, command.OutputID); err != nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the candidate receipt no longer changes only the requested table rows", nil, err)
 	}
 	if _, err := s.resolveExplicitGroupRevisionForRows(ctx, project, explorerID, command.OutputID, snapshot, *candidateDocument, candidateDocument.Rows, receipt); err != nil {
 		return nil, nil, err
 	}
-	if err := command.ResolveRowDefinitionProposal(candidateDocument.Rows); err != nil {
+	resolution, err := authoringv2.ResolveRowDefinitionProposal(*command, candidateDocument.Rows)
+	if err != nil {
 		return nil, nil, support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate row definition is invalid", nil, err)
 	}
-	return commands, receipt, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}, receipt, nil
 }

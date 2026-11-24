@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/bootstrap"
-	ingestevent "github.com/calypr/loom/internal/ingest/event"
-	"github.com/calypr/loom/internal/ingest/row"
-	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,35 +14,33 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
+
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-type generationCatalogKey struct {
-	project           string
-	datasetGeneration string
-	authResourcePath  string
-	resourceType      string
-}
-
-func sortedGenerationCatalogKeys(catalogs map[generationCatalogKey]*fieldprofile.Profiler) []generationCatalogKey {
-	keys := make([]generationCatalogKey, 0, len(catalogs))
+func sortedGenerationCatalogKeys(catalogs map[catalog.FieldProfileIdentity]*fieldprofile.Profiler) []catalog.FieldProfileIdentity {
+	keys := make([]catalog.FieldProfileIdentity, 0, len(catalogs))
 	for key := range catalogs {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(left, right int) bool {
-		if keys[left].project != keys[right].project {
-			return keys[left].project < keys[right].project
+		if keys[left].Project != keys[right].Project {
+			return keys[left].Project < keys[right].Project
 		}
-		if keys[left].datasetGeneration != keys[right].datasetGeneration {
-			return keys[left].datasetGeneration < keys[right].datasetGeneration
+		if keys[left].DatasetGeneration != keys[right].DatasetGeneration {
+			return keys[left].DatasetGeneration < keys[right].DatasetGeneration
 		}
-		if keys[left].authResourcePath != keys[right].authResourcePath {
-			return keys[left].authResourcePath < keys[right].authResourcePath
+		if keys[left].AuthResourcePath != keys[right].AuthResourcePath {
+			return keys[left].AuthResourcePath < keys[right].AuthResourcePath
 		}
-		return keys[left].resourceType < keys[right].resourceType
+		return keys[left].ResourceType < keys[right].ResourceType
 	})
 	return keys
 }

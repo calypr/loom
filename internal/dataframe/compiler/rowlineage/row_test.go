@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipetest"
 	"github.com/google/uuid"
 )
 
@@ -147,7 +148,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	wantIDs := []string{"a_active_one", "b_active_two", "c_inactive", "d_explicit_null", "e_missing_status"}
 	seenIDs, seenKeys := map[string]bool{}, map[string]bool{}
 	for pageIndex, offset := range []int{0, 2, 4} {
-		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, offset))
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(rowID, offset))
 		contributors, ok := result["contributors"].([]any)
 		wantPageIDs := wantIDs[offset:min(offset+2, len(wantIDs))]
 		wantMore := offset+len(wantPageIDs) < len(wantIDs)
@@ -170,7 +171,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	if len(seenIDs) != len(wantIDs) || len(seenKeys) != len(wantIDs) {
 		t.Fatalf("Group/Pivot source preimage IDs/keys = %#v / %#v, want exact five roots", seenIDs, seenKeys)
 	}
-	pastEnd := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, len(wantIDs)))
+	pastEnd := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(rowID, len(wantIDs)))
 	if pastEnd["found"] != true || pastEnd["hasMore"] != false || len(pastEnd["contributors"].([]any)) != 0 {
 		t.Fatalf("past-end Group/Pivot lineage page = %#v, want found row and empty page", pastEnd)
 	}
@@ -178,7 +179,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged := executeRowLineageOracleQuery(t, ctx, client, compilePage(string(forgedID), 0))
+	forged := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(string(forgedID), 0))
 	if forged["found"] != false || len(forged["contributors"].([]any)) != 0 {
 		t.Fatalf("wrong-construction Group/Pivot identity disclosed source rows: %#v", forged)
 	}

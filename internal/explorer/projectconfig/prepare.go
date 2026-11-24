@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -126,7 +127,7 @@ func prepareProjectConfigSnapshot(resolved execution.Resolved, executionValue pu
 
 func (snapshot projectConfigSnapshot) configRevision(definition explorerconfig.ProjectConfig, digest string, configJSON json.RawMessage, revisionID string, executionValue publication.BundleExecution, diagnostics []viewer.Diagnostic) explorer.Revision {
 	readyAt := executionValue.PublishedAt.UTC()
-	return explorer.Revision{
+	return explorer.NewRevision(explorer.Revision{
 		ID: revisionID, Project: executionValue.Project, ExplorerID: definition.ID,
 		Config: configJSON, IntentDigest: digest,
 		PublicOutputContract: append(json.RawMessage(nil), snapshot.contractJSON...),
@@ -143,9 +144,9 @@ func (snapshot projectConfigSnapshot) configRevision(definition explorerconfig.P
 			State: string(explorer.RevisionReady), Generation: executionValue.DatasetGeneration,
 			ExecutionID: executionValue.ID, RevisionID: revisionID, UpdatedAt: readyAt,
 		},
-		Diagnostics: append([]viewer.Diagnostic{}, diagnostics...), Status: explorer.RevisionReady,
-		CreatedAt: executionValue.CreatedAt.UTC(), ReadyAt: &readyAt,
-	}
+		Diagnostics: append([]viewer.Diagnostic{}, diagnostics...),
+		CreatedAt:   executionValue.CreatedAt.UTC(), ReadyAt: &readyAt,
+	})
 }
 
 func validatePreparedExecution(resolved execution.Resolved, published publication.BundleExecution, sourceCommit string) error {
@@ -155,7 +156,7 @@ func validatePreparedExecution(resolved execution.Resolved, published publicatio
 	if strings.TrimSpace(published.ID) == "" || strings.TrimSpace(published.Project) == "" || strings.TrimSpace(published.DatasetGeneration) == "" {
 		return errors.New("published execution identity is incomplete")
 	}
-	if published.State.Canonical() != publication.BundlePublished {
+	if !published.State.Successful() {
 		return fmt.Errorf("execution %q is not published", published.ID)
 	}
 	if published.CreatedAt.IsZero() || published.PublishedAt == nil || published.PublishedAt.IsZero() {
@@ -181,7 +182,7 @@ func validatePreparedExecution(resolved execution.Resolved, published publicatio
 	if resolved.Semantic.ScopeDigest == "" || resolved.Compiled.ScopeDigest != resolved.Semantic.ScopeDigest || published.ScopeDigest != resolved.Semantic.ScopeDigest {
 		return errors.New("execution authorization scope does not match resolved recipe")
 	}
-	if string(bindings.AuthScopeMode) != published.AuthScopeMode || !sameProjectConfigStrings(bindings.AuthResourcePaths, published.AuthResourcePaths) {
+	if string(bindings.AuthScopeMode) != published.AuthScopeMode || !loomtext.EqualUnordered(bindings.AuthResourcePaths, published.AuthResourcePaths) {
 		return errors.New("execution authorization paths do not match resolved recipe")
 	}
 	if len(resolved.Bundle.Outputs) == 0 || len(resolved.Bundle.Outputs) != len(resolved.Compiled.Outputs) || len(resolved.Bundle.Outputs) != len(published.Outputs) {
@@ -594,24 +595,9 @@ func projectConfigDatasetOutputs(bundle recipe.Bundle, executionValue publicatio
 		executionOutput := outputsByName[output.Name]
 		selector := executionOutput.Selector
 		outputs = append(outputs, viewer.DatasetOutput{
-			Name: output.Name, State: string(executionOutput.State.Canonical()), Queryable: true,
+			Name: output.Name, State: string(publication.DecodeBundleState(executionOutput.State)), Queryable: true,
 			Selector: &selector, Columns: append([]publication.PhysicalColumn(nil), physical[output.Name]...),
 		})
 	}
 	return outputs
-}
-
-func sameProjectConfigStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
-	sort.Strings(leftCopy)
-	sort.Strings(rightCopy)
-	for index := range leftCopy {
-		if leftCopy[index] != rightCopy[index] {
-			return false
-		}
-	}
-	return true
 }

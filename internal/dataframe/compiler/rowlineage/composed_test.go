@@ -11,11 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -199,15 +203,15 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		if compileErr != nil {
 			t.Fatalf("compile composed row lineage at offset %d: %v", offset, compileErr)
 		}
-		return executeRowLineageOracleQuery(t, ctx, client, compiled)
+		return recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compiled)
 	}
 	firstPage, secondPage, pastEnd := page(0), page(2), page(4)
 	if firstPage["found"] != true || firstPage["hasMore"] != true || secondPage["found"] != true || secondPage["hasMore"] != false || pastEnd["found"] != true || pastEnd["hasMore"] != false {
 		t.Fatalf("composed lineage page flags: first=%#v second=%#v past-end=%#v", firstPage, secondPage, pastEnd)
 	}
-	firstContributors := lineageContributorRows(t, firstPage)
-	secondContributors := lineageContributorRows(t, secondPage)
-	pastContributors := lineageContributorRows(t, pastEnd)
+	firstContributors := recipetest.LineageContributorRows(t, firstPage)
+	secondContributors := recipetest.LineageContributorRows(t, secondPage)
+	pastContributors := recipetest.LineageContributorRows(t, pastEnd)
 	if len(firstContributors) != 2 || len(secondContributors) != 2 || len(pastContributors) != 0 {
 		t.Fatalf("composed lineage page lengths first=%d second=%d past-end=%d", len(firstContributors), len(secondContributors), len(pastContributors))
 	}
@@ -234,8 +238,8 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		if compileErr != nil {
 			t.Fatalf("compile preserved-empty composed lineage: %v", compileErr)
 		}
-		result := executeRowLineageOracleQuery(t, ctx, client, compiled)
-		contributors := lineageContributorRows(t, result)
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compiled)
+		contributors := recipetest.LineageContributorRows(t, result)
 		if result["found"] != true || result["hasMore"] != false || len(contributors) != 2 ||
 			contributors[0]["resourceType"] != "Patient" || contributors[0]["resourceId"] != oracle["root_id"] ||
 			contributors[1]["resourceType"] != "Specimen" || contributors[1]["resourceId"] != oracle["specimen_id"] {
@@ -256,8 +260,8 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		if compileErr != nil {
 			t.Fatalf("compile fail-closed composed identity %q: %v", forged, compileErr)
 		}
-		result := executeRowLineageOracleQuery(t, ctx, client, compiled)
-		if result["found"] != false || len(lineageContributorRows(t, result)) != 0 {
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compiled)
+		if result["found"] != false || len(recipetest.LineageContributorRows(t, result)) != 0 {
 			t.Errorf("forged/nonmember/unauthorized composed identity disclosed contributors: row=%q result=%#v", forged, result)
 		}
 	}
@@ -287,7 +291,7 @@ func composedRelatedExpandLineageOutput(selectionID string) recipe.Output {
 				ID: "filter_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "active-id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
 				}}, Outputs: activeColumns,
 			},
 			{
@@ -461,21 +465,4 @@ func composedOracleRowID(t *testing.T, row map[string]any, constructionIDs map[s
 		return relatedExpandEmptyRowID(t, id, constructionIDs["return_specimen"])
 	}
 	return relatedExpandRowID(t, id, constructionIDs["return_specimen"], "Specimen/"+returnedKey)
-}
-
-func lineageContributorRows(t *testing.T, result map[string]any) []map[string]any {
-	t.Helper()
-	values, ok := result["contributors"].([]any)
-	if !ok {
-		t.Fatalf("row-lineage response contributors are %T, want array: %#v", result["contributors"], result)
-	}
-	contributors := make([]map[string]any, 0, len(values))
-	for _, value := range values {
-		contributor, ok := value.(map[string]any)
-		if !ok {
-			t.Fatalf("row-lineage contributor is %T, want object: %#v", value, value)
-		}
-		contributors = append(contributors, contributor)
-	}
-	return contributors
 }

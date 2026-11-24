@@ -9,14 +9,14 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func applyColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, source ws.ColumnSource, logicalType, presentation string) (CommandResult, error) {
+func applyColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, source ws.ColumnSource, logicalType, presentation string, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	documentPos := documentIndex(workspace, command.OutputID)
 	if documentPos < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	source = editableSource(command.OccurrenceID(), source)
-	if err := validateResolvedConstructionChoiceSource(workspace.Documents[documentPos], catalog, command, source); err != nil {
+	if err := validateResolvedConstructionChoiceSource(workspace.Documents[documentPos], catalog, command, source, resolution); err != nil {
 		return result, err
 	}
 	var contributor *ws.ContributorPredicate
@@ -69,11 +69,15 @@ func applyColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, comm
 	return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
 }
 
-func validateResolvedConstructionChoiceSource(document ws.Document, catalog ws.CatalogSnapshot, command Command, source ws.ColumnSource) error {
+func validateResolvedConstructionChoiceSource(document ws.Document, catalog ws.CatalogSnapshot, command Command, source ws.ColumnSource, resolution CommandResolution) error {
 	validate := func(candidateSource ws.ColumnSource) error {
 		return validateEditableSourcePolicy(document, catalog, command.OccurrenceID(), candidateSource, true)
 	}
-	selection, resolved := command.ConstructionChoice(), command.ResolvedChoice
+	choiceResolution, ok := resolution.(ConstructionChoiceResolution)
+	if !ok || choiceResolution.Choice == nil {
+		return validate(source)
+	}
+	selection, resolved := command.ConstructionChoice(), choiceResolution.Choice
 	if selection == nil || resolved == nil || selection.Form != capability.ConstructionChoiceAll ||
 		command.OccurrenceID() == ws.RootOccurrenceID || source.Kind != ws.SourceField || source.Field == nil ||
 		!strings.EqualFold(strings.TrimSpace(source.Field.ProjectionMode), string(capability.ConstructionChoiceAll)) ||

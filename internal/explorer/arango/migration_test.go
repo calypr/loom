@@ -17,12 +17,13 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/arango/capabilitydb"
+	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestStoredWorkspaceMigrationAgainstArango(t *testing.T) {
@@ -211,7 +212,7 @@ func TestStoredWorkspaceMigrationCASFailureRollsBackHistoryAndProjectionAgainstA
 
 			return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key
 UPDATE d WITH {draftVersion:@next} IN @@c RETURN NEW`, 1, map[string]any{
-				"@c": ExplorersCollection, "key": explorerKey(before.Project, before.ExplorerID), "next": before.DraftVersion + 1,
+				"@c": db.ExplorersCollection, "key": explorerKey(before.Project, before.ExplorerID), "next": before.DraftVersion + 1,
 			}, func(map[string]any) error { return nil })
 		},
 	})
@@ -355,7 +356,7 @@ func workspaceMigrationVerifyHistoryProjection(t *testing.T, ctx context.Context
 		t.Fatalf("history did not preserve exact original packet: %#v", history[0])
 	}
 	source := explorer.DraftWorkspaceArtifact(history[0])
-	projection, err := adapter.WorkspaceProjection(ctx, source)
+	projection, err := NewWorkspaceProjectionStore(client).WorkspaceProjection(ctx, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +364,7 @@ func workspaceMigrationVerifyHistoryProjection(t *testing.T, ctx context.Context
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(adapter)
+	domain, err := explorerfixtures.NewService(adapter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +414,7 @@ func workspaceMigrationInventory(t *testing.T, ctx context.Context, client *stor
 func workspaceMigrationOwnerRevision(t *testing.T, ctx context.Context, client *store.Client, owner explorer.Explorer) string {
 	t.Helper()
 	var revision string
-	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {revision:d._rev}`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(owner.Project, owner.ExplorerID)}, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {revision:d._rev}`, 1, map[string]any{"@c": db.ExplorersCollection, "key": explorerKey(owner.Project, owner.ExplorerID)}, func(row map[string]any) error {
 		revision, _ = row["revision"].(string)
 		return nil
 	}); err != nil {
@@ -441,7 +442,7 @@ func workspaceMigrationCollectionCount(t *testing.T, ctx context.Context, client
 	return count
 }
 
-func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection workspacepkg.Projection) error {
+func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection ws.Projection) error {
 	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
 }
 

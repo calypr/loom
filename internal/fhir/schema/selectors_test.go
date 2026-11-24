@@ -33,3 +33,28 @@ func TestParseSelectorCanonicalizesIndexedPaths(t *testing.T) {
 		t.Fatalf("unexpected filter: %#v", sel.Filter)
 	}
 }
+
+func TestSelectorArrayPredicates(t *testing.T) {
+	index := 1
+	tests := []struct {
+		name          string
+		selector      Selector
+		noArrays      bool
+		iteratedArray bool
+	}{
+		{name: "empty", selector: Selector{}, noArrays: true},
+		{name: "direct", selector: Selector{Steps: []SelectorStep{{Field: "name"}}}, noArrays: true},
+		{name: "indexed", selector: Selector{Steps: []SelectorStep{{Field: "name", Index: &index}}}},
+		{name: "iterated", selector: Selector{Steps: []SelectorStep{{Field: "name", Iterate: true}}}, iteratedArray: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.selector.HasNoArrays(); got != test.noArrays {
+				t.Fatalf("HasNoArrays() = %v, want %v", got, test.noArrays)
+			}
+			if got := test.selector.HasIteratedArray(); got != test.iteratedArray {
+				t.Fatalf("HasIteratedArray() = %v, want %v", got, test.iteratedArray)
+			}
+		})
+	}
+}

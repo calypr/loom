@@ -15,7 +15,7 @@ func TestLogReceiptPreviewContractFailureIncludesInternalMismatchFields(t *testi
 	logger := slog.New(slog.NewTextHandler(&output, nil))
 	err := &PreviewResolutionError{
 		ReceiptID: "receipt-123",
-		Err:       NewContractMismatch("output_execution", "patients", "expected-fingerprint", "actual-fingerprint"),
+		Err:       contractMismatch("output_execution", "patients", "expected-fingerprint", "actual-fingerprint"),
 	}
 
 	LogPreviewContractFailure(logger, "request-456", "receipt-123", "patients", err)

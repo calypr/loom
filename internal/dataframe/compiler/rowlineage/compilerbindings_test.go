@@ -39,8 +39,6 @@ var constructionMissingKeyPolicyOutput = compilerfixtures.ConstructionMissingKey
 
 var codedGroupComponent = compilerfixtures.CodedGroupComponent
 
-var constructionCodedGroupTestOutput = compilerfixtures.ConstructionCodedGroupTestOutput
-
 var constructionCountRowsOnlyOutput = compilerfixtures.ConstructionCountRowsOnlyOutput
 
 var constructionOracleOutput = compilerfixtures.ConstructionOracleOutput

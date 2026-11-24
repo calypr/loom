@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"sort"
 	"strings"
@@ -60,7 +61,7 @@ func main() {
 		fatalf("reference interpreter: %v", err)
 	}
 
-	bindings := recipe.RuntimeBindings{Project: *project, DatasetGeneration: *generation}
+	bindings := recipe.RuntimeBindings{Project: *project, DatasetGeneration: *generation, GroupRowsCollections: explorerdb.GroupRowsCollections()}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		fatalf("build current recipe plan: %v", err)

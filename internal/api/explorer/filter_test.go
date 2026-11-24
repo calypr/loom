@@ -82,7 +82,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
@@ -131,7 +131,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
@@ -164,7 +164,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		t.Fatalf("filterSourceInput.choices = %#v, want the authorized active and id root scalars in fieldPath order", input.Choices)
 	}
 	choice := input.Choices[0]
-	for _, rawChoice := range rawFilterSourceChoices(t, capabilitiesHTTP.Body) {
+	for _, rawChoice := range rawSourceInputChoices(t, capabilitiesHTTP.Body, "filterSourceInput") {
 		var choiceKeys map[string]json.RawMessage
 		if err := json.Unmarshal(rawChoice, &choiceKeys); err != nil {
 			t.Fatal(err)
@@ -271,19 +271,6 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 	if storedAfter.DraftVersion != storedBefore.DraftVersion || storedAfter.DraftDigest != storedBefore.DraftDigest || !bytes.Equal(storedAfter.DraftConfig, storedBefore.DraftConfig) {
 		t.Fatalf("filter-source proposals mutated the stored draft: before=%#v after=%#v", storedBefore, storedAfter)
 	}
-}
-
-func rawFilterSourceChoices(t *testing.T, body string) []json.RawMessage {
-	t.Helper()
-	var envelope struct {
-		FilterSourceInput struct {
-			Choices []json.RawMessage `json:"choices"`
-		} `json:"filterSourceInput"`
-	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	return envelope.FilterSourceInput.Choices
 }
 
 func filterSourceHTTPBool(value bool) *bool { return &value }

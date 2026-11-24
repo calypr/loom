@@ -68,7 +68,7 @@ func (s *ResourceStore) RebuildResourceInventory(ctx context.Context, opts catal
 			}
 			counts = append(counts, catalog.ResourceInventoryCount{
 				Project: opts.Project, DatasetGeneration: catalog.NormalizeDatasetGeneration(opts.DatasetGeneration),
-				AuthResourcePath: stringValue(row["auth_resource_path"]), ResourceType: resourceType, DocumentCount: documentCount,
+				AuthResourcePath: arangostore.StringValue(row["auth_resource_path"]), ResourceType: resourceType, DocumentCount: documentCount,
 			})
 			return nil
 		})

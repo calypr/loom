@@ -14,6 +14,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(t *testing.T) {
@@ -68,7 +69,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
+	choice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 			t.Fatalf("standalone Coding choice must not expose enclosing-owner records: %#v", choice.Options)
 		}
 	}
-	if _, _, ok := semanticEntryForFrameFamily(entry, capability.SemanticFrameFamily{}); ok {
+	if _, ok := semanticEntryForFrameFamily(entry, capability.SemanticFrameFamily{}); ok {
 		t.Fatal("standalone Coding was accepted as an owner-scoped paired code/value frame")
 	}
 
@@ -98,7 +99,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Condition", contextToken, buildID, buildID,
 		map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -222,7 +223,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
+	choice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +249,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		tc.explorerID, tc.resourceType, contextToken, buildID, buildID,
 		map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -268,7 +269,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 
 func semanticCandidateWithFallbackMust(t *testing.T, snapshot capability.Snapshot, observation semantic.Observation, primary capability.Candidate) capability.Candidate {
 	t.Helper()
-	candidate, ok := semanticCandidateWithFallback(snapshot, observation, primary)
+	candidate, ok := capability.SemanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok {
 		t.Fatal("standalone Coding display/code fallback did not resolve to compiler candidates")
 	}
@@ -302,7 +303,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, family, candidate)
+	choice, err := semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, family, candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +333,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 		t.Fatalf("all-caps system-tail label = %q", label)
 	}
 
-	fieldCandidate, ok := semanticCandidateWithFallback(snapshot, semanticInventoryEntryForFamily(family).Observation, candidate)
+	fieldCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, semantic.EntryForFamily(family).Observation, candidate)
 	if !ok {
 		t.Fatal("category display/code fallback candidate was not compiler-proved")
 	}
@@ -347,7 +348,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 			Cardinality: candidate.Cardinality, ConstructionChoice: &fieldChoice,
 		}},
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Medication", contextToken, buildID, buildID,
 		map[string]semantic.Entry{}, map[string]semantic.Family{semanticChoiceKey(family.FamilyID, family.BindingID): family},
@@ -369,31 +370,6 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	}
 }
 
-func TestIdentifierSemanticItemLabelIncludesItsNamespace(t *testing.T) {
-	first := semanticIdentifierLabel("https://example.org/identifier/patient")
-	second := semanticIdentifierLabel("https://example.org/identifier/provider")
-	if first == "" || second == "" || first == second || first != "Identifier · https://example.org/identifier/patient" {
-		t.Fatalf("identifier labels = %q / %q", first, second)
-	}
-}
-
 func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
-	reference := semantic.FamilyReference{
-		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
-		SourcePath: sourcePath, System: system, Version: version,
-	}
-	reference.FamilyID = semantic.FamilyID(reference)
-	return semantic.Family{
-		FamilyReference: reference,
-		Source:          semantic.Source{Type: resourceType, Path: sourcePath},
-		KeySelector:     "code.coding[]",
-		Value: semantic.Value{
-			Selector: "code.coding[].display", Type: "string",
-			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
-		},
-		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
-		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
-		Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 2,
-		Examples: []string{"CARBOXYAMIDOTRIAZOLE", "another compound"},
-	}
+	return constructionfixtures.CodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version)
 }

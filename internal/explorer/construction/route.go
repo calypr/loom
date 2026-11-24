@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/rowdef"
 
@@ -23,17 +24,9 @@ import (
 	"strings"
 
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	"github.com/calypr/loom/internal/semantic"
 )
 
-type constructionRouteFlow struct {
-	capability       ports.CapabilityResolver
-	loadBase         func(context.Context, string, string, string, int64, string, string) (Base, error)
-	currentWorkspace func(context.Context, string, string) (ws.Workspace, error)
-	resolveInventory func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
-}
-
-func (s constructionRouteFlow) searchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
+func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
 	result := RelatedFieldChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
 		Choices: []RelatedFieldChoice{},
@@ -45,10 +38,10 @@ func (s constructionRouteFlow) searchRelatedFieldChoices(ctx context.Context, re
 		len(request.Query) > 256 || strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 {
 		return result, malformed("related-field-choices", "project, explorer, snapshot, draft, output, and stage identities are required", nil)
 	}
-	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
 		return result, unavailable("related-field-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
 		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return result, err
@@ -151,7 +144,7 @@ func (s constructionRouteFlow) searchRelatedFieldChoices(ctx context.Context, re
 	return result, nil
 }
 
-func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
+func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
 	result := RelatedExpandContributorChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
 		RouteChoiceID: request.RouteChoiceID, Choices: []RelatedExpandContributorChoice{},
@@ -164,10 +157,10 @@ func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context
 		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 {
 		return result, malformed("related-expand-contributors", "project, explorer, snapshot, draft, output, stage, and exact route choice identities are required", nil)
 	}
-	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
 		return result, unavailable("related-expand-contributors", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
 		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return result, err
@@ -269,7 +262,7 @@ func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context
 			operators = append(operators, "EQUALS")
 		}
 		result.Choices = append(result.Choices, RelatedExpandContributorChoice{
-			ChoiceID: choice.ChoiceID, Label: firstNonEmpty(proved.Label, proved.ResourceType+"."+proved.FieldPath),
+			ChoiceID: choice.ChoiceID, Label: loomtext.FirstTrimmed(proved.Label, proved.ResourceType+"."+proved.FieldPath),
 			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: proved.ID, NodeID: proved.NodeID,
 				ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
@@ -295,7 +288,7 @@ func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context
 	return result, nil
 }
 
-func (s constructionRouteFlow) searchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
+func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
 	result := RelatedExpandChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
 		Choices: []RelatedExpandRouteChoice{},
@@ -307,10 +300,10 @@ func (s constructionRouteFlow) searchRelatedExpandChoices(ctx context.Context, r
 		strings.TrimSpace(request.ExpectedDraftDigest) == "" || request.ExpectedDraftVersion < 1 {
 		return result, malformed("related-expand-choices", "project, explorer, snapshot, draft, output, stage, and target resource identities are required", nil)
 	}
-	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
 		return result, unavailable("related-expand-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
 		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return result, err
@@ -501,15 +494,7 @@ func encodeRelatedFieldChoiceCursor(cursor relatedFieldChoiceCursor) (string, er
 }
 
 func decodeRelatedFieldChoiceCursor(encoded string) (relatedFieldChoiceCursor, error) {
-	var cursor relatedFieldChoiceCursor
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return cursor, err
-	}
-	if err := json.Unmarshal(raw, &cursor); err != nil {
-		return cursor, err
-	}
-	return cursor, nil
+	return decodeChoiceCursor[relatedFieldChoiceCursor](encoded)
 }
 
 func encodeRelatedExpandContributorChoiceCursor(cursor relatedExpandContributorChoiceCursor) (string, error) {
@@ -521,7 +506,11 @@ func encodeRelatedExpandContributorChoiceCursor(cursor relatedExpandContributorC
 }
 
 func decodeRelatedExpandContributorChoiceCursor(encoded string) (relatedExpandContributorChoiceCursor, error) {
-	var cursor relatedExpandContributorChoiceCursor
+	return decodeChoiceCursor[relatedExpandContributorChoiceCursor](encoded)
+}
+
+func decodeChoiceCursor[T any](encoded string) (T, error) {
+	var cursor T
 	raw, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		return cursor, err
@@ -678,33 +667,10 @@ func routePathToOccurrence(root ws.RouteNode, occurrenceID string) ([]ws.RouteNo
 	return support.RoutePathToOccurrence(root, occurrenceID)
 }
 
-func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID, expectedNodeID string) (capability.RowChoiceOccurrence, error) {
-	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, expectedNodeID)
+func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType string, authoredRoot ws.RouteNode, occurrenceID string) (capability.RowChoiceOccurrence, error) {
+	return rowdef.ResolveRowChoiceOccurrence(snapshot, rootResourceType, authoredRoot, occurrenceID, "")
 }
 
 func validateResolvedRowChoice(route ws.RouteNode, resolved rowdef.ResolvedRowChoice, expected rowdef.RowChoiceKind) error {
 	return rowdef.ValidateResolvedRowChoice(route, resolved, expected)
-}
-
-func (s *Service) constructionRoutes() constructionRouteFlow {
-	return constructionRouteFlow{
-		capability: s.config.Capability, loadBase: s.loadConstructionBase,
-		currentWorkspace: s.CurrentWorkspace, resolveInventory: s.config.ResolveSemanticInventorySelections,
-	}
-}
-
-func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
-	return s.constructionRoutes().searchRelatedFieldChoices(ctx, request)
-}
-
-func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
-	return s.constructionRoutes().searchRelatedExpandContributorChoices(ctx, request)
-}
-
-func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
-	return s.constructionRoutes().searchRelatedExpandChoices(ctx, request)
-}
-
-func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
-	return s.constructionRoutes().searchConstructionChoices(ctx, request)
 }

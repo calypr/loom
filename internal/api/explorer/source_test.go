@@ -35,36 +35,22 @@ type unpivotSourceProbe struct {
 
 func decodedUnpivotSourceInput(t *testing.T, body string) (map[string]json.RawMessage, *unpivotSourceProbe) {
 	t.Helper()
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatalf("decode capabilities envelope: %v body=%s", err, body)
-	}
-	raw, ok := envelope["unpivotSourceInput"]
-	if !ok {
-		t.Fatalf("capabilities wire response dropped unpivotSourceInput: %s", body)
-	}
+	keys, raw := explorerfixtures.DecodeSourceInput(t, body, "unpivotSourceInput")
 	var input unpivotSourceProbe
 	if err := json.Unmarshal(raw, &input); err != nil {
-		t.Fatal(err)
-	}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatal(err)
 	}
 	return keys, &input
 }
 
-func rawUnpivotSourceChoices(t *testing.T, body string) []json.RawMessage {
+func rawSourceInputChoices(t *testing.T, body, inputName string) []json.RawMessage {
 	t.Helper()
-	var envelope struct {
-		UnpivotSourceInput struct {
-			Choices []json.RawMessage `json:"choices"`
-		} `json:"unpivotSourceInput"`
-	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+	keys, _ := explorerfixtures.DecodeSourceInput(t, body, inputName)
+	var choices []json.RawMessage
+	if err := json.Unmarshal(keys["choices"], &choices); err != nil {
 		t.Fatal(err)
 	}
-	return envelope.UnpivotSourceInput.Choices
+	return choices
 }
 
 func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(t *testing.T) {
@@ -155,7 +141,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +177,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
@@ -204,7 +190,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
@@ -242,7 +228,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 	if birth == nil {
 		t.Fatalf("unpivotSourceInput.choices omitted the populated integer root scalar: %#v", input.Choices)
 	}
-	for _, rawChoice := range rawUnpivotSourceChoices(t, capabilitiesHTTP.Body) {
+	for _, rawChoice := range rawSourceInputChoices(t, capabilitiesHTTP.Body, "unpivotSourceInput") {
 		var choiceKeys map[string]json.RawMessage
 		if err := json.Unmarshal(rawChoice, &choiceKeys); err != nil {
 			t.Fatal(err)
@@ -488,7 +474,7 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +512,7 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
@@ -536,7 +522,7 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return &unpivotMeltFirstEnv{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", snapshot: snapshot, draftVer: 1, draftDgst: digest}
 }
 
@@ -844,20 +830,9 @@ func expandSourceHTTPProcedureWorkspace() []byte {
 
 func expandSourceHTTPDecodedInput(t *testing.T, body string) (map[string]json.RawMessage, *expandSourceHTTPInputProbe) {
 	t.Helper()
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatalf("decode capabilities envelope: %v body=%s", err, body)
-	}
-	raw, ok := envelope["expandSourceInput"]
-	if !ok {
-		t.Fatalf("capabilities wire response dropped expandSourceInput: %s", body)
-	}
+	keys, raw := explorerfixtures.DecodeSourceInput(t, body, "expandSourceInput")
 	var input expandSourceHTTPInputProbe
 	if err := json.Unmarshal(raw, &input); err != nil {
-		t.Fatal(err)
-	}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatal(err)
 	}
 	return keys, &input
@@ -960,7 +935,7 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,7 +971,7 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "procedures" {
@@ -1009,7 +984,7 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(

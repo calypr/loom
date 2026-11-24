@@ -12,19 +12,10 @@ import (
 
 const relationshipCatalogKeyPrefix = "rfc_"
 
-type rawRelationshipEdge struct {
-	Project           string `json:"project"`
-	DatasetGeneration string `json:"dataset_generation"`
-	AuthResourcePath  string `json:"auth_resource_path"`
-	FromType          string `json:"from_type"`
-	Label             string `json:"label"`
-	ToType            string `json:"to_type"`
-}
-
 func RelationshipCountsFromRawEdges(docs []json.RawMessage) (map[RelationshipKey]int64, error) {
 	counts := make(map[RelationshipKey]int64)
 	for index, raw := range docs {
-		var edge rawRelationshipEdge
+		var edge RelationshipKey
 		if err := sonic.Unmarshal(raw, &edge); err != nil {
 			return nil, fmt.Errorf("decode relationship edge %d: %w", index, err)
 		}
@@ -39,15 +30,10 @@ func RelationshipCountsFromRawEdges(docs []json.RawMessage) (map[RelationshipKey
 		if !ok {
 			return nil, fmt.Errorf("relationship edge %d has unsupported to_type %q", index, edge.ToType)
 		}
-		key := RelationshipKey{
-			Project:           edge.Project,
-			DatasetGeneration: NormalizeDatasetGeneration(edge.DatasetGeneration),
-			AuthResourcePath:  edge.AuthResourcePath,
-			FromType:          fromType,
-			Label:             edge.Label,
-			ToType:            toType,
-		}
-		counts[key]++
+		edge.DatasetGeneration = NormalizeDatasetGeneration(edge.DatasetGeneration)
+		edge.FromType = fromType
+		edge.ToType = toType
+		counts[edge]++
 	}
 	return counts, nil
 }

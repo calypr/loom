@@ -1,6 +1,8 @@
 package celltrace_test
 
 import (
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
+
 	compiler "github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 )
@@ -23,13 +25,13 @@ var compilePopulationMappingOutput = compilerfixtures.CompilePopulationMappingOu
 
 var compileReshapeOracle = compilerfixtures.OutputCompiler(compiler.CompileRecipeOutputWithPolicy).CompileReshapeOracle
 
-type oraclePivot = compilerfixtures.OraclePivot
+type oraclePivot = recipefixtures.OraclePivot
 
-type oraclePivotCategory = compilerfixtures.OraclePivotCategory
+type oraclePivotCategory = recipefixtures.OraclePivotCategory
 
-type oracleReshape = compilerfixtures.OracleReshape
+type oracleReshape = recipefixtures.OracleReshape
 
-const oracleReshapePivot = compilerfixtures.OracleReshapePivot
+const oracleReshapePivot = recipefixtures.OracleReshapePivot
 
 var reshapeOracleOutput = compilerfixtures.ReshapeOracleOutput
 

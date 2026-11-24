@@ -76,7 +76,7 @@ func fs1New(t *testing.T) *fs1Env {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func fs1New(t *testing.T) *fs1Env {
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
@@ -124,7 +124,7 @@ func fs1New(t *testing.T) *fs1Env {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return &fs1Env{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", service: service, snapshot: snapshot, initialVersion: 1, initialDigest: digest}
 }
 
@@ -274,16 +274,20 @@ func fs1MarshalConstruction(t *testing.T, construction ws.Construction) string {
 	return string(raw)
 }
 
-func TestFS1DeriveSignedSlotSameFieldRefused(t *testing.T) {
+func fs1DeriveSlotResponse(t *testing.T, commandID, columnID, label, slot string) testHTTPResponse {
+	t.Helper()
 	env := fs1New(t)
-	document, version, digest := env.fs1AddColumn("fs1-derive-add", "c_patient_birth", "Birth count")
+	document, version, digest := env.fs1AddColumn(commandID, columnID, label)
 	choiceID := env.fs1SignedChoice("source_projection", "multipleBirthInteger")
-	const slot = "derive_input_fs1_a"
 	step := fs1DeriveStep("derive_step", "derived_total", slot, &ws.StageColumn{
 		ID: slot, Name: ws.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
 	}, fs1StageColumns(document), 3)
 	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
-	response := env.fs1Propose("derive_step", candidateJSON, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
+	return env.fs1Propose("derive_step", candidateJSON, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
+}
+
+func TestFS1DeriveSignedSlotSameFieldRefused(t *testing.T) {
+	response := fs1DeriveSlotResponse(t, "fs1-derive-add", "c_patient_birth", "Birth count", "derive_input_fs1_a")
 	t.Logf("F-DS1 derive collision status=%d body=%s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusUnprocessableEntity ||
 		!bytes.Contains([]byte(response.Body), []byte(`DERIVE_SOURCE_FIELD_ALREADY_PROJECTED`)) {
@@ -293,15 +297,7 @@ func TestFS1DeriveSignedSlotSameFieldRefused(t *testing.T) {
 }
 
 func TestFS1DeriveSignedSlotDistinctFieldStaysOK(t *testing.T) {
-	env := fs1New(t)
-	document, version, digest := env.fs1AddColumn("fs1-distinct-add", "c_patient_id", "ID")
-	choiceID := env.fs1SignedChoice("source_projection", "multipleBirthInteger")
-	const slot = "derive_input_fs1_b"
-	step := fs1DeriveStep("derive_step", "derived_total", slot, &ws.StageColumn{
-		ID: slot, Name: ws.ConstructionSourceProjectionName(slot), Label: "Birth count", Type: "integer",
-	}, fs1StageColumns(document), 3)
-	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
-	response := env.fs1Propose("derive_step", candidateJSON, fmt.Sprintf(`,"deriveSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
+	response := fs1DeriveSlotResponse(t, "fs1-distinct-add", "c_patient_id", "ID", "derive_input_fs1_b")
 	t.Logf("distinct-field derive proposal status=%d body=%.300s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusOK || !bytes.Contains([]byte(response.Body), []byte(`"previewStatus"`)) {
 		t.Fatalf("distinct-field signed derive slot regressed: status=%d body=%s", response.StatusCode, response.Body)
@@ -329,14 +325,18 @@ func TestFS1DeriveOperandExistingColumnStaysOK(t *testing.T) {
 	}
 }
 
-func TestFS1FilterSignedSlotSameFieldRefused(t *testing.T) {
+func fs1FilterSlotResponse(t *testing.T, commandID, columnID, label, slot string) testHTTPResponse {
+	t.Helper()
 	env := fs1New(t)
-	document, version, digest := env.fs1AddColumn("fs1-filter-add", "c_patient_active", "Active")
+	document, version, digest := env.fs1AddColumn(commandID, columnID, label)
 	choiceID := env.fs1SignedChoice("source_projection", "active")
-	const slot = "filter_input_fs1_a"
 	step := fs1FilterStep("filter_step", slot, fs1StageColumns(document))
 	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
-	response := env.fs1Propose("filter_step", candidateJSON, fmt.Sprintf(`,"filterSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
+	return env.fs1Propose("filter_step", candidateJSON, fmt.Sprintf(`,"filterSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
+}
+
+func TestFS1FilterSignedSlotSameFieldRefused(t *testing.T) {
+	response := fs1FilterSlotResponse(t, "fs1-filter-add", "c_patient_active", "Active", "filter_input_fs1_a")
 	t.Logf("F-DS1 filter twin status=%d body=%s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusUnprocessableEntity ||
 		!bytes.Contains([]byte(response.Body), []byte(`FILTER_SOURCE_FIELD_ALREADY_PROJECTED`)) {
@@ -346,13 +346,7 @@ func TestFS1FilterSignedSlotSameFieldRefused(t *testing.T) {
 }
 
 func TestFS1FilterSignedSlotDistinctFieldStaysOK(t *testing.T) {
-	env := fs1New(t)
-	document, version, digest := env.fs1AddColumn("fs1-filter-distinct-add", "c_patient_id", "ID")
-	choiceID := env.fs1SignedChoice("source_projection", "active")
-	const slot = "filter_input_fs1_b"
-	step := fs1FilterStep("filter_step", slot, fs1StageColumns(document))
-	candidateJSON := fs1MarshalConstruction(t, ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}})
-	response := env.fs1Propose("filter_step", candidateJSON, fmt.Sprintf(`,"filterSources":[{"choiceId":%q,"columnId":%q}]`, choiceID, slot), version, digest)
+	response := fs1FilterSlotResponse(t, "fs1-filter-distinct-add", "c_patient_id", "ID", "filter_input_fs1_b")
 	t.Logf("distinct-field filter proposal status=%d body=%.300s", response.StatusCode, response.Body)
 	if response.StatusCode != http.StatusOK || !bytes.Contains([]byte(response.Body), []byte(`"previewStatus"`)) {
 		t.Fatalf("distinct-field signed filter slot regressed: status=%d body=%s", response.StatusCode, response.Body)

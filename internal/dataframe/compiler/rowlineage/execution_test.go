@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipetest"
 	"github.com/google/uuid"
 )
 
@@ -91,7 +92,7 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 		}
 		return query
 	}
-	first := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 0))
+	first := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 0))
 	firstContributors, _ := first["contributors"].([]any)
 	if first["found"] != true || first["hasMore"] != true || len(firstContributors) != 1 {
 		t.Fatalf("first Group lineage page = %#v, want one contributor and another page", first)
@@ -104,13 +105,13 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 		}
 	}
 	assertContributor(firstContributors[0], "active-a", project+"_active-a")
-	second := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 1))
+	second := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 1))
 	secondContributors, _ := second["contributors"].([]any)
 	if second["found"] != true || second["hasMore"] != false || len(secondContributors) != 1 {
 		t.Fatalf("second Group lineage page = %#v, want the final contributor", second)
 	}
 	assertContributor(secondContributors[0], "active-b", project+"_active-b")
-	empty := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 2))
+	empty := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 2))
 	if empty["found"] != true || empty["hasMore"] != false || len(empty["contributors"].([]any)) != 0 {
 		t.Fatalf("past-end Group lineage page = %#v, want found row and empty page", empty)
 	}
@@ -126,7 +127,7 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 	}
 	wrongStageID := string(wrongStageBytes)
 	for _, forgedID := range []string{"forged-group-row-id", wrongStageID} {
-		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(forgedID, 0))
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(forgedID, 0))
 		if result["found"] != false || len(result["contributors"].([]any)) != 0 {
 			t.Errorf("forged/wrong-stage Group identity disclosed contributors: %#v", result)
 		}
@@ -231,7 +232,7 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 	}
 	contributors := make(map[string]bool, 105)
 	for pageIndex, offset := range []int{0, 50, 100} {
-		page := executeRowLineageOracleQuery(t, ctx, client, compilePage(output, rowID, offset))
+		page := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(output, rowID, offset))
 		items, _ := page["contributors"].([]any)
 		wantLengths := []int{50, 50, 5}
 		if page["found"] != true || len(items) != wantLengths[pageIndex] || page["hasMore"] != (offset < 100) {
@@ -250,7 +251,7 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 	if len(contributors) != 105 {
 		t.Fatalf("paged Group contributor count = %d, want 105", len(contributors))
 	}
-	pastEnd := executeRowLineageOracleQuery(t, ctx, client, compilePage(output, rowID, 105))
+	pastEnd := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(output, rowID, 105))
 	if pastEnd["found"] != true || pastEnd["hasMore"] != false || len(pastEnd["contributors"].([]any)) != 0 {
 		t.Fatalf("past-end filtered Group lineage page = %#v, want found row and empty page", pastEnd)
 	}
@@ -269,14 +270,14 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 		t.Fatal(err)
 	}
 	for _, excludedID := range []string{borderlineID, string(wrongStageBytes), "forged-group-row-id"} {
-		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(output, excludedID, 0))
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(output, excludedID, 0))
 		if result["found"] != false || len(result["contributors"].([]any)) != 0 {
 			t.Errorf("excluded or forged Group identity disclosed contributors: %#v", result)
 		}
 	}
 
 	lateFilterOutput := lowerConstructionOutput(t, constructionGroupFilterLineageOutput(103, 104), bindings)
-	lateExcluded := executeRowLineageOracleQuery(t, ctx, client, compilePage(lateFilterOutput, borderlineID, 0))
+	lateExcluded := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(lateFilterOutput, borderlineID, 0))
 	if lateExcluded["found"] != false || len(lateExcluded["contributors"].([]any)) != 0 {
 		t.Fatalf("identity rejected only by the last FILTER still disclosed contributors: %#v", lateExcluded)
 	}

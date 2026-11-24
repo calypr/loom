@@ -19,7 +19,7 @@ func (d Document) validate(allowArchive bool) error {
 	if d.Kind != Kind {
 		return fmt.Errorf("unsupported V2 document protocol or kind")
 	}
-	if emptyID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
+	if !requiredID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
 		return fmt.Errorf("output id and title are required")
 	}
 	if !physicalColumnPattern.MatchString(d.Output.ID) {
@@ -84,7 +84,7 @@ func (w Workspace) validate(allowArchive bool) error {
 		outputs[d.Output.ID] = true
 	}
 	for i, tab := range w.Tabs {
-		if emptyID(tab.ID) || strings.TrimSpace(tab.Title) == "" || emptyID(tab.OutputID) || tab.Order < 0 {
+		if !requiredID(tab.ID) || strings.TrimSpace(tab.Title) == "" || !requiredID(tab.OutputID) || tab.Order < 0 {
 			return fmt.Errorf("tabs[%d] is invalid", i)
 		}
 		if tabs[tab.ID] {
@@ -190,7 +190,7 @@ func (c CatalogSnapshot) Validate() error {
 	}
 	nodes := map[string]CatalogNode{}
 	for i, n := range c.Nodes {
-		if emptyID(n.ID) || strings.TrimSpace(n.ResourceType) == "" {
+		if !requiredID(n.ID) || strings.TrimSpace(n.ResourceType) == "" {
 			return fmt.Errorf("nodes[%d] is invalid", i)
 		}
 		if _, ok := nodes[n.ID]; ok {
@@ -200,7 +200,7 @@ func (c CatalogSnapshot) Validate() error {
 	}
 	edges := map[string]CatalogEdge{}
 	for i, e := range c.Edges {
-		if emptyID(e.ID) || nodes[e.FromNodeID].ID == "" || nodes[e.ToNodeID].ID == "" {
+		if !requiredID(e.ID) || nodes[e.FromNodeID].ID == "" || nodes[e.ToNodeID].ID == "" {
 			return fmt.Errorf("edges[%d] has stale node reference", i)
 		}
 		if e.StorageDirection != "" && e.StorageDirection != "INBOUND" && e.StorageDirection != "OUTBOUND" {
@@ -216,7 +216,7 @@ func (c CatalogSnapshot) Validate() error {
 	}
 	candidates := map[string]CatalogCandidate{}
 	for i, candidate := range c.Candidates {
-		if emptyID(candidate.ID) || nodes[candidate.NodeID].ID == "" {
+		if !requiredID(candidate.ID) || nodes[candidate.NodeID].ID == "" {
 			return fmt.Errorf("candidates[%d] has stale node reference", i)
 		}
 		if _, ok := candidates[candidate.ID]; ok {
@@ -355,10 +355,6 @@ func (s BuilderState) Validate() error {
 		return nil
 	}
 	return s.Workspace.Validate()
-}
-
-func emptyID(value string) bool {
-	return strings.TrimSpace(value) == "" || value != strings.TrimSpace(value)
 }
 
 const maxCodedPivotCategories = 50
@@ -796,17 +792,17 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		if step.Operation.Group == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Expand != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionGroup(step, input, inputColumns)
+		return validateConstructionGroup(step, input)
 	case ConstructionOperationCodedGroup:
 		if step.Operation.CodedGroup == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionCodedGroup(step, input, inputColumns)
+		return validateConstructionCodedGroup(step, input)
 	case ConstructionOperationCodedPivot:
 		if step.Operation.CodedPivot == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionCodedPivot(step, input, inputColumns)
+		return validateConstructionCodedPivot(step, inputColumns)
 	case ConstructionOperationExpand:
 		if step.Operation.Expand == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Group != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -830,7 +826,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		if step.Operation.RelatedEligibility == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
-		return validateConstructionRelatedEligibility(step, input, inputColumns)
+		return validateConstructionRelatedEligibility(step, inputColumns)
 	case ConstructionOperationRelatedField:
 		if step.Operation.RelatedField == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -841,7 +837,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	}
 }
 
-func validateConstructionRelatedEligibility(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionRelatedEligibility(step ConstructionStep, inputColumns []StageColumn) error {
 	related := step.Operation.RelatedEligibility
 	if !requiredID(related.AnchorColumnID) {
 		return fmt.Errorf("relatedEligibility.anchorColumnId must identify a retained row resource")
@@ -1217,37 +1213,6 @@ func stageColumnIndex(columns []StageColumn) (map[string]StageColumn, error) {
 	return index, nil
 }
 
-func constructionPivotScalarKind(typeName string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(typeName)) {
-	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime":
-		return "STRING", true
-	case "integer":
-		return "INTEGER", true
-	case "decimal":
-		return "DECIMAL", true
-	case "boolean":
-		return "BOOLEAN", true
-	default:
-		return "", false
-	}
-}
-
-func constructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
-	normalized := strings.ToLower(strings.TrimSpace(typeName))
-	if normalized == "" || normalized == "infer" {
-		return true, false
-	}
-	if _, ok := constructionPivotScalarKind(normalized); ok {
-		return true, true
-	}
-	switch normalized {
-	case "array", "object", "record", "json", "list", "map":
-		return false, true
-	default:
-		return true, false
-	}
-}
-
 func validateConstructionPivot(step ConstructionStep, input map[string]StageColumn) error {
 	pivot := step.Operation.Pivot
 	if !sameOperationID(step.ID, pivot.ConstructionID) {
@@ -1268,7 +1233,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if !exists {
 			return missingConstructionColumn("groupKeyIds", id)
 		}
-		if scalar, known := constructionPivotTypeIsScalar(column.Type); known && !scalar {
+		if scalar, known := recipe.ConstructionPivotTypeIsScalar(column.Type); known && !scalar {
 			return fmt.Errorf("pivot group key %q type %q is not a scalar", id, column.Type)
 		}
 		groupIDs[id] = true
@@ -1288,7 +1253,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if groupIDs[id] {
 			return fmt.Errorf("pivot %s cannot also be a group key", field)
 		}
-		if scalar, known := constructionPivotTypeIsScalar(column.Type); known && !scalar {
+		if scalar, known := recipe.ConstructionPivotTypeIsScalar(column.Type); known && !scalar {
 			return fmt.Errorf("pivot %s column %q type %q is not a scalar", field, id, column.Type)
 		}
 	}
@@ -1304,7 +1269,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	if !oneOf(string(pivot.DuplicatePolicy), "ERROR", "SUM", "MIN", "MAX") {
 		return fmt.Errorf("pivot duplicatePolicy must be ERROR, SUM, MIN, or MAX")
 	}
-	if categoryKind, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); known {
+	if categoryKind, known := recipe.ConstructionPivotScalarKind(input[pivot.CategoryColumnID].Type); known {
 		for index, category := range pivot.Categories {
 			if category.Key.Kind == TableScalarNull || category.Key.Kind == TableScalarMissing {
 				continue
@@ -1316,7 +1281,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	}
 	if pivot.DuplicatePolicy == ConstructionPivotDuplicateSum {
 		valueColumn := input[pivot.ValueColumnID]
-		if valueKind, known := constructionPivotScalarKind(valueColumn.Type); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
+		if valueKind, known := recipe.ConstructionPivotScalarKind(valueColumn.Type); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
 			return fmt.Errorf("pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", valueColumn.Type)
 		}
 	}
@@ -1330,10 +1295,10 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if pivot.Discovery.MaxCategories <= 0 || pivot.Discovery.MaxCategories > maxPivotCategories {
 			return fmt.Errorf("pivot discovery maxCategories must be 1..%d", maxPivotCategories)
 		}
-		if _, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); !known {
+		if _, known := recipe.ConstructionPivotScalarKind(input[pivot.CategoryColumnID].Type); !known {
 			return fmt.Errorf("pivot discovery category column %q type %q is not a supported scalar pair", pivot.CategoryColumnID, input[pivot.CategoryColumnID].Type)
 		}
-		if _, known := constructionPivotScalarKind(input[pivot.ValueColumnID].Type); !known {
+		if _, known := recipe.ConstructionPivotScalarKind(input[pivot.ValueColumnID].Type); !known {
 			return fmt.Errorf("pivot discovery value column %q type %q is not a supported scalar pair", pivot.ValueColumnID, input[pivot.ValueColumnID].Type)
 		}
 		return validateDeclaredOutputIDs(step.Outputs, pivot.GroupKeyIDs)
@@ -1365,7 +1330,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	return validateDeclaredOutputIDs(step.Outputs, want)
 }
 
-func validateConstructionCodedPivot(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionCodedPivot(step ConstructionStep, inputColumns []StageColumn) error {
 	pivot := step.Operation.CodedPivot
 	if pivot == nil || !sameOperationID(step.ID, pivot.ConstructionID) {
 		return fmt.Errorf("coded pivot constructionId must equal step id")
@@ -1654,7 +1619,7 @@ func validateConstructionUnpivot(step ConstructionStep, input map[string]StageCo
 	return validateDeclaredOutputIDs(step.Outputs, want)
 }
 
-func validateConstructionGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionGroup(step ConstructionStep, input map[string]StageColumn) error {
 	group := step.Operation.Group
 	if !sameOperationID(step.ID, group.ConstructionID) {
 		return fmt.Errorf("group constructionId must equal step id")
@@ -1784,7 +1749,7 @@ func validateConstructionGroupSemanticCategory(category ConstructionGroupSemanti
 	return nil
 }
 
-func validateConstructionCodedGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+func validateConstructionCodedGroup(step ConstructionStep, input map[string]StageColumn) error {
 	group := step.Operation.CodedGroup
 	if !sameOperationID(step.ID, group.ConstructionID) {
 		return fmt.Errorf("codedGroup constructionId must equal step id")

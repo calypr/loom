@@ -2,14 +2,13 @@ package queryapi
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"time"
 
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	compilerfacade "github.com/calypr/loom/internal/dataframe/compiler/facade"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -96,7 +95,7 @@ func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindi
 }
 
 func compileSingleQuery(resolved recipeplan.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := compilerfacade.CompileResolvedRecipePlanWithPolicy(resolved, limit, compilerfacade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return dataframeexecution.CompiledQuery{}, err
 	}
@@ -106,7 +105,7 @@ func compileSingleQuery(resolved recipeplan.ResolvedRecipePlan, limit int) (data
 	return queries[0], nil
 }
 
-func (s *Service) RunPreview(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
+func (s *Service) RunPreview(ctx context.Context, input recipe.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
 	if limit == nil {
 		defaultLimit := 25
 		limit = &defaultLimit
@@ -114,7 +113,7 @@ func (s *Service) RunPreview(ctx context.Context, input dataframemodel.FhirDataf
 	return s.Run(ctx, input, limit)
 }
 
-func (s *Service) Run(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
+func (s *Service) Run(ctx context.Context, input recipe.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
 	started := s.clockNow()
 	normalizedInput, scope, generation, err := s.prepareRunInput(ctx, input)
 	if err != nil {
@@ -131,9 +130,9 @@ func (s *Service) Run(ctx context.Context, input dataframemodel.FhirDataframeInp
 		rowLimit = 25
 	}
 	preparationStarted := s.clockNow()
-	bundle, err := RecipeBundleFromInput(normalizedInput)
+	bundle, err := normalizedInput.Bundle()
 	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
+		return nil, queryInvalid(err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project:           normalizedInput.Project,

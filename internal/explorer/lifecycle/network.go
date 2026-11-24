@@ -1,14 +1,10 @@
 package lifecycle
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
+	"github.com/calypr/loom/internal/explorer/proposal"
 )
 
 type AuthoringNetworkRequest struct {
@@ -28,22 +24,6 @@ type AuthoringNetworkResponse struct {
 	Network       authoringnetwork.AuthoringNetwork `json:"network"`
 }
 
-func decodeClosedSourceIntent(raw []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("source intent must contain one JSON value")
-	}
-	return nil
-}
-
 func (r *AuthoringNetworkRequest) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		SnapshotToken        string `json:"snapshotToken"`
@@ -51,7 +31,7 @@ func (r *AuthoringNetworkRequest) UnmarshalJSON(raw []byte) error {
 		ExpectedDraftDigest  string `json:"expectedDraftDigest"`
 		OutputID             string `json:"outputId"`
 	}
-	if err := decodeClosedSourceIntent(raw, &wire); err != nil {
+	if err := proposal.DecodeClosedSourceIntent(raw, &wire); err != nil {
 		return err
 	}
 	*r = AuthoringNetworkRequest{SnapshotToken: wire.SnapshotToken, ExpectedDraftVersion: wire.ExpectedDraftVersion, ExpectedDraftDigest: wire.ExpectedDraftDigest, OutputID: wire.OutputID}

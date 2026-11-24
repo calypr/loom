@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -162,7 +164,7 @@ func validateWorkspaceResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs [
 			value := input.Unrestricted
 			unrestricted = &value
 			paths = append([]string(nil), input.AuthResourcePaths...)
-		} else if input.Unrestricted != *unrestricted || !sameStrings(input.AuthResourcePaths, paths) {
+		} else if input.Unrestricted != *unrestricted || !loomtext.EqualUnordered(input.AuthResourcePaths, paths) {
 			return fmt.Errorf("workspace and published ClickHouse inputs must share one complete authorization scope")
 		}
 		if ref.WorkspaceOutputID != "" {
@@ -170,7 +172,7 @@ func validateWorkspaceResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs [
 			if artifact == nil || artifact.Identity.OutputID != ref.WorkspaceOutputID || input.TableID != "" || input.RevisionID != "" || input.OutputID != "" {
 				return fmt.Errorf("resolved ClickHouse input %d does not match its exact workspace output reference", index)
 			}
-			if artifact.Identity.Project != project || artifact.Identity.DatasetGeneration != generation || artifact.Identity.AuthScopeMode != map[bool]string{true: "unrestricted", false: "restricted"}[input.Unrestricted] || !sameStrings(artifact.Identity.AuthResourcePaths, paths) ||
+			if artifact.Identity.Project != project || artifact.Identity.DatasetGeneration != generation || artifact.Identity.AuthScopeMode != map[bool]string{true: "unrestricted", false: "restricted"}[input.Unrestricted] || !loomtext.EqualUnordered(artifact.Identity.AuthResourcePaths, paths) ||
 				artifact.Identity.ScopeMode != input.ScopeMode || artifact.Identity.ScopeEvidenceDigest != input.ScopeEvidenceDigest {
 				return fmt.Errorf("resolved workspace artifact %q differs from the complete request scope", ref.WorkspaceOutputID)
 			}

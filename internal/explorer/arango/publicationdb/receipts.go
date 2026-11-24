@@ -14,6 +14,7 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
+	store "github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -48,7 +49,7 @@ func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt rec
 		if attempt == compilationReceiptInsertMaxAttempts-1 {
 			return nil, err
 		}
-		if waitErr := waitForCompilationReceiptRetry(ctx, time.Duration(attempt+1)*compilationReceiptConflictRetryDelay); waitErr != nil {
+		if waitErr := store.WaitForConflictRetry(ctx, time.Duration(attempt+1)*compilationReceiptConflictRetryDelay); waitErr != nil {
 			return nil, fmt.Errorf("retry compilation receipt insert: %w", errors.Join(err, waitErr))
 		}
 	}
@@ -72,17 +73,6 @@ func (s *ReceiptStore) getVerifiedCompilationReceipt(ctx context.Context, receip
 		return nil, explorer.ErrCorruptReceipt
 	}
 	return stored, nil
-}
-
-func waitForCompilationReceiptRetry(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func (s *ReceiptStore) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*receiptmodel.CompilationReceipt, error) {
@@ -151,10 +141,6 @@ func isContentAddressedReceiptID(id string) bool {
 
 func ValidateReceipt(receipt receiptmodel.CompilationReceipt) error {
 	return validateReceipt(receipt)
-}
-
-func SameReceipt(a, b receiptmodel.CompilationReceipt) bool {
-	return sameReceipt(a, b)
 }
 
 const (

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -157,7 +158,7 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 	identity := *output.ScopeEvidenceIdentity
 	if identity.OutputID != output.Name || projectid.Canonical(identity.Project) != projectid.Canonical(bindings.Project) || identity.DatasetGeneration != bindings.DatasetGeneration ||
 		(bindings.AuthScopeMode != "" && identity.AuthScopeMode != string(bindings.AuthScopeMode)) ||
-		!sameExecutionStrings(identity.AuthResourcePaths, bindings.AuthResourcePaths) {
+		!slices.Equal(identity.AuthResourcePaths, bindings.AuthResourcePaths) {
 		return "", nil, nil, fmt.Errorf("compiler source evidence identity differs from the exact output scope")
 	}
 	if !output.ScopeEvidence.Matches(output.Plan, identity) {
@@ -220,22 +221,10 @@ func planHasExecutionWindow(plan ir.PhysicalPlan) bool {
 	return false
 }
 
-func sameExecutionStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode, error) {
 	if identity := stream.scopeEvidenceIdentity; identity != nil {
 		if identity.Project != stream.bindings.Project || identity.DatasetGeneration != stream.bindings.DatasetGeneration ||
-			!sameExecutionStrings(identity.AuthResourcePaths, stream.bindings.AuthResourcePaths) {
+			!slices.Equal(identity.AuthResourcePaths, stream.bindings.AuthResourcePaths) {
 			return "", fmt.Errorf("compiler scope evidence differs from the stream's exact project, generation, or paths")
 		}
 		mode := authscope.ReadScopeMode(identity.AuthScopeMode)
@@ -572,7 +561,7 @@ func (s OutputStream) workspaceScopeIdentityForInputs(captured []PrivateClickHou
 	} else {
 		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine has no proven source from which to derive its empty-path scope")
 	}
-	if sourceProject != s.bindings.Project || sourceGeneration != s.bindings.DatasetGeneration || !sameExecutionStrings(sourcePaths, s.bindings.AuthResourcePaths) {
+	if sourceProject != s.bindings.Project || sourceGeneration != s.bindings.DatasetGeneration || !slices.Equal(sourcePaths, s.bindings.AuthResourcePaths) {
 		return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace input scope differs from the exact output project, generation, or authorization paths")
 	}
 	if sourceMode != string(authscope.ReadScopeUnrestricted) && sourceMode != string(authscope.ReadScopeRestricted) {
@@ -593,7 +582,7 @@ func (s OutputStream) workspaceScopeIdentity() (irscope.WholeRelationScopeIdenti
 		identity := *s.scopeEvidenceIdentity
 		if identity.OutputID != s.Name || identity.Project != s.bindings.Project || identity.DatasetGeneration != s.bindings.DatasetGeneration ||
 			(s.bindings.AuthScopeMode != "" && identity.AuthScopeMode != string(s.bindings.AuthScopeMode)) ||
-			!sameExecutionStrings(identity.AuthResourcePaths, s.bindings.AuthResourcePaths) {
+			!slices.Equal(identity.AuthResourcePaths, s.bindings.AuthResourcePaths) {
 			return irscope.WholeRelationScopeIdentity{}, fmt.Errorf("workspace Combine scope identity differs from its exact output bindings")
 		}
 		if _, err := streamExecutionAuthScopeMode(s); err != nil {

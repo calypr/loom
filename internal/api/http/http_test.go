@@ -311,3 +311,14 @@ func TestRecoveryMiddlewareLogsStackAndPreservesInternalErrorResponse(t *testing
 		t.Fatalf("logs unexpectedly contain request body:\n%s", logText)
 	}
 }
+
+func TestOptionalStringPreservesSuppliedValue(t *testing.T) {
+	for _, value := range []string{"", " ", " value "} {
+		if got := OptionalString(&value); got != value {
+			t.Fatalf("optional string = %q, want %q", got, value)
+		}
+	}
+	if got := OptionalString(nil); got != "" {
+		t.Fatalf("absent optional string = %q", got)
+	}
+}

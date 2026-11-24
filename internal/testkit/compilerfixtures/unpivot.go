@@ -2,14 +2,15 @@ package compilerfixtures
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
 )
 
 func ReshapeOracleUnpivotOutput(policy recipe.UnpivotNullRowPolicy, constructionID string) recipe.Output {
-	return ReshapeOracleOutput("unpivot", &OracleReshape{
-		Kind: OracleReshapeUnpivot,
-		Unpivot: &OracleUnpivot{
+	return ReshapeOracleOutput("unpivot", &recipefixtures.OracleReshape{
+		Kind: recipefixtures.OracleReshapeUnpivot,
+		Unpivot: &recipefixtures.OracleUnpivot{
 			ConstructionID: constructionID,
-			Inputs: []OracleUnpivotInput{
+			Inputs: []recipefixtures.OracleUnpivotInput{
 				{Column: "group_number", Key: ReshapeOracleString("z-integer")},
 				{Column: "numeric_value", Key: ReshapeOracleString("a-decimal")},
 			},

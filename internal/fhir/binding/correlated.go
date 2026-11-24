@@ -2,8 +2,10 @@ package binding
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/fhir/schema"
+	"slices"
 	"strings"
+
+	"github.com/calypr/loom/internal/fhir/schema"
 )
 
 type CorrelatedValueScope string
@@ -291,7 +293,7 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 			return checkedBindingValue{}, fmt.Errorf("choiceArms[%d] %q is outside valuePath %q choice group", index, arm, valuePath)
 		}
 	}
-	if len(choiceArms) > 0 && !containsCorrelatedString(choiceArms, valueArm) {
+	if len(choiceArms) > 0 && !slices.Contains(choiceArms, valueArm) {
 		return checkedBindingValue{}, fmt.Errorf("valuePath %q is outside declared choiceArms", valuePath)
 	}
 	if len(choiceArms) > 1 && logicalType != "string" {
@@ -315,7 +317,7 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 			return checkedBindingValue{}, fmt.Errorf("valueFallback[%d] %q is incompatible with logicalType %q", index, fallbackPath, logicalType)
 		}
 		fallbackArm := strings.TrimSuffix(strings.Split(fallbackPath, ".")[0], "[]")
-		if len(choiceArms) > 0 && !containsCorrelatedString(choiceArms, fallbackArm) {
+		if len(choiceArms) > 0 && !slices.Contains(choiceArms, fallbackArm) {
 			return checkedBindingValue{}, fmt.Errorf("valueFallback[%d] %q is outside declared choiceArms", index, fallbackPath)
 		}
 		fallbacks = append(fallbacks, fallback)
@@ -489,15 +491,6 @@ func normalizeCorrelatedLogicalType(input string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-func containsCorrelatedString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func correlatedPrimitiveCompatible(logicalType string, primitive schema.PrimitiveKind, explicitMixed bool) bool {

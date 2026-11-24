@@ -1,14 +1,13 @@
 package ir
 
 import (
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
-)
-
-import (
 	"fmt"
-	"github.com/calypr/loom/internal/projectid"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func validateCohortRootSourceProof(plan PhysicalPlan) error {
@@ -1251,7 +1250,7 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("related field path is empty")
 		}
 		for index, segment := range expression.RelatedField.Path {
-			if !validPhysicalFieldPathSegment(segment) {
+			if !spec.ValidFieldPathSegment(segment) {
 				return fmt.Errorf("related field path segment %d is invalid", index)
 			}
 		}
@@ -1259,20 +1258,6 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	default:
 		return fmt.Errorf("unknown expression kind %q", expression.Kind)
 	}
-}
-
-func validPhysicalFieldPathSegment(segment string) bool {
-	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
-		return false
-	}
-	for index := 1; index < len(segment); index++ {
-		character := segment[index]
-		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
-			(character < '0' || character > '9') && character != '_' {
-			return false
-		}
-	}
-	return true
 }
 
 func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, bindVars map[string]any) error {

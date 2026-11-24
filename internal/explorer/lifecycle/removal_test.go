@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -21,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.T) {
@@ -88,7 +90,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 				}
 			}
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 				OutputID: "patients", RemoveStepIDs: []string{test.removeStepID}, CandidateConstruction: candidate,
@@ -105,13 +107,13 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 			if len(proposal.DependencyImpact.MissingInputs) != 0 {
 				t.Fatalf("removal still requires repair: %#v", proposal.DependencyImpact.MissingInputs)
 			}
-			if !equalStringSlices(proposal.DependencyImpact.RemovedStepIDs, test.wantRemoved) {
+			if !slices.Equal(proposal.DependencyImpact.RemovedStepIDs, test.wantRemoved) {
 				t.Fatalf("removed steps = %#v, want %#v", proposal.DependencyImpact.RemovedStepIDs, test.wantRemoved)
 			}
-			if !equalStringSlices(constructionStepIDs(proposal.CandidateConstruction.Steps), test.wantKept) {
+			if !slices.Equal(constructionStepIDs(proposal.CandidateConstruction.Steps), test.wantKept) {
 				t.Fatalf("candidate steps = %#v, want %#v", constructionStepIDs(proposal.CandidateConstruction.Steps), test.wantKept)
 			}
-			if !equalStringSlices(candidateBinding.RemoveStepIDs, test.wantRemoved) {
+			if !slices.Equal(candidateBinding.RemoveStepIDs, test.wantRemoved) {
 				t.Fatalf("receipt binding removals = %#v, want %#v", candidateBinding.RemoveStepIDs, test.wantRemoved)
 			}
 			if len(workspace.Documents) != 1 || len(store.created.DraftConfig) == 0 {
@@ -172,7 +174,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	candidate.Steps[0].Operation.Group.Keys = nil
 	candidate.Steps[0].Outputs = []ws.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "group-records", CandidateConstruction: candidate,
@@ -181,11 +183,11 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 		t.Fatalf("propose GROUP edit with dependent filter: %v", err)
 	}
 	wantSteps := []string{"group-records", "independent-count-filter"}
-	if proposal.PreviewStatus != "PREVIEW_PENDING" || !equalStringSlices(proposal.DependencyImpact.RemovedStepIDs, []string{"dependent-id-filter"}) ||
-		!equalStringSlices(constructionStepIDs(proposal.CandidateConstruction.Steps), wantSteps) {
+	if proposal.PreviewStatus != "PREVIEW_PENDING" || !slices.Equal(proposal.DependencyImpact.RemovedStepIDs, []string{"dependent-id-filter"}) ||
+		!slices.Equal(constructionStepIDs(proposal.CandidateConstruction.Steps), wantSteps) {
 		t.Fatalf("GROUP edit proposal did not cascade only the missing-key filter: status=%s impact=%#v steps=%#v", proposal.PreviewStatus, proposal.DependencyImpact, constructionStepIDs(proposal.CandidateConstruction.Steps))
 	}
-	if candidateCompileCalls != 1 || candidateBinding == nil || !equalStringSlices(candidateBinding.RemoveStepIDs, []string{"dependent-id-filter"}) {
+	if candidateCompileCalls != 1 || candidateBinding == nil || !slices.Equal(candidateBinding.RemoveStepIDs, []string{"dependent-id-filter"}) {
 		t.Fatalf("candidate binding = %#v, compile calls=%d; want cascade removal bound for Apply", candidateBinding, candidateCompileCalls)
 	}
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
@@ -197,7 +199,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	if err != nil {
 		t.Fatalf("apply GROUP edit cascade: %v", err)
 	}
-	if response.Workspace.Documents[0].Construction == nil || !equalStringSlices(constructionStepIDs(response.Workspace.Documents[0].Construction.Steps), wantSteps) {
+	if response.Workspace.Documents[0].Construction == nil || !slices.Equal(constructionStepIDs(response.Workspace.Documents[0].Construction.Steps), wantSteps) {
 		t.Fatalf("applied construction = %#v, want GROUP and independent count filter", response.Workspace.Documents[0].Construction)
 	}
 	if len(workspace.Documents) != 1 {
@@ -328,7 +330,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	}
 	_, config, base, snapshot, before := populationMemberProposalSetup(t)
 	store := &formalRemovalStore{populationProposalTestStore: base}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,9 +342,9 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return preview(ctx, receipt, bindings, visit)
 	}
-	service := newPopulationMemberProposalService(t, domain, config)
+	service := newPopulationMemberProposalService(t, domain, config, store)
 	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
-	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
+	proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)
 	}

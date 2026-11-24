@@ -12,6 +12,24 @@ type Selector struct {
 	Filter *ContainsFilter
 }
 
+func (selector Selector) HasNoArrays() bool {
+	for _, step := range selector.Steps {
+		if step.Iterate || step.Index != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (selector Selector) HasIteratedArray() bool {
+	for _, step := range selector.Steps {
+		if step.Iterate {
+			return true
+		}
+	}
+	return false
+}
+
 type SelectorStep struct {
 	Field   string
 	Iterate bool

@@ -36,6 +36,16 @@ func validateSnapshot(snapshot Snapshot) error {
 
 func ValidateSnapshot(snapshot Snapshot) error { return validateSnapshot(snapshot) }
 
+func ValidateSnapshotWrite(snapshot Snapshot) error {
+	if err := ValidateSnapshot(snapshot); err != nil {
+		return err
+	}
+	if !snapshot.Usable() {
+		return fmt.Errorf("%w: only complete READY snapshots can be cached", ErrInvalidSnapshot)
+	}
+	return nil
+}
+
 func snapshotToken(snapshot Snapshot) string {
 	sum := sha256.Sum256(snapshot.CanonicalPayload())
 	return "sha256:" + hex.EncodeToString(sum[:])

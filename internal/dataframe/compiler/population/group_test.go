@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -198,7 +201,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 				ID: "exclude_upstream_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
 				}},
 				Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id", Type: "string"}},
 			}},
@@ -209,7 +212,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation,
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		AuthScopeMode:              authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 		IncludeRowIdentity: true,
@@ -564,7 +567,7 @@ func routedPopulationGroupPivotCohortOutput(population *recipe.PopulationConstra
 					ID: "exclude_filtered_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "patient_gender_pivot"}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "patient_id", Name: "patient_id", Type: "string"},
@@ -588,7 +591,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 		Route:        []recipe.PopulationRouteStep{{ResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND"}},
 	}, "cohort_revision", "filtered")
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		SelectionMembersCollection: "loom_explorer_selection_members", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{

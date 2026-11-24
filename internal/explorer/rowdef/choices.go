@@ -12,43 +12,24 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/projectid"
 
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-type RowChoiceKind string
+type RowChoiceKind = ports.RowChoiceKind
 
 const (
-	RowChoiceFieldGroup RowChoiceKind = "FIELD_GROUP"
-	RowChoiceExpanded   RowChoiceKind = "EXPANDED"
+	RowChoiceFieldGroup = ports.RowChoiceFieldGroup
+	RowChoiceExpanded   = ports.RowChoiceExpanded
 )
 
-type RowChoiceResolveRequest struct {
-	Project      string
-	ExplorerID   string
-	OutputID     string
-	Snapshot     capability.Snapshot
-	Route        ws.RouteNode
-	RowChoiceID  string
-	ExpectedKind RowChoiceKind
-}
-
-type ResolvedRowChoice struct {
-	Kind         RowChoiceKind
-	OccurrenceID string
-	FieldPath    string
-	ScopePath    string
-}
-
-type RowChoiceResolver interface {
-	ResolveRowChoiceID(context.Context, RowChoiceResolveRequest) (ResolvedRowChoice, error)
-}
-
-type RowChoicePlanner interface {
-	ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error)
-}
+type RowChoiceResolveRequest = ports.RowChoiceResolveRequest
+type ResolvedRowChoice = ports.ResolvedRowChoice
+type RowChoiceResolver = ports.RowChoiceResolver
+type RowChoicePlanner = ports.RowChoicePlanner
 
 type RowDefinitionChoice struct {
 	ChoiceID          string                      `json:"choiceId"`
@@ -363,15 +344,6 @@ func responseFromRowChoices(snapshotToken, outputID string, choices []capability
 	return response
 }
 
-func findSemanticOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
-}
-
 func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefinitionChoicesRequest) (RowDefinitionChoicesResponse, error) {
 	result := RowDefinitionChoicesResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []RowDefinitionChoice{}, ExplicitGroups: []explicitgroup.ExplicitGroupRevisionChoice{}}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" {
@@ -392,7 +364,7 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 	if err != nil {
 		return result, err
 	}
-	document := findSemanticOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil {
 		return result, support.Unprocessable("row-definition-choices", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}

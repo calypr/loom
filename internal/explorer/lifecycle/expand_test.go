@@ -166,7 +166,7 @@ func expandTestPatientBase(snapshot capability.Snapshot, construction ws.Constru
 func TestConstructionExpandSourceCapabilityReportsStaleStageReference(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	base := expandTestPatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion})
-	result, err := harness.service.constructionExpandSourceCapability(context.Background(), base, expandTestOutput, "stage-that-was-removed")
+	result, err := harness.service.rowSourceService.ConstructionExpandSourceCapability(context.Background(), base, expandTestOutput, "stage-that-was-removed")
 	if err != nil {
 		t.Fatalf("expand source capability: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestConstructionExpandSourceCapabilityAdvertisesPopulatedRootPrimitiveArray
 	row := expandTestAdvertisedRow(expandTestMintArrayChoice(t, snapshot, "node-patient", "Patient", "photo[]", "string"), "ignored — wire label is candidate-sourced")
 	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{row}})
 
-	result, err := service.constructionExpandSourceCapability(context.Background(), expandTestPatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), expandTestOutput, recipe.ConstructionSourceProjectionID)
+	result, err := service.rowSourceService.ConstructionExpandSourceCapability(context.Background(), expandTestPatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), expandTestOutput, recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatalf("expand source capability: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestConstructionExpandSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 			SourceProjections: []ws.ConstructionSourceProjection{{ColumnID: expandTestInput, OwnerStepID: owner, OccurrenceID: ws.RootOccurrenceID, FieldPath: "photo[]", FHIRType: "string", LogicalType: "string", Label: "Photo attachment"}},
 		}
 		base := expandTestPatientBase(snapshot, construction)
-		result, err := service.constructionExpandSourceCapability(context.Background(), base, expandTestOutput, recipe.ConstructionSourceProjectionID)
+		result, err := service.rowSourceService.ConstructionExpandSourceCapability(context.Background(), base, expandTestOutput, recipe.ConstructionSourceProjectionID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -386,7 +386,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			}
 			base := expandTestPatientBase(snapshot, row.construction)
 			base.Stages = append(base.Stages, row.stages...)
-			result, err := service.constructionExpandSourceCapability(context.Background(), base, expandTestOutput, row.stageID)
+			result, err := service.rowSourceService.ConstructionExpandSourceCapability(context.Background(), base, expandTestOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("expand source capability: %v", err)
 			}
@@ -421,7 +421,7 @@ func TestConstructionExpandSourceCapabilityNamesInventoryFailureDistinctly(t *te
 	snapshot.Candidates = append(snapshot.Candidates, expandTestPatientArrayCandidate("c-photo-array", "photo[]", "string", "Photo attachment", true))
 	inventoryErr := errors.New("row-choice inventory store unreachable: capability-store-dsn=secret-token")
 	service := expandTestService(t, failingRowSourcePlanner{err: inventoryErr})
-	_, err := service.constructionExpandSourceCapability(context.Background(), expandTestPatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), expandTestOutput, recipe.ConstructionSourceProjectionID)
+	_, err := service.rowSourceService.ConstructionExpandSourceCapability(context.Background(), expandTestPatientBase(snapshot, ws.Construction{Version: ws.ConstructionVersion}), expandTestOutput, recipe.ConstructionSourceProjectionID)
 	if err == nil {
 		t.Fatal("expand source capability with a failing planner returned no error")
 	}
@@ -471,10 +471,12 @@ func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(
 	carrier := deriveSourceLiteralOnlyStep(expandTestCarrier, append(deriveSourcePatientIdentityColumns(), ws.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))
 	carrier.Operation.Derive.OutputColumnID = "derived_total"
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier}}
-	unchanged, err := service.constructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
+	unchanged, err := service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		ChangedStepID: expandTestCarrier, CandidateConstruction: candidate,
 		ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}},
-	}, candidate)
+	}.RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		t.Fatalf("expand channel for a non-expand change: %v", err)
 	}
@@ -484,9 +486,11 @@ func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(
 
 	step := expandTestExpandStep(expandTestInput, expandTestCarrier)
 	withExpand := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, step}}
-	untouched, err := service.constructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
+	untouched, err := service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		ChangedStepID: expandTestStep, CandidateConstruction: withExpand,
-	}, withExpand)
+	}.RowSourceRequest(),
+
+		withExpand)
 	if err != nil {
 		t.Fatalf("nil expand channel: %v", err)
 	}
@@ -500,12 +504,13 @@ func TestConstructionExpandSourceCandidatePrepRequiresExpandPayload(t *testing.T
 	step := expandTestExpandStep(expandTestInput, expandTestCarrier)
 	step.Operation.Expand = nil
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{step}}
-	_, err := harness.service.constructionCandidateWithExpandSources(context.Background(),
-		expandTestPatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion}),
-		construction.ConstructionProposalRequest{
+	_, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(),
+		expandTestPatientBase(harness.snapshot, ws.Construction{Version: ws.ConstructionVersion}), construction.ConstructionProposalRequest{
 			ChangedStepID: expandTestStep, CandidateConstruction: candidate,
 			ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}},
-		}, candidate)
+		}.RowSourceRequest(),
+
+		candidate)
 	if err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_REQUIRES_EXPAND" {
 		t.Fatalf("nil expand payload error = %v, want EXPAND_SOURCE_REQUIRES_EXPAND", err)
 	}
@@ -525,12 +530,13 @@ func TestConstructionExpandSourceCandidatePrepClearsChannelAndSignedPayload(t *t
 	saved.Steps[0].Outputs = append(saved.Steps[0].Outputs, ws.StageColumn{
 		ID: expandTestInput, Name: ws.ConstructionSourceProjectionName(expandTestInput), Label: "Photo attachment", Type: "string",
 	})
-	cleared, err := harness.service.constructionCandidateWithExpandSources(context.Background(),
-		expandTestPatientBase(harness.snapshot, saved),
-		construction.ConstructionProposalRequest{
+	cleared, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(),
+		expandTestPatientBase(harness.snapshot, saved), construction.ConstructionProposalRequest{
 			ChangedStepID: expandTestStep, CandidateConstruction: saved,
 			ExpandSources: []rowsource.ConstructionExpandSourceSelection{},
-		}, saved)
+		}.RowSourceRequest(),
+
+		saved)
 	if err != nil {
 		t.Fatalf("clear the expand source channel: %v", err)
 	}
@@ -560,13 +566,13 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 			{ChoiceID: "row-choice-b", ColumnID: "extra_column"},
 		}}
 	}
-	if _, err := harness.service.constructionCandidateWithExpandSources(context.Background(), base, twoSelections(), twoSelections().CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, twoSelections().RowSourceRequest(), twoSelections().CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
 		t.Fatalf("two selections error = %v, want EXPAND_SOURCE_COLUMN_MISMATCH", err)
 	}
 
 	wrongColumn := twoSelections()
 	wrongColumn.ExpandSources = []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: "not_the_input"}}
-	if _, err := harness.service.constructionCandidateWithExpandSources(context.Background(), base, wrongColumn, wrongColumn.CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, wrongColumn.RowSourceRequest(), wrongColumn.CandidateConstruction); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_COLUMN_MISMATCH" {
 		t.Fatalf("foreign columnId error = %v, want EXPAND_SOURCE_COLUMN_MISMATCH", err)
 	}
 
@@ -575,7 +581,7 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 	orphanCandidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{orphan}}
 	orphanRequest := construction.ConstructionProposalRequest{ChangedStepID: expandTestStep, CandidateConstruction: orphanCandidate,
 		ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}}}
-	if _, err := harness.service.constructionCandidateWithExpandSources(context.Background(), base, orphanRequest, orphanCandidate); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_STAGE_UNAVAILABLE" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, orphanRequest.RowSourceRequest(), orphanCandidate); err == nil || lifecycleErrorCode(err) != "EXPAND_SOURCE_STAGE_UNAVAILABLE" {
 		t.Fatalf("unresolvable input stage error = %v, want EXPAND_SOURCE_STAGE_UNAVAILABLE", err)
 	}
 
@@ -584,7 +590,7 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 	carrierless := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{expandTestExpandStep(expandTestInput, expandTestCarrier)}}
 	carrierlessRequest := construction.ConstructionProposalRequest{ChangedStepID: expandTestStep, CandidateConstruction: carrierless,
 		ExpandSources: []rowsource.ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}}}
-	if _, err := harness.service.constructionCandidateWithExpandSources(context.Background(), base, carrierlessRequest, carrierless); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+	if _, err := harness.service.rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, carrierlessRequest.RowSourceRequest(), carrierless); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("unbound stage error = %v, want STALE_STAGE_REFERENCE", err)
 	}
 }
@@ -597,7 +603,7 @@ func TestProposeConstructionExpandSourceRejectsForgedChoiceID(t *testing.T) {
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		carrier, expandTestExpandStep(expandTestInput, expandTestCarrier),
 	}}
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: expandTestOutput,
 		ChangedStepID:         expandTestStep,
@@ -627,10 +633,12 @@ func TestProposeConstructionExpandSourceRefusesClientAuthoredLaneFacts(t *testin
 		SourceProjections: []ws.ConstructionSourceProjection{clientProjection},
 	}
 
-	out, err := expandTestService(t, nil).constructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
+	out, err := expandTestService(t, nil).rowSourceService.ConstructionCandidateWithExpandSources(context.Background(), base, construction.ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: "explorer-a", OutputID: "procedures",
 		ChangedStepID: expandTestStep, CandidateConstruction: candidate,
-	}, candidate)
+	}.RowSourceRequest(),
+
+		candidate)
 	if err != nil {
 		return
 	}
@@ -655,7 +663,7 @@ func TestProposeConstructionExpandSourceRejectsChoiceFromAnotherSnapshot(t *test
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		carrier, expandTestExpandStep(expandTestInput, expandTestCarrier),
 	}}
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: expandTestOutput,
 		ChangedStepID:         expandTestStep,
@@ -670,7 +678,7 @@ func TestProposeConstructionExpandSourceRejectsChoiceFromAnotherSnapshot(t *test
 func TestConstructionExpandSourceFactsDerivesServerSignedArrayProjection(t *testing.T) {
 	snapshot := expandTestProcedureSnapshot("expand-facts-procedure")
 
-	facts, ok := ConstructionExpandSourceFacts(snapshot, "Procedure", "instantiatesUri[]")
+	facts, ok := rowsource.ConstructionExpandSourceFacts(snapshot, "Procedure", "instantiatesUri[]")
 	if !ok {
 		t.Fatalf("facts for a populated generated primitive array were refused")
 	}
@@ -716,7 +724,7 @@ func TestConstructionExpandSourceFactsDerivesServerSignedArrayProjection(t *test
 			} else {
 				refused.Nodes = []capability.Node{{ID: "procedure", ResourceType: "Procedure", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true}}
 			}
-			if _, ok := ConstructionExpandSourceFacts(refused, row.rootType, row.path); ok {
+			if _, ok := rowsource.ConstructionExpandSourceFacts(refused, row.rootType, row.path); ok {
 				t.Fatalf("facts accepted a non-flattenable %s %s", row.rootType, row.path)
 			}
 		})
@@ -749,7 +757,7 @@ func expandTestAuthorizedRow() capability.RowChoice {
 func TestReauthorizeConstructionExpandSourcesCurrentBindingPasses(t *testing.T) {
 	construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
 	service := expandTestService(t, expandTestPlanner{choices: []capability.RowChoice{expandTestAuthorizedRow()}})
-	if err := service.reauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction); err != nil {
+	if err := service.rowSourceService.ReauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction); err != nil {
 		t.Fatalf("reauthorize a current expand binding: %v", err)
 	}
 }
@@ -813,7 +821,7 @@ func TestReauthorizeConstructionExpandSourcesRefusesDrift(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
 			row.mutate(&construction, &snapshot)
-			err := service.reauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
+			err := service.rowSourceService.ReauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
 			if err == nil || !strings.Contains(err.Error(), row.wantMsg) {
 				t.Fatalf("reauthorize error = %v, want it to report %q", err, row.wantMsg)
 			}
@@ -824,7 +832,7 @@ func TestReauthorizeConstructionExpandSourcesRefusesDrift(t *testing.T) {
 func TestReauthorizeConstructionExpandSourcesRefusesWithoutPlanner(t *testing.T) {
 	construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
 	service := expandTestService(t, nil)
-	err := service.reauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
+	err := service.rowSourceService.ReauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
 	if err == nil || lifecycleErrorCode(err) != "ROW_CHOICE_UNAVAILABLE" {
 		t.Fatalf("reauthorize without a planner = %v, want ROW_CHOICE_UNAVAILABLE", err)
 	}
@@ -837,7 +845,7 @@ func TestReauthorizeConstructionExpandSourcesKeepsFailClosedWhenPayloadStripped(
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()
-		err := service.reauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
+		err := service.rowSourceService.ReauthorizeConstructionExpandSources(context.Background(), expandTestProcedureBase(snapshot, construction), "procedures", construction)
 		if err != nil && strings.Contains(err.Error(), "no server-consistent Expand payload") {
 			return
 		}
@@ -940,7 +948,7 @@ func TestProposeConstructionExpandSourceSignsServerOwnedPayload(t *testing.T) {
 	step.Operation.Expand.ExpandedField = expandTestSignedPayload("status", "string", "code")
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, step}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 		ChangedStepID:         expandTestStep,
@@ -973,7 +981,7 @@ func TestProposeConstructionExpandSourceCarriesArrayThroughCarryingPrefix(t *tes
 		carrier, expandTestProcedureExpandStep(expandTestCarrier, carrier.Outputs),
 	}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 		ChangedStepID:         expandTestStep,
@@ -1004,7 +1012,7 @@ func TestProposeConstructionExpandSourceRefusesCarryingThroughRowChangingPrefix(
 		melt, expandTestProcedureExpandStep("melt-prefix", carried),
 	}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 		ChangedStepID:         expandTestStep,
@@ -1029,7 +1037,7 @@ func TestProposeConstructionExpandSourceRefusesCodingElementArray(t *testing.T) 
 	}}
 
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "node-patient", "Patient", "meta.tag[]", "Coding")
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: expandTestOutput,
 		ChangedStepID:         expandTestStep,
@@ -1055,7 +1063,7 @@ func TestApplyConstructionProposalRefusesStaleExpandSourceBinding(t *testing.T) 
 			step.Operation.Expand.ExpandedField = expandTestSignedPayload("instantiatesUri[]", "string", "string")
 			candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, step}}
 			choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+			proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 				ChangedStepID:         expandTestStep,

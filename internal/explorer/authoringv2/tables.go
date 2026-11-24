@@ -27,7 +27,7 @@ func applyCreateTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, comma
 	return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: ws.RootOccurrenceID}, nil
 }
 
-func applyDuplicateTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyDuplicateTable(workspace *ws.Workspace, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	sourceIndex := documentIndex(workspace, command.SourceOutputID())
 	if sourceIndex < 0 {
@@ -42,7 +42,7 @@ func applyDuplicateTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, co
 	return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: ws.RootOccurrenceID}, nil
 }
 
-func applyDeleteTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyDeleteTable(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -54,7 +54,7 @@ func applyDeleteTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, comma
 	return result, nil
 }
 
-func applyRenameTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyRenameTable(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
@@ -70,7 +70,7 @@ func applyRenameTable(workspace *ws.Workspace, catalog ws.CatalogSnapshot, comma
 	return result, nil
 }
 
-func applyReorderTables(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyReorderTables(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if len(command.OutputIDs()) != len(workspace.Documents) {
 		return result, fmt.Errorf("outputIds must list every table exactly once")
@@ -93,7 +93,7 @@ func applyReorderTables(workspace *ws.Workspace, catalog ws.CatalogSnapshot, com
 	return result, nil
 }
 
-func applySetTableRoot(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetTableRoot(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	node, ok := catalogNode(catalog, command.RootNodeID())
@@ -112,7 +112,7 @@ func applySetTableRoot(workspace *ws.Workspace, catalog ws.CatalogSnapshot, comm
 	return result, nil
 }
 
-func applyApplyTableRootRebase(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyTableRootRebase(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	proposal := *command.RowChange()
 	if proposal.Mode == RowChangeModeReplace {
@@ -139,24 +139,25 @@ func applyApplyTableRootRebase(workspace *ws.Workspace, catalog ws.CatalogSnapsh
 	return result, nil
 }
 
-func applySetTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applySetTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	if command.RouteChoiceID() != "" {
-		if command.ResolvedPopulationRoute == nil {
+		populationRoute, ok := resolution.(PopulationRouteResolution)
+		if !ok || populationRoute.Route == nil {
 			return result, fmt.Errorf("population route choice has no server resolution")
 		}
-		setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID(), command.ResolvedPopulationRoute)
+		setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID(), populationRoute.Route)
 	} else if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID(), command.EdgeIDs()); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func applyClearTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyClearTablePopulation(workspace *ws.Workspace, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {

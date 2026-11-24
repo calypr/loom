@@ -61,7 +61,7 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return nil, record, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
-	revision, err := s.store.GetRevision(ctx, record.RevisionID)
+	revision, err := s.config.Revisions.GetRevision(ctx, strings.TrimSpace(record.RevisionID))
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 			return nil, record, support.NotFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", err)

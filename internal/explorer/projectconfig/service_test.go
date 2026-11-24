@@ -3,24 +3,14 @@ package projectconfig
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/calypr/loom/internal/explorer/viewer"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
-	"github.com/calypr/loom/internal/authscope"
-
-	"github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/dataframe/publication"
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type viewBuilderServiceStore struct {
@@ -69,11 +59,11 @@ func (s *viewBuilderServiceStore) SaveViewBuilderConfig(_ context.Context, reque
 
 func TestViewBuilderServiceGETDoesNotInitializeProject(t *testing.T) {
 	store := &viewBuilderServiceStore{}
-	explorers, err := explorer.NewService(store)
+	explorers, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(explorers)
+	service := New(explorers, store, store)
 	state, err := service.ViewBuilderState(context.Background(), "HTAN_INT/BForePC")
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +80,7 @@ func TestViewBuilderServiceGETDoesNotInitializeProject(t *testing.T) {
 }
 
 func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
-	resolved, published, _ := viewBuilderPublicationFixture()
+	resolved, published, _ := projectConfigPublicationFixture()
 	snapshot, err := PrepareViewBuilderCatalogSnapshot(resolved, published, "commit-a")
 	if err != nil {
 		t.Fatal(err)
@@ -99,11 +89,11 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 		settings:  viewer.ViewBuilderSettings{Version: 1, Catalogs: map[string]string{resolved.Bundle.Name: snapshot.ID}},
 		revisions: map[string]explorer.Revision{snapshot.ID: snapshot},
 	}
-	explorers, err := explorer.NewService(store)
+	explorers, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(explorers)
+	service := New(explorers, store, store)
 	config := explorerconfig.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
 	request := viewer.ViewBuilderSaveRequest{CatalogRevisionID: snapshot.ID, Config: config}
 	stateChecks := 0
@@ -185,85 +175,4 @@ func (s *viewBuilderServiceStore) Get(_ context.Context, project, id string) (*e
 		}
 	}
 	return nil, explorer.ErrNotFound
-}
-
-func viewBuilderPublicationFixture() (execution.Resolved, publication.BundleExecution, time.Time) {
-	created := time.Date(2026, time.November, 11, 10, 0, 0, 0, time.UTC)
-	published := created.Add(3 * time.Minute)
-	verified := published.Add(-time.Second)
-	bundle := recipe.Bundle{
-		RecipeSchemaVersion: 1,
-		Name:                "calypr-meta-default",
-		TranslationVersion:  "v1",
-		Outputs: []recipe.Output{{
-			Name: "Documents", RootResourceType: "DocumentReference", RowGrain: "file",
-			RootColumnNaming: recipe.RootColumnNamingPrefixed,
-			Fields:           []recipe.Field{{Name: "id", Label: "Document ID", Expr: recipe.Expression{Select: "root.id"}}},
-		}},
-	}
-	digest, err := bundle.Digest()
-	if err != nil {
-		panic(err)
-	}
-	resolved := execution.Resolved{
-		Bundle: bundle, StoredRecipeDigest: digest, ResolvedSchemaDigest: "schema-v1",
-		Semantic: recipeplan.ResolvedRecipePlan{
-			ResolvedSchemaDigest: "schema-v1", ScopeDigest: "scope-v1", SourceGeneration: "generation-v1",
-			SemanticPlan: recipeplan.RecipePlan{Bindings: recipe.RuntimeBindings{
-				Project: "HTAN_INT-BForePC", DatasetGeneration: "generation-v1",
-				AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"HTAN_INT-BForePC"},
-			}},
-		},
-		Compiled: facade.CompiledRecipe{
-			RecipeDigest: digest, TranslationVersion: bundle.TranslationVersion,
-			ResolvedSchemaDigest: "compiler-schema-v0", ScopeDigest: "scope-v1", SourceGeneration: "generation-v1",
-			Outputs: []facade.CompiledRecipeOutput{{
-				Name: "Documents", RootResourceType: "DocumentReference", RootColumnNaming: recipe.RootColumnNamingPrefixed,
-				OutputSchema: []facade.CompiledOutputColumn{
-					{ID: "document-id", Name: "id", Label: "Document ID", Kind: "string", Cardinality: "required_one"},
-					{ID: "status", Name: "status", Label: "Document status", Kind: "code", Cardinality: "optional_one", Nullable: true},
-					{ID: "extension-tag", Name: "extension_tag", Label: "Extension tag", SemanticPath: "DocumentReference.extension.tag", Kind: "string", Cardinality: "optional_one", Nullable: true, Discovered: true},
-					{ID: "payload", Name: "payload", Label: "Payload", Kind: "object", Cardinality: "optional_one", Nullable: true},
-					{ID: "__loom_row_id", Name: "__loom_row_id", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
-				},
-			}},
-		},
-	}
-	logicalColumns, err := publication.WithPublicationMetadata(reciperuntime.PublicationColumns(resolved, "Documents"))
-	if err != nil {
-		panic(err)
-	}
-	physicalColumns := viewBuilderPhysicalFixture(logicalColumns)
-	finalSchemaDigest := publication.FinalSchemaDigest(publication.PublicationIdentity{
-		RecipeDigest: digest, ScopeDigest: "scope-v1", DatasetGeneration: "generation-v1",
-	}, []publication.OutputSchema{{Name: "Documents", Columns: logicalColumns}})
-	selector := dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: "Documents"}
-	executionValue := publication.BundleExecution{
-		ID: "execution-v1", Key: "key-v1",
-		BundleIdentity: publication.BundleIdentity{
-			Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Project: "HTAN_INT-BForePC",
-			DatasetGeneration: "generation-v1", RecipeDigest: digest, SchemaDigest: finalSchemaDigest,
-			ScopeDigest: "scope-v1", EngineVersion: "engine-v1", AuthScopeMode: string(authscope.ReadScopeRestricted),
-			AuthResourcePaths: []string{"HTAN_INT-BForePC"},
-		},
-		State: publication.BundlePublished, CreatedAt: created, PublishedAt: &published,
-		Outputs: []publication.BundleOutputRecord{{
-			Name: "Documents", PhysicalTable: "published_documents", Selector: selector,
-			Columns: physicalColumns, State: publication.BundlePublished, VerifiedAt: &verified,
-		}},
-	}
-	return resolved, executionValue, published
-}
-
-func viewBuilderPhysicalFixture(columns []publication.LogicalColumn) []publication.PhysicalColumn {
-	physical := make([]publication.PhysicalColumn, 0, len(columns))
-	for _, column := range columns {
-		loomOwned := column.LoomOwned || column.IsIdentity || strings.HasPrefix(column.Name, "__loom_") || column.Name == "auth_resource_path" || column.Name == "project_id"
-		physical = append(physical, publication.PhysicalColumn{
-			ID: column.ID, Name: column.Name, SemanticPath: column.SemanticPath,
-			ClickHouse: "String", LogicalType: column.Kind, Nullable: column.Nullable,
-			Repeated: column.Repeated, Provenance: column.Provenance, LoomOwned: loomOwned,
-		})
-	}
-	return physical
 }

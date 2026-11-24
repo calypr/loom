@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -17,6 +19,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -121,7 +125,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 				if err != nil {
 					t.Fatalf("compile row lineage for %s: %v", parent, err)
 				}
-				result := executeRowLineageOracleQuery(t, ctx, client, compiled)
+				result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compiled)
 				contributors := result["contributors"].([]any)
 				want := 2
 				if parent == "p2" || parent == "p3" {
@@ -150,7 +154,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		forgedResult := executeRowLineageOracleQuery(t, ctx, client, forged)
+		forgedResult := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, forged)
 		if forgedResult["found"] != false || len(forgedResult["contributors"].([]any)) != 0 {
 			t.Fatalf("forged related row identity disclosed contributors: %#v", forgedResult)
 		}
@@ -607,7 +611,7 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 				ID: "keep_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient-active", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}},
 				}}, Outputs: expandedColumns,
 			},
 			{
@@ -707,21 +711,6 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 	return compiled.Outputs[0], query
 }
 
-func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query rowlineage.CompiledRowLineageQuery) map[string]any {
-	t.Helper()
-	rows := make([]map[string]any, 0, 1)
-	if err := client.QueryRows(ctx, query.Query, 32, query.BindVars, func(row map[string]any) error {
-		rows = append(rows, row)
-		return nil
-	}); err != nil {
-		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, query.Query)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("row lineage returned %d rows, want one result: %#v", len(rows), rows)
-	}
-	return rows[0]
-}
-
 func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
@@ -811,7 +800,7 @@ func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgains
 	related.ContributorPolicy = "ALL_MATCHES"
 	related.ContributorPredicate = &recipe.ConstructionRelatedPredicate{
 		CandidateID: "observation-code", Quantifier: recipe.QuantifierAny, Operator: recipe.FilterEquals,
-		Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
+		Value: &spec.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
 	}
 	related.ContributorSource = &recipe.ConstructionRelatedFieldSource{
 		CandidateID: "observation-code", NodeID: "observation-node", ResourceType: "Observation",

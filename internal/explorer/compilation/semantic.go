@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -42,7 +44,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
-	occurrences, order, err := resolveSemanticRoute(document, snapshot)
+	occurrences, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return Result{}, err
 	}
@@ -181,7 +183,6 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err != nil {
 		return Result{}, fail("lower", "RECIPE_DIGEST_FAILED", "$.recipe", "recipe digest could not be calculated", nil, err)
 	}
-	_ = order
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
 }
 
@@ -194,19 +195,10 @@ func mergeContractQuality(contract *receiptmodel.PublicOutputContract, emission 
 		contract.StructuralSuitability = "array"
 	}
 	for _, reason := range emission.LossReasons {
-		if !containsSemanticString(contract.LossReasons, reason) {
+		if !slices.Contains(contract.LossReasons, reason) {
 			contract.LossReasons = append(contract.LossReasons, reason)
 		}
 	}
-}
-
-func containsSemanticString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func choiceArmForPath(path string) string {
@@ -234,7 +226,7 @@ func indexedLabel(label string, coordinates []capability.RepeatedCoordinate) str
 
 func publicColumnContract(column viewer.EmittedColumn) receiptmodel.PublicOutputColumn {
 	return receiptmodel.PublicOutputColumn{
-		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), InputColumns: append([]string(nil), column.InputColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
+		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), InputColumns: append([]string(nil), column.InputColumns...), Label: loomtext.FirstTrimmed(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
 		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
 		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...), UnitNormalization: clonePublicUnitNormalization(column.UnitNormalization),
 		Lossless: column.Lossless, MLReady: column.MLReady, StructuralSuitability: column.StructuralSuitability, LossReasons: append([]string(nil), column.LossReasons...), Filterable: column.Filterable, Chartable: column.Chartable,
@@ -282,7 +274,7 @@ func presentationColumn(source ws.Column, sourceOrder, order int, emission viewe
 	}
 	result := PresentationColumn{EmissionID: emission.EmissionID, PublicColumn: emission.PublicColumn, Label: emission.Label, Visible: visible, Order: authoredOrder, PhysicalOrder: order, Pinned: pinned}
 	if source.Filter != nil && emission.Filterable {
-		result.FilterLabel = firstNonEmpty(source.Filter.Label, emission.Label)
+		result.FilterLabel = loomtext.FirstTrimmed(source.Filter.Label, emission.Label)
 		result.FilterOrder = sourceOrder
 	}
 	if source.Chart != nil && emission.Chartable {
@@ -293,13 +285,12 @@ func presentationColumn(source ws.Column, sourceOrder, order int, emission viewe
 	return result
 }
 
-func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, []string, error) {
+func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, error) {
 	byType := map[string][]capability.Node{}
 	for _, node := range snapshot.Nodes {
 		byType[node.ResourceType] = append(byType[node.ResourceType], node)
 	}
 	result := map[string]semanticOccurrence{}
-	order := []string{}
 	var walk func(ws.RouteNode, *semanticOccurrence, string, int, map[string]bool) error
 	walk = func(route ws.RouteNode, parent *semanticOccurrence, path string, depth int, usedEdges map[string]bool) error {
 		if snapshot.Policy.Route.MaxHops > 0 && depth > snapshot.Policy.Route.MaxHops {
@@ -356,7 +347,6 @@ func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (m
 		}
 		current := semanticOccurrence{node: route, graph: graph, edge: edge}
 		result[route.OccurrenceID] = current
-		order = append(order, route.OccurrenceID)
 		children := append([]ws.RouteNode(nil), route.Children...)
 		sort.SliceStable(children, func(i, j int) bool { return children[i].OccurrenceID < children[j].OccurrenceID })
 		for i := range children {
@@ -367,9 +357,9 @@ func resolveSemanticRoute(document ws.Document, snapshot capability.Snapshot) (m
 		return nil
 	}
 	if err := walk(document.Route, nil, "$.route", 0, map[string]bool{}); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return result, order, nil
+	return result, nil
 }
 
 func semanticRouteEdgeMatches(snapshot capability.Snapshot, parent capability.Node, child ws.RouteNode, edge capability.Edge) bool {
@@ -463,11 +453,11 @@ func semanticFixedLookup(column ws.Column, resourceType, alias, leaf, logicalTyp
 			value = recipe.Expression{Select: "item." + checked.ValueSelector.CanonicalPath()}
 			sourceKey = checked.SystemURI
 		} else {
-			sourcePath, keyPath = firstNonEmpty(fieldPath, "identifier[]"), "item.system"
+			sourcePath, keyPath = loomtext.FirstTrimmed(fieldPath, "identifier[]"), "item.system"
 			value = recipe.Expression{Select: "item.value"}
 		}
 	case ws.SourceExtensionByURL:
-		sourcePath, keyPath = firstNonEmpty(fieldPath, "extension[]"), "item.url"
+		sourcePath, keyPath = loomtext.FirstTrimmed(fieldPath, "extension[]"), "item.url"
 		value = coalesceString("item.valueString", "item.valueCode", "item.valueInteger", "item.valueDecimal", "item.valueBoolean", "item.valueDate", "item.valueDateTime", "item.valueUri")
 	default:
 		return recipe.DynamicColumn{}, fmt.Errorf("unsupported source kind %q", column.Source.Kind)
@@ -593,10 +583,10 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 		return recipe.Filter{}, fmt.Errorf("contributor candidate %q selector %q is not a supported scalar", candidate.ID, candidate.FieldPath)
 	}
 	where := recipe.Filter{Select: alias + "." + selector.CanonicalPath(), FieldRef: candidate.ID}
-	where.Operator = recipe.FilterOperator(predicate.Operator)
+	where.Operator = spec.FilterOperator(predicate.Operator)
 	where.Quantifier = recipe.ArrayQuantifier(predicate.Quantifier)
 	if predicate.Value != nil {
-		value := recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
+		value := spec.FilterValue{Kind: spec.FilterValueKind(predicate.Value.Kind)}
 		switch predicate.Value.Kind {
 		case ws.ContributorString:
 			stringValue := *predicate.Value.String
@@ -606,7 +596,7 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 		default:
 			return recipe.Filter{}, fmt.Errorf("unsupported contributor value kind %q", predicate.Value.Kind)
 		}
-		where.Values = []recipe.FilterValue{value}
+		where.Values = []spec.FilterValue{value}
 	}
 	if err := where.Validate(); err != nil {
 		return recipe.Filter{}, fmt.Errorf("contributor candidate %q: %w", candidate.ID, err)

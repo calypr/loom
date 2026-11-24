@@ -8,8 +8,6 @@ import (
 
 const previewSupersedesMigrationVersion = "wp19_preview_supersedes_v1"
 
-const previewSupersedesMigrationLedger = "loom_schema_migrations"
-
 var previewQuantityCategoryLegacyFields = []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
 
 var previewQuantityCategoryStoredValues = []string{"payload.valueQuantity"}

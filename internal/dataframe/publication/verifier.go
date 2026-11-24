@@ -24,15 +24,19 @@ func (s publicationVerificationStore) VerifyPublication(ctx context.Context, pro
 		}
 		return dataset.PublicationVerification{}, err
 	}
+	return execution.VerifyOutput(selector, output), nil
+}
+
+func (execution BundleExecution) VerifyOutput(selector dataset.DataframeSelector, output BundleOutputRecord) dataset.PublicationVerification {
 	verifiedAt := execution.UpdatedAt
 	if output.VerifiedAt != nil {
 		verifiedAt = *output.VerifiedAt
 	}
 	return dataset.PublicationVerification{
 		Selector: selector, ExecutionID: execution.ID, Generation: execution.DatasetGeneration,
-		State: string(execution.State.Canonical()), Queryable: execution.State.Successful() && output.Queryable(),
+		State: string(DecodeBundleState(execution.State)), Queryable: execution.State.Successful() && output.Queryable(),
 		VerifiedAt: verifiedAt, PhysicalTable: output.PhysicalTable,
-	}, nil
+	}
 }
 
 var _ dataset.PublicationVerifier = publicationVerificationStore{}

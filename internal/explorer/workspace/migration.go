@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 type StoredWorkspaceMigration struct {
@@ -44,7 +45,7 @@ func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspac
 		return result, fmt.Errorf("verify legacy imported source encoding: %w", err)
 	}
 	for _, digest := range []string{result.OriginalCanonicalDigest, result.OriginalLegacyNilStepsDigest, legacySourceDigest} {
-		if digest != "" && !ContainsString(result.AcceptedOriginalDigests, digest) {
+		if digest != "" && !slices.Contains(result.AcceptedOriginalDigests, digest) {
 			result.AcceptedOriginalDigests = append(result.AcceptedOriginalDigests, digest)
 		}
 	}

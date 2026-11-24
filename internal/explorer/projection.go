@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
@@ -51,6 +53,12 @@ func viewerProjectionIntegrity(component string, cause error) error {
 	return &ViewerProjectionIntegrityError{Component: component, Cause: cause}
 }
 
+func revisionPublication(revision *Revision) viewer.PublicationMetadata {
+	publication := revision.Publication
+	publication.State = loomtext.FirstNonBlank(publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
+	return publication
+}
+
 func BuildViewerProjection(revision *Revision) (*viewer.ExplorerRuntimeV1, error) {
 	return buildViewerProjection(revision, nil)
 }
@@ -86,14 +94,12 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 	contractColumns := inputs.contractColumns
 	contractOrder := inputs.contractOrder
 
-	status := firstNonEmptyString(revision.Publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
-	publicationState := revision.Publication
-	publicationState.State = firstNonEmptyString(publicationState.State, status)
+	publicationState := revisionPublication(revision)
 	runtime := &viewer.ExplorerRuntimeV1{
-		Status:         status,
-		Generation:     firstNonEmptyString(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
+		Status:         publicationState.State,
+		Generation:     loomtext.FirstNonBlank(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
 		Publication:    publicationState,
-		Schema:         viewer.ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: explorerconfig.ConfigV2APIVersion},
+		Schema:         viewer.ExplorerRuntimeSchemaV1{Digest: loomtext.FirstNonBlank(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: explorerconfig.ConfigV2APIVersion},
 		Outputs:        []viewer.ExplorerRuntimeOutputV1{},
 		SharedFilters:  map[string][]viewer.ExplorerRuntimeBindingV1{},
 		FileActions:    config.FileActions,
@@ -144,7 +150,7 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 				EmissionID:   name,
 				Name:         name,
 				Label:        label,
-				LogicalType:  firstNonEmptyString(emission.LogicalType, published.LogicalType, published.ClickHouse, "string"),
+				LogicalType:  loomtext.FirstNonBlank(emission.LogicalType, published.LogicalType, published.ClickHouse, "string"),
 				ResultUnit:   public.ResultUnit,
 				Repeated:     published.Repeated,
 				Filterable:   filterable,
@@ -203,7 +209,7 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 				binding, configured := configuredBindings[name]
 				visible := !runtimeColumnIsInternal(name)
 				if configured {
-					column.Label = firstNonEmptyString(binding.Label, column.Label)
+					column.Label = loomtext.FirstNonBlank(binding.Label, column.Label)
 					visible = binding.Visible
 				}
 				column.Visible, column.Order = visible, index
@@ -216,7 +222,7 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 				if !ok {
 					continue
 				}
-				column.Label = firstNonEmptyString(binding.Label, column.Label)
+				column.Label = loomtext.FirstNonBlank(binding.Label, column.Label)
 				column.Visible, column.Order = binding.Visible, index
 				columnsByName[binding.Column] = column
 				table.Columns = append(table.Columns, viewer.ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: binding.Visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
@@ -236,7 +242,7 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 			result := []viewer.ExplorerRuntimeBindingV1{}
 			for _, binding := range values {
 				if column, ok := ensureColumn(binding.Column); ok {
-					result = append(result, viewer.ExplorerRuntimeBindingV1{Column: column.Column, EmissionID: column.Column, OutputID: view.Output, Label: firstNonEmptyString(binding.Label, column.Label)})
+					result = append(result, viewer.ExplorerRuntimeBindingV1{Column: column.Column, EmissionID: column.Column, OutputID: view.Output, Label: loomtext.FirstNonBlank(binding.Label, column.Label)})
 				}
 			}
 			return result
@@ -255,9 +261,9 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 		}
 		output := viewer.ExplorerRuntimeOutputV1{
 			OutputID:     view.Output,
-			Name:         firstNonEmptyString(view.ID, view.Output),
-			Title:        firstNonEmptyString(view.Title, view.Output),
-			RowLabel:     firstNonEmptyString(view.RowLabel, view.Title, view.Output),
+			Name:         loomtext.FirstNonBlank(view.ID, view.Output),
+			Title:        loomtext.FirstNonBlank(view.Title, view.Output),
+			RowLabel:     loomtext.FirstNonBlank(view.RowLabel, view.Title, view.Output),
 			Selector:     selector,
 			Columns:      columns,
 			Table:        table,
@@ -298,7 +304,7 @@ type viewerProjectionInputs struct {
 }
 
 func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.ConfigV2, hasConfig bool) (viewerProjectionInputs, error) {
-	bundle := recipeIdentityMetadata(revision.Recipe)
+	bundle := receiptmodel.RecipeIdentityMetadata(revision.Recipe)
 	if hasConfig && len(config.Recipe) > 0 {
 		parsed, parseErr := recipe.ParseArchivedMetadata(config.Recipe)
 		if parseErr != nil {
@@ -325,7 +331,7 @@ func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.Con
 
 	materializations := make(map[string]viewer.Materialization, len(revision.Materializations))
 	for _, materialization := range revision.Materializations {
-		outputID := firstNonEmptyString(materialization.OutputID, materialization.Output)
+		outputID := loomtext.FirstNonBlank(materialization.OutputID, materialization.Output)
 		if outputID == "" {
 			continue
 		}
@@ -453,15 +459,6 @@ func projectionSelector(output string, datasetOutputs map[string]viewer.DatasetO
 
 func runtimeColumnIsInternal(name string) bool {
 	return name == "auth_resource_path" || strings.HasPrefix(name, "__loom_")
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func workspaceBytesDigest(raw []byte) string { return workspacepkg.BytesDigest(raw) }

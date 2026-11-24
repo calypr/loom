@@ -36,17 +36,19 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 	t.Run("legacy", func(t *testing.T) {
 		collection := newMigrationTestCollection(t, client)
 		old := createMigrationTestIndex(t, ctx, collection.Name(), collection, "payload.valueQuantity.code")
-		candidates, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, true)
+		candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection)
 		if err != nil || len(candidates) != 1 {
 			t.Fatalf("legacy dry-run candidates=%+v err=%v", candidates, err)
 		}
 		indexesBefore, _ := collection.Indexes(ctx)
-		if _, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, false); err != nil {
-			t.Fatal(err)
+		for _, candidate := range candidates {
+			if err := migratePreviewSupersededIndex(ctx, collection, candidate); err != nil {
+				t.Fatal(err)
+			}
 		}
 		assertMigrationIndexState(t, ctx, collection, old.ID, candidates[0].NewName, candidates[0].NewFields, candidates[0].NewStoredValues)
-		if _, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, false); err != nil {
-			t.Fatalf("rerun: %v", err)
+		if candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection); err != nil || len(candidates) != 0 {
+			t.Fatalf("rerun candidates=%+v err=%v, want none", candidates, err)
 		}
 		indexesAfter, _ := collection.Indexes(ctx)
 		if len(indexesBefore) != 2 || len(indexesAfter) != 2 {
@@ -58,7 +60,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 		collection := newMigrationTestCollection(t, client)
 		candidate := syntheticCategoryCandidate(collection.Name(), "payload.status")
 		createMigrationTestIndexExact(t, ctx, collection, candidate.NewName, candidate.NewFields, candidate.NewStoredValues)
-		candidates, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, false)
+		candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection)
 		if err != nil || len(candidates) != 0 {
 			t.Fatalf("already-migrated candidates=%+v err=%v", candidates, err)
 		}
@@ -75,14 +77,16 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 		createMigrationTestIndexExact(t, ctx, collection, current.NewName, current.NewFields, current.NewStoredValues)
 		unrelatedFields := []string{"project", "dataset_generation", "auth_resource_path", "payload.id", "payload.status"}
 		createMigrationTestIndexExact(t, ctx, collection, previewCoveringIndexName(collection.Name(), unrelatedFields), unrelatedFields, nil)
-		candidates, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, true)
+		candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection)
 		if err != nil || len(candidates) != 1 {
 			t.Fatalf("mixed dry-run candidates=%+v err=%v", candidates, err)
 		}
-		if _, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, false); err != nil {
-			t.Fatal(err)
+		for _, candidate := range candidates {
+			if err := migratePreviewSupersededIndex(ctx, collection, candidate); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if candidates, err = migratePreviewSupersededCollection(ctx, collection.Name(), collection, false); err != nil || len(candidates) != 0 {
+		if candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection); err != nil || len(candidates) != 0 {
 			t.Fatalf("mixed rerun candidates=%+v err=%v", candidates, err)
 		}
 		indexes, err := collection.Indexes(ctx)
@@ -106,7 +110,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 		for _, path := range []string{"payload.a", "payload.b", "payload.c"} {
 			createMigrationTestCurrentIndex(t, ctx, collection, path)
 		}
-		candidates, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, true)
+		candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection)
 		if err != nil || len(candidates) != 1 {
 			t.Fatalf("dry-run candidates=%+v err=%v", candidates, err)
 		}
@@ -125,7 +129,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 		if _, ok := findIndexByName(indexes, candidates[0].NewName); ok {
 			t.Fatal("newly created candidate remained after confirmed old-delete failure")
 		}
-		if _, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, false); err != nil {
+		if err := migratePreviewSupersededIndex(ctx, collection, candidates[0]); err != nil {
 			t.Fatalf("normal retry after rollback: %v", err)
 		}
 		assertMigrationIndexState(t, ctx, collection, old.ID, candidates[0].NewName, candidates[0].NewFields, candidates[0].NewStoredValues)
@@ -134,7 +138,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 	t.Run("delete-error-after-old-gone-keeps-candidate", func(t *testing.T) {
 		collection := newMigrationTestCollection(t, client)
 		old := createMigrationTestIndex(t, ctx, collection.Name(), collection, "payload.status")
-		candidates, err := migratePreviewSupersededCollection(ctx, collection.Name(), collection, true)
+		candidates, err := previewMigrationTestCandidates(ctx, collection.Name(), collection)
 		if err != nil || len(candidates) != 1 {
 			t.Fatalf("dry-run candidates=%+v err=%v", candidates, err)
 		}
@@ -199,7 +203,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 			t.Fatalf("disposable test DB already has replacement index %q", newName)
 		}
 		old := createMigrationTestIndexExact(t, ctx, collection, oldName, oldFields, previewQuantityCategoryStoredValues)
-		candidates, err := migratePreviewSupersededCollection(ctx, "Observation", collection, true)
+		candidates, err := previewMigrationTestCandidates(ctx, "Observation", collection)
 		if err != nil || len(candidates) != 1 {
 			t.Fatalf("stored-value dry-run candidates=%+v err=%v", candidates, err)
 		}
@@ -207,7 +211,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 		if candidate.Kind != "observation-quantity-stored-values" {
 			t.Fatalf("candidate kind=%q", candidate.Kind)
 		}
-		if _, err := migratePreviewSupersededCollection(ctx, "Observation", collection, false); err != nil {
+		if err := migratePreviewSupersededIndex(ctx, collection, candidate); err != nil {
 			t.Fatal(err)
 		}
 		assertMigrationIndexState(t, ctx, collection, old.ID, candidate.NewName, candidate.NewFields, candidate.NewStoredValues)
@@ -232,6 +236,15 @@ func (collection *previewMigrationDeleteFault) DeleteIndexByID(ctx context.Conte
 		}
 	}
 	return errors.New("injected old-index delete response failure")
+}
+
+func previewMigrationTestCandidates(ctx context.Context, collectionName string, collection previewMigrationCollection) ([]PreviewSupersededIndex, error) {
+	indexes, err := collection.Indexes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	_, candidates, _ := auditPreviewIndexCollection(collectionName, indexes)
+	return candidates, nil
 }
 
 func TestPreviewSupersededIndexClassificationRejectsHashAndTypeMismatch(t *testing.T) {
@@ -478,12 +491,12 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 			if got := wp19Rows(t, ctx, client, collection.Name()); !reflect.DeepEqual(got, beforeDocuments) {
 				t.Fatal("apply changed user documents or revisions")
 			}
-			wantCollections := append(append([]string{}, beforeNames...), previewSupersedesMigrationLedger)
+			wantCollections := append(append([]string{}, beforeNames...), "loom_schema_migrations")
 			sort.Strings(wantCollections)
 			if got := wp19CollectionNames(t, ctx, client); !reflect.DeepEqual(got, wantCollections) {
 				t.Fatalf("apply changed collections beyond ledger: got=%v want=%v", got, wantCollections)
 			}
-			markers := wp19Rows(t, ctx, client, previewSupersedesMigrationLedger)
+			markers := wp19Rows(t, ctx, client, SchemaMigrationsCollection)
 			if len(markers) != 1 || markers[0]["_key"] != previewSupersedesMigrationVersion || markers[0]["version"] != previewSupersedesMigrationVersion || markers[0]["_rev"] == nil {
 				t.Fatalf("expected exactly one versioned ledger marker with revision: %v", markers)
 			}
@@ -495,7 +508,7 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 			if !rerun.LedgerPresent || rerun.LegacyCandidateCount != 0 {
 				t.Fatalf("rerun=%+v", rerun)
 			}
-			markersAfter := wp19Rows(t, ctx, client, previewSupersedesMigrationLedger)
+			markersAfter := wp19Rows(t, ctx, client, SchemaMigrationsCollection)
 			if !reflect.DeepEqual(markersAfter, markers) || len(markersAfter) != 1 || fmt.Sprint(markersAfter[0]["_rev"]) != markerRevision {
 				t.Fatalf("rerun rewrote or duplicated ledger: before=%v after=%v", markers, markersAfter)
 			}

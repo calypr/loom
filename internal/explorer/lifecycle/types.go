@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/publication"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -43,10 +42,6 @@ type CellTraceExecutor func(context.Context, *receiptmodel.CompilationReceipt, r
 
 type RowLineageExecutor func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
-type GenerationValidator = publication.GenerationValidator
-type ReleaseActivator = publication.ReleaseActivator
-type ReleasePreparer = publication.ReleasePreparer
-
 type Config struct {
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, ws.CatalogSnapshot) (ws.Workspace, error)
 	AuthoringNetwork          func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error)
@@ -64,9 +59,18 @@ type Config struct {
 	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 
 	InterpretationRepository interpretation.Repository
+	ExplorerOwners           explorer.ExplorerOwnerStore
+	DraftStore               explorer.DraftStore
+	DraftRevisions           explorer.DraftRevisionReader
+	Revisions                explorer.RevisionReader
+	RevisionWriter           explorer.RevisionWriter
+	Receipts                 explorer.CompilationReceiptStore
+	AuthoringPublisher       explorer.AuthoringPublisher
+	RepositoryActivator      explorer.RepositoryGenerationActivator
+	SelectionStore           explorer.SelectionStore
 
-	SelectionSourceResolver     SelectionSourceResolver
-	SelectionReferenceValidator SelectionReferenceValidator
+	SelectionSourceResolver     explorerselection.SelectionSourceResolver
+	SelectionReferenceValidator explorerselection.SelectionReferenceValidator
 	RowChoiceResolver           rowdef.RowChoiceResolver
 	RowChoicePlanner            rowdef.RowChoicePlanner
 	ExplicitGroupResolver       explicitgroup.ExplicitGroupRevisionResolver
@@ -94,9 +98,9 @@ type Config struct {
 	ConstructionBaseCacheTTL     time.Duration
 	ConstructionBaseCacheEntries int
 
-	ValidateReleaseGeneration GenerationValidator
-	ActivateRelease           ReleaseActivator
-	PrepareRelease            ReleasePreparer
+	ValidateReleaseGeneration publication.GenerationValidator
+	PrepareRepositoryRelease  publication.ReleasePreparer
+	PrepareRelease            publication.ReleasePreparer
 	PersistPublishedWorkspace func(context.Context, string, string, []byte) error
 	Now                       func() time.Time
 }
@@ -151,53 +155,3 @@ type ApplyCommandsWithConstructionPreviewResponse struct {
 	Commands *authoringv2.ApplyCommandsResponse
 	Accepted *construction.AcceptedConstruction
 }
-
-type CellTraceRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	RowID      string
-	Column     string
-	Offset     int
-	Limit      int
-}
-
-type CellTraceBinding struct {
-	ReceiptID   string `json:"receiptId"`
-	OutputID    string `json:"outputId"`
-	Project     string `json:"project"`
-	ExplorerID  string `json:"explorerId"`
-	Generation  string `json:"generation"`
-	ScopeDigest string `json:"scopeDigest"`
-}
-
-type CellTraceResult struct {
-	Binding CellTraceBinding                   `json:"binding"`
-	Feature CellTraceFeature                   `json:"feature"`
-	Trace   dataframeexecution.CellTraceResult `json:"trace"`
-}
-
-type CellTraceFeature struct {
-	OutputID           string   `json:"outputId"`
-	Column             string   `json:"column"`
-	AuthoredColumn     string   `json:"authoredColumn"`
-	OccurrenceID       string   `json:"occurrenceId"`
-	Label              string   `json:"label"`
-	LogicalType        string   `json:"logicalType"`
-	SourceResourceType string   `json:"sourceResourceType,omitempty"`
-	SourcePath         string   `json:"sourcePath,omitempty"`
-	ProjectionMode     string   `json:"projectionMode,omitempty"`
-	Lossless           bool     `json:"lossless"`
-	LossReasons        []string `json:"lossReasons"`
-}
-
-type PublishRequest = publication.PublishRequest
-type PublishResult = publication.PublishResult
-type RepositoryPublishRequest = publication.RepositoryPublishRequest
-type RepositoryPublishResult = publication.RepositoryPublishResult
-type ArtifactRequest = publication.ArtifactRequest
-type ArtifactResult = publication.ArtifactResult
-type ArtifactOpenRequest = publication.ArtifactOpenRequest
-
-type PreviewRequest = authoringcore.PreviewRequest

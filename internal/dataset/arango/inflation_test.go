@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
 	store "github.com/calypr/loom/internal/store/arango"
-	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 const riDatabasePrefix = "loom_verify_ri_"
@@ -19,22 +19,6 @@ type riNoopVerifier struct{}
 
 func (riNoopVerifier) VerifyPublication(context.Context, string, string, dataset.DataframeSelector) (dataset.PublicationVerification, error) {
 	return dataset.PublicationVerification{State: "PUBLISHED", Queryable: true}, nil
-}
-
-func riOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Store) {
-	t.Helper()
-	database := arangotest.Owned(t, riDatabasePrefix)
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
-	t.Cleanup(cancel)
-	client := database.Client
-	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
-		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
-	}
-	lifecycle, err := New(client)
-	if err != nil {
-		t.Fatalf("new dataset lifecycle store: %v", err)
-	}
-	return ctx, client, lifecycle
 }
 
 func riLoadStaged(t *testing.T, ctx context.Context, lifecycle *Store, project, generation, digest string) {
@@ -137,7 +121,7 @@ func riObserve(t *testing.T, ctx context.Context, client *store.Client, svc *dat
 }
 
 func TestRevisionInflationAgainstArango(t *testing.T) {
-	ctx, client, lifecycle := riOpen(t, 180*time.Second)
+	ctx, client, lifecycle := openDatasetStore(t, 180*time.Second, riDatabasePrefix)
 	const project = "ri-project"
 	const generation = "ri-gen-a"
 	riLoadStaged(t, ctx, lifecycle, project, generation, strings.Repeat("a", 64))
@@ -195,4 +179,20 @@ func TestRevisionInflationAgainstArango(t *testing.T) {
 	default:
 		t.Fatalf("INCONCLUSIVE: inflated=%v contentIdentical=%v baseline=%+v last=%+v", inflated, contentIdentical, baseline, last)
 	}
+}
+
+func openDatasetStore(t *testing.T, budget time.Duration, databasePrefix string) (context.Context, *store.Client, *Store) {
+	t.Helper()
+	database := arangotest.Owned(t, databasePrefix)
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	t.Cleanup(cancel)
+	client := database.Client
+	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
+		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
+	}
+	lifecycle, err := New(client)
+	if err != nil {
+		t.Fatalf("new dataset lifecycle store: %v", err)
+	}
+	return ctx, client, lifecycle
 }

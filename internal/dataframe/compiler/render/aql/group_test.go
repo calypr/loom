@@ -85,19 +85,7 @@ func TestKeylessGroupOneValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query := strings.Join(lines, "\n")
-	for _, want := range []string{
-		"FOR input_row IN (LENGTH(source_rows) == 0 ? [null] : source_rows)",
-		"AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(input_row != null ? 1 : 0)",
-		"ASSERT(LENGTH(__loom_physical_test_construction_group_row_value_unique_0) <= 1, \"CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES\")",
-	} {
-		if !strings.Contains(query, want) {
-			t.Errorf("keyless ONE Group query missing %q:\n%s", want, query)
-		}
-	}
-	if strings.Contains(query, " INTO ") {
-		t.Fatalf("keyless ONE Group query retained contributor rows:\n%s", query)
-	}
+	assertGroupRenderGolden(t, strings.Join(lines, "\n"), renderer.bindVars)
 }
 
 func TestKeylessGroupAllValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
@@ -131,19 +119,7 @@ func TestKeylessGroupAllValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query := strings.Join(lines, "\n")
-	for _, want := range []string{
-		"FOR input_row IN (LENGTH(source_rows) == 0 ? [null] : source_rows)",
-		"AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(input_row != null ? 1 : 0)",
-		"UNIQUE((input_row[@",
-	} {
-		if !strings.Contains(query, want) {
-			t.Errorf("keyless ALL aggregate query missing %q:\n%s", want, query)
-		}
-	}
-	if strings.Contains(query, " INTO ") {
-		t.Fatalf("keyless ALL aggregate query retained contributor rows:\n%s", query)
-	}
+	assertGroupRenderGolden(t, strings.Join(lines, "\n"), renderer.bindVars)
 }
 
 func TestKeylessGroupOneValuesAggregatesCurrentSourceScope(t *testing.T) {

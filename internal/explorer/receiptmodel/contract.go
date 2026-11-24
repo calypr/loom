@@ -141,7 +141,7 @@ func (c PublicOutputContracts) Output(outputID string) (PublicOutputContract, bo
 }
 
 func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []viewer.EmittedColumn) error {
-	return c.ValidateAgainstMetadata(recipeIdentityMetadata(bundle), emitted)
+	return c.ValidateAgainstMetadata(RecipeIdentityMetadata(bundle), emitted)
 }
 
 func (c PublicOutputContracts) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []viewer.EmittedColumn) error {
@@ -171,7 +171,7 @@ func (c PublicOutputContracts) ValidateAgainstMetadata(bundle recipe.ArchivedMet
 }
 
 func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []viewer.EmittedColumn) error {
-	return c.ValidateAgainstMetadata(recipeIdentityMetadata(bundle), emitted)
+	return c.ValidateAgainstMetadata(RecipeIdentityMetadata(bundle), emitted)
 }
 
 func (c PublicOutputContract) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []viewer.EmittedColumn) error {
@@ -247,7 +247,7 @@ func invalidOutputContract(format string, args ...any) error {
 	return fmt.Errorf("%w: public output contract %s", ErrReceiptRecompileRequired, fmt.Sprintf(format, args...))
 }
 
-func recipeIdentityMetadata(bundle recipe.Bundle) recipe.ArchivedMetadata {
+func RecipeIdentityMetadata(bundle recipe.Bundle) recipe.ArchivedMetadata {
 	metadata := recipe.ArchivedMetadata{RecipeSchemaVersion: bundle.RecipeSchemaVersion, Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Outputs: make([]recipe.ArchivedOutputDescriptor, len(bundle.Outputs))}
 	for i, o := range bundle.Outputs {
 		metadata.Outputs[i] = recipe.ArchivedOutputDescriptor{Name: o.Name, RootResourceType: o.RootResourceType, RootOccurrenceID: o.RootOccurrenceID, RowGrain: o.RowGrain}

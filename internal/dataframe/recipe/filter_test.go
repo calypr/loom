@@ -2,6 +2,8 @@ package recipe
 
 import (
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestFilterValueCountDiagnostics(t *testing.T) {
@@ -12,7 +14,7 @@ func TestFilterValueCountDiagnostics(t *testing.T) {
 	}{
 		{
 			name:   "exists rejects values",
-			filter: Filter{Select: "name", Operator: FilterExists, Values: []FilterValue{{Kind: FilterString, String: recipeStringPointer("x")}}},
+			filter: Filter{Select: "name", Operator: FilterExists, Values: []spec.FilterValue{{Kind: FilterString, String: recipeStringPointer("x")}}},
 			want:   "invalid_filter_values at $.values: EXISTS and MISSING do not accept values",
 		},
 		{
@@ -22,7 +24,7 @@ func TestFilterValueCountDiagnostics(t *testing.T) {
 		},
 		{
 			name: "equals requires one value",
-			filter: Filter{Select: "name", Operator: FilterEquals, Values: []FilterValue{
+			filter: Filter{Select: "name", Operator: FilterEquals, Values: []spec.FilterValue{
 				{Kind: FilterString, String: recipeStringPointer("x")}, {Kind: FilterString, String: recipeStringPointer("y")},
 			}},
 			want: "invalid_filter_values at $.values: operator requires exactly one value",
@@ -39,7 +41,7 @@ func TestFilterValueCountDiagnostics(t *testing.T) {
 
 func TestFilterOperatorKindCompatibilityRemainsRecipeSpecific(t *testing.T) {
 	integer := int64(3)
-	filter := Filter{Select: "name", Operator: FilterContains, Values: []FilterValue{{Kind: FilterInteger, Integer: &integer}}}
+	filter := Filter{Select: "name", Operator: FilterContains, Values: []spec.FilterValue{{Kind: FilterInteger, Integer: &integer}}}
 	if err := filter.Validate(); err == nil || err.Error() != "invalid_filter_value at $.values[0].kind: operator CONTAINS_TEXT is incompatible with INTEGER" {
 		t.Fatalf("validation error = %v, want recipe kind incompatibility", err)
 	}
@@ -53,7 +55,7 @@ func TestConstructionFilterValueCountDiagnostics(t *testing.T) {
 	}{
 		{
 			name:   "exists rejects values",
-			filter: ConstructionFilter{Operator: FilterExists, Values: []FilterValue{{Kind: FilterString, String: recipeStringPointer("x")}}},
+			filter: ConstructionFilter{Operator: FilterExists, Values: []spec.FilterValue{{Kind: FilterString, String: recipeStringPointer("x")}}},
 			want:   "step.filter operator EXISTS does not accept values",
 		},
 		{

@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/semanticfixtures"
 )
 
 func NewShapePlanCache() *ShapePlanCache {
@@ -81,7 +83,7 @@ func TestFieldCatalogProfilerBoundsHighCardinalityValues(t *testing.T) {
 		profiler.ObservePayload(map[string]any{"id": id}, map[string]float64{})
 	}
 
-	var idField FieldCatalogDocument
+	var idField fieldcatalog.FieldCatalogDocument
 	for _, document := range profiler.Documents() {
 		if document.Path == "id" {
 			idField = document
@@ -246,12 +248,12 @@ func TestFieldCatalogProfilerCorrelatesExtensionValuesRecursively(t *testing.T) 
 		}},
 	}, map[string]float64{})
 
-	byPath := make(map[string]FieldCatalogDocument)
+	byPath := make(map[string]fieldcatalog.FieldCatalogDocument)
 	for _, document := range profiler.Documents() {
 		byPath[document.Path] = document
 	}
 	outer := byPath["content[].attachment.extension[].url"]
-	if len(outer.ExtensionValues) != 1 || !reflect.DeepEqual(outer.ExtensionValues[0], ExtensionValueObservation{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}) {
+	if len(outer.ExtensionValues) != 1 || !reflect.DeepEqual(outer.ExtensionValues[0], fieldcatalog.ExtensionValueObservation{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}) {
 		t.Fatalf("outer extension observations = %#v", outer.ExtensionValues)
 	}
 	inner := byPath["content[].attachment.extension[].extension[].url"]
@@ -298,7 +300,7 @@ func TestFieldCatalogShapeCacheReusesPlans(t *testing.T) {
 	profiler.ObservePayload(second, timings)
 
 	docs := profiler.Documents()
-	docByPath := make(map[string]FieldCatalogDocument)
+	docByPath := make(map[string]fieldcatalog.FieldCatalogDocument)
 	for _, doc := range docs {
 		docByPath[doc.Path] = doc
 	}
@@ -327,7 +329,7 @@ func TestFieldCatalogCodeableConceptPivotMetadata(t *testing.T) {
 
 	profiler.ObservePayload(payload, timings)
 	docs := profiler.Documents()
-	var found FieldCatalogDocument
+	var found fieldcatalog.FieldCatalogDocument
 	for _, doc := range docs {
 		if doc.Path == "valueCodeableConcept" {
 			found = doc
@@ -379,7 +381,7 @@ func TestFieldCatalogObservationPivotMetadata(t *testing.T) {
 
 	profiler.ObservePayload(payload, timings)
 	docs := profiler.Documents()
-	var found FieldCatalogDocument
+	var found fieldcatalog.FieldCatalogDocument
 	for _, doc := range docs {
 		if doc.Path == "code" {
 			found = doc
@@ -583,7 +585,7 @@ func TestProfilerMergeNormalizesGenerationBeforeComparisonAndPersistence(t *test
 	}
 }
 
-func catalogDocumentForPath(t *testing.T, documents []FieldCatalogDocument, path string) FieldCatalogDocument {
+func catalogDocumentForPath(t *testing.T, documents []fieldcatalog.FieldCatalogDocument, path string) fieldcatalog.FieldCatalogDocument {
 	t.Helper()
 	for _, document := range documents {
 		if document.Path == path {
@@ -591,7 +593,7 @@ func catalogDocumentForPath(t *testing.T, documents []FieldCatalogDocument, path
 		}
 	}
 	t.Fatalf("catalog document path %q not found in %+v", path, documents)
-	return FieldCatalogDocument{}
+	return fieldcatalog.FieldCatalogDocument{}
 }
 
 func (p *Profiler) RetentionBytes() int {
@@ -747,8 +749,8 @@ func TestProfilerReusesSemanticInventoryBuildIDAcrossContributions(t *testing.T)
 			map[string]any{
 				"resourceType": "Observation",
 				"component": []any{
-					inventoryTestComponent(sourceID+"-a", "v1", "label"),
-					inventoryTestComponent(sourceID+"-b", "v1", "label"),
+					semanticfixtures.InventoryComponent(sourceID+"-a", "v1", "label"),
+					semanticfixtures.InventoryComponent(sourceID+"-b", "v1", "label"),
 				},
 			},
 			map[string]float64{},

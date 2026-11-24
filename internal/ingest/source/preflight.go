@@ -3,10 +3,11 @@ package source
 import (
 	"encoding/json"
 	"fmt"
-	fhir "github.com/calypr/loom/fhir/model"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	fhir "github.com/calypr/loom/fhir/model"
 )
 
 const DefaultPreflightSampleRows = 10
@@ -187,12 +188,6 @@ func SupportsGeneratedLoad(resourceType string) bool {
 	if !ok {
 		return false
 	}
-	_, ok = resource.(generatedLoadResource)
+	_, ok = resource.(GeneratedLoadResource)
 	return ok
-}
-
-type generatedLoadResource interface {
-	fhir.ConcreteResource
-	Validate() error
-	ExtractEdgeDocuments(string) ([]fhir.EdgeDocument, error)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type attachmentCase struct {
@@ -187,16 +188,16 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, store))
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := attachmentHead(t, store.created)
-	choices, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-current"})
+	choices, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-current"})
 	if err != nil {
 		t.Fatalf("valid attachment search failed: %v", err)
 	}

@@ -19,9 +19,9 @@ func (s *Service) browseService() *semanticbrowse.Service {
 		SemanticCoverage:                   s.config.SemanticCoverage,
 		ResolveSemanticInventorySelections: s.config.ResolveSemanticInventorySelections,
 		ProvePopulationRoute:               provePopulationRoute,
-		ReauthorizeFrameSourceChoice: func(ctx context.Context, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (semanticbrowse.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+		ReauthorizeFrameSourceChoice: func(ctx context.Context, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (ports.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
 			family, route, err := s.constructionService.ReauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
-			return semanticbrowse.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err
+			return family, route, err
 		},
 	})
 }

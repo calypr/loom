@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest/row"
@@ -462,12 +463,12 @@ func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
 
 func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 	cache := fieldprofile.NewShapePlanCacheWithLimits(fieldprofile.DefaultProfileLimits().MaxShapePlans, 0)
-	keys := map[generationCatalogKey]*fieldprofile.Profiler{
-		{project: "project-a", datasetGeneration: "generation-b", authResourcePath: "scope-b", resourceType: "Patient"}: fieldprofile.NewProfilerForGenerationWithLimits("project-a", "generation-b", "scope-b", "Patient", cache, fieldprofile.DefaultProfileLimits()),
-		{project: "project-a", datasetGeneration: "generation-a", authResourcePath: "scope-a", resourceType: "Patient"}: fieldprofile.NewProfilerForGenerationWithLimits("project-a", "generation-a", "scope-a", "Patient", cache, fieldprofile.DefaultProfileLimits()),
+	keys := map[catalog.FieldProfileIdentity]*fieldprofile.Profiler{
+		catalog.NewFieldProfileIdentity("project-a", "generation-b", "scope-b", "Patient"): fieldprofile.NewProfilerForGenerationWithLimits("project-a", "generation-b", "scope-b", "Patient", cache, fieldprofile.DefaultProfileLimits()),
+		catalog.NewFieldProfileIdentity("project-a", "generation-a", "scope-a", "Patient"): fieldprofile.NewProfilerForGenerationWithLimits("project-a", "generation-a", "scope-a", "Patient", cache, fieldprofile.DefaultProfileLimits()),
 	}
 	sorted := sortedGenerationCatalogKeys(keys)
-	if len(sorted) != 2 || sorted[0].datasetGeneration != "generation-a" || sorted[1].datasetGeneration != "generation-b" {
+	if len(sorted) != 2 || sorted[0].DatasetGeneration != "generation-a" || sorted[1].DatasetGeneration != "generation-b" {
 		t.Fatalf("sorted generation catalog keys = %#v", sorted)
 	}
 }

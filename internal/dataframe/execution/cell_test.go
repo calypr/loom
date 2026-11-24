@@ -7,20 +7,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+
 	celltrace "github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -242,7 +247,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		},
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped cell trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	bindings := recipe.RuntimeBindings{Project: "trace-project", SelectionProject: "trace-project", DatasetGeneration: "generation-a"}
+	bindings := recipe.RuntimeBindings{Project: "trace-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "trace-project", DatasetGeneration: "generation-a"}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
@@ -372,14 +377,14 @@ func compileComposedCohortOutput(t *testing.T, appendPivot bool) lower.CompiledR
 				{
 					ID: "keep_a", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
+						ColumnID: "id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "id", Name: "id", Type: "string"}},
 				},
 				{
 					ID: "keep_pair", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
+						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "group_id", Name: "group_id", Type: "string"},
@@ -415,7 +420,7 @@ func compileComposedCohortOutput(t *testing.T, appendPivot bool) lower.CompiledR
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort identity mismatch", TranslationVersion: "test",
 		Outputs: []recipe.Output{output},
-	}, recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a"})
+	}, recipe.RuntimeBindings{Project: "project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +619,7 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 		t.Fatalf("insert construction trace fixture: %v", err)
 	}
 
-	output := executionConstructionTraceOutput()
+	output := compilerfixtures.ConstructionTraceRecipeOutput("construction_trace")
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "construction-trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
@@ -650,75 +655,19 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 		if traceErr != nil {
 			t.Fatalf("trace %q: %v", want.id, traceErr)
 		}
-		if !result.Complete || result.Status != CellTraceValue || !executionTraceNumberEqual(result.Value, want.total) {
+		if !result.Complete || result.Status != CellTraceValue || !compilerfixtures.ConstructionNumericEqual(result.Value, want.total) {
 			t.Fatalf("trace %q = %#v, want complete value %v", want.id, result, want.total)
 		}
 		if len(result.Contributions) != 1 {
 			t.Fatalf("trace %q contributors = %#v, want one source-column contribution", want.id, result.Contributions)
 		}
 		contribution := result.Contributions[0]
-		if contribution.InputStageID != "source_projection" || contribution.InputColumnID != "amount_id" || contribution.InputColumn != "amount" || contribution.OutputStageID != "derive_total" || contribution.OutputColumnID != "total_id" || contribution.OutputColumn != "total" || contribution.FinalStageID != "keep_positive" || contribution.ConstructionID != "calc_total" || contribution.Operation != "DERIVE" || !executionTraceNumberEqual(contribution.Value, float64(want.amount)) {
+		if contribution.InputStageID != "source_projection" || contribution.InputColumnID != "amount_id" || contribution.InputColumn != "amount" || contribution.OutputStageID != "derive_total" || contribution.OutputColumnID != "total_id" || contribution.OutputColumn != "total" || contribution.FinalStageID != "keep_positive" || contribution.ConstructionID != "calc_total" || contribution.Operation != "DERIVE" || !compilerfixtures.ConstructionNumericEqual(contribution.Value, float64(want.amount)) {
 			t.Fatalf("trace %q provenance = %#v", want.id, contribution)
 		}
 		if contribution.ResourceID != "" || contribution.ResourceType != "" {
 			t.Fatalf("trace %q falsely claims resource provenance: %#v", want.id, contribution)
 		}
-	}
-}
-
-func executionConstructionTraceOutput() recipe.Output {
-	two := int64(2)
-	zero := int64(0)
-	return recipe.Output{
-		Name: "construction_trace", RootResourceType: "Observation", RowGrain: "observation",
-		RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields: []recipe.Field{
-			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
-			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
-		},
-		Construction: &recipe.Construction{
-			Version: 1,
-			SourceColumns: []recipe.StageColumn{
-				{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"},
-			},
-			Steps: []recipe.ConstructionStep{
-				{
-					ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
-						ConstructionID: "calc_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
-						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
-						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &two}},
-						MissingInputPolicy: recipe.MissingInputPropagateNull,
-					}},
-					Outputs: []recipe.StageColumn{
-						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
-					},
-				},
-				{
-					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
-					}},
-					Outputs: []recipe.StageColumn{
-						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
-					},
-				},
-			},
-		},
-	}
-}
-
-func executionTraceNumberEqual(value any, want float64) bool {
-	switch got := value.(type) {
-	case float64:
-		return math.Abs(got-want) < 1e-9
-	case int64:
-		return float64(got) == want
-	case int:
-		return float64(got) == want
-	default:
-		return false
 	}
 }
 

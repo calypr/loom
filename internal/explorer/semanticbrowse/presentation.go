@@ -202,18 +202,34 @@ func fieldPresentationRuleVisibleInCodedView(ruleHint string) bool {
 	}
 }
 
+type semanticInventoryPresentationRequest struct {
+	ctx          context.Context
+	authorized   ports.AuthorizedCapability
+	snapshot     capability.Snapshot
+	document     ws.Document
+	outputID     string
+	contextToken string
+	build        semantic.Build
+	entries      []semantic.Entry
+	families     []semantic.Family
+	current      fieldPresentationCurrentContext
+	request      FieldPresentationRequest
+}
+
 func (b *Service) semanticInventoryPresentationForOutput(
-	ctx context.Context,
-	authorized ports.AuthorizedCapability,
-	snapshot capability.Snapshot,
-	document ws.Document,
-	outputID, contextToken string,
-	build semantic.Build,
-	entries []semantic.Entry,
-	families []semantic.Family,
-	current fieldPresentationCurrentContext,
-	request FieldPresentationRequest,
+	input semanticInventoryPresentationRequest,
 ) (map[string]capability.ConstructionChoice, FieldPresentationResult, error) {
+	ctx := input.ctx
+	authorized := input.authorized
+	snapshot := input.snapshot
+	document := input.document
+	outputID := input.outputID
+	contextToken := input.contextToken
+	build := input.build
+	entries := input.entries
+	families := input.families
+	current := input.current
+	request := input.request
 	proofCache := make(map[string]semanticCandidateRouteProof)
 	choices, err := semanticInventoryChoicesForExactOccurrence(
 		ctx, authorized, snapshot, document.RootResourceType, contextToken, build.BuildID,
@@ -255,9 +271,9 @@ func (b *Service) semanticInventoryPresentationForOutput(
 		}
 		return nil, nil, support.PersistenceFailure("catalog", "semantic field coverage could not be read", err)
 	}
-	if lookup.State != semanticarango.SemanticCoverageBuildComplete && lookup.State != semanticarango.SemanticCoverageBuildPartial {
+	if lookup.State != semantic.SemanticCoverageBuildComplete && lookup.State != semantic.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
-		if lookup.State == semanticarango.SemanticCoverageBuildBuilding || lookup.State == semanticarango.SemanticCoverageBuildFailed {
+		if lookup.State == semantic.SemanticCoverageBuildBuilding || lookup.State == semantic.SemanticCoverageBuildFailed {
 			reason = FieldPresentationIncompleteCoverage
 		}
 		return choices, fieldPresentationUnavailable(reason), nil
@@ -312,7 +328,7 @@ func (b *Service) semanticInventoryPresentationForOutput(
 		coverage := coverageByPath[semanticCoverageCandidatePathKey(semanticarango.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 		})]
-		if coverage.ResourceState != semanticarango.SemanticCoverageBuildComplete {
+		if coverage.ResourceState != semantic.SemanticCoverageBuildComplete {
 			decisions = append(decisions, FieldPresentationKeepRaw{
 				Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage,
 			})
@@ -456,7 +472,7 @@ func (b *Service) fieldPresentationCurrentContext(
 	if err != nil || actualDigest != owner.DraftDigest {
 		return current, support.Conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	document := findSemanticBrowseOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil || document.RootResourceType != request.RowRoot {
 		return current, support.NotFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
 	}
@@ -470,7 +486,7 @@ func (b *Service) fieldPresentationCurrentContext(
 	}
 	candidates := make([]capability.Candidate, 0, len(presentation.CandidateIDs))
 	for _, candidateID := range presentation.CandidateIDs {
-		candidate, found := uniqueCapabilityCandidate(snapshot, candidateID)
+		candidate, found := capability.UniqueCapabilityCandidate(snapshot, candidateID)
 		if !found || candidate.NodeID != presentation.SourceNodeID || candidate.ResourceType != node.ResourceType {
 			return current, support.Conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "a requested raw candidate is not part of the selected current source node", nil, nil)
 		}

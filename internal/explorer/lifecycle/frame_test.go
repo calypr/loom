@@ -26,7 +26,7 @@ func TestRoutedFrameCommandsReachSemanticAuthorization(t *testing.T) {
 	for _, kind := range []string{authoringv2.CommandSetFrameSource, authoringv2.CommandReplaceFrameSource} {
 		t.Run(kind, func(t *testing.T) {
 			command := authoringv2.Command{Type: kind, OutputID: "patients"}
-			_, err := service.prepareFrameSourceCommand(context.Background(), "project", "explorer", authorized, workspace, ws.CatalogSnapshot{}, command, identity)
+			_, err := service.prepareFrameSourceCommand(context.Background(), "project", "explorer", authorized, workspace, command, identity)
 			var failure *ports.Error
 			if !errors.As(err, &failure) || failure.Stage != "commands" || failure.Code != "CATALOG_UNAVAILABLE" {
 				t.Fatalf("expected routed frame to reach semantic authorization, got %v", err)

@@ -798,10 +798,7 @@ func TestValidateGenerationAcceptsLegacyStagedManifestWithoutSnapshot(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = manifest.Transition(StateReady)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manifest.State = StateReady
 	selector := DataframeSelector{Recipe: "explorer", TranslationVersion: "v1", Output: "Patient"}
 	verifier := &verificationFixture{results: map[string]PublicationVerification{
 		selector.Key(): published(selector, "execution-a", ref.Generation, time.Now().UTC()),
@@ -933,7 +930,7 @@ func stageManifest(t *testing.T, store *MemoryLifecycleStore, project, generatio
 	}
 	manifest, err := NewManifest(ref, schema)
 	if err == nil {
-		manifest, err = manifest.Transition(StateReady)
+		manifest, err = manifest.Transition(StateStaged)
 	}
 	if err != nil {
 		t.Fatal(err)

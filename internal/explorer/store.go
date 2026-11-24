@@ -23,21 +23,49 @@ var (
 	ErrCorruptReceipt = errors.New("corrupt compilation receipt")
 )
 
-type ExplorerStore interface {
+type ExplorerOwnerStore interface {
 	List(context.Context, string) ([]Explorer, error)
 	Get(context.Context, string, string) (*Explorer, error)
 	Create(context.Context, Explorer) (*Explorer, error)
+}
+
+type DraftStore interface {
 	SaveDraft(context.Context, Explorer, int64, ...string) (*Explorer, error)
 }
 
-type RevisionStore interface {
+type ExplorerStore interface {
+	ExplorerOwnerStore
+	DraftStore
+}
+
+type RevisionReader interface {
+	GetRevision(context.Context, string) (*Revision, error)
+}
+
+type RevisionWriter interface {
+	InsertRevision(context.Context, Revision) (*Revision, error)
+	FailRevision(context.Context, string, []viewer.Diagnostic) (*Revision, error)
+}
+
+type CompilationReceiptStore interface {
 	InsertCompilationReceipt(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error)
 	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+}
+
+type AuthoringPublisher interface {
 	PublishAuthoring(context.Context, receiptmodel.CompilationReceipt, Revision, dataset.ProjectRelease, int64) (*Revision, error)
-	InsertRevision(context.Context, Revision) (*Revision, error)
-	GetRevision(context.Context, string) (*Revision, error)
-	FailRevision(context.Context, string, []viewer.Diagnostic) (*Revision, error)
-	ActivateRepositoryGeneration(context.Context, string, string, string) error
+}
+
+type RepositoryGenerationActivator interface {
+	ActivateRepositoryGeneration(context.Context, dataset.ProjectRelease, int64, string) error
+}
+
+type RevisionStore interface {
+	RevisionReader
+	RevisionWriter
+	CompilationReceiptStore
+	AuthoringPublisher
+	RepositoryGenerationActivator
 }
 
 type SelectionStore interface {
@@ -54,3 +82,8 @@ type SelectionStore interface {
 type DraftRevisionReader interface {
 	GetDraftRevision(context.Context, string, string, string) (*DraftRevision, error)
 }
+
+type RepositoryGenerationActivationError struct{ Cause error }
+
+func (e *RepositoryGenerationActivationError) Error() string { return e.Cause.Error() }
+func (e *RepositoryGenerationActivationError) Unwrap() error { return e.Cause }

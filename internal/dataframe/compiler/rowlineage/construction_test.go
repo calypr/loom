@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipetest"
 	"github.com/google/uuid"
 )
 
@@ -154,7 +155,7 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 	}
 	assertPage := func(requestedRowID string, offset int, wantID string, wantMore bool) {
 		t.Helper()
-		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(requestedRowID, offset))
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(requestedRowID, offset))
 		contributors, _ := result["contributors"].([]any)
 		if result["found"] != true || result["hasMore"] != wantMore || len(contributors) != 1 {
 			t.Fatalf("Pivot lineage page at offset %d = %#v, want one exact contributor and hasMore=%t", offset, result, wantMore)
@@ -166,16 +167,19 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 	}
 	assertPage(rowID, 0, "target-null", true)
 	assertPage(rowID, 1, "target-zero", false)
-	pastEnd := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 2))
+	pastEnd := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 2))
 	if pastEnd["found"] != true || pastEnd["hasMore"] != false || len(pastEnd["contributors"].([]any)) != 0 {
 		t.Fatalf("past-end Pivot lineage page = %#v, want found row and empty final page", pastEnd)
 	}
-	missingIDBytes, err := json.Marshal([]any{"GROUPED_PIVOT", "row_lineage_pivot", []any{"STRING", "absent"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	missing := executeRowLineageOracleQuery(t, ctx, client, compilePage(string(missingIDBytes), 0))
-	if missing["found"] != false || missing["hasMore"] != false || len(missing["contributors"].([]any)) != 0 {
-		t.Fatalf("nonexistent typed Pivot identity disclosed contributors: %#v", missing)
+	for _, requestedID := range []string{
+		`["GROUPED_PIVOT","row_lineage_pivot",["STRING","absent"]]`,
+		`["GROUPED_PIVOT","other_construction",["STRING","wanted"]]`,
+		`["GROUPED_PIVOT","row_lineage_pivot",["INTEGER",1]]`,
+		"not-a-pivot-row-id",
+	} {
+		missing := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(requestedID, 0))
+		if missing["found"] != false || missing["hasMore"] != false || len(missing["contributors"].([]any)) != 0 {
+			t.Fatalf("nonexistent Pivot identity %q disclosed contributors: %#v", requestedID, missing)
+		}
 	}
 }

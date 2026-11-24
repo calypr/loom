@@ -1,14 +1,1 @@
 package lifecycle
-
-import "github.com/calypr/loom/internal/explorer/semanticbrowse"
-
-type fieldPresentationResult = semanticbrowse.FieldPresentationResult
-type fieldPresentationDecision = semanticbrowse.FieldPresentationDecision
-type FieldPresentationUnavailable = semanticbrowse.FieldPresentationUnavailable
-type FieldPresentationReady = semanticbrowse.FieldPresentationReady
-type FieldPresentationContext = semanticbrowse.FieldPresentationContext
-type FieldPresentationKeepRaw = semanticbrowse.FieldPresentationKeepRaw
-type FieldPresentationGroupUnderSemantic = semanticbrowse.FieldPresentationGroupUnderSemantic
-
-type ExactSemanticInventoryItemIdentity = semanticbrowse.ExactSemanticInventoryItemIdentity
-type FamilySemanticInventoryItemIdentity = semanticbrowse.FamilySemanticInventoryItemIdentity

@@ -13,6 +13,7 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestBootstrapHasNoSecondaryIndexes(t *testing.T) {
@@ -28,7 +29,7 @@ func TestBootstrapHasNoSecondaryIndexes(t *testing.T) {
 func TestCreateManifestCreatesActivePlaceholder(t *testing.T) {
 	manifest := fixtureManifest(t, "project-a", "generation-a", publication.StateLoading)
 	fake := &fakeQueryClient{responses: [][]map[string]any{{
-		{"recordType": manifestRecordType, "manifest": jsonObject(t, manifest)},
+		{"recordType": manifestRecordType, "manifest": testkit.JSONMap(t, manifest)},
 		{"recordType": activeRecordType},
 	}}}
 	store := mustStore(t, fake)
@@ -48,10 +49,13 @@ func TestCreateManifestCreatesActivePlaceholder(t *testing.T) {
 
 func TestTransitionAndResolveManifest(t *testing.T) {
 	loading := fixtureManifest(t, "project-a", "generation-a", publication.StateLoading)
-	ready, _ := loading.Transition(publication.StateReady)
-	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, ready)}, {jsonObject(t, ready)}}}
+	staged := loading
+	staged.State = publication.StateStaged
+	ready := loading
+	ready.State = publication.StateReady
+	fake := &fakeQueryClient{responses: [][]map[string]any{{testkit.JSONMap(t, staged)}, {testkit.JSONMap(t, ready)}}}
 	store := mustStore(t, fake)
-	if got, err := store.TransitionManifest(context.Background(), loading, publication.StateReady); err != nil || !reflect.DeepEqual(got, ready) {
+	if got, err := store.TransitionManifest(context.Background(), loading, publication.StateStaged); err != nil || !reflect.DeepEqual(got, staged) {
 		t.Fatalf("TransitionManifest = %#v, %v", got, err)
 	}
 	if got, err := store.ResolveActiveManifest(context.Background(), "project-a"); err != nil || !reflect.DeepEqual(got, ready) {
@@ -67,7 +71,7 @@ func TestTransitionAndResolveManifest(t *testing.T) {
 func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 	ready := fixtureManifest(t, "project-a", "generation-a", publication.StateReady)
 
-	fake := &fakeQueryClient{responses: [][]map[string]any{{}, {{"dataset": jsonObject(t, ready.Dataset)}}}}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{}, {{"dataset": testkit.JSONMap(t, ready.Dataset)}}}}
 	store := mustStore(t, fake)
 	if err := store.Activate(context.Background(), ready); err != nil {
 		t.Fatal(err)
@@ -91,9 +95,9 @@ func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 func TestActivateIsIdempotentWhenCandidateIsAlreadyActive(t *testing.T) {
 	ready := fixtureManifest(t, "project-a", "generation-a", publication.StateReady)
 	fake := &fakeQueryClient{responses: [][]map[string]any{{{
-		"dataset":        jsonObject(t, ready.Dataset),
+		"dataset":        testkit.JSONMap(t, ready.Dataset),
 		"state":          string(publication.StateReady),
-		"schemaIdentity": jsonObject(t, ready.SchemaIdentity),
+		"schemaIdentity": testkit.JSONMap(t, ready.SchemaIdentity),
 		"identityFormat": ready.IdentityFormat,
 	}}}}
 	store := mustStore(t, fake)
@@ -112,7 +116,8 @@ func TestActivateRejectsNonReadyMissingAndConflictingCandidates(t *testing.T) {
 	if err := store.Activate(context.Background(), loading); !errors.Is(err, publication.ErrGenerationNotReady) {
 		t.Fatalf("loading activation = %v", err)
 	}
-	ready, _ := loading.Transition(publication.StateReady)
+	ready := loading
+	ready.State = publication.StateReady
 	if err := store.Activate(context.Background(), ready); !errors.Is(err, ErrActivationConflict) {
 		t.Fatalf("missing candidate = %v", err)
 	}
@@ -123,11 +128,12 @@ func TestActivateRejectsNonReadyMissingAndConflictingCandidates(t *testing.T) {
 }
 
 func TestLegacyManifestStatesNormalizeAndMetadataIsIgnored(t *testing.T) {
-	base := jsonObject(t, fixtureManifest(t, "project-a", "generation-a", publication.StateLoading))
+	base := testkit.JSONMap(t, fixtureManifest(t, "project-a", "generation-a", publication.StateLoading))
 	base["analysisVersion"] = "legacy-v1"
 	for legacy, want := range map[string]publication.State{
 		"PREFLIGHT":  publication.StateLoading,
 		"ANALYZING":  publication.StateLoading,
+		"READY":      publication.StateReady,
 		"SUPERSEDED": publication.StateReady,
 	} {
 		row := cloneMap(base)
@@ -172,7 +178,7 @@ func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testi
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: now}
 	want := publication.ActiveRelease{Release: release, Revision: 4}
-	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, want)}}}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{testkit.JSONMap(t, want)}}}
 	store := mustStore(t, fake)
 	got, err := store.CompareAndSwapActivateRelease(context.Background(), release, 3)
 	if err != nil || !reflect.DeepEqual(got, want) {
@@ -207,7 +213,7 @@ func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testi
 func TestPublishReleaseActivationRequiresCurrentGeneration(t *testing.T) {
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: now}
-	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, publication.ActiveRelease{Release: release, Revision: 4})}}}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{testkit.JSONMap(t, publication.ActiveRelease{Release: release, Revision: 4})}}}
 	if _, err := CompareAndSwapPublishRelease(context.Background(), fake, release, 3); err != nil {
 		t.Fatalf("CompareAndSwapPublishRelease = %v", err)
 	}
@@ -220,7 +226,7 @@ func TestPublishReleaseActivationRequiresCurrentGeneration(t *testing.T) {
 
 func TestSaveReleasePersistsCandidateWithoutMovingVisibility(t *testing.T) {
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: time.Now().UTC()}
-	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, release)}}}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{testkit.JSONMap(t, release)}}}
 	store := mustStore(t, fake)
 	got, err := store.SaveRelease(context.Background(), release)
 	if err != nil || !reflect.DeepEqual(got, release) {
@@ -292,11 +298,9 @@ func fixtureManifest(t *testing.T, project, id string, state publication.State) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state != publication.StateLoading {
-		manifest, err = manifest.Transition(state)
-		if err != nil {
-			t.Fatal(err)
-		}
+	manifest.State = state
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
 	}
 	return manifest
 }
@@ -308,19 +312,6 @@ func mustStore(t *testing.T, client arangostore.RowQueryer) *Store {
 		t.Fatal(err)
 	}
 	return store
-}
-
-func jsonObject(t *testing.T, value any) map[string]any {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatal(err)
-	}
-	return result
 }
 
 type queryCall struct {

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/projectid"
@@ -78,7 +80,7 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 		if materialization.SourceRevision != "" && req.Source.RevisionID != materialization.SourceRevision {
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection revision changed"))
 		}
-		req.Source.RevisionID = firstNonEmpty(req.Source.RevisionID, materialization.SourceRevision)
+		req.Source.RevisionID = loomtext.FirstTrimmed(req.Source.RevisionID, materialization.SourceRevision)
 		req.Source.ExecutionID = materialization.Revision
 		req.Source.ReceiptID = materialization.ReceiptID
 		req.Source.SchemaDigest = materialization.SchemaDigest

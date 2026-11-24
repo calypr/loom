@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -143,7 +145,7 @@ func TestStreamingMissingCategoryPivotFallsBackWithoutDirectScalarProof(t *testi
 			Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
 			Selector: spec.Selector{
 				Steps:  []spec.SelectorStep{{Field: "category_code"}},
-				Filter: &spec.ContainsFilter{Field: "usage", Needle: "pivot"},
+				Filter: &fhirschema.ContainsFilter{Field: "usage", Needle: "pivot"},
 			},
 			ExecutionMode: ir.PhysicalSelectorGeneric,
 		},

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestBuilderFullUIRegisteredGroupFilterDeriveFixtureCompiles(t *testing.T) {
@@ -58,7 +58,7 @@ func TestBuilderFullUIRegisteredGroupFilterDeriveFixtureCompiles(t *testing.T) {
 	if fixture.CapabilityRequest == nil {
 		t.Fatal("registered fixture capability request is missing")
 	}
-	capabilities, err := harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.Service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 		ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: harness.Store.created.DraftDigest,
 		OutputID: fixture.OutputID, StageID: fixture.CapabilityRequest.StageID, GroupStepID: fixture.CapabilityRequest.GroupStepID,
@@ -183,7 +183,7 @@ func prepareBuilderFullUISeeds(t *testing.T, inventoryHeader json.RawMessage, in
 		}
 		rows = append(rows, row)
 	}
-	if err := writeBuilderFullUIPreparedSeeds(preparedPath, header, rows); err != nil {
+	if err := writeLifecycleJSONL(preparedPath, header, rows); err != nil {
 		t.Fatalf("write prepared seed artifact: %v", err)
 	}
 	fmt.Printf("BUILDER_FULL_UI_PREPARE path=%s rows=%d prepared=%d blocked=%d local=%d gap=%d setupFailure=%d inventorySha256=%s inventoryManifestSha256=%s modelStatesSha256=%s modelJsonlSha256=%s\n",
@@ -299,7 +299,7 @@ func prepareBuilderFullUISeed(source builderFullUIInventoryRow, manifestEntry bu
 	}
 	var capabilities construction.ConstructionCapabilitiesResponse
 	if capRequest != nil {
-		capabilities, err = harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+		capabilities, err = harness.Service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 			ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: harness.Store.created.DraftDigest,
 			OutputID: fixture.OutputID, StageID: capRequest.StageID, GroupStepID: capRequest.GroupStepID,
@@ -805,7 +805,7 @@ func newBuilderFullUIHarnessFromPrepared(prepared builderFullUISeed) (*builderFu
 	}
 	if fixture.CapabilityRequest != nil {
 		capRequest := fixture.CapabilityRequest
-		capabilities, capabilityErr := harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+		capabilities, capabilityErr := harness.Service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 			ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: prepared.AcceptedDigest,
 			OutputID: fixture.OutputID, StageID: capRequest.StageID, GroupStepID: capRequest.GroupStepID,
@@ -912,11 +912,11 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace w
 		}
 		return dataframeexecution.PreviewSummary{Output: fixture.OutputID, Columns: emittedPublicColumnsForOutput(receipt, fixture.OutputID), Complete: true}, nil
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		return nil, err
 	}
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, store))
 	if err != nil {
 		return nil, err
 	}
@@ -1020,18 +1020,4 @@ func readBuilderFullUIPreparedSeeds(path string) (map[string]builderFullUISeed, 
 		}
 	}
 	return prepared, append(json.RawMessage(nil), lines[0]...), artifactSHA, nil
-}
-
-func writeBuilderFullUIPreparedSeeds(path string, header builderFullUIPrepareHeader, rows []builderFullUISeed) error {
-	var content bytes.Buffer
-	encoder := json.NewEncoder(&content)
-	if err := encoder.Encode(header); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if err := encoder.Encode(row); err != nil {
-			return err
-		}
-	}
-	return os.WriteFile(path, content.Bytes(), 0o600)
 }

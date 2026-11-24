@@ -7,11 +7,12 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-const EdgeCollection = "fhir_edge"
+const EdgeCollection = fhirschema.EdgeCollection
 
 func OpenBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*arangostore.Client, error) {
 	return arangostore.Open(ctx, opts.URL, opts.Database)

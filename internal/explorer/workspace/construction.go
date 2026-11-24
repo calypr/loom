@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -261,51 +262,33 @@ func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-type ConstructionCombine struct {
-	Kind             ConstructionCombineKind             `json:"kind"`
-	Keys             []ConstructionCombineKey            `json:"keys,omitempty"`
-	Projections      []ConstructionCombineProjection     `json:"projections"`
-	JoinType         ConstructionCombineJoinType         `json:"joinType,omitempty"`
-	RightMatchPolicy ConstructionCombineRightMatchPolicy `json:"rightMatchPolicy,omitempty"`
-	MembershipMode   ConstructionCombineMembershipMode   `json:"membershipMode,omitempty"`
-}
+type ConstructionCombine recipe.ConstructionCombine
 
-type ConstructionCombineKind string
+type ConstructionCombineKind = recipe.ConstructionCombineKind
 
-const (
-	ConstructionCombineKeyJoin    ConstructionCombineKind = "KEY_JOIN"
-	ConstructionCombineAppend     ConstructionCombineKind = "APPEND"
-	ConstructionCombineMembership ConstructionCombineKind = "MEMBERSHIP"
-)
+type ConstructionCombineJoinType = recipe.ConstructionCombineJoinType
 
-type ConstructionCombineJoinType string
+type ConstructionCombineRightMatchPolicy = recipe.ConstructionCombineRightMatchPolicy
+
+type ConstructionCombineMembershipMode = recipe.ConstructionCombineMembershipMode
+
+type ConstructionCombineKey = recipe.ConstructionCombineKey
+
+type ConstructionCombineProjection = recipe.ConstructionCombineProjection
 
 const (
-	ConstructionCombineInnerJoin ConstructionCombineJoinType = "INNER"
-	ConstructionCombineLeftJoin  ConstructionCombineJoinType = "LEFT"
+	ConstructionCombineKeyJoin    = recipe.ConstructionCombineKeyJoin
+	ConstructionCombineAppend     = recipe.ConstructionCombineAppend
+	ConstructionCombineMembership = recipe.ConstructionCombineMembership
+
+	ConstructionCombineInnerJoin = recipe.ConstructionCombineInnerJoin
+	ConstructionCombineLeftJoin  = recipe.ConstructionCombineLeftJoin
+
+	ConstructionCombinePreserveAllMatches = recipe.ConstructionCombinePreserveAllMatches
+
+	ConstructionCombineIncludeMatches = recipe.ConstructionCombineIncludeMatches
+	ConstructionCombineExcludeMatches = recipe.ConstructionCombineExcludeMatches
 )
-
-type ConstructionCombineRightMatchPolicy string
-
-const ConstructionCombinePreserveAllMatches ConstructionCombineRightMatchPolicy = "PRESERVE_ALL"
-
-type ConstructionCombineMembershipMode string
-
-const (
-	ConstructionCombineIncludeMatches ConstructionCombineMembershipMode = "INCLUDE"
-	ConstructionCombineExcludeMatches ConstructionCombineMembershipMode = "EXCLUDE"
-)
-
-type ConstructionCombineKey struct {
-	LeftColumnID  string `json:"leftColumnId"`
-	RightColumnID string `json:"rightColumnId"`
-}
-
-type ConstructionCombineProjection struct {
-	OutputColumnID string `json:"outputColumnId"`
-	InputIndex     int    `json:"inputIndex"`
-	InputColumnID  string `json:"inputColumnId"`
-}
 
 type ConstructionPivot struct {
 	ConstructionID   string                      `json:"constructionId"`
@@ -456,12 +439,10 @@ func (l *ConstructionLiteral) UnmarshalJSON(raw []byte) error {
 }
 
 type ConstructionFilter struct {
-	ColumnID string                     `json:"columnId"`
-	Operator ConstructionFilterOperator `json:"operator"`
-	Values   []FilterValue              `json:"values,omitempty"`
+	ColumnID string              `json:"columnId"`
+	Operator spec.FilterOperator `json:"operator"`
+	Values   []FilterValue       `json:"values,omitempty"`
 }
-
-type ConstructionFilterOperator = spec.FilterOperator
 
 const (
 	ConstructionFilterEquals      = spec.FilterEquals
@@ -477,17 +458,15 @@ const (
 )
 
 type FilterValue struct {
-	Kind     ConstructionFilterValueKind `json:"kind"`
-	String   *string                     `json:"string,omitempty"`
-	Code     *CodeValue                  `json:"code,omitempty"`
-	Boolean  *bool                       `json:"boolean,omitempty"`
-	Integer  *int64                      `json:"integer,omitempty"`
-	Decimal  *float64                    `json:"decimal,omitempty"`
-	Date     *string                     `json:"date,omitempty"`
-	DateTime *string                     `json:"dateTime,omitempty"`
+	Kind     spec.FilterValueKind `json:"kind"`
+	String   *string              `json:"string,omitempty"`
+	Code     *CodeValue           `json:"code,omitempty"`
+	Boolean  *bool                `json:"boolean,omitempty"`
+	Integer  *int64               `json:"integer,omitempty"`
+	Decimal  *float64             `json:"decimal,omitempty"`
+	Date     *string              `json:"date,omitempty"`
+	DateTime *string              `json:"dateTime,omitempty"`
 }
-
-type ConstructionFilterValueKind = spec.FilterValueKind
 
 const (
 	ConstructionFilterString   = spec.FilterString
@@ -694,15 +673,7 @@ func (input *ConstructionGroupFieldSourceInput) UnmarshalJSON(raw []byte) error 
 	return nil
 }
 
-type ConstructionGroupFieldCurrentStage struct {
-	SourceRole        string `json:"sourceRole"`
-	OccurrenceID      string `json:"occurrenceId"`
-	OwnerResourceType string `json:"ownerResourceType"`
-	ResourceType      string `json:"resourceType"`
-	CandidateID       string `json:"candidateId,omitempty"`
-	CanonicalPath     string `json:"canonicalPath"`
-	BoundarySelector  string `json:"boundarySelector,omitempty"`
-}
+type ConstructionGroupFieldCurrentStage = recipe.ConstructionGroupCurrentStageFieldSource
 
 type ConstructionGroupFieldRelatedRouteStep struct {
 	StepIndex        int    `json:"stepIndex"`
@@ -990,20 +961,16 @@ type ConstructionGroupSemanticCategory struct {
 	CodingPath   string `json:"codingPath,omitempty"`
 }
 
-type ConstructionGroupAggregate struct {
-	Operation      ConstructionGroupAggregateOp `json:"operation"`
-	InputColumnID  string                       `json:"inputColumnId,omitempty"`
-	OutputColumnID string                       `json:"outputColumnId"`
-}
+type ConstructionGroupAggregate = recipe.ConstructionGroupAggregate
 
-type ConstructionGroupAggregateOp string
+type ConstructionGroupAggregateOp = recipe.ConstructionGroupAggregateOp
 
 const (
-	ConstructionGroupCountRows     ConstructionGroupAggregateOp = "COUNT_ROWS"
-	ConstructionGroupCountNonNull  ConstructionGroupAggregateOp = "COUNT_NON_NULL"
-	ConstructionGroupCountDistinct ConstructionGroupAggregateOp = "COUNT_DISTINCT"
-	ConstructionGroupSum           ConstructionGroupAggregateOp = "SUM"
-	ConstructionGroupMean          ConstructionGroupAggregateOp = "MEAN"
+	ConstructionGroupCountRows     = recipe.ConstructionGroupCountRows
+	ConstructionGroupCountNonNull  = recipe.ConstructionGroupCountNonNull
+	ConstructionGroupCountDistinct = recipe.ConstructionGroupCountDistinct
+	ConstructionGroupSum           = recipe.ConstructionGroupSum
+	ConstructionGroupMean          = recipe.ConstructionGroupMean
 )
 
 type ConstructionExpand struct {
@@ -1049,7 +1016,7 @@ const (
 )
 
 func requiredID(value string) bool {
-	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)
+	return value != "" && strings.TrimSpace(value) == value
 }
 
 func (o ConstructionOperation) inputColumnIDs() []string {
@@ -1151,14 +1118,13 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	if err := validateConstructionSourceProjections(c, sourceColumns); err != nil {
 		return err
 	}
-	source, err := sourceStageColumns(sourceColumns)
-	if err != nil {
+	if _, err := sourceStageColumns(sourceColumns); err != nil {
 		return err
 	}
 	if len(c.Steps) == 0 {
 		return nil
 	}
-	source, err = constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, c.Steps[0].inputColumnIDs(), c.Steps[0].Outputs)
+	source, err := constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, c.Steps[0].inputColumnIDs(), c.Steps[0].Outputs)
 	if err != nil {
 		return fmt.Errorf("source projection: %w", err)
 	}

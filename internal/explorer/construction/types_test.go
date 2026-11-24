@@ -4,12 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
@@ -35,7 +38,7 @@ func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 		},
 	}
 	base := filterSourceBase(snapshot, baseConstruction)
-	request := filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{})
+	request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{})
 
 	afterPivot, _, err := service.constructionSources().constructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
@@ -48,7 +51,7 @@ func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 		t.Fatalf("pivot preparation failed to repair the partial pivot-two omission carried by the client: %#v", afterPivot.SourceProjections)
 	}
 
-	afterFilter, err := service.testConstructionCandidateWithFilterSources(context.Background(), base, request, afterPivot)
+	afterFilter, err := service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), afterPivot)
 	if err != nil {
 		t.Fatalf("filter preparation for the sequence run: %v", err)
 	}
@@ -90,7 +93,7 @@ func TestPivotSourceClearSurvivesFilterPreparation(t *testing.T) {
 	if len(cleared.SourceProjections) != 0 {
 		t.Fatalf("pivot preparation did not clear the edited Pivot-owned projections: %#v", cleared.SourceProjections)
 	}
-	afterFilter, err := service.testConstructionCandidateWithFilterSources(context.Background(), base, request, cleared)
+	afterFilter, err := service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), cleared)
 	if err != nil {
 		t.Fatalf("filter preparation after the pivot clear: %v", err)
 	}
@@ -157,7 +160,7 @@ func TestPivotSourceReplaceSurvivesFilterPreparation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pivot preparation for the replacement: %v", err)
 	}
-	afterFilter, err := service.testConstructionCandidateWithFilterSources(context.Background(), base, request, prepared)
+	afterFilter, err := service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), prepared)
 	if err != nil {
 		t.Fatalf("filter preparation after the replacement: %v", err)
 	}
@@ -312,45 +315,12 @@ func rs05BaseWithHelperStage(base constructionBase) constructionBase {
 	return base
 }
 
-func rs05CloneConstruction(c ws.Construction) ws.Construction {
-	out := c
-	out.Steps = append([]ws.ConstructionStep(nil), c.Steps...)
-	for index := range out.Steps {
-		step := out.Steps[index]
-		if step.Inputs != nil {
-			step.Inputs = append([]ws.ConstructionInputRef(nil), step.Inputs...)
-		}
-		if step.Outputs != nil {
-			step.Outputs = append([]ws.StageColumn(nil), step.Outputs...)
-		}
-		out.Steps[index] = step
-	}
-	if c.SourceProjections != nil {
-		out.SourceProjections = append([]ws.ConstructionSourceProjection(nil), c.SourceProjections...)
-	} else {
-		out.SourceProjections = nil
-	}
-	return out
+func rs05CloneConstruction(construction ws.Construction) ws.Construction {
+	return constructionfixtures.CloneConstructionSlices(construction)
 }
 
 func rs05DeriveLaneStep(literal int64) ws.ConstructionStep {
-	value := literal
-	return ws.ConstructionStep{
-		ID:     rs05DeriveID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationDerive, Derive: &ws.ConstructionDerive{
-			ConstructionID:     rs05DeriveID,
-			OutputColumnID:     "derived_total",
-			Operation:          ws.ConstructionDerivedAdd,
-			Left:               ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: &value}},
-			Right:              ws.ConstructionOperand{Kind: ws.ConstructionLiteralOperand, Literal: &ws.ConstructionLiteral{Kind: ws.ConstructionNumericInteger, Integer: func() *int64 { three := int64(3); return &three }()}},
-			MissingInputPolicy: ws.ConstructionMissingInputPropagateNull,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
-		},
-	}
+	return constructionfixtures.DeriveLaneStep(rs05DeriveID, filterSourceIdentity, literal)
 }
 
 func rs05DeriveOwnedProjection() ws.ConstructionSourceProjection {
@@ -391,22 +361,7 @@ func rs05HasProjection(projections []ws.ConstructionSourceProjection, columnID, 
 }
 
 func rs05HelperStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: rs05HelperID, OwnerStepID: rs05PivotID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
-			ChoiceID: "seed-choice", OutputColumnID: rs05HelperColumn,
-			Source: ws.ConstructionRelatedFieldSource{
-				Kind: capability.ConstructionChoiceSourceField, CandidateID: "seed-cand", NodeID: filterSourceRootNode,
-				ResourceType: filterSourceRootType, Path: filterSourceField,
-				Cardinality: "optional_one", LogicalType: "boolean",
-			},
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: rs05HelperColumn, Name: "pv_col", Label: "BodyStructure.active", Type: "boolean", Nullable: true},
-		},
-	}
+	return constructionfixtures.PivotSourceHelperStep(rs05PivotID, rs05HelperID, rs05HelperColumn, filterSourceRootNode, filterSourceRootType, filterSourceField, filterSourceIdentity)
 }
 
 func rs05OtherHelperStep() ws.ConstructionStep {
@@ -427,26 +382,11 @@ func rs05OtherHelperStep() ws.ConstructionStep {
 }
 
 func rs05PivotStep(id string, groupKeys ...string) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     id,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
-			ConstructionID: id, GroupKeyIDs: groupKeys,
-			CategoryColumnID: rs05CategoryCol, ValueColumnID: rs05ValueCol,
-			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
-		}},
-		Outputs: []ws.StageColumn{{ID: "pval", Name: "pval", Label: "pval", Type: "string"}},
-	}
+	return constructionfixtures.PivotSourceStep(id, groupKeys, rs05CategoryCol, rs05ValueCol)
 }
 
 func rs05RootProjection(columnID, ownerStepID string) ws.ConstructionSourceProjection {
-	return ws.ConstructionSourceProjection{
-		ColumnID: columnID, OwnerStepID: ownerStepID, OccurrenceID: ws.RootOccurrenceID,
-		FieldPath: filterSourceField, FHIRType: "boolean", LogicalType: "boolean", Label: "BodyStructure.active",
-	}
+	return constructionfixtures.PivotSourceRootProjection(columnID, ownerStepID, filterSourceField)
 }
 
 func rs05RunBothPreparations(t *testing.T, service *Service, base constructionBase, request ConstructionProposalRequest, candidate ws.Construction) ws.Construction {
@@ -455,7 +395,7 @@ func rs05RunBothPreparations(t *testing.T, service *Service, base constructionBa
 	if err != nil {
 		t.Fatalf("pivot preparation: %v", err)
 	}
-	prepared, err = service.testConstructionCandidateWithFilterSources(context.Background(), base, request, prepared)
+	prepared, err = service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), prepared)
 	if err != nil {
 		t.Fatalf("filter preparation: %v", err)
 	}
@@ -473,46 +413,15 @@ func rs05SeedCleared() ws.Construction {
 }
 
 func rs05SeedDurable() ws.Construction {
-	return ws.Construction{
-		Version: ws.ConstructionVersion,
-		Steps: []ws.ConstructionStep{
-			rs05SeedFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
-			rs05HelperStep(),
-			rs05SeedPivotStep(),
-		},
-		SourceProjections: []ws.ConstructionSourceProjection{rs05RootProjection(rs05HelperColumn, rs05PivotID)},
-	}
+	return constructionfixtures.PivotSourceSeedDurable(rs05FilterID, filterSourceIdentity, rs05HelperID, rs05HelperColumn, rs05PivotID, filterSourceIdentity, filterSourceField, filterSourceIdentityColumns())
 }
 
 func rs05SeedFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     rs05FilterID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
-			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
-		}},
-		Outputs: outputs,
-	}
+	return constructionfixtures.FilterStep(rs05FilterID, columnID, outputs)
 }
 
 func rs05SeedPivotStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     rs05PivotID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05HelperID}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationPivot, Pivot: &ws.ConstructionPivot{
-			ConstructionID: rs05PivotID, GroupKeyIDs: []string{filterSourceIdentity},
-			CategoryColumnID: rs05HelperColumn, ValueColumnID: "pval",
-			Categories:             []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("t"), OutputColumnID: "pval"}},
-			DuplicatePolicy:        ws.ConstructionPivotDuplicateError,
-			MissingCellPolicy:      ws.ConstructionPivotMissingNull,
-			UnlistedCategoryPolicy: ws.ConstructionPivotUnlistedError,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: "pval", Name: "pval", Label: "pval", Type: "integer"},
-		},
-	}
+	return constructionfixtures.PivotSourceSeedPivotStep(rs05PivotID, rs05HelperID, rs05HelperColumn, filterSourceIdentity)
 }
 
 func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
@@ -530,7 +439,7 @@ func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
 	}
 	candidate := rs05CloneConstruction(baseConstruction)
 	created := rs05RunBothPreparations(t, service, filterSourceBase(snapshot, baseConstruction),
-		filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{selection}), candidate)
+		filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{selection}), candidate)
 	if count := rs05CountOwned(created.SourceProjections, rs05FilterID); count != 1 {
 		t.Fatalf("created filter-owned projections = %d: %#v", count, created.SourceProjections)
 	}
@@ -544,7 +453,7 @@ func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
 
 	saved := rs05CloneConstruction(baseConstruction)
 	restored := rs05RunBothPreparations(t, service, filterSourceBase(snapshot, saved),
-		filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{selection}), saved)
+		filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{selection}), saved)
 	if count := rs05CountOwned(restored.SourceProjections, rs05FilterID); count != 1 {
 		t.Fatalf("restored filter-owned projections = %d: %#v", count, restored.SourceProjections)
 	}

@@ -121,19 +121,19 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 
 	stale := request
 	stale.StageID = "stale-stage"
-	if _, err := service.DiscoverConstructionCategories(context.Background(), stale); lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+	if _, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), stale); lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("stale stage error = %v", err)
 	}
 	stale = request
 	stale.CategoryColumnID = "stale-column"
-	if _, err := service.DiscoverConstructionCategories(context.Background(), stale); lifecycleErrorCode(err) != "INVALID_CATEGORY_COLUMN_ID" {
+	if _, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), stale); lifecycleErrorCode(err) != "INVALID_CATEGORY_COLUMN_ID" {
 		t.Fatalf("stale category column error = %v", err)
 	}
 	if calls != 0 {
 		t.Fatalf("scanner ran before stage and column IDs were validated: %d calls", calls)
 	}
 
-	response, err := service.DiscoverConstructionCategories(context.Background(), request)
+	response, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,14 +146,14 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 
 	includeMissing = true
 	includeNull = true
-	withMissing, err := service.DiscoverConstructionCategories(context.Background(), request)
+	withMissing, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || withMissing.Outcome != "COMPLETE" || !withMissing.Complete ||
 		len(withMissing.Categories) != 3 || withMissing.Categories[1].Key.Kind != ws.TableScalarNull ||
 		withMissing.Categories[2].Key.Kind != ws.TableScalarMissing {
 		t.Fatalf("presence-tracked missing-category discovery = %#v, error = %v", withMissing, err)
 	}
 	presenceTracked = false
-	unsupported, err := service.DiscoverConstructionCategories(context.Background(), request)
+	unsupported, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || unsupported.Outcome != "MISSING_UNSUPPORTED" || unsupported.Complete ||
 		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "Filter rows where the category field is missing") {
 		t.Fatalf("untracked missing-category discovery = %#v, error = %v; want the conservative refusal", unsupported, err)
@@ -162,29 +162,29 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	includeMissing = false
 	includeNull = false
 	conclusiveMissing = true
-	if _, err = service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+	if _, err = service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
 		t.Fatalf("presence-tracked witness without the complete category scan error = %v", err)
 	}
 	conclusiveMissing = false
 
 	incomplete = true
-	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+	if _, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
 		t.Fatalf("incomplete scan error = %v", err)
 	}
 	incomplete = false
 	overflow = true
-	limited, err := service.DiscoverConstructionCategories(context.Background(), request)
+	limited, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || limited.Outcome != "LIMIT_EXCEEDED" || limited.Complete || limited.ProofFingerprint != "" || len(limited.Categories) != 0 || limited.Limit != facade.MaxCategoryScanValues || limited.Message == "" {
 		t.Fatalf("overflow scan result = %#v, error = %v", limited, err)
 	}
 	invalidProof = true
-	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+	if _, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
 		t.Fatalf("overflow with invalid compiler proof error = %v", err)
 	}
 	invalidProof = false
 	overflow = false
 	noValues = true
-	empty, err := service.DiscoverConstructionCategories(context.Background(), request)
+	empty, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || empty.Outcome != "NO_VALUES" || empty.Complete || len(empty.Categories) != 0 || !strings.Contains(empty.Message, "No selected value is populated") {
 		t.Fatalf("no-value category discovery = %#v, error = %v", empty, err)
 	}
@@ -192,7 +192,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	scanCategories = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{}, context.DeadlineExceeded
 	}
-	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_TIMEOUT" {
+	if _, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_TIMEOUT" {
 		t.Fatalf("timed-out scan error = %v", err)
 	}
 }

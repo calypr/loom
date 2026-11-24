@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/calypr/loom/internal/explorer/authoringcore"
@@ -81,6 +82,8 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 			CompileReceipt:             config.CompileReceipt,
 			PreviewReceipt:             config.PreviewReceipt,
 			ReceiptLookup:              config.ReceiptLookup,
+			Receipts:                   config.Receipts,
+			Selections:                 config.SelectionStore,
 			InterpretationRepository:   config.InterpretationRepository,
 			SelectionMembersCollection: config.SelectionMembersCollection,
 			NativeReceipts:             config.CompileReceipt != nil || config.PreviewReceipt != nil || config.PopulationMapping != nil || config.MaterializeReceipt != nil,
@@ -91,9 +94,9 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		interpretationService: interpretationService,
 	}
 	selectionService, err := selection.NewService(selection.Config{
-		Store: store,
-		RevisionReader: selection.RevisionReaderFunc(func(ctx context.Context, id string) (*selection.PublishedRevision, error) {
-			revision, err := store.GetRevision(ctx, id)
+		Store: config.SelectionStore,
+		ReadPublishedRevision: func(ctx context.Context, id string) (*selection.PublishedRevision, error) {
+			revision, err := config.Revisions.GetRevision(ctx, strings.TrimSpace(id))
 			if err != nil {
 				return nil, err
 			}
@@ -106,7 +109,7 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 				CompilationReceiptID: revision.CompilationReceiptID,
 				ExecutionID:          revision.Publication.ExecutionID, Outputs: outputs,
 			}, nil
-		}),
+		},
 		CapabilityProvider: func() selection.CapabilityResolver {
 			return selectionCapabilityResolver(service.config.Capability)
 		},
@@ -126,7 +129,7 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	}
 	service.selectionService = selectionService
 	explicitGroupService, err := explicitgroup.NewService(explicitgroup.Config{
-		Store: store, Repository: config.ExplicitGroupRepository, Capability: config.Capability, Now: now,
+		Store: config.SelectionStore, Repository: config.ExplicitGroupRepository, Capability: config.Capability, Now: now,
 	})
 	if err != nil {
 		return nil, err
@@ -155,9 +158,9 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		SemanticCoverage:                   config.SemanticCoverage,
 		ResolveSemanticInventorySelections: config.ResolveSemanticInventorySelections,
 		ProvePopulationRoute:               provePopulationRoute,
-		ReauthorizeFrameSourceChoice: func(ctx context.Context, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (semanticbrowse.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+		ReauthorizeFrameSourceChoice: func(ctx context.Context, project, explorerID, rowRoot, outputID, choiceID string, authorized ports.AuthorizedCapability, identity capability.ConstructionChoiceIdentity) (ports.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
 			family, route, err := service.constructionService.ReauthorizeFrameSourceChoice(ctx, project, explorerID, rowRoot, outputID, choiceID, authorized, identity)
-			return semanticbrowse.FrameSourceFamilyCandidate{Family: family.Family, Entry: family.Entry, Candidate: family.Candidate}, route, err
+			return family, route, err
 		},
 	})
 	populationService, err := population.NewService(service.populationConfig())
@@ -171,12 +174,15 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	}
 	service.proposalService = proposalService
 	publicationService, err := publication.NewService(publication.Config{
-		Core: service.core, Store: store, Capability: config.Capability,
+		Core: service.core, ExplorerStore: config.ExplorerOwners, DraftStore: config.DraftStore,
+		Revisions: config.Revisions, RevisionWriter: config.RevisionWriter, Receipts: config.Receipts,
+		AuthoringPublisher: config.AuthoringPublisher, RepositoryActivator: config.RepositoryActivator,
+		Capability:                 config.Capability,
 		SelectionMembersCollection: config.SelectionMembersCollection,
 		CompileReceipt:             config.CompileReceipt, MaterializeReceipt: config.MaterializeReceipt,
 		ArtifactStore: config.ArtifactStore, PublishedReader: config.PublishedReader,
 		ArtifactTTL: config.ArtifactTTL, ArtifactMaxRows: config.ArtifactMaxRows, ArtifactMaxBytes: config.ArtifactMaxBytes,
-		ValidateReleaseGeneration: config.ValidateReleaseGeneration, ActivateRelease: config.ActivateRelease,
+		ValidateReleaseGeneration: config.ValidateReleaseGeneration, PrepareRepositoryRelease: config.PrepareRepositoryRelease,
 		PrepareRelease: config.PrepareRelease, PersistPublishedWorkspace: config.PersistPublishedWorkspace, Now: now,
 	})
 	if err != nil {
@@ -190,7 +196,7 @@ func (s *Service) populationConfig() population.Config {
 	return population.Config{
 		Core:                         s.core,
 		Capability:                   s.config.Capability,
-		Store:                        s.store,
+		Store:                        s.config.SelectionStore,
 		SelectionMembersCollection:   s.config.SelectionMembersCollection,
 		CreateSelection:              s.selectionService.CreateSelection,
 		ClassifyMaterializationError: support.ClassifyMaterializationError,
@@ -259,20 +265,6 @@ func selectionCapabilityResolver(capabilities ports.CapabilityResolver) selectio
 	}
 }
 
-func (s *Service) InterpretationService() *interpretation.Service {
-	if s == nil {
-		return nil
-	}
-	return s.interpretationService
-}
-
-func (s *Service) SelectionService() *selection.Service {
-	if s == nil {
-		return nil
-	}
-	return s.selectionService
-}
-
 func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request AuthoringNetworkRequest) (AuthoringNetworkResponse, error) {
 	empty := AuthoringNetworkResponse{}
 	for name, value := range map[string]string{"project": request.Project, "explorerId": request.ExplorerID, "outputId": request.OutputID, "snapshotToken": request.SnapshotToken, "expectedDraftDigest": request.ExpectedDraftDigest} {
@@ -308,7 +300,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	if err != nil || digest != owner.DraftDigest {
 		return empty, support.Conflict("authoring-network", "DRAFT_CONFLICT", "saved source digest does not match", nil, err)
 	}
-	document := support.ProposalDocument(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil {
 		return empty, support.Unprocessable("authoring-network", "OUTPUT_NOT_FOUND", "saved output is unavailable", nil)
 	}
@@ -327,28 +319,8 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
 }
 
-func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request explicitgroup.ExplicitGroupCreateRequest) (explicitgroup.ExplicitGroupCreateResult, error) {
-	return s.explicitGroupService.CreateExplicitGroupRevision(ctx, request)
-}
-
 func NewSchemaRowChoiceResolver(index *fhirschema.Index) (*rowdef.SchemaRowChoiceResolver, error) {
 	return rowdef.NewSchemaRowChoiceResolver(index)
-}
-
-func (s *Service) AssessRowChange(ctx context.Context, request rowdef.AssessRowChangeRequest) (rowdef.AssessRowChangeResult, error) {
-	return s.rowDefService.AssessRowChange(ctx, request)
-}
-
-func (s *Service) ListRowDefinitionChoices(ctx context.Context, request rowdef.RowDefinitionChoicesRequest) (rowdef.RowDefinitionChoicesResponse, error) {
-	return s.rowDefService.ListRowDefinitionChoices(ctx, request)
-}
-
-func (s *Service) RowLineage(ctx context.Context, request rowdef.RowLineageRequest) (rowdef.RowLineageResult, error) {
-	return s.rowDefService.RowLineage(ctx, request)
-}
-
-func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDefinitionProposalRequest) (rowdef.RowDefinitionProposal, error) {
-	return s.rowDefService.ProposeRowDefinition(ctx, request)
 }
 
 func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace ws.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {

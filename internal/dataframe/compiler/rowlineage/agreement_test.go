@@ -8,6 +8,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -55,8 +57,8 @@ func TestGroupRowLineagePartitionsForwardRowsAgainstArango(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile Group lineage for %s: %v", rowID, err)
 		}
-		result := executeRowLineageOracleQuery(t, ctx, client, query)
-		contributors := lineageContributorRows(t, result)
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, query)
+		contributors := recipetest.LineageContributorRows(t, result)
 		if result["found"] != true || len(contributors) == 0 {
 			t.Fatalf("Group row %s has no complete lineage: %#v", rowID, result)
 		}

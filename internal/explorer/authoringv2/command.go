@@ -8,17 +8,16 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func (c *Command) ResolveColumnPolicyProposal(columnID, projectionMode string) error {
-	if c == nil || c.Type != CommandApplyColumnPolicyProposal || strings.TrimSpace(columnID) == "" || strings.TrimSpace(columnID) != columnID {
-		return fmt.Errorf("column policy requires an exact resolved column identity")
+func ResolveColumnPolicyProposal(c Command, columnID, projectionMode string) (ColumnPolicyResolution, error) {
+	if c.Type != CommandApplyColumnPolicyProposal || strings.TrimSpace(columnID) == "" || strings.TrimSpace(columnID) != columnID {
+		return ColumnPolicyResolution{}, fmt.Errorf("column policy requires an exact resolved column identity")
 	}
 	switch projectionMode {
 	case "VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT":
 	default:
-		return fmt.Errorf("column policy mode is unsupported")
+		return ColumnPolicyResolution{}, fmt.Errorf("column policy mode is unsupported")
 	}
-	c.resolvedColumnPolicy = &resolvedColumnPolicy{columnID: columnID, projectionMode: projectionMode}
-	return nil
+	return ColumnPolicyResolution{ColumnID: columnID, ProjectionMode: projectionMode}, nil
 }
 
 func (s SemanticSelection) validate() error {
@@ -54,7 +53,7 @@ func (c Command) validateApplyColumnPolicyProposal() error {
 		len(c.EdgeIDs()) != 0 || c.RouteChoiceID() != "" || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
 		c.CandidateID() != "" || c.ProjectionMode() != "" || c.InitialPresentation != "" || c.Column() != "" || c.ColumnValue() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
 		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ContextToken() != "" || len(c.SemanticSelections()) != 0 ||
-		c.ConstructionChoice() != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs()) != 0 {
+		c.ConstructionChoice() != nil || len(c.OutputIDs()) != 0 {
 		return fmt.Errorf("%s accepts only outputId and proposalId", c.Type)
 	}
 	return nil
@@ -68,7 +67,7 @@ func (c Command) validateRestoreDraftRevision() error {
 		len(c.EdgeIDs()) != 0 || c.RouteChoiceID() != "" || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
 		c.CandidateID() != "" || c.ProjectionMode() != "" || c.InitialPresentation != "" || c.Column() != "" || c.ColumnValue() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
 		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ProposalID() != "" || c.ContextToken() != "" || len(c.SemanticSelections()) != 0 ||
-		c.ConstructionChoice() != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs()) != 0 || c.resolvedDraftRevision != nil {
+		c.ConstructionChoice() != nil || len(c.OutputIDs()) != 0 {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION accepts only draftRevisionId")
 	}
 	return nil
@@ -102,7 +101,7 @@ func (c Command) validateUpdateColumnRowValuePolicy() error {
 		len(c.EdgeIDs()) != 0 || c.RouteChoiceID() != "" || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
 		c.CandidateID() != "" || c.ProjectionMode() != "" || c.InitialPresentation != "" || c.ColumnValue() != nil || c.ConstructionOutput() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
 		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ProposalID() != "" || c.DraftRevisionID() != "" || c.ContextToken() != "" || len(c.SemanticSelections()) != 0 ||
-		c.ConstructionChoice() != nil || c.FrameChoiceID() != "" || c.FrameID() != "" || c.FrameForm() != "" || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs()) != 0 {
+		c.ConstructionChoice() != nil || c.FrameChoiceID() != "" || c.FrameID() != "" || c.FrameForm() != "" || len(c.OutputIDs()) != 0 {
 		return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY accepts only outputId, column, and rowValuePolicy")
 	}
 	return nil
@@ -207,7 +206,7 @@ func (c Command) validateApplyConstructionChoice() error {
 	if err := c.ConstructionChoice().validate(); err != nil {
 		return err
 	}
-	if c.ResolvedChoice != nil || c.SourceOutputID() != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
+	if c.SourceOutputID() != "" || c.RootNodeID() != "" || c.SelectionRevisionID() != "" ||
 		len(c.EdgeIDs()) != 0 || c.ParentOccurrenceID() != "" || c.OccurrenceID() != "" || c.EdgeID() != "" || c.MatchMode() != "" ||
 		c.CandidateID() != "" || c.ProjectionMode() != "" || c.Column() != "" || c.ColumnValue() != nil || c.TransformationChange() != nil || c.Contributor() != nil ||
 		c.Source() != nil || c.RowChange() != nil || c.InterpretationCandidate() != nil || c.ContextToken() != "" ||

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -150,20 +152,8 @@ type pppHarness struct {
 	database string
 	suffix   string
 
-	mu            sync.Mutex
-	trackedTables []string
-	canaryTable   string
-}
-
-func (h *pppHarness) trackTable(table string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, existing := range h.trackedTables {
-		if existing == table {
-			return
-		}
-	}
-	h.trackedTables = append(h.trackedTables, table)
+	tableTracker
+	canaryTable string
 }
 
 func pppOpen(t *testing.T) *pppHarness {
@@ -197,9 +187,7 @@ func pppOpen(t *testing.T) *pppHarness {
 
 func (h *pppHarness) dropAndVerifyClickHouse(t *testing.T) {
 	t.Helper()
-	h.mu.Lock()
-	tables := append([]string(nil), h.trackedTables...)
-	h.mu.Unlock()
+	tables := h.tablesForCleanup()
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	for _, table := range tables {
@@ -237,12 +225,11 @@ func (h *pppHarness) dropAndVerifyClickHouse(t *testing.T) {
 }
 
 type pppPublication struct {
-	identity  pubpublication.PublicationIdentity
-	key       string
-	pointer   string
-	outputs   []pubpublication.OutputStream
-	tableName string
-	rows      int
+	identity pubpublication.PublicationIdentity
+	key      string
+	pointer  string
+	outputs  []pubpublication.OutputStream
+	rows     int
 }
 
 func pppNewPublication(label, project string, h *pppHarness) pppPublication {
@@ -275,8 +262,8 @@ func pppNewPublication(label, project string, h *pppHarness) pppPublication {
 	return pppPublication{identity: identity, key: bundle.Key(), pointer: bundle.PointerName(), outputs: outputs, rows: 3}
 }
 
-func (p pppPublication) selector() pubpublication.DataframeSelector {
-	return pubpublication.DataframeSelector{Recipe: p.identity.Name, TranslationVersion: p.identity.TranslationVersion, Output: p.identity.OutputName}
+func (p pppPublication) selector() dataset.DataframeSelector {
+	return dataset.DataframeSelector{Recipe: p.identity.Name, TranslationVersion: p.identity.TranslationVersion, Output: p.identity.OutputName}
 }
 
 func pppProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p pppPublication) (pubpublication.Result, error) {
@@ -416,7 +403,7 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("control GetExecution %s: %v", controlID, err)
 	}
-	if controlExec.State.Canonical() != pubpublication.BundlePublished {
+	if !controlExec.State.Successful() {
 		t.Fatalf("control precondition: exec CONTROL state %q, want PUBLISHED", controlExec.State)
 	}
 	controlPointer, err := h.registry.GetPointer(ctx, control.pointer)
@@ -458,7 +445,7 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	}
 	viaGet := mustGetExecution(t, h, ctx, faultID, "GetExecution")
 	viaKey := mustGetExecution(t, h, ctx, faulty.key, "FindExecutionByKey")
-	if viaGet.State.Canonical() != pubpublication.BundlePublished || viaKey.State.Canonical() != pubpublication.BundlePublished {
+	if !viaGet.State.Successful() || !viaKey.State.Successful() {
 		t.Fatalf("fault precondition: partial Application left the row state GetExecution=%q FindExecutionByKey=%q, want PUBLISHED on both", viaGet.State, viaKey.State)
 	}
 	faultPointer, pointerErr := h.registry.GetPointer(ctx, faulty.pointer)

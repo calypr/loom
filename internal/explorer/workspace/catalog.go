@@ -87,7 +87,7 @@ func CatalogFromCapability(snapshot capability.Snapshot, explorerID string) Cata
 	return result
 }
 
-func catalogConceptCandidates(values []capability.ConceptCandidate) []ConceptCandidate {
+func catalogConceptCandidates(values []capability.ConceptCandidate) []capability.ConceptCandidate {
 	return capability.CloneConceptCandidates(values)
 }
 
@@ -112,7 +112,7 @@ func catalogAvailability(value *capability.Availability) *CatalogAvailability {
 	for _, field := range value.Fields {
 		semanticObservations := catalogConceptCandidates(field.SemanticObservations)
 		if semanticObservations == nil {
-			semanticObservations = []ConceptCandidate{}
+			semanticObservations = []capability.ConceptCandidate{}
 		}
 		result.Fields = append(result.Fields, CatalogObservedField{
 			ResourceType: field.ResourceType, Path: field.Path, ObservedShapeKind: field.ShapeKind,

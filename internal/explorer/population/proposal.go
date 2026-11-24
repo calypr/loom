@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/authoringcore"
-	"github.com/calypr/loom/internal/explorer/construction"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -64,7 +63,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err != nil || workspaceDigest != owner.DraftDigest {
 		return PopulationMemberRemovalProposalResponse{}, support.Conflict("population-member-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	documentIndex := construction.ConstructionDocumentIndex(workspace, request.OutputID)
+	documentIndex := workspace.DocumentIndex(request.OutputID)
 	if documentIndex < 0 {
 		return PopulationMemberRemovalProposalResponse{}, support.Unprocessable("population-member-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify one saved table", nil)
 	}
@@ -236,7 +235,7 @@ func (s *Service) PopulationRemovalRouteChoice(ctx context.Context, request Popu
 	return "", support.Unprocessable("population-member-proposal", "INVALID_POPULATION_ROUTE", "the existing population route is no longer available for the candidate selection", nil)
 }
 
-func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
+func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, *receiptmodel.CompilationReceipt, error) {
 	snapshot := authorized.Snapshot
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyPopulationMemberProposal {
 		return nil, nil, support.Malformed("commands", "APPLY_POPULATION_MEMBER_PROPOSAL must be the only command in its atomic request", nil)
@@ -258,7 +257,7 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the saved draft no longer matches the proposal base", nil, err)
 	}
-	baseIndex := construction.ConstructionDocumentIndex(current, command.OutputID)
+	baseIndex := current.DocumentIndex(command.OutputID)
 	if baseIndex < 0 {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}
@@ -319,10 +318,11 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "population-member-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
 		return nil, nil, err
 	}
-	if err := command.ResolvePopulationMemberProposal(candidateSelection.ID, baseDocument.Population.Route); err != nil {
+	resolution, err := authoringv2.ResolvePopulationMemberProposal(*command, candidateSelection.ID, baseDocument.Population.Route)
+	if err != nil {
 		return nil, nil, support.Conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the candidate population is invalid", nil, err)
 	}
-	return commands, receipt, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}, receipt, nil
 }
 
 func CheckPopulationMemberRemovalProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {

@@ -105,8 +105,6 @@ type ResolvedPopulation struct {
 	Route               []ws.PopulationRouteStep `json:"route,omitempty"`
 }
 
-type ResolvedInterpretation = interpretation.ResolvedInterpretation
-
 type ResolvedImportedRecipe struct {
 	Reference      ws.ImportedRecipeRef           `json:"reference"`
 	Bundle         recipe.Bundle                  `json:"bundle"`
@@ -139,7 +137,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	if err := validateResolvedInterpretationCoverage(project, snapshot, workspace, resolvedInputs); err != nil {
 		return WorkspaceResult{}, fail("intent", "INTERPRETATION_INPUT_MISMATCH", "$.resolvedInputs.interpretations", err.Error(), nil, err)
 	}
-	if err := validateResolvedImportedRecipeCoverage(workspace, wire, resolvedInputs); err != nil {
+	if err := validateResolvedImportedRecipeCoverage(workspace, resolvedInputs); err != nil {
 		return WorkspaceResult{}, fail("intent", "IMPORTED_RECIPE_INPUT_MISMATCH", "$.resolvedInputs.importedRecipes", err.Error(), nil, err)
 	}
 	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
@@ -414,7 +412,7 @@ func validateResolvedInterpretationCoverage(project string, snapshot capability.
 	return nil
 }
 
-func validateResolvedInterpretation(resolved ResolvedInterpretation, column ws.Column) error {
+func validateResolvedInterpretation(resolved interpretation.ResolvedInterpretation, column ws.Column) error {
 	if resolved.Revision.ID == "" || resolved.SelectedRuleID == "" {
 		return fmt.Errorf("revision and selectedRuleId are required")
 	}
@@ -442,7 +440,7 @@ func interpretationKey(outputID, column, occurrenceID string) string {
 	return outputID + "\x00" + column + "\x00" + occurrenceID
 }
 
-func cloneResolvedInterpretation(input ResolvedInterpretation) ResolvedInterpretation {
+func cloneResolvedInterpretation(input interpretation.ResolvedInterpretation) interpretation.ResolvedInterpretation {
 	out := input
 	out.Revision.Applicability.ResourceTypes = append([]string(nil), input.Revision.Applicability.ResourceTypes...)
 	out.Revision.Applicability.SourceProfiles = append([]string(nil), input.Revision.Applicability.SourceProfiles...)
@@ -489,7 +487,7 @@ func definitionEqual(left, right interpretation.InterpretationFeatureDefinition)
 
 func applyResolvedInterpretations(workspace ws.Workspace, inputs ResolvedInputs) ws.Workspace {
 	effective := workspace.NormalizePresentationOrders()
-	byKey := make(map[string]ResolvedInterpretation, len(inputs.Interpretations))
+	byKey := make(map[string]interpretation.ResolvedInterpretation, len(inputs.Interpretations))
 	for _, input := range inputs.Interpretations {
 		byKey[interpretationKey(input.OutputID, input.Column, input.OccurrenceID)] = input
 	}
@@ -516,9 +514,9 @@ func applyResolvedInterpretations(workspace ws.Workspace, inputs ResolvedInputs)
 }
 
 type ResolvedInputs struct {
-	Populations     []ResolvedPopulation     `json:"populations,omitempty"`
-	Interpretations []ResolvedInterpretation `json:"interpretations,omitempty"`
-	ImportedRecipes []ResolvedImportedRecipe `json:"importedRecipes,omitempty"`
+	Populations     []ResolvedPopulation                    `json:"populations,omitempty"`
+	Interpretations []interpretation.ResolvedInterpretation `json:"interpretations,omitempty"`
+	ImportedRecipes []ResolvedImportedRecipe                `json:"importedRecipes,omitempty"`
 }
 
 func (r ResolvedInputs) ImportedRecipeFor(reference ws.ImportedRecipeRef) (ResolvedImportedRecipe, bool) {
@@ -539,7 +537,7 @@ func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool
 	return ResolvedPopulation{}, false
 }
 
-func validateResolvedImportedRecipeCoverage(workspace ws.Workspace, catalog ws.CatalogSnapshot, inputs ResolvedInputs) error {
+func validateResolvedImportedRecipeCoverage(workspace ws.Workspace, inputs ResolvedInputs) error {
 	expected := make(map[ws.ImportedRecipeRef]struct{})
 	for _, document := range workspace.Documents {
 		if document.ImportedRecipe == nil {
@@ -799,7 +797,7 @@ func ResolvedInputsDigest(workspace ws.Workspace, snapshot capability.Snapshot, 
 }
 
 func (r ResolvedInputs) Canonical() ResolvedInputs {
-	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...), Interpretations: append([]ResolvedInterpretation(nil), r.Interpretations...), ImportedRecipes: append([]ResolvedImportedRecipe(nil), r.ImportedRecipes...)}
+	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...), Interpretations: append([]interpretation.ResolvedInterpretation(nil), r.Interpretations...), ImportedRecipes: append([]ResolvedImportedRecipe(nil), r.ImportedRecipes...)}
 	for index := range copy.Populations {
 		copy.Populations[index].Route = append([]ws.PopulationRouteStep(nil), copy.Populations[index].Route...)
 	}
@@ -953,15 +951,6 @@ func safeName(value string) string {
 func shortHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])[:16]
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func contextErr(ctx context.Context) error {

@@ -112,6 +112,33 @@ func TestArchivedRecipeViewerUsesFrozenMetadata(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("Viewer rewrote immutable recipe/revision metadata")
 	}
+	for _, test := range []struct {
+		name             string
+		revisionStatus   RevisionStatus
+		publicationState string
+		want             string
+	}{
+		{"ready", RevisionReady, "READY", "READY"},
+		{"active", RevisionActive, "ACTIVE", "ACTIVE"},
+		{"superseded", RevisionSuperseded, "ACTIVE", "ACTIVE"},
+		{"failed with prior metadata", RevisionFailed, "READY", "READY"},
+		{"failed without metadata", RevisionFailed, "", "FAILED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stored := revision
+			stored.Status, stored.Publication.State = test.revisionStatus, test.publicationState
+			projected, err := BuildViewerProjection(&stored)
+			if err != nil || projected == nil {
+				t.Fatalf("project revision: %+v, %v", projected, err)
+			}
+			if projected.Status != test.want || projected.Publication.State != test.want {
+				t.Fatalf("viewer state = %q/%q, want %q", projected.Status, projected.Publication.State, test.want)
+			}
+			if stored.Status != test.revisionStatus || stored.Publication.State != test.publicationState {
+				t.Fatalf("projection changed persisted states to %q/%q", stored.Status, stored.Publication.State)
+			}
+		})
+	}
 	config.Recipe = json.RawMessage(strings.Replace(archiveIntegrationRecipe, `"nullRowPolicy":"DROP"`, `"nullRowPolicy":"INVALID"`, 1))
 	revision.Config, _ = json.Marshal(config)
 	if _, err = BuildViewerProjection(&revision); err == nil {

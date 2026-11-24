@@ -1,8 +1,11 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -30,7 +33,7 @@ func TestCompileRelatedEligibilityPreservesRowsAndCountsDistinctTerminalResource
 		{kind: recipe.RelatedEligibilityCountAtLeast, threshold: intPointer(2),
 			contributorSource: contributorSource("observation-id", "Observation.id", "required_one"),
 			contributorPredicate: &recipe.ConstructionRelatedPredicate{CandidateID: "observation-id", Operator: recipe.FilterEquals,
-				Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &exactValue}}},
+				Value: &spec.FilterValue{Kind: recipe.FilterString, String: &exactValue}}},
 	} {
 		t.Run(match.kind, func(t *testing.T) {
 			output := constructionTestOutput()
@@ -188,7 +191,7 @@ func TestRelatedEligibilityAfterGroupUsesCompilerOwnedRootContributors(t *testin
 			if subplan == nil || len(subplan.Operations) < 2 || subplan.Operations[0].CollectionScan == nil ||
 				subplan.Operations[1].Filter == nil || subplan.Operations[1].Filter.Predicate.Operator != "IN" ||
 				subplan.Operations[1].Filter.Predicate.Right == nil ||
-				!equalStringSlices(subplan.Operations[1].Filter.Predicate.Right.Path, []string{rootContributorSetColumn}) {
+				!slices.Equal(subplan.Operations[1].Filter.Predicate.Right.Path, []string{rootContributorSetColumn}) {
 				t.Fatalf("eligibility did not scan the exact compiler-owned contributor set: %#v", subplan)
 			}
 			if err := compiled.Plan.Validate(); err != nil {

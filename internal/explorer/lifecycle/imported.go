@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, catalog ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, catalog ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	if s.config.EditImportedSource == nil {
 		return nil, support.Unavailable("commands", "IMPORTED_SOURCE_UNAVAILABLE", "source editing is unavailable", nil)
 	}
@@ -36,10 +36,11 @@ func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID
 		}
 		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
-	if err := command.ResolveImportedDocument(updated); err != nil {
+	resolution, err := authoringv2.ResolveImportedDocument(command, updated)
+	if err != nil {
 		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
-	prepared := []authoringv2.Command{command}
+	prepared := []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}
 	candidate, _, err := authoringv2.ApplyCommands(workspace, catalog, "source-edit-validation", prepared)
 	if err != nil {
 		return nil, support.Unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)

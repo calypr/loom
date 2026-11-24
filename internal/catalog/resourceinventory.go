@@ -12,14 +12,6 @@ const (
 	ResourceInventoryBuildRecordType = "build"
 )
 
-type resourceInventoryCountIdentity struct {
-	Project           string `json:"project"`
-	DatasetGeneration string `json:"dataset_generation"`
-	AuthResourcePath  string `json:"auth_resource_path,omitempty"`
-	ResourceType      string `json:"resource_type"`
-	DocumentCount     int64  `json:"document_count"`
-}
-
 func ResourceInventoryBuildKey(project, datasetGeneration string) string {
 	return "ribm_" + digest.Digest("resource-inventory-marker/v1", project, NormalizeDatasetGeneration(datasetGeneration))
 }
@@ -60,7 +52,7 @@ func NewResourceInventoryBuild(project, datasetGeneration string, resourceTypes 
 		return left.AuthResourcePath < right.AuthResourcePath
 	})
 	coveredTypes := make(map[string]struct{}, len(types))
-	identities := make([]resourceInventoryCountIdentity, 0, len(canonicalCounts))
+	identities := make([]ResourceInventoryObservation, 0, len(canonicalCounts))
 	for i, count := range canonicalCounts {
 		if count.Project != project || NormalizeDatasetGeneration(count.DatasetGeneration) != datasetGeneration || count.ResourceType == "" || count.DocumentCount < 0 {
 			return ResourceInventoryBuild{}, nil, fmt.Errorf("resource inventory count %d has invalid identity or document count", i)
@@ -72,7 +64,7 @@ func NewResourceInventoryBuild(project, datasetGeneration string, resourceTypes 
 			return ResourceInventoryBuild{}, nil, fmt.Errorf("resource inventory has duplicate count scope for %q and auth path %q", count.ResourceType, count.AuthResourcePath)
 		}
 		coveredTypes[count.ResourceType] = struct{}{}
-		identities = append(identities, resourceInventoryCountIdentity{
+		identities = append(identities, ResourceInventoryObservation{
 			Project: project, DatasetGeneration: datasetGeneration, AuthResourcePath: count.AuthResourcePath,
 			ResourceType: count.ResourceType, DocumentCount: count.DocumentCount,
 		})
@@ -87,11 +79,11 @@ func NewResourceInventoryBuild(project, datasetGeneration string, resourceTypes 
 		return ResourceInventoryBuild{}, nil, err
 	}
 	buildID, err := canonicalDigest(struct {
-		SchemaVersion  string                           `json:"schema_version"`
-		Project        string                           `json:"project"`
-		Generation     string                           `json:"dataset_generation"`
-		CoverageDigest string                           `json:"coverage_digest"`
-		Counts         []resourceInventoryCountIdentity `json:"counts"`
+		SchemaVersion  string                         `json:"schema_version"`
+		Project        string                         `json:"project"`
+		Generation     string                         `json:"dataset_generation"`
+		CoverageDigest string                         `json:"coverage_digest"`
+		Counts         []ResourceInventoryObservation `json:"counts"`
 	}{
 		SchemaVersion: "resource-inventory-build/v1", Project: project, Generation: datasetGeneration,
 		CoverageDigest: coverageDigest, Counts: identities,

@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
+	"github.com/calypr/loom/internal/explorer/capability"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -167,13 +168,7 @@ type ReceiptConstructionGroupFieldOwner struct {
 	StepIndex         int    `json:"stepIndex"`
 }
 
-type ReceiptConstructionCodedGroupChoice struct {
-	ChoiceID     string `json:"choiceId"`
-	OccurrenceID string `json:"occurrenceId"`
-	ResourceType string `json:"resourceType"`
-	CodingPath   string `json:"codingPath"`
-	Label        string `json:"label"`
-}
+type ReceiptConstructionCodedGroupChoice = capability.ConstructionCodedGroupChoice
 
 type ReceiptConstructionRelatedExpandAnchor struct {
 	AnchorColumnID string `json:"anchorColumnId"`
@@ -971,18 +966,6 @@ func validateReceiptRawJSON(raw []byte) error {
 	}
 	_, err := explorerconfig.CanonicalJSONBytes(raw)
 	return err
-}
-
-func ValidateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage, bundle recipe.Bundle) error {
-	return validateReceiptConstructionStages(stagesByOutput, bundle)
-}
-
-func ValidateReceiptCompiledOutputSchemas(schemas map[string][]ReceiptCompiledOutputColumn, bundle recipe.Bundle) error {
-	return validateReceiptCompiledOutputSchemas(schemas, bundle)
-}
-
-func ValidateReceiptRawJSON(raw []byte) error {
-	return validateReceiptRawJSON(raw)
 }
 
 func (receipt CompilationReceipt) CurrentWorkspace() (ws.Workspace, error) {

@@ -19,7 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func PersistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request ports.CompileReceiptRequest, snapshot capability.Snapshot) (*receiptmodel.CompilationReceipt, error) {
+func PersistTestNativeReceipt(ctx context.Context, t *testing.T, receipts explorer.CompilationReceiptStore, request ports.CompileReceiptRequest, snapshot capability.Snapshot) (*receiptmodel.CompilationReceipt, error) {
 	t.Helper()
 	workspace := request.Workspace
 	normalized, err := workspace.CanonicalJSON()
@@ -61,5 +61,5 @@ func PersistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 	if err != nil {
 		return nil, err
 	}
-	return service.StoreCompilationReceipt(ctx, receipt)
+	return receipts.InsertCompilationReceipt(ctx, receipt)
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type relatedCategoryHop struct {
@@ -305,12 +306,12 @@ func categoryRelatedStageHops(plan ir.PhysicalPlan, stage ir.PhysicalConstructio
 		if !sourceTypeOK || !targetTypeOK || !labelOK || !collectionOK ||
 			traversal.SourceVariable != currentVariable || traversal.Direction != direction ||
 			sourceType != route.FromResourceType || targetType != route.ToResourceType ||
-			label != route.Relationship || edgeCollection != "fhir_edge" ||
+			label != route.Relationship || edgeCollection != fhirschema.EdgeCollection ||
 			operation.Source.SemanticNode != route.ToNodeID ||
 			operation.Source.ResourceType != route.ToResourceType ||
 			operation.Source.Relationship != route.Relationship ||
 			traversal.EdgeVariable == "" || traversal.TargetVariable == "" ||
-			traversal.EdgeTargetTypeField != categoryRelatedTargetTypeField(direction) ||
+			traversal.EdgeTargetTypeField != direction.TargetTypeField() ||
 			!categoryRelatedTraversalScope(subplan.Operations[position+1:position+7], traversal) {
 			return nil, false
 		}
@@ -471,13 +472,6 @@ func categoryRelatedSameStringSlice(got, want []string) bool {
 		}
 	}
 	return true
-}
-
-func categoryRelatedTargetTypeField(direction ir.PhysicalTraversalDirection) string {
-	if direction == ir.PhysicalInbound {
-		return "from_type"
-	}
-	return "to_type"
 }
 
 func categoryRelatedExpressionValue(expression ir.PhysicalExpression, variable, path string) bool {

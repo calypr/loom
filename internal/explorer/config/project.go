@@ -44,20 +44,6 @@ func (config ProjectConfig) Digest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func ValidateProjectConfigs(configs []ProjectConfig) error {
-	seen := make(map[string]struct{}, len(configs))
-	for index, config := range configs {
-		if err := config.Validate(); err != nil {
-			return fmt.Errorf("configs[%d]: %w", index, err)
-		}
-		if _, ok := seen[config.ID]; ok {
-			return fmt.Errorf("duplicate project config id %q", config.ID)
-		}
-		seen[config.ID] = struct{}{}
-	}
-	return nil
-}
-
 func (config ProjectConfig) Validate() error {
 	if !projectConfigIDPattern.MatchString(config.ID) {
 		return fmt.Errorf("id must contain only letters, digits, '.', '_' or '-' and start with a letter or digit")

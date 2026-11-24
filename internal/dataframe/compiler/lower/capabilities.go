@@ -2,7 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -81,16 +80,6 @@ func rootContributorSet(schema []CompiledOutputColumn, rootResourceType string) 
 		if column.Internal && column.RootContributorResourceType == rootResourceType &&
 			column.Name == rootContributorSetColumn && column.Kind == string(expression.KindString) &&
 			column.Cardinality == string(expression.Many) {
-			return column, true
-		}
-	}
-	return CompiledOutputColumn{}, false
-}
-
-func rootContributorRootKey(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
-	for _, column := range schema {
-		if column.Internal && column.Name == "_key" && column.RootContributorResourceType == rootResourceType &&
-			column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
 			return column, true
 		}
 	}
@@ -266,7 +255,7 @@ func withConstructionCapability(capabilities []StageOperationCapability, replace
 
 func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string, rootContributorsAvailable bool) []CompiledRelatedExpandAnchor {
 	anchors := make([]CompiledRelatedExpandAnchor, 0, 3)
-	_, retainedRootKey := retainedRootResourceAnchor(schema, rootResourceType)
+	_, retainedRootKey := rootContributorRootKey(schema, rootResourceType)
 	if retainedRootKey && rootResourceType != "" {
 		anchors = append(anchors, CompiledRelatedExpandAnchor{
 			AnchorColumnID: "_key", Kind: "root", ResourceType: rootResourceType,
@@ -290,7 +279,7 @@ func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string
 	return anchors
 }
 
-func retainedRootResourceAnchor(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
+func rootContributorRootKey(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
 	for _, column := range schema {
 		if column.Internal && column.Name == "_key" && column.RootContributorResourceType == rootResourceType && column.Kind == string(expression.KindString) &&
 			column.Cardinality == string(expression.RequiredOne) {
@@ -417,7 +406,7 @@ func toPhysicalStageColumns(schema []CompiledOutputColumn) []ir.PhysicalStageCol
 			Internal: column.Internal, Identity: column.Identity,
 			RelatedRecordAnchor:         relatedAnchor,
 			RootContributorResourceType: column.RootContributorResourceType,
-			NormalizedUnit:              cloneUnitIdentity(column.NormalizedUnit),
+			NormalizedUnit:              ir.CloneUnitIdentity(column.NormalizedUnit),
 			PresenceCompanionName:       column.PresenceCompanionName,
 		})
 	}
@@ -491,13 +480,4 @@ func allocateConstructionVariable(used map[string]bool, kind string, index int) 
 
 func cloneCompiledSchema(schema []CompiledOutputColumn) []CompiledOutputColumn {
 	return CloneCompiledOutputSchema(schema)
-}
-
-func constructionFirstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }

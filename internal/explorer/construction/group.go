@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -253,7 +256,7 @@ func constructionGroupFieldOwnerRoute(
 	context *receiptmodel.ReceiptConstructionGroupFieldSourceContext,
 	occurrenceID string,
 ) (capability.RowChoiceOccurrence, []capability.ConstructionRouteStep, error) {
-	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, occurrenceID, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, occurrenceID)
 	if err != nil {
 		return capability.RowChoiceOccurrence{}, nil, err
 	}
@@ -399,7 +402,7 @@ func constructionGroupRelatedAnchorForStage(
 	if rootOccurrence == "" || base.Document.Route.ResourceType != base.Document.RootResourceType {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("document has no exact compiler-rooted source occurrence")
 	}
-	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, rootOccurrence, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, rootOccurrence)
 	if err != nil {
 		return constructionGroupRelatedAnchor{}, fmt.Errorf("source root occurrence no longer resolves to one authorized row root: %w", err)
 	}
@@ -458,18 +461,6 @@ func groupSourceSelector(expansion *receiptmodel.ReceiptConstructionGroupFieldSo
 	return expansion.Selector
 }
 
-func equalGroupFieldRoutes(left, right []capability.ConstructionRouteStep) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func groupFieldScopeLabel(owner receiptmodel.ReceiptConstructionGroupFieldOwner, expansion *receiptmodel.ReceiptConstructionGroupFieldSourceExpansion) string {
 	parts := []string{owner.OwnerResourceType}
 	if owner.Role == "ANCESTOR" {
@@ -510,7 +501,6 @@ func matchedPublicGroupFieldColumn(
 func (s *Service) constructionGroupFieldChoices(
 	ctx context.Context,
 	base Base,
-	outputID string,
 	stage receiptmodel.ReceiptConstructionStage,
 	semanticChoices []ConstructionSemanticGroupChoice,
 	semanticChoicesIncomplete bool,
@@ -599,7 +589,7 @@ func (s *Service) constructionGroupFieldChoices(
 			if choiceErr != nil {
 				continue
 			}
-			label := firstNonEmpty(facts.Title, proved.Label, constructionGroupFieldLabel(fieldPath))
+			label := loomtext.FirstTrimmed(facts.Title, proved.Label, constructionGroupFieldLabel(fieldPath))
 			response := ConstructionGroupFieldChoice{
 				Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 				ValueKind: "SCALAR", Label: label, ScopeLabel: groupFieldScopeLabel(owner, context.SourceExpansion),
@@ -634,7 +624,7 @@ func (s *Service) constructionGroupFieldChoices(
 				if rowChoice.Kind != capability.RowChoiceExpandedScope || rowChoice.OccurrenceID != expansion.OwnerOccurrenceID ||
 					rowChoice.NodeID != owner.NodeID || rowChoice.ResourceType != expansion.OwnerResourceType ||
 					rowChoice.Path != expansion.Selector || rowChoice.FHIRType != "Coding" || rowChoice.Reference ||
-					rowChoice.Cardinality != capability.RowChoiceMany || !equalGroupFieldRoutes(rowChoice.Route, route) {
+					rowChoice.Cardinality != capability.RowChoiceMany || !slices.Equal(rowChoice.Route, route) {
 					continue
 				}
 				source := capability.GroupFieldChoiceSource{
@@ -679,7 +669,6 @@ func (s *Service) constructionGroupFieldChoices(
 func (s *Service) constructionGroupRowValueChoices(
 	ctx context.Context,
 	base Base,
-	outputID string,
 	stage receiptmodel.ReceiptConstructionStage,
 	groupStepID string,
 ) ([]ConstructionGroupFieldChoice, error) {
@@ -700,7 +689,7 @@ func (s *Service) constructionGroupRowValueChoices(
 	if !ok || inputStageID != stage.ID {
 		return nil, conflict("construction-capabilities", "STALE_GROUP_STEP_INPUT", "row-value choices must use the exact Group input stage", nil, nil)
 	}
-	choices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, stage, nil, false, groupStepID, "")
+	choices, _, err := s.constructionGroupFieldChoices(ctx, base, stage, nil, false, groupStepID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +705,6 @@ func (s *Service) constructionGroupRowValueChoices(
 func (s *Service) resolveConstructionGroupFieldSources(
 	ctx context.Context,
 	base Base,
-	outputID string,
 	candidate ws.Construction,
 ) (ws.Construction, error) {
 	priorByStep := make(map[string][]ws.ConstructionGroupKey)
@@ -747,7 +735,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			continue
 		}
 		groupRelatedRouteID := ""
-		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, *stage, nil, false, "", step.ID)
+		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, *stage, nil, false, "", step.ID)
 		if err != nil {
 			return candidate, err
 		}
@@ -808,7 +796,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			}
 		}
 		if groupStepHasRowValueFieldSource(*step) {
-			rowChoices, choiceErr := s.constructionGroupRowValueChoices(ctx, base, outputID, *stage, step.ID)
+			rowChoices, choiceErr := s.constructionGroupRowValueChoices(ctx, base, *stage, step.ID)
 			if choiceErr != nil {
 				return candidate, choiceErr
 			}

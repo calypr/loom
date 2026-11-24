@@ -713,3 +713,29 @@ func choiceIDForPayload(payload []byte) string {
 func NewSemanticConstructionChoice(snapshotToken, semanticContextToken, buildID string, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
 	return NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID, nil, source, candidate, ownerRecordsProved...)
 }
+
+func TestConstructionChoiceFieldOptionsMatchIgnoresOwnerRecordOption(t *testing.T) {
+	fieldOption := ConstructionChoiceOption{Form: ConstructionChoiceValue, Reason: "value"}
+	ownerOption := ConstructionChoiceOption{Form: ConstructionChoiceOwnerRecords, Reason: "owner records"}
+	if !ConstructionChoiceFieldOptionsMatch(
+		ConstructionChoice{Options: []ConstructionChoiceOption{fieldOption, ownerOption}},
+		ConstructionChoice{Options: []ConstructionChoiceOption{fieldOption}},
+	) {
+		t.Fatal("semantic owner-record option changed field choice equality")
+	}
+	if ConstructionChoiceFieldOptionsMatch(
+		ConstructionChoice{Options: []ConstructionChoiceOption{fieldOption}},
+		ConstructionChoice{Options: []ConstructionChoiceOption{}},
+	) {
+		t.Fatal("different field options were treated as equal")
+	}
+	if !ConstructionChoiceFieldOptionsMatch(
+		ConstructionChoice{},
+		ConstructionChoice{Options: []ConstructionChoiceOption{}},
+	) {
+		t.Fatal("an empty semantic option set did not match an empty field option set")
+	}
+	if ConstructionChoiceFieldOptionsMatch(ConstructionChoice{}, ConstructionChoice{}) {
+		t.Fatal("nil field options were treated as an empty field option set")
+	}
+}

@@ -84,14 +84,7 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 		return nil, err
 	}
 	for _, schema := range schemas {
-		columns, err := toColumns(schema.Columns)
-		if err != nil {
-			cause := fmt.Errorf("output %q schema: %w", schema.Name, err)
-			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
-			abortErr := tx.Abort(cleanupCtx, cause)
-			cancel()
-			return nil, errors.Join(cause, abortErr)
-		}
+		columns := toColumns(schema.Columns)
 		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
 			cause := fmt.Errorf("output %q create: %w", schema.Name, err)
 			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
@@ -134,10 +127,10 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 	}
 	defer unlock()
 	if existing, err := s.catalog.FindExecutionByKey(ctx, key); err == nil {
-		switch existing.State {
-		case publication.BundlePublished, publication.BundleReady:
+		switch {
+		case existing.State.Successful():
 			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true, columns: make(map[string][]clickhouse.Column)}, nil
-		case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
+		case existing.State.InFlight():
 			if existing.LeaseExpiresAt == nil || existing.LeaseExpiresAt.After(time.Now().UTC()) {
 				return nil, dataframeerrors.Wrap(
 					fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID),
@@ -159,10 +152,10 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 			if refreshErr != nil {
 				return nil, dataframeerrors.Wrap(refreshErr, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 			}
-			switch refreshed.State.Canonical() {
-			case publication.BundlePublished, publication.BundleReady:
+			switch {
+			case refreshed.State.Successful():
 				return &clickHouseBundleTx{store: s, execution: refreshed, idempotent: true, columns: make(map[string][]clickhouse.Column)}, nil
-			case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
+			case refreshed.State.InFlight():
 				return nil, dataframeerrors.Wrap(
 					fmt.Errorf("%w: %s", ErrBundleInFlight, refreshed.ID),
 					dataframeerrors.CodePublicationInProgress,

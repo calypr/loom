@@ -1,37 +1,8 @@
 package queryapi
 
 import (
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog"
 )
-
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func predicatePathFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
-	if input == nil {
-		return ""
-	}
-	return input.Path
-}
-
-func predicateOpFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
-	if input == nil {
-		return ""
-	}
-	return input.Op.String()
-}
-
-func predicateValueFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
-	if input == nil {
-		return ""
-	}
-	return input.Value
-}
 
 func cloneStrings(in []string) []string {
 	if len(in) == 0 {

@@ -32,7 +32,7 @@ func populationRootPlan() PhysicalPlan {
 	}
 }
 
-func TestPhysicalPopulationRootSourceValidatesAndClonesDeeply(t *testing.T) {
+func TestPhysicalPopulationRootSourceValidatesAndRejectsMissingResourceScan(t *testing.T) {
 	plan := populationRootPlan()
 	if err := plan.Validate(); err != nil {
 		t.Fatal(err)
@@ -42,10 +42,6 @@ func TestPhysicalPopulationRootSourceValidatesAndClonesDeeply(t *testing.T) {
 	if got := plan.Operations[0].RootScan.Population.ResourceOperations[0].CollectionScan.Variable; got != "source" {
 		t.Fatalf("population root clone mutated source plan: %q", got)
 	}
-}
-
-func TestPhysicalPopulationRootSourceRejectsMissingResourceScan(t *testing.T) {
-	plan := populationRootPlan()
 	plan.Operations[0].RootScan.Population.ResourceOperations = nil
 	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "must begin with COLLECTION_SCAN") {
 		t.Fatalf("Validate() = %v, want missing resource scan error", err)

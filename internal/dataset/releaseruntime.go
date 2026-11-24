@@ -19,25 +19,20 @@ func NewReleaseRuntime(service *ReleaseService, activationConflictOnce, reposito
 	return runtime
 }
 
-func (r *ReleaseRuntime) Activate(ctx context.Context, project, generation string, selectors []DataframeSelector) error {
+func (r *ReleaseRuntime) PrepareRepository(ctx context.Context, project, generation string, selectors []DataframeSelector) (ProjectRelease, int64, error) {
 	expectedRevision := int64(0)
-
 	devFaultArmed := r.repositoryActivationConflictOnce.CompareAndSwap(true, false)
 	active, err := r.service.Active(ctx, project)
 	if err == nil {
 		expectedRevision = active.Revision
-
 		if devFaultArmed {
 			expectedRevision++
 		}
 	} else if !errors.Is(err, ErrNoActiveRelease) {
-		return err
+		return ProjectRelease{}, 0, err
 	}
-	_, err = r.service.Activate(ctx, ActivationRequest{
-		Project: project, Generation: generation, GitCommit: generation,
-		ExpectedRevision: expectedRevision, OptionalSelectors: selectors,
-	})
-	return err
+	release, err := r.service.Create(ctx, ActivationRequest{Project: project, Generation: generation, GitCommit: generation, OptionalSelectors: selectors})
+	return release, expectedRevision, err
 }
 
 func (r *ReleaseRuntime) Prepare(ctx context.Context, project, generation string, selectors []DataframeSelector) (ProjectRelease, int64, error) {

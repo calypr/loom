@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/lease"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -18,8 +19,7 @@ type clickHouseBundleTx struct {
 	closed              bool
 	leaseLost           bool
 	leaseErr            error
-	leaseCancel         context.CancelFunc
-	leaseDone           chan struct{}
+	leaseRenewal        *lease.Renewal
 	leaseMu             sync.RWMutex
 	leaseStopOnce       sync.Once
 	leaseStopErr        error

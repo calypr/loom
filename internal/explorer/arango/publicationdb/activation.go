@@ -2,14 +2,16 @@ package publicationdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/arango/db"
 	"time"
 
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/releasecommit"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -50,53 +52,71 @@ type activationState struct {
 	prior     map[string]any
 }
 
-func (s *Store) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
-	return s.client.WithTransaction(ctx, store.TransactionCollections{
-		Read:  []string{publicationarango.BundleExecutionsCollection},
-		Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection},
-	}, func(txCtx context.Context, tx store.RowQueryer) error {
-		row, found, err := readActivationRow(txCtx, tx, compositeActivationReadAQL, map[string]any{
-			"@lifecycle": datasetarango.LifecycleCollection, "@explorers": db.ExplorersCollection,
-			"@revisions": db.RevisionsCollection, "@executions": publicationarango.BundleExecutionsCollection,
-			"manifestKey": datasetarango.ManifestDocumentKey(dataset.Ref{Project: project, Generation: generation}),
-			"activeKey":   datasetarango.ActiveDocumentKey(project), "explorerKey": explorerDocumentKey(project, "default"),
-			"revisionKey": revisionID, "project": project, "generation": generation,
-		})
-		if err != nil {
-			return err
-		}
-		if !found {
-			return explorer.ErrDraftConflict
-		}
-		state, err := activationStateFromRow(row)
-		if err != nil {
-			return err
-		}
-		manifest, err := requiredActivationDocument(row, "manifest")
-		if err != nil {
-			return err
-		}
-		active, err := requiredActivationDocument(row, "active")
-		if err != nil {
-			return err
-		}
-		activeKey, err := activationDocumentKey(active)
-		if err != nil {
-			return err
-		}
-		manifestKey, err := activationDocumentKey(manifest)
-		if err != nil {
-			return err
-		}
-		dataset, ok := manifest["dataset"]
-		if !ok {
-			return fmt.Errorf("activation manifest has no dataset")
-		}
-		if err := updateActivationDocument(txCtx, tx, datasetarango.LifecycleCollection, activeKey, map[string]any{"dataset": dataset, "manifestKey": manifestKey}); err != nil {
-			return err
-		}
-		return activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC())
+func (s *PublicationStore) ActivateRepositoryGeneration(ctx context.Context, release dataset.ProjectRelease, expectedRevision int64, revisionID string) error {
+	project, generation := release.Project, release.Generation
+	applied := false
+	_, err := releasecommit.GoLive(ctx, s.client, releasecommit.Request{
+		Release: release, ExpectedRevision: expectedRevision,
+		Collections: store.TransactionCollections{
+			Read:  []string{publicationarango.BundleExecutionsCollection},
+			Write: []string{db.ExplorersCollection, db.RevisionsCollection},
+		},
+		Prepare: func(txCtx context.Context, tx store.RowQueryer) (releasecommit.Participant, error) {
+			state, err := readRepositoryActivation(txCtx, tx, project, generation, revisionID)
+			if err != nil {
+				return nil, &explorer.RepositoryGenerationActivationError{Cause: err}
+			}
+			return func(txCtx context.Context, tx store.RowQueryer, _ dataset.ActiveRelease) error {
+				applied = true
+				if err := activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC()); err != nil {
+					return &explorer.RepositoryGenerationActivationError{Cause: err}
+				}
+				return nil
+			}, nil
+		},
 	})
+	if err != nil && applied {
+		var generationErr *explorer.RepositoryGenerationActivationError
+		if !errors.As(err, &generationErr) {
+			return &explorer.RepositoryGenerationActivationError{Cause: err}
+		}
+	}
+	return err
+}
+
+func readRepositoryActivation(ctx context.Context, tx store.RowQueryer, project, generation, revisionID string) (activationState, error) {
+	row, found, err := readActivationRow(ctx, tx, compositeActivationReadAQL, map[string]any{
+		"@lifecycle": datasetarango.LifecycleCollection, "@explorers": db.ExplorersCollection,
+		"@revisions": db.RevisionsCollection, "@executions": publicationarango.BundleExecutionsCollection,
+		"manifestKey": datasetarango.ManifestDocumentKey(dataset.Ref{Project: project, Generation: generation}),
+		"activeKey":   datasetarango.ActiveDocumentKey(project), "explorerKey": explorerDocumentKey(project, "default"),
+		"revisionKey": revisionID, "project": project, "generation": generation,
+	})
+	if err != nil {
+		return activationState{}, err
+	}
+	if !found {
+		return activationState{}, explorer.ErrDraftConflict
+	}
+	state, err := activationStateFromRow(row)
+	if err != nil {
+		return activationState{}, err
+	}
+	for _, name := range []string{"manifest", "active"} {
+		document, err := requiredActivationDocument(row, name)
+		if err != nil {
+			return activationState{}, err
+		}
+		if _, err := activationDocumentKey(document); err != nil {
+			return activationState{}, err
+		}
+		if name == "manifest" {
+			if _, ok := document["dataset"]; !ok {
+				return activationState{}, fmt.Errorf("activation manifest has no dataset")
+			}
+		}
+	}
+	return state, nil
 }
 
 func readActivationRow(ctx context.Context, tx store.RowQueryer, query string, binds map[string]any) (map[string]any, bool, error) {
@@ -169,13 +189,13 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 			return err
 		}
 		if priorKey != candidateKey {
-			if err := updateActivationDocument(ctx, tx, db.RevisionsCollection, priorKey, map[string]any{"status": explorer.RevisionSuperseded}); err != nil {
+			if err := updateRevisionActivation(ctx, tx, priorKey, map[string]any{"status": explorer.RevisionSuperseded}); err != nil {
 				return err
 			}
 		}
 	}
 	publication := activatedPublication(state.candidate, candidateKey, now)
-	if err := updateActivationDocument(ctx, tx, db.RevisionsCollection, candidateKey, map[string]any{
+	if err := updateRevisionActivation(ctx, tx, candidateKey, map[string]any{
 		"status":      explorer.RevisionActive,
 		"activatedAt": now,
 		"failedAt":    nil,
@@ -227,9 +247,9 @@ func updateActiveExplorerDocument(ctx context.Context, tx store.RowQueryer, owne
 	return nil
 }
 
-func updateActivationDocument(ctx context.Context, tx store.RowQueryer, collection, key string, patch map[string]any) error {
+func updateRevisionActivation(ctx context.Context, tx store.RowQueryer, key string, patch map[string]any) error {
 	var updated bool
-	err := tx.QueryRows(ctx, activationUpdateAQL, 1, map[string]any{"@c": collection, "key": key, "patch": patch}, func(map[string]any) error {
+	err := tx.QueryRows(ctx, activationUpdateAQL, 1, map[string]any{"@c": db.RevisionsCollection, "key": key, "patch": patch}, func(map[string]any) error {
 		if updated {
 			return fmt.Errorf("activation update returned more than one document")
 		}

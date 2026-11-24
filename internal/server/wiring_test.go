@@ -4,13 +4,30 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
+
+func TestWireExplorerHandlersReturnsLifecycleConstructionFailure(t *testing.T) {
+	explorerService, err := explorerfixtures.NewService(explorerfixtures.NewStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = wireExplorerHandlers(
+		authscope.AllowAllAuthorizer{}, nil, dataframeComponents{},
+		explorerComponents{service: explorerService}, storageComponents{}, lifecycle.Config{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "create Explorer lifecycle application: selection store is required") {
+		t.Fatalf("wireExplorerHandlers error = %v, want wrapped lifecycle dependency error", err)
+	}
+}
 
 func TestWireAuthNoAuthOverridesConfiguredMode(t *testing.T) {
 	cfg := DefaultConfig()

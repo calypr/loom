@@ -89,8 +89,8 @@ func rewriteAdditiveAliases(output *recipe.Output, aliases map[string]string) {
 		}
 		*selector = rewriteAliasPrefix(*selector, from, to)
 	}
-	var walk func(occurrenceID string, fields []recipe.Field, filters []recipe.Filter, pivots []recipe.Pivot, owner []recipe.OwnerRecordProjection, aggregates []recipe.Aggregate, dynamics []recipe.DynamicColumn, traversals []recipe.Traversal)
-	walk = func(occurrenceID string, fields []recipe.Field, filters []recipe.Filter, pivots []recipe.Pivot, owner []recipe.OwnerRecordProjection, aggregates []recipe.Aggregate, dynamics []recipe.DynamicColumn, traversals []recipe.Traversal) {
+	var walk func(occurrenceID string, fields []recipe.Field, filters []recipe.Filter, pivots []recipe.Pivot, aggregates []recipe.Aggregate, dynamics []recipe.DynamicColumn, traversals []recipe.Traversal)
+	walk = func(occurrenceID string, fields []recipe.Field, filters []recipe.Filter, pivots []recipe.Pivot, aggregates []recipe.Aggregate, dynamics []recipe.DynamicColumn, traversals []recipe.Traversal) {
 		for index := range fields {
 			rewrite(occurrenceID, &fields[index].Expr)
 			for fallback := range fields[index].Fallbacks {
@@ -128,10 +128,10 @@ func rewriteAdditiveAliases(output *recipe.Output, aliases map[string]string) {
 			rewrite(occurrenceID, &dynamics[index].Source, dynamics[index].Key, dynamics[index].Value)
 		}
 		for index := range traversals {
-			walk(traversals[index].OccurrenceID, traversals[index].Fields, traversals[index].Filters, traversals[index].Pivots, traversals[index].OwnerRecords, traversals[index].Aggregates, traversals[index].DynamicColumns, traversals[index].Traversals)
+			walk(traversals[index].OccurrenceID, traversals[index].Fields, traversals[index].Filters, traversals[index].Pivots, traversals[index].Aggregates, traversals[index].DynamicColumns, traversals[index].Traversals)
 		}
 	}
-	walk("base", output.Fields, output.Filters, output.Pivots, output.OwnerRecords, output.Aggregates, output.DynamicColumns, output.Traversals)
+	walk("base", output.Fields, output.Filters, output.Pivots, output.Aggregates, output.DynamicColumns, output.Traversals)
 }
 
 func rewriteExpressionAlias(expression *recipe.Expression, from, to string) {

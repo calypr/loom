@@ -77,10 +77,6 @@ func (b *generationRowBuilder) BuildWithSourceFile(resourceType string, line []b
 	return namespaced, "", nil
 }
 
-func namespaceRowBuildResult(result RowBuildResult, project, datasetGeneration, resourceType string) (RowBuildResult, error) {
-	return namespaceRowBuildResultWithFormat(result, project, datasetGeneration, resourceType, publication.IdentityFormatCompact)
-}
-
 func namespaceRowBuildResultWithFormat(result RowBuildResult, project, datasetGeneration, resourceType, identityFormat string) (RowBuildResult, error) {
 	project = strings.TrimSpace(project)
 	datasetGeneration = strings.TrimSpace(datasetGeneration)
@@ -98,10 +94,6 @@ func namespaceRowBuildResultWithFormat(result RowBuildResult, project, datasetGe
 		return RowBuildResult{}, fmt.Errorf("namespace %s/%s: %w", resourceType, logicalVertexKey, err)
 	}
 	return RowBuildResult{vertex: vertex, edges: edges, payload: result.payload}, nil
-}
-
-func namespaceRowEdges(edges []json.RawMessage, project, datasetGeneration string) ([]json.RawMessage, error) {
-	return namespaceRowEdgesWithFormat(edges, project, datasetGeneration, publication.IdentityFormatCompact)
 }
 
 func namespaceRowEdgesWithFormat(edges []json.RawMessage, project, datasetGeneration, identityFormat string) ([]json.RawMessage, error) {

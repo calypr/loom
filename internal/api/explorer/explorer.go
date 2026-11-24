@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/publication"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -137,7 +139,7 @@ func (r *Handlers) publishRepositoryExplorerConfig(ctx context.Context, request 
 	if commit == "" {
 		return result, legacyOperationFailure(http.StatusBadRequest, "MALFORMED_REQUEST", "X-Loom-Source-Commit is required", nil)
 	}
-	value, err := r.application.PublishRepository(ctx, lifecycle.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: authscope.SubjectFromContext(ctx)})
+	value, err := r.owners.Publication.PublishRepository(ctx, publication.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, lifecycleLegacyFailure(err)
 	}
@@ -195,7 +197,7 @@ func (r *Handlers) CreateExplorerExplicitGroupRevision(ctx context.Context, requ
 			for i, group := range request.Body.Groups {
 				groups[i] = explicitgroup.ExplicitGroupInput{ID: group.Id, Label: group.Label, Ordinal: group.Ordinal, MemberIDs: group.MemberIds}
 			}
-			value, err := h.application.CreateExplicitGroupRevision(ctx, explicitgroup.ExplicitGroupCreateRequest{
+			value, err := h.owners.ExplicitGroup.CreateExplicitGroupRevision(ctx, explicitgroup.ExplicitGroupCreateRequest{
 				Project: string(request.Project), ExplorerID: string(request.ExplorerId), SnapshotToken: request.Body.SnapshotToken,
 				SelectionID: request.SelectionRevision, IdempotencyKey: request.Body.IdempotencyKey, Groups: groups,
 			})

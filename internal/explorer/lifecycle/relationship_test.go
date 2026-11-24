@@ -135,7 +135,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	service := newTestService(t, store, config)
 	request := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", Change: authoringv2.ImportedRelationshipChange{Action: "ADD", ParentOccurrenceID: "base", EdgeID: "authorized-edge", MatchMode: ws.RouteMatchOptional}}
-	proposal, err := service.ProposeSourceRelationship(ctx, request)
+	proposal, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 					return nil
 				}, nil
 			}
-			got, err := service.ProposeSourceRelationship(ctx, requestWithSink)
+			got, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, requestWithSink)
 			if failure != "none" {
 				if !errors.Is(err, sentinel) || got.ProposalID != "" {
 					t.Fatalf("sink failure produced proposal: %v", err)
@@ -190,7 +190,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 
 	networkFailure = true
-	if failed, err := service.ProposeSourceRelationship(ctx, request); err == nil || failed.ProposalID != "" {
+	if failed, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, request); err == nil || failed.ProposalID != "" {
 		t.Fatal("failed candidate network produced a ready proposal")
 	}
 	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
@@ -200,7 +200,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 
 	candidateReceipt := store.receipt
 	compileFailure = true
-	if _, err := service.ProposeSourceRelationship(ctx, request); err == nil {
+	if _, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, request); err == nil {
 		t.Fatal("failed compile produced a proposal")
 	}
 	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
@@ -273,14 +273,14 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 
 	stepRequest := proposalpkg.SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
 	compileFailure = true
-	if _, err := service.ProposeSourceRelationship(ctx, stepRequest); err == nil {
+	if _, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, stepRequest); err == nil {
 		t.Fatal("downstream source-step removal failure produced a proposal")
 	}
 	if store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
 		t.Fatal("failed source-step removal preview changed saved work")
 	}
 	compileFailure = false
-	stepProposal, err := service.ProposeSourceRelationship(ctx, stepRequest)
+	stepProposal, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, stepRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	ruleRequest.SourceStep = nil
 	ruleRequest.SourceRule = &ws.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: parameters}
 	rawBeforeRule := append([]byte(nil), store.created.DraftConfig...)
-	ruleProposal, err := service.ProposeSourceRelationship(ctx, ruleRequest)
+	ruleProposal, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, ruleRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	editRequest.SourceRule = nil
 	editRequest.SourceStep = &authoringv2.ImportedSourceStepChange{StepID: additions[0].StepID, Parameters: &editedParams}
 	rawBeforeEdit := append([]byte(nil), store.created.DraftConfig...)
-	editProposal, err := service.ProposeSourceRelationship(ctx, editRequest)
+	editProposal, err := service.OwnerServices().Proposal.ProposeSourceRelationship(ctx, editRequest)
 	if err != nil {
 		t.Fatal(err)
 	}

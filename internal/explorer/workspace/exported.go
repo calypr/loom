@@ -1,15 +1,11 @@
 package workspace
 
 import (
-	"encoding/json"
-
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func StrictDecode(raw []byte, target any) error { return strictDecode(raw, target) }
-
-func CanonicalTransformPath(value string) string { return canonicalTransformPath(value) }
 
 func CloneRowDefinition(rows RowDefinition) (RowDefinition, error) { return cloneRowDefinition(rows) }
 
@@ -17,7 +13,7 @@ func CloneConstruction(construction *Construction) (*Construction, error) {
 	return cloneConstruction(construction)
 }
 
-func EmptyID(value string) bool { return emptyID(value) }
+func EmptyID(value string) bool { return !requiredID(value) }
 
 func ValidFrameForm(form capability.ConstructionChoiceForm) bool { return validFrameForm(form) }
 
@@ -65,10 +61,6 @@ func ResolveCatalogRouteEdge(catalog CatalogSnapshot, parentNodeID string, paren
 	return resolveCatalogRouteEdge(catalog, parentNodeID, parent, child)
 }
 
-func MarshalStrict(value any) (json.RawMessage, error) {
-	return json.Marshal(value)
-}
-
 type StoredTableShape = storedTableShape
 
 type StoredTableReshape = storedTableReshape
@@ -85,40 +77,4 @@ type StoredDerivedConstruction = storedDerivedConstruction
 
 type StoredArithmeticOperand = storedArithmeticOperand
 
-func FindStageColumnByID(columns []StageColumn, id string) (StageColumn, bool) {
-	return findStageColumnByID(columns, id)
-}
-
-func NormalizeConstructionOutputOrder(document *Document) {
-	normalizeConstructionOutputOrder(document)
-}
-
-func CloneDocumentForConstructionChange(document Document) Document {
-	return cloneDocumentForConstructionChange(document)
-}
-
-func OrderedStageIDs(columns []StageColumn) []string { return orderedStageIDs(columns) }
-
-func RebuildStageColumns(step ConstructionStep, input []StageColumn, authoredSourceIDs map[string]struct{}) ([]StageColumn, error) {
-	return rebuildStageColumns(step, input, authoredSourceIDs)
-}
-
-func ValidateConstructionLiteral(literal ConstructionLiteral) error {
-	return validateConstructionLiteral(literal)
-}
-
-func MigrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
-	return migrateMissingRowsBeforeCurrent(workspace)
-}
-
-func FrameIdentityID(source capability.SemanticFrameFamily, route []capability.ConstructionRouteStep) string {
-	return frameIdentityID(source, route)
-}
-
-func ConstructionSourceColumnsWithChildrenAndProjections(columns []Column, projections []ConstructionSourceProjection, referencedIDs []string, declared []StageColumn) ([]StageColumn, error) {
-	return constructionSourceColumnsWithChildrenAndProjections(columns, projections, referencedIDs, declared)
-}
-
 func (d Document) ValidateAllowArchive() error { return d.validate(true) }
-
-func (o ConstructionOperation) InputColumnIDs() []string { return o.inputColumnIDs() }

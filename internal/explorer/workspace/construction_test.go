@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -38,6 +39,61 @@ func terminalCombineDocument() Document {
 		},
 	}}}
 	return document
+}
+
+func TestConstructionGroupLeavesJSONMatchRecipe(t *testing.T) {
+	cases := []struct {
+		name      string
+		workspace any
+		recipe    any
+	}{
+		{
+			name:      "aggregate",
+			workspace: ConstructionGroupAggregate{Operation: ConstructionGroupSum, InputColumnID: "amount", OutputColumnID: "total"},
+			recipe:    recipe.ConstructionGroupAggregate{Operation: recipe.ConstructionGroupSum, InputColumnID: "amount", OutputColumnID: "total"},
+		},
+		{
+			name:      "current stage source",
+			workspace: ConstructionGroupFieldCurrentStage{SourceRole: "ROOT", OccurrenceID: "root", OwnerResourceType: "Patient", ResourceType: "Patient", CanonicalPath: "id"},
+			recipe:    recipe.ConstructionGroupCurrentStageFieldSource{SourceRole: "ROOT", OccurrenceID: "root", OwnerResourceType: "Patient", ResourceType: "Patient", CanonicalPath: "id"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceJSON, err := json.Marshal(test.workspace)
+			if err != nil {
+				t.Fatalf("marshal workspace value: %v", err)
+			}
+			recipeJSON, err := json.Marshal(test.recipe)
+			if err != nil {
+				t.Fatalf("marshal recipe value: %v", err)
+			}
+			if !bytes.Equal(workspaceJSON, recipeJSON) {
+				t.Fatalf("JSON differs: workspace=%s recipe=%s", workspaceJSON, recipeJSON)
+			}
+		})
+	}
+}
+
+func TestConstructionCombineJSONMatchesRecipe(t *testing.T) {
+	combine := ConstructionCombine{
+		Kind:             ConstructionCombineKeyJoin,
+		Keys:             []ConstructionCombineKey{{LeftColumnID: "patient", RightColumnID: "subject"}},
+		Projections:      []ConstructionCombineProjection{{OutputColumnID: "patient", InputIndex: 0, InputColumnID: "patient"}},
+		JoinType:         ConstructionCombineLeftJoin,
+		RightMatchPolicy: ConstructionCombinePreserveAllMatches,
+	}
+	workspaceJSON, err := json.Marshal(combine)
+	if err != nil {
+		t.Fatalf("marshal workspace combine: %v", err)
+	}
+	recipeJSON, err := json.Marshal(recipe.ConstructionCombine(combine))
+	if err != nil {
+		t.Fatalf("marshal recipe combine: %v", err)
+	}
+	if !bytes.Equal(workspaceJSON, recipeJSON) {
+		t.Fatalf("combine JSON differs: workspace=%s recipe=%s", workspaceJSON, recipeJSON)
+	}
 }
 
 func TestConstructionCombineValidatesAndRoundTripsExactPins(t *testing.T) {
@@ -584,7 +640,7 @@ func TestRelatedExpandContributorQuantifierMatchesSourceCardinality(t *testing.T
 		}},
 		Outputs: inputColumns,
 	}
-	if err := validateConstructionRelatedEligibility(eligibilityStep, input, inputColumns); err == nil || !strings.Contains(err.Error(), "one exact scalar field") {
+	if err := validateConstructionRelatedEligibility(eligibilityStep, inputColumns); err == nil || !strings.Contains(err.Error(), "one exact scalar field") {
 		t.Fatalf("related eligibility accepted repeated contributor source: %v", err)
 	}
 	scalarEligibility := *eligibilityStep.Operation.RelatedEligibility
@@ -594,7 +650,7 @@ func TestRelatedExpandContributorQuantifierMatchesSourceCardinality(t *testing.T
 	scalarEligibility.ContributorSource = &eligibilitySource
 	scalarEligibility.ContributorRule.Predicate = &ContributorPredicate{CandidateID: "observation-code", Operator: ContributorExists}
 	eligibilityStep.Operation.RelatedEligibility = &scalarEligibility
-	if err := validateConstructionRelatedEligibility(eligibilityStep, input, inputColumns); err != nil {
+	if err := validateConstructionRelatedEligibility(eligibilityStep, inputColumns); err != nil {
 		t.Fatalf("existing scalar eligibility contributor rejected: %v", err)
 	}
 

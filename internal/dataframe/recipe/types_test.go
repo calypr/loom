@@ -224,20 +224,11 @@ func TestValidationAcceptsAggregateContributorQuantifier(t *testing.T) {
 	}
 }
 
-func TestValidationAcceptsExplicitRelatedValueReductions(t *testing.T) {
-	for _, operation := range []string{"REQUIRE_ONE", "COLLECT"} {
+func TestValidationAcceptsRelatedValueAggregateOperations(t *testing.T) {
+	for _, operation := range []string{"REQUIRE_ONE", "COLLECT", "COUNT", "EXISTS"} {
 		input := fmt.Sprintf(`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":%q,"expr":{"select":"name[].family"}}]}]}`, operation)
 		if _, err := Parse([]byte(input)); err != nil {
-			t.Fatalf("expected %s aggregate to validate, got %v", operation, err)
-		}
-	}
-}
-
-func TestValidationAcceptsCountAndExistsOverExtractedValues(t *testing.T) {
-	for _, operation := range []string{"COUNT", "EXISTS"} {
-		input := fmt.Sprintf(`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":%q,"expr":{"select":"name[].family"}}]}]}`, operation)
-		if _, err := Parse([]byte(input)); err != nil {
-			t.Fatalf("expected %s over extracted values to validate, got %v", operation, err)
+			t.Fatalf("expected %s aggregate over extracted values to validate, got %v", operation, err)
 		}
 	}
 }
@@ -333,16 +324,9 @@ func TestExplainContainsNoPhysicalDetails(t *testing.T) {
 	}
 }
 
-func TestRuntimeBindingsAreNotDigestContent(t *testing.T) {
-	var b RuntimeBindings
-	if b.Project != "" || b.DatasetGeneration != "" {
-		t.Fatal("zero runtime bindings should be empty")
-	}
-}
-
-func TestDocumentExpressionRoundTrips(t *testing.T) {
-	input := Expression{Document: &DocumentRef{Context: "root"}}
-	raw, err := json.Marshal(input)
+func TestParseAcceptsDocumentExpression(t *testing.T) {
+	expression := Expression{Document: &DocumentRef{Context: "root"}}
+	raw, err := json.Marshal(expression)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,10 +340,7 @@ func TestDocumentExpressionRoundTrips(t *testing.T) {
 	if decoded.Document == nil || decoded.Document.Context != "root" {
 		t.Fatalf("decoded document = %#v", decoded.Document)
 	}
-}
-
-func TestParseAcceptsDocumentExpression(t *testing.T) {
-	input := `{"recipeSchemaVersion":1,"name":"document","translationVersion":"1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"resource","expr":{"document":{"context":"root"}}}]}]}`
+	input := `{"recipeSchemaVersion":1,"name":"document","translationVersion":"1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"resource","expr":` + string(raw) + `}]}]}`
 	bundle, err := Parse([]byte(input))
 	if err != nil {
 		t.Fatal(err)

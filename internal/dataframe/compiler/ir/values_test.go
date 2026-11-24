@@ -461,6 +461,9 @@ func physicalKindValues(t *testing.T, directory, typeName string) map[string]boo
 					if _, scalar := typ.Type.(*ast.Ident); scalar {
 						declarations = append(declarations, &ast.GenDecl{Tok: token.TYPE, Specs: []ast.Spec{typ}})
 					}
+					if typ.Name.Name == "PhysicalCombineOutputColumn" {
+						declarations = append(declarations, &ast.GenDecl{Tok: token.TYPE, Specs: []ast.Spec{typ}})
+					}
 				}
 			}
 		}
@@ -587,13 +590,6 @@ func TestRelatedEligibilityAcceptsRetainedRootKeyDistinctFromExpandedRowIdentity
 	}
 }
 
-func TestCohortGroupAcceptsRetainedRootKeyDistinctFromExpandedRowIdentity(t *testing.T) {
-	stage, cohort, bindVars := cohortGroupRetainedRootKeyFixture()
-	if err := validatePhysicalStageCohortGroup(stage, cohort, bindVars); err != nil {
-		t.Fatalf("retained root contributor key with a distinct expanded row identity did not validate: %v", err)
-	}
-}
-
 func TestCohortMemberRecodeValidationKeepsExactPayloadScope(t *testing.T) {
 	selector := PhysicalExpression{
 		Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
@@ -644,6 +640,11 @@ func TestCohortMemberRecodeValidationKeepsExactPayloadScope(t *testing.T) {
 }
 
 func TestCohortGroupRejectsForgedRetainedRootKeyProof(t *testing.T) {
+	stage, cohort, bindVars := cohortGroupRetainedRootKeyFixture()
+	if err := validatePhysicalStageCohortGroup(stage, cohort, bindVars); err != nil {
+		t.Fatalf("retained root contributor key with a distinct expanded row identity did not validate: %v", err)
+	}
+
 	tests := []struct {
 		name   string
 		mutate func(*PhysicalStageColumn)
@@ -873,13 +874,11 @@ func validPopulationMappingReturn() PhysicalPopulationMappingReturn {
 	}
 }
 
-func TestPhysicalPopulationMappingReturnValidatesTypedWitnessTerminal(t *testing.T) {
+func TestPhysicalPopulationMappingReturnRejectsIllegalShapes(t *testing.T) {
 	if err := populationMappingReturnPlan(validPopulationMappingReturn()).Validate(); err != nil {
 		t.Fatalf("valid mapping terminal rejected: %v", err)
 	}
-}
 
-func TestPhysicalPopulationMappingReturnRejectsIllegalShapes(t *testing.T) {
 	tests := []struct {
 		name string
 		edit func(*PhysicalPopulationMappingReturn)

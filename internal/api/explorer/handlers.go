@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/projectconfig"
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 )
 
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
@@ -17,6 +18,8 @@ type Handlers struct {
 	authorizeRead      explorerConfigReadAuthorizer
 	views              *projectconfig.Service
 	application        *lifecycle.Service
+	owners             lifecycle.OwnerServices
+	cellTrace          *receiptapi.CellTraceService
 	constructionInputs constructioninputs.Catalog
 	authorizeExecution func(context.Context, string) error
 }
@@ -25,19 +28,26 @@ type Config struct {
 	Authorizer         authscope.Authorizer
 	AuthorizeRead      func(context.Context, *authscope.Principal, string) error
 	Explorers          *explorer.Service
-	Lifecycle          lifecycle.Config
+	Application        *lifecycle.Service
+	CellTrace          *receiptapi.CellTraceService
+	Revisions          explorer.RevisionReader
+	ViewBuilder        explorer.ViewBuilderRepository
 	ConstructionInputs constructioninputs.Catalog
 	AuthorizeExecution func(context.Context, string) error
 }
 
 func NewHandlers(config Config) *Handlers {
-	application, _ := lifecycle.New(config.Explorers, config.Lifecycle)
-	return &Handlers{
+	handlers := &Handlers{
 		authorizer:         config.Authorizer,
 		authorizeRead:      config.AuthorizeRead,
-		views:              projectconfig.New(config.Explorers),
-		application:        application,
+		views:              projectconfig.New(config.Explorers, config.Revisions, config.ViewBuilder),
+		application:        config.Application,
+		cellTrace:          config.CellTrace,
 		constructionInputs: config.ConstructionInputs,
 		authorizeExecution: config.AuthorizeExecution,
 	}
+	if config.Application != nil {
+		handlers.owners = config.Application.OwnerServices()
+	}
+	return handlers
 }

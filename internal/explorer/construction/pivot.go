@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -111,7 +112,7 @@ func (s constructionRowSources) constructionPivotSourceCapability(
 				enumeration.skip(rowSourceSkipRoute)
 				continue
 			}
-			candidate, ok := constructionGroupSourceCandidate(base.Snapshot, choice)
+			candidate, ok := rowsource.ConstructionGroupSourceCandidate(base.Snapshot, choice)
 			if !ok {
 				enumeration.skip(rowSourceCandidateSkipClass(base.Snapshot, choice))
 				continue
@@ -130,7 +131,7 @@ func (s constructionRowSources) constructionPivotSourceCapability(
 		for _, candidate := range base.Snapshot.Candidates {
 			if candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType || !candidate.Populated ||
 				(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
-				len(candidate.RepeatedBoundaries) != 0 || !containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+				len(candidate.RepeatedBoundaries) != 0 || !rowsource.ContainsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 				!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
 				continue
 			}
@@ -293,7 +294,6 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 		}
 	}
 
-	pivot := &steps[pivotIndex]
 	pivotAnchor := ws.ConstructionInputRef{Kind: ws.ConstructionInputSourceProjection}
 	if anchorStageID != recipe.ConstructionSourceProjectionID {
 		pivotAnchor = ws.ConstructionInputRef{Kind: ws.ConstructionInputStepOutput, StepID: anchorStageID}
@@ -340,7 +340,7 @@ func (s constructionRowSources) constructionCandidateWithPivotSources(
 		authorizedHelpers[helperID] = true
 	}
 
-	pivot = &steps[pivotIndex]
+	pivot := &steps[pivotIndex]
 	pivot.Inputs = []ws.ConstructionInputRef{pivotAnchor}
 	steps = append(steps[:pivotIndex], append(inserted, steps[pivotIndex:]...)...)
 	candidate.Steps = steps
@@ -377,9 +377,9 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 		if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
 			return resolvedConstructionPivotSource{}, conflict("construction-proposal", "INVALID_PIVOT_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
 		}
-		candidate, found := uniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
+		candidate, found := rowsource.UniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
 		if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
-			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+			!rowsource.ContainsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 			return resolvedConstructionPivotSource{}, unprocessable("construction-proposal", "UNSUPPORTED_PIVOT_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
 		}
@@ -414,12 +414,12 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 		*acceptedStage.ActiveRelatedRecord != *anchorStage.ActiveRelatedRecord {
 		return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_CHOICE", "the active related record is not preserved at the rebuilt Pivot input", nil, nil)
 	}
-	candidate, found := uniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
+	candidate, found := capability.UniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
 	active := anchorStage.ActiveRelatedRecord
 	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
 		candidate.FieldPath != source.Path || candidate.LogicalType != source.LogicalType || !candidate.Populated ||
 		(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") || len(candidate.RepeatedBoundaries) != 0 ||
-		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+		!rowsource.ContainsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 		!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
 		return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_CHOICE", "the selected scalar is no longer available on the active related resource", nil, nil)
 	}

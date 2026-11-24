@@ -24,6 +24,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -130,7 +131,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			receipt, err := receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			receipt, err := receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -226,7 +227,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	proposalPath := fmt.Sprintf("/api/v1/projects/%s/explorers/%s/authoring/v2/construction-choice-proposals", project, explorerID)
 	postChoice := func(policy, id string) testHTTPResponse {
 		t.Helper()
@@ -348,7 +349,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +364,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		Catalog: ws.CatalogFromCapability,
 	},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return explorerfixtures.PersistTestNativeReceipt(ctx, t, domain, request, snapshot)
+			return explorerfixtures.PersistTestNativeReceipt(ctx, t, store, request, snapshot)
 		},
 		PreviewReceipt: func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"__loom_row_id": "row-1", "c_patient": "encounter-1"}); err != nil {
@@ -372,7 +373,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, Complete: true}, nil
 		}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 
 	assessmentBody := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":1,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_encounter"}`, snapshot.Token, digest)
 	assessed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", assessmentBody)
@@ -572,7 +573,7 @@ func assertRootCandidateDocumentEqualsApplied(t *testing.T, candidate *loomapi.D
 
 func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +604,7 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	store.Mu.Unlock()
 
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{}, store)
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/patients", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
@@ -659,7 +660,7 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 		Status:               explorer.RevisionActive,
 	}
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +675,7 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 	store.Mu.Unlock()
 
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{}, store)
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/patients", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
@@ -756,7 +757,7 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := newTestExplorerStore()
-			service, err := explorer.NewService(store)
+			service, err := explorerfixtures.NewService(store)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -774,7 +775,7 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 			store.Mu.Unlock()
 
 			app := fiber.New()
-			registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+			registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{}, store)
 			response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/patients", "")
 			if response.StatusCode != http.StatusInternalServerError || !strings.Contains(response.Body, `"code":"EXPLORER_INTEGRITY_FAILURE"`) {
 				t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
@@ -784,7 +785,8 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 }
 
 func TestExplorerStateRouteReturnsExplicitUnpublishedProjection(t *testing.T) {
-	service, err := explorer.NewService(newTestExplorerStore())
+	backingStore := newTestExplorerStore()
+	service, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -793,7 +795,7 @@ func TestExplorerStateRouteReturnsExplicitUnpublishedProjection(t *testing.T) {
 	}
 
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{}, backingStore)
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/empty", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
@@ -876,7 +878,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	}
 	draft, digest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,7 +895,8 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	var basePreviewColumns []string
 	var candidatePreviewColumns []string
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
+		GroupRowsCollections: explorerdb.GroupRowsCollections(),
+		Registry:             compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
 		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			queryCalls++
 			if _, grouped := bindVars["group_rows_revision_id"]; grouped {
@@ -936,7 +939,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			receipt, err := receiptapi.Compile(ctx, request, nil, engine, service, nil, nil)
+			receipt, err := receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 			if err == nil && request.RequestID == "row-definition-proposal-candidate" {
 				candidateReceipt = receipt
 			}
@@ -971,7 +974,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	body := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":2,"expectedDraftDigest":%q,"outputId":%q,"selection":{"kind":"EXPLICIT_GROUP","explicitGroup":{"revisionId":%q,"unassignedMemberPolicy":"ERROR"}}}`,
 		snapshot.Token, digest, case008OutputID, case008RevisionID)
 	proposal := requestJSON(t, app, http.MethodPost,
@@ -1048,7 +1051,7 @@ func (case008ExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context
 
 func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1067,8 +1070,17 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		}
 		return nil
 	}
-	app := fiber.New()
+	// Essential: the in-memory store retains strings from request parameters after the handler returns.
+	app := fiber.New(fiber.Config{Immutable: true})
 	config := lifecycle.Config{
+		ExplorerOwners:      store,
+		DraftStore:          store,
+		DraftRevisions:      store,
+		Revisions:           store,
+		RevisionWriter:      store,
+		Receipts:            store,
+		AuthoringPublisher:  store,
+		RepositoryActivator: store,
 		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
@@ -1078,7 +1090,7 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
+			return explorerfixtures.PersistTestNativeReceipt(ctx, t, store, request, snapshot)
 		},
 		MaterializeReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 			execution, err := materialize(ctx, receipt.Bundle, bindings)
@@ -1095,9 +1107,11 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 			}}
 			return execution, nil
 		},
-		ActivateRelease: activateRelease,
+		PrepareRepositoryRelease: func(ctx context.Context, project, generation string, selectors []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+			return dataset.ProjectRelease{Project: project, Generation: generation}, 0, activateRelease(ctx, project, generation, selectors)
+		},
 	}
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 
 	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(constructionfixtures.BaselineExplorerWorkspace()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if request.StatusCode != http.StatusOK {
@@ -1137,6 +1151,9 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	viewer := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) || !strings.Contains(viewer.Body, `"qualityReports"`) {
 		t.Fatalf("viewer state status=%d body=%s", viewer.StatusCode, viewer.Body)
+	}
+	if !strings.Contains(viewer.Body, `"generation":"generation-a"`) {
+		t.Fatalf("viewer lost the published generation: %s", viewer.Body)
 	}
 	store.Mu.Lock()
 	broken := store.Revisions[active.ID]

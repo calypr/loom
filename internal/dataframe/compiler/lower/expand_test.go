@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -31,7 +33,7 @@ func TestCompileRelatedExpandSupportsScalarContributorPredicate(t *testing.T) {
 				ContributorPolicy: "ALL_MATCHES",
 				ContributorPredicate: &recipe.ConstructionRelatedPredicate{
 					CandidateID: "observation-id", Operator: recipe.FilterEquals,
-					Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &specimenID},
+					Value: &spec.FilterValue{Kind: recipe.FilterString, String: &specimenID},
 				},
 				ContributorSource: &recipe.ConstructionRelatedFieldSource{
 					CandidateID: "observation-id", NodeID: "observation-node", ResourceType: "Observation",
@@ -86,7 +88,7 @@ func TestCompileRelatedExpandSupportsRepeatedScalarContributorPredicate(t *testi
 				ContributorPolicy: "ALL_MATCHES",
 				ContributorPredicate: &recipe.ConstructionRelatedPredicate{
 					CandidateID: "observation-code", Quantifier: recipe.QuantifierAny, Operator: recipe.FilterEquals,
-					Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
+					Value: &spec.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
 				},
 				ContributorSource: &recipe.ConstructionRelatedFieldSource{
 					CandidateID: "observation-code", NodeID: "observation-node", ResourceType: "Observation",

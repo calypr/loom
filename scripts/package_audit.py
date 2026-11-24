@@ -163,11 +163,10 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                                       'errors.',
  'internal/explorer/lifecycle/support': 'Share lifecycle errors, request validation, and authorization-scope checks.',
  'internal/explorer/population': 'Encode and validate signed population mapping cursors.',
- 'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
+ 'internal/explorer/projectconfig': 'Prepare project configuration and source publication for Explorer views.',
  'internal/explorer/publication': 'Publish Explorer revisions and prepare, open, and download immutable training artifacts.',
  'internal/explorer/proposal': 'Own proposal preview options, results, and execution errors.',
- 'internal/explorer/receipt': 'Compile, validate, preview, and materialize Explorer receipts.',
- 'internal/explorer/receipt/output': 'Reconcile authored output columns and lineage with compiled receipt metadata.',
+ 'internal/explorer/receipt': 'Compile, reconcile, trace, preview, and materialize Explorer receipts.',
  'internal/explorer/receiptmodel': 'Expose compilation receipt and output-contract models.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',
@@ -183,6 +182,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
                          'metadata.',
  'internal/foundation/httpctx': 'Carry request IDs and shared diagnostic logging across transports.',
+ 'internal/foundation/text': 'Select nonblank strings and compare string collections without regard to order.',
  'internal/ingest/bootstrap': 'Bootstrap Arango collections and indexes for ingest.',
  'internal/ingest/event': 'Define ingest progress event sinks and helpers.',
  'internal/ingest/generation': 'Preflight, load and activate dataset generations within shared concurrency budgets.',
@@ -190,13 +190,14 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/ingest/row': 'Build FHIR vertices and edges into loadable rows.',
  'internal/ingest/source': 'Discover source files and preflight source schemas.',
  'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
+ 'internal/lease': 'Renew operation leases and cancel work when ownership is lost.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
+ 'internal/releasecommit': 'Commit release activation, participant writes, and durable receipts in one transaction.',
  'internal/research/compilerprobe': 'Exercise compiler redesign prototypes against existing query behavior.',
  'internal/semantic': 'Walk FHIR members, extract coded concepts, and build semantic inventory and coverage.',
  'internal/semantic/arango': 'Persist and retrieve semantic inventory and coverage in ArangoDB.',
  'internal/semantic/backfill': 'Drive semantic inventory backfill over leased builds.',
  'internal/server': 'Compose storage, domain services, generated OpenAPI handlers and HTTP routes.',
- 'internal/server/sourcepublication': 'Adapt published source loads into the server composition root.',
  'internal/store/arango': 'Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain '
                           'assessment boundary.',
  'internal/store/clickhouse': 'Provide the low-level typed ClickHouse connection and database-management boundary.',
@@ -212,6 +213,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/testkit/recipefixtures': 'Share recipe authorization and combine materialization fixtures across package '
                                     'tests.',
  'internal/testkit/recipetest': 'Share receipt construction, workspace, and recipe registry fixtures.',
+ 'internal/testkit/semanticfixtures': 'Share semantic inventory inputs for field-profile and semantic package tests.',
  'scripts': 'Hold repository developer, verification, migration, and release utilities that are not part of the Go '
             'module runtime packages.',
  'scripts/compilercleanup': 'Map compiler test ownership by Git history.',

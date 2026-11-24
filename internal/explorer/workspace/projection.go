@@ -72,3 +72,26 @@ func (projection Projection) Validate(source Artifact) (Workspace, error) {
 	}
 	return workspace, nil
 }
+
+func ResolveStoredArtifact(ctx context.Context, reader ProjectionReader, source Artifact, raw []byte) (Workspace, string, error) {
+	workspace, err := DecodeCurrentWorkspace(raw)
+	if err == nil && workspace.SemanticsVersion == CurrentSemanticsVersion {
+		digest, digestErr := workspace.Digest()
+		if digestErr == nil && (source.IntentDigest == "" || source.IntentDigest == digest) {
+			return workspace, digest, nil
+		}
+	}
+	if converted, changed, err := ConvertStoredSourcePlan(raw, source.IntentDigest); err == nil && changed {
+		digest, err := converted.Digest()
+		return converted, digest, err
+	}
+	if reader == nil {
+		return Workspace{}, "", fmt.Errorf("immutable workspace requires its stored migration projection")
+	}
+	projection, err := reader.WorkspaceProjection(ctx, source)
+	if err != nil {
+		return Workspace{}, "", err
+	}
+	workspace, err = projection.Validate(source)
+	return workspace, projection.Digest, err
+}

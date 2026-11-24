@@ -3,7 +3,6 @@ package semanticbrowse
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -24,43 +23,6 @@ func semanticChoiceKey(conceptID, bindingID string) string {
 	return bindingID + "\x00" + conceptID
 }
 
-func semanticChoiceFieldOptionsMatch(semanticChoice, fieldChoice capability.ConstructionChoice) bool {
-	fieldOptions := make([]capability.ConstructionChoiceOption, 0, len(semanticChoice.Options))
-	for _, option := range semanticChoice.Options {
-		if option.Form != capability.ConstructionChoiceOwnerRecords {
-			fieldOptions = append(fieldOptions, option)
-		}
-	}
-	return reflect.DeepEqual(fieldOptions, fieldChoice.Options)
-}
-
-func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ID != candidateID {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		match, found = candidate, true
-	}
-	if found {
-		return match, true
-	}
-	return resolveSchemaFieldCandidate(snapshot, candidateID)
-}
-
-func findSemanticBrowseOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
-}
-
 func constructionChoiceSupports(choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) bool {
 	for _, option := range choice.Options {
 		if option.Form == form {
@@ -68,13 +30,6 @@ func constructionChoiceSupports(choice capability.ConstructionChoice, form capab
 		}
 	}
 	return false
-}
-
-func constructionChoiceIdentityMatches(choice capability.ConstructionChoice, submittedID string, identity capability.ConstructionChoiceIdentity) bool {
-	if choice.ChoiceID == submittedID {
-		return true
-	}
-	return identity.Version == "construction-choice/v1" && len(identity.Route) == 0 && reflect.DeepEqual(choice.Source, identity.Source)
 }
 
 func constructionCompilerScope(authorized ports.AuthorizedCapability) facade.Scope {
@@ -167,24 +122,6 @@ func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceTy
 		return nil, fmt.Errorf("saved route does not reach the requested node")
 	}
 	return route, nil
-}
-
-func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapability, root, terminal string, route []capability.ConstructionRouteStep) bool {
-	compilerRoute := make([]facade.Traversal, 0, len(route))
-	for _, step := range route {
-		match := spec.TraversalMatchOptional
-		if step.MatchMode == string(spec.TraversalMatchRequired) {
-			match = spec.TraversalMatchRequired
-		}
-		traversal := facade.Traversal{FromResourceType: step.FromResourceType, EdgeLabel: step.Relationship, ToResourceType: step.ToResourceType, MatchMode: match}
-		proof, err := facade.ProbeTraversal(ctx, facade.TraversalRequest{Scope: constructionCompilerScope(authorized), RootResourceType: step.FromResourceType, Traversal: traversal})
-		if err != nil || proof.Traversal == nil || string(proof.Traversal.StorageDirection) != step.StorageDirection {
-			return false
-		}
-		compilerRoute = append(compilerRoute, traversal)
-	}
-	_, err := facade.ProbeCandidate(ctx, facade.CandidateRequest{Scope: constructionCompilerScope(authorized), RootResourceType: root, ResourceType: terminal, FieldRef: terminal + ".id", Selector: "id", Route: compilerRoute})
-	return err == nil
 }
 
 var _ = authscope.ReadScopeUnrestricted

@@ -2,8 +2,6 @@ package explorer
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,46 +11,49 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
-
-	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
 )
 
 type Service struct {
-	store          ExplorerStore
-	revisionStore  RevisionStore
-	selectionStore SelectionStore
-	now            func() time.Time
+	owners                ExplorerOwnerStore
+	drafts                DraftStore
+	revisions             RevisionReader
+	viewBuilderRepository ViewBuilderRepository
+	workspaceProjections  ws.ProjectionReader
+	now                   func() time.Time
 }
 
-func NewService(store ExplorerStore) (*Service, error) {
-	if store == nil {
-		return nil, fmt.Errorf("Explorer store is required")
-	}
-	revisionStore, _ := store.(RevisionStore)
-	selectionStore, _ := store.(SelectionStore)
-	return &Service{store: store, revisionStore: revisionStore, selectionStore: selectionStore, now: func() time.Time { return time.Now().UTC() }}, nil
-}
-func (s *Service) ViewBuilderStorage() ViewBuilderRepository {
-	if s == nil {
-		return nil
-	}
-	repository, _ := s.store.(ViewBuilderRepository)
-	return repository
+type ServiceDependencies struct {
+	Owners               ExplorerOwnerStore
+	Drafts               DraftStore
+	Revisions            RevisionReader
+	ViewBuilder          ViewBuilderRepository
+	WorkspaceProjections ws.ProjectionReader
 }
 
+func NewService(dependencies ServiceDependencies) (*Service, error) {
+	if dependencies.Owners == nil || dependencies.Drafts == nil {
+		return nil, fmt.Errorf("Explorer owner and draft stores are required")
+	}
+	if dependencies.Revisions == nil {
+		return nil, fmt.Errorf("Explorer revision store is required")
+	}
+	return &Service{
+		owners: dependencies.Owners, drafts: dependencies.Drafts,
+		revisions: dependencies.Revisions, viewBuilderRepository: dependencies.ViewBuilder,
+		workspaceProjections: dependencies.WorkspaceProjections,
+		now:                  func() time.Time { return time.Now().UTC() },
+	}, nil
+}
 func (s *Service) List(ctx context.Context, project string) ([]Explorer, error) {
-	return s.store.List(ctx, projectid.Legacy(project))
+	return s.owners.List(ctx, projectid.Legacy(project))
 }
 func (s *Service) Get(ctx context.Context, project, id string) (*Explorer, error) {
-	return s.store.Get(ctx, projectid.Legacy(project), id)
+	return s.owners.Get(ctx, projectid.Legacy(project), id)
 }
 
 func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (viewer.ExplorerStateV1, error) {
@@ -60,7 +61,7 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (vi
 	id = strings.TrimSpace(id)
 	owner, err := s.Get(ctx, project, id)
 	if id == "default" && errors.Is(err, ErrNotFound) {
-		if repository, ok := s.store.(ViewBuilderRepository); ok {
+		if repository := s.viewBuilderRepository; repository != nil {
 			settings, settingsErr := repository.GetViewBuilderSettings(ctx, projectid.Legacy(project))
 			if settingsErr != nil && !errors.Is(settingsErr, ErrNotFound) {
 				return viewer.ExplorerStateV1{}, settingsErr
@@ -82,7 +83,7 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (vi
 		markNotPublished(&state)
 		return state, nil
 	}
-	revision, err := s.revisionStore.GetRevision(ctx, owner.ActiveRevisionID)
+	revision, err := s.revisions.GetRevision(ctx, owner.ActiveRevisionID)
 	if err != nil {
 		return viewer.ExplorerStateV1{}, fmt.Errorf("load active Explorer revision %q: %w", owner.ActiveRevisionID, err)
 	}
@@ -97,9 +98,8 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (vi
 	state.Generated.Materializations = append([]viewer.Materialization(nil), revision.Materializations...)
 	state.Generated.Dataset = revision.Dataset
 	state.Generated.Dataset.Outputs = append([]viewer.DatasetOutput(nil), revision.Dataset.Outputs...)
-	state.Generated.Publication = revision.Publication
+	state.Generated.Publication = revisionPublication(revision)
 	state.Generated.QualityReports = publication.CloneQualityReports(revision.QualityReports)
-	state.Generated.Publication.State = firstNonEmptyString(revision.Publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
 	state.Generated.Publication.RevisionID = revision.ID
 	state.Generated.Diagnostics = append([]viewer.Diagnostic(nil), revision.Diagnostics...)
 	state.Runtime, err = buildViewerProjection(revision, owner.ProjectConfig)
@@ -151,7 +151,7 @@ func (s *Service) createEmptyInteractive(ctx context.Context, project, id, title
 	if id == "" || id == "default" {
 		return nil, fmt.Errorf("invalid interactive Explorer identity")
 	}
-	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: viewer.ManagementInteractive, UpdatedBy: actor, UpdatedAt: s.now()})
+	return s.owners.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: viewer.ManagementInteractive, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
 func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title, sourceExplorerID, actor string) (*Explorer, error) {
@@ -167,7 +167,7 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	}
 	raw := source.DraftConfig
 	if len(raw) == 0 && source.ActiveRevisionID != "" {
-		revision, revisionErr := s.revisionStore.GetRevision(ctx, source.ActiveRevisionID)
+		revision, revisionErr := s.revisions.GetRevision(ctx, source.ActiveRevisionID)
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
@@ -196,7 +196,7 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	if err != nil {
 		return nil, err
 	}
-	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: viewer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
+	return s.owners.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: viewer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
 func (s *Service) CreateSeededDataframe(ctx context.Context, project, id, title string, workspace ws.Workspace, actor string, sourceContext authoringv2.DraftSourceContext) (*Explorer, error) {
@@ -215,7 +215,7 @@ func (s *Service) CreateSeededDataframe(ctx context.Context, project, id, title 
 	if err != nil {
 		return nil, fmt.Errorf("digest seeded dataframe workspace: %w", err)
 	}
-	return s.store.Create(ctx, Explorer{
+	return s.owners.Create(ctx, Explorer{
 		Project: projectid.Legacy(project), ExplorerID: id, Title: title,
 		ManagementMode: viewer.ManagementInteractive, DraftConfig: canonical,
 		DraftVersion: 1, DraftDigest: digest, DraftSnapshotToken: sourceContext.SnapshotToken, DraftSourceGeneration: sourceContext.SourceGeneration, DraftAuthorizationScopeDigest: sourceContext.AuthorizationScopeDigest, UpdatedBy: actor, UpdatedAt: s.now(),
@@ -223,14 +223,14 @@ func (s *Service) CreateSeededDataframe(ctx context.Context, project, id, title 
 }
 
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
-	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil)
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil, nil)
 }
 
-func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
-	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, prepare, checker)
+func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, sourceContext *authoringv2.DraftSourceContext, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.PreparedCommand, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, sourceContext, prepare, checker)
 }
 
-func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, sourceContext *authoringv2.DraftSourceContext, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.PreparedCommand, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 		workspace, err = ws.DecodeWorkspace(owner.DraftConfig)
 	} else if owner.ActiveRevisionID != "" {
 		var revision *Revision
-		revision, err = s.revisionStore.GetRevision(ctx, owner.ActiveRevisionID)
+		revision, err = s.revisions.GetRevision(ctx, owner.ActiveRevisionID)
 		if err == nil {
 			workspace, err = s.RevisionWorkspace(ctx, *revision)
 		}
@@ -276,21 +276,24 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 		return nil, err
 	}
 	commands := cloneAuthoringCommands(request.Commands)
-	if prepare != nil {
-		commands, err = prepare(ctx, workspace, commands)
+	var prepared []authoringv2.PreparedCommand
+	if prepare == nil {
+		prepared = authoringv2.CommandsWithoutResolution(commands)
+	} else {
+		prepared, err = prepare(ctx, workspace, commands)
 		if err != nil {
 			return nil, err
 		}
-		if len(commands) != len(request.Commands) {
+		if len(prepared) != len(request.Commands) {
 			return nil, fmt.Errorf("prepared authoring command count changed")
 		}
-		for index := range commands {
-			if commands[index].Type != request.Commands[index].Type {
+		for index := range prepared {
+			if prepared[index].Command.Type != request.Commands[index].Type {
 				return nil, fmt.Errorf("prepared authoring command type changed at index %d", index)
 			}
 		}
 	}
-	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, commands)
+	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +319,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	owner.LastAuthoringCommandID = request.CommandID
 	owner.LastAuthoringCommandDigest = commandDigest
 	owner.LastAuthoringCommandResults = resultJSON
-	if sourceContext := request.ResolvedDraftSourceContext(); sourceContext != nil {
+	if sourceContext != nil {
 		owner.DraftSnapshotToken = sourceContext.SnapshotToken
 		owner.DraftSourceGeneration = sourceContext.SourceGeneration
 		owner.DraftAuthorizationScopeDigest = sourceContext.AuthorizationScopeDigest
@@ -326,7 +329,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	if strings.TrimSpace(workspace.Explorer.Title) != "" {
 		owner.Title = workspace.Explorer.Title
 	}
-	stored, err := s.store.SaveDraft(ctx, *owner, request.ExpectedDraftVersion, request.ExpectedDraftDigest)
+	stored, err := s.drafts.SaveDraft(ctx, *owner, request.ExpectedDraftVersion, request.ExpectedDraftDigest)
 	if err != nil {
 		return nil, err
 	}
@@ -347,161 +350,20 @@ func cloneAuthoringCommands(commands []authoringv2.Command) []authoringv2.Comman
 }
 
 func (s *Service) ActiveRevision(ctx context.Context, project, id string) (*Revision, error) {
-	e, err := s.store.Get(ctx, projectid.Legacy(project), id)
+	e, err := s.owners.Get(ctx, projectid.Legacy(project), id)
 	if err != nil {
 		return nil, err
 	}
 	if e.ActiveRevisionID == "" {
 		return nil, ErrNotFound
 	}
-	return s.revisionStore.GetRevision(ctx, e.ActiveRevisionID)
+	return s.revisions.GetRevision(ctx, e.ActiveRevisionID)
 }
-func (s *Service) FailRevision(ctx context.Context, id string, diagnostics []viewer.Diagnostic) (*Revision, error) {
-	return s.revisionStore.FailRevision(ctx, id, diagnostics)
-}
-
-func (s *Service) CompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*receiptmodel.CompilationReceipt, error) {
-	return s.revisionStore.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, id)
-}
-
-func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
-	return s.revisionStore.InsertCompilationReceipt(ctx, receipt)
-}
-
-func (s *Service) BeginSelection(ctx context.Context, selection explorerselection.SelectionRevision, writerToken string) (*explorerselection.SelectionRevision, error) {
-	return s.selectionStore.BeginSelection(ctx, selection, writerToken)
-}
-
-func (s *Service) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
-	return s.selectionStore.AppendSelectionMembers(ctx, selectionID, writerToken, members)
-}
-
-func (s *Service) DigestSelectionMembers(ctx context.Context, project, selectionID string) (string, int64, int64, error) {
-	return s.selectionStore.DigestSelectionMembers(ctx, projectid.Canonical(project), selectionID)
-}
-
-func (s *Service) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*explorerselection.SelectionRevision, error) {
-	return s.selectionStore.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, completedAt)
-}
-
-func (s *Service) AbortSelection(ctx context.Context, selectionID, writerToken string) error {
-	return s.selectionStore.AbortSelection(ctx, selectionID, writerToken)
-}
-
-func (s *Service) CleanupSelectionStaging(ctx context.Context, before time.Time, limit int) error {
-	return s.selectionStore.CleanupSelectionStaging(ctx, before, limit)
-}
-
-func (s *Service) GetSelection(ctx context.Context, project, selectionID string) (*explorerselection.SelectionRevision, error) {
-	return s.selectionStore.GetSelection(ctx, projectid.Canonical(project), selectionID)
-}
-
-func (s *Service) GetRevision(ctx context.Context, revisionID string) (*Revision, error) {
-	return s.revisionStore.GetRevision(ctx, strings.TrimSpace(revisionID))
-}
-
-func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*DraftRevision, error) {
-	reader, ok := s.store.(DraftRevisionReader)
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return reader.GetDraftRevision(ctx, projectid.Legacy(project), strings.TrimSpace(explorerID), strings.TrimSpace(revisionID))
-}
-
-func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorerselection.SelectionMember) error) (string, error) {
-	return s.selectionStore.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
-}
-
-func (s *Service) PublishAuthoring(ctx context.Context, receipt receiptmodel.CompilationReceipt, revision Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*Revision, error) {
-	if receipt.ID == "" || revision.ID == "" || revision.CompilationReceiptID != receipt.ID {
-		return nil, fmt.Errorf("authoring publication identity is incomplete")
-	}
-	receipt.Project = projectid.Canonical(receipt.Project)
-	revision.Project = projectid.Legacy(revision.Project)
-	return s.revisionStore.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
-}
-
-func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt receiptmodel.CompilationReceipt, sourceCommit, actor string, materializations []viewer.Materialization, dataset viewer.DatasetMetadata, qualityReports []publication.QualityReport, publicationMetadata viewer.PublicationMetadata) (*Explorer, *Revision, error) {
-	if err := receipt.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("invalid repository compilation receipt: %w", err)
-	}
-	if strings.TrimSpace(receipt.ExplorerID) != "default" {
-		return nil, nil, fmt.Errorf("repository compilation receipt must target default")
-	}
-	if len(receipt.NormalizedBundle) == 0 || len(receipt.CompiledConfig) == 0 || len(receipt.PublicOutputContract) == 0 {
-		return nil, nil, fmt.Errorf("repository compilation receipt is missing durable V2 artifacts")
-	}
-	project := projectid.Canonical(receipt.Project)
-	storageProject := projectid.Legacy(project)
-	workspace := append(json.RawMessage(nil), receipt.NormalizedBundle...)
-	compiledConfig := append(json.RawMessage(nil), receipt.CompiledConfig...)
-	title := "Default"
-	if decoded, err := ws.DecodeWorkspace(workspace); err == nil && len(decoded.Tabs) > 0 {
-		title = decoded.Tabs[0].Title
-	}
-	if _, err := s.StoreCompilationReceipt(ctx, receipt); err != nil {
-		return nil, nil, err
-	}
-	owner, err := s.store.Get(ctx, storageProject, "default")
-	if errors.Is(err, ErrNotFound) {
-		owner, err = s.store.Create(ctx, Explorer{Project: storageProject, ExplorerID: "default", Title: title, ManagementMode: viewer.ManagementRepository, DraftConfig: workspace, DraftVersion: 1, DraftDigest: receipt.IntentDigest, UpdatedBy: actor, UpdatedAt: s.now()})
-	} else if err == nil {
-		owner.Title, owner.DraftConfig, owner.DraftDigest, owner.UpdatedBy = title, workspace, receipt.IntentDigest, actor
-		owner, err = s.store.SaveDraft(ctx, *owner, owner.DraftVersion)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	revisionID := RepositoryRevisionID(project, sourceCommit, receipt.IntentDigest, receipt.SourceGeneration, receipt.ID)
-	now := s.now()
-	revision, err := s.revisionStore.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, QualityReports: publication.CloneQualityReports(qualityReports), Publication: publicationMetadata, Materializations: append([]viewer.Materialization(nil), materializations...), EmittedColumns: append([]viewer.EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
-	if err != nil {
-		return nil, nil, err
-	}
-	return owner, revision, nil
-}
-func (s *Service) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
-	return s.revisionStore.ActivateRepositoryGeneration(ctx, projectid.Legacy(project), generation, revisionID)
-}
-
-func RepositoryRevisionID(project, sourceCommit, definitionDigest, sourceGeneration string, receiptIdentity ...string) string {
-	artifact := ""
-	if len(receiptIdentity) > 0 {
-		artifact = receiptIdentity[0]
-	}
-	sum := sha256.Sum256([]byte(project + "\x00default\x00" + sourceCommit + "\x00" + definitionDigest + "\x00" + sourceGeneration + "\x00" + artifact))
-	return "repository_" + hex.EncodeToString(sum[:])
-}
-
 func (s *Service) RevisionWorkspace(ctx context.Context, revision Revision) (ws.Workspace, error) {
-	workspace, _, err := s.artifactWorkspace(ctx, RevisionWorkspaceArtifact(revision), revision.AuthoringWorkspaceBytes())
+	workspace, _, err := ws.ResolveStoredArtifact(ctx, s.workspaceProjections, RevisionWorkspaceArtifact(revision), revision.AuthoringWorkspaceBytes())
 	return workspace, err
 }
 
 func (s *Service) DraftRevisionWorkspace(ctx context.Context, revision DraftRevision) (ws.Workspace, string, error) {
-	return s.artifactWorkspace(ctx, DraftWorkspaceArtifact(revision), revision.DraftConfig)
-}
-
-func (s *Service) artifactWorkspace(ctx context.Context, source workspacepkg.Artifact, raw []byte) (ws.Workspace, string, error) {
-	workspace, err := ws.DecodeCurrentWorkspace(raw)
-	if err == nil && workspace.SemanticsVersion == ws.CurrentSemanticsVersion {
-		digest, digestErr := workspace.Digest()
-		if digestErr == nil && (source.IntentDigest == "" || source.IntentDigest == digest) {
-			return workspace, digest, nil
-		}
-	}
-	if converted, changed, err := ws.ConvertStoredSourcePlan(raw, source.IntentDigest); err == nil && changed {
-		digest, err := converted.Digest()
-		return converted, digest, err
-	}
-	reader, ok := s.store.(workspacepkg.ProjectionReader)
-	if !ok {
-		return ws.Workspace{}, "", fmt.Errorf("immutable workspace requires its stored migration projection")
-	}
-	projection, err := reader.WorkspaceProjection(ctx, source)
-	if err != nil {
-		return ws.Workspace{}, "", err
-	}
-	workspace, err = projection.Validate(source)
-	return workspace, projection.Digest, err
+	return ws.ResolveStoredArtifact(ctx, s.workspaceProjections, DraftWorkspaceArtifact(revision), revision.DraftConfig)
 }

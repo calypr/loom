@@ -17,6 +17,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -1064,7 +1066,7 @@ func assertExpandedCodingGroupLineage(
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage for %q: %v", row["coding"], err)
 	}
-	lineage := executeRowLineageOracleQuery(t, ctx, client, query)
+	lineage := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, query)
 	contributors, _ := lineage["contributors"].([]any)
 	wantCount := 0
 	for _, count := range wantOwners {
@@ -1081,7 +1083,7 @@ func assertExpandedCodingGroupLineage(
 			t.Errorf("expanded Coding Group contributor root = %#v, want Patient/patient", contributor)
 			continue
 		}
-		occurrence := expandedCodingOccurrenceKey(t, contributor["occurrenceKey"])
+		occurrence := decodeCompilerOccurrenceKey(t, "expanded Coding Group", contributor["occurrenceKey"], "exact occurrence identity object")
 		ownerKey, _ := occurrence["owner_id"].(string)
 		id := ""
 		for expectedID := range wantOwners {
@@ -1138,21 +1140,6 @@ func assertExpandedCodingGroupLineage(
 			t.Errorf("expanded Coding Group lineage ordinals for %s = %#v, want %#v", id, seenOrdinals[id], ordinals)
 		}
 	}
-}
-
-func expandedCodingOccurrenceKey(t *testing.T, raw any) map[string]any {
-	t.Helper()
-	if value, ok := raw.(map[string]any); ok {
-		return value
-	}
-	if encoded, ok := raw.(string); ok {
-		var value map[string]any
-		if err := json.Unmarshal([]byte(encoded), &value); err == nil {
-			return value
-		}
-	}
-	t.Fatalf("expanded Coding Group occurrence key = %#v, want exact occurrence identity object", raw)
-	return nil
 }
 
 func assertExpandedCodingIdentityTuple(t *testing.T, row map[string]any, system, version, code any) {

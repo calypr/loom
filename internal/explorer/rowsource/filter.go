@@ -10,6 +10,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -158,7 +159,7 @@ func (s *Service) ConstructionFilterSourceCapability(
 	base Base,
 	outputID, stageID string,
 ) (ConstructionFilterSourceCapability, error) {
-	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []ConstructionFilterSourceChoice{}}
+	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []SourceChoice{}}
 	if importedSourceChoiceUnavailable(base.Document) {
 		result.Supported = true
 		return result, nil
@@ -194,7 +195,7 @@ func (s *Service) ConstructionFilterSourceCapability(
 				enumeration.skip(rowSourceCandidateSkipClass(base.Snapshot, choice))
 				continue
 			}
-			result.Choices = append(result.Choices, ConstructionFilterSourceChoice{
+			result.Choices = append(result.Choices, SourceChoice{
 				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
 				Label:       constructionFieldDisplayLabel(base.Document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
@@ -225,35 +226,35 @@ func (s *Service) ResolveConstructionFilterSource(
 ) (ws.ConstructionSourceProjection, error) {
 	identity, err := capability.DecodeRowChoiceID(selection.ChoiceID)
 	if err != nil {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "the selected filter source field choice is invalid", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_FILTER_SOURCE_CHOICE", "the selected filter source field choice is invalid", err)
 	}
 	if s.config.RowChoiceResolver == nil {
 		return ws.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized filter source choice resolution is not configured", nil)
 	}
 	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil)
 	}
-	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, ports.RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 		Snapshot: base.Snapshot.Clone(), Route: base.Document.Route,
-		RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
+		RowChoiceID: selection.ChoiceID, ExpectedKind: ports.RowChoiceFieldGroup,
 	})
 	if resolveErr != nil || identity.Kind != capability.RowChoiceFieldGroupKey ||
 		identity.Occurrence.OccurrenceID != ws.RootOccurrenceID ||
 		identity.Path != resolved.FieldPath || identity.Reference ||
 		identity.Cardinality != capability.RowChoiceOne || identity.Shape != capability.RowChoiceScalar ||
 		resolved.OccurrenceID != ws.RootOccurrenceID {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil, resolveErr)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", resolveErr)
 	}
 	rootNode, ok := base.Snapshot.Node(identity.Occurrence.NodeID)
 	if !ok || !rootNode.RowRootEligible || rootNode.ResourceType != base.Document.RootResourceType {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "INVALID_FILTER_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil, nil)
+		return ws.ConstructionSourceProjection{}, conflict("INVALID_FILTER_SOURCE_CHOICE", "the selected field no longer identifies the authorized root resource", nil)
 	}
 	candidate, found := uniqueRowSourceCandidate(base.Snapshot, rootNode.ID, rootNode.ResourceType, resolved.FieldPath)
 	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
 		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_FILTER_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
+		return ws.ConstructionSourceProjection{}, unprocessable("UNSUPPORTED_FILTER_SOURCE_FIELD", "the selected root field is not a populated scalar source field", nil)
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
 	if err != nil {
@@ -262,7 +263,7 @@ func (s *Service) ResolveConstructionFilterSource(
 	facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootNode.ResourceType), resolved.FieldPath)
 	if err != nil || facts.CanonicalPath != resolved.FieldPath || facts.Shape != fhirschema.RowPathScalar ||
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
-		return ws.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_FILTER_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
+		return ws.ConstructionSourceProjection{}, conflict("STALE_FILTER_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", err)
 	}
 	label := constructionFieldDisplayLabel(base.Document.RootResourceType, facts.CanonicalPath, candidate.Label)
 	return ws.ConstructionSourceProjection{
@@ -285,26 +286,25 @@ func (s *Service) ConstructionCandidateWithFilterSources(
 	}
 	filter := candidate.Steps[changedIndex].Operation.Filter
 	if filter == nil {
-		return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_REQUIRES_FILTER", "filterSources can only be applied to a Filter step", nil)
+		return ws.Construction{}, unprocessable("FILTER_SOURCE_REQUIRES_FILTER", "filterSources can only be applied to a Filter step", nil)
 	}
 	if len(request.FilterSources) == 0 {
 		cleared, err := clearConstructionFilterOwnedSources(base.Construction, candidate, request.ChangedStepID)
 		if err != nil {
-			return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
+			return ws.Construction{}, unprocessable("FILTER_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
 		return cleared, nil
 	}
 	acceptedStageID := constructionStepInputStageID(candidate.Steps[changedIndex])
 	if acceptedStageID == "" {
-		return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_STAGE_UNAVAILABLE", "the Filter input stage cannot be resolved", nil)
+		return ws.Construction{}, unprocessable("FILTER_SOURCE_STAGE_UNAVAILABLE", "the Filter input stage cannot be resolved", nil)
 	}
 	if _, found := constructionReceiptStage(base.Stages, acceptedStageID); !found {
-		return ws.Construction{}, conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the filter source choices are not bound to an accepted stage", nil, nil)
+		return ws.Construction{}, conflict("STALE_STAGE_REFERENCE", "the filter source choices are not bound to an accepted stage", nil)
 	}
 	for _, selection := range request.FilterSources {
 		if selection.ColumnID != filter.ColumnID {
-			return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_COLUMN_MISMATCH",
-				fmt.Sprintf("filterSources columnId %q is not the column filtered by the edited Filter step", selection.ColumnID), nil)
+			return ws.Construction{}, unprocessable("FILTER_SOURCE_COLUMN_MISMATCH", fmt.Sprintf("filterSources columnId %q is not the column filtered by the edited Filter step", selection.ColumnID), nil)
 		}
 	}
 
@@ -350,8 +350,7 @@ func (s *Service) ConstructionCandidateWithFilterSources(
 
 	for _, projection := range resolved {
 		if constructionRootFieldAlreadyProjected(base.Document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
-			return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_FIELD_ALREADY_PROJECTED",
-				fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this filter source", projection.FieldPath), nil)
+			return ws.Construction{}, unprocessable("FILTER_SOURCE_FIELD_ALREADY_PROJECTED", fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this filter source", projection.FieldPath), nil)
 		}
 	}
 
@@ -360,7 +359,7 @@ func (s *Service) ConstructionCandidateWithFilterSources(
 	for index := 0; index <= changedIndex; index++ {
 		step := &steps[index]
 		if !ws.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
-			return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
+			return ws.Construction{}, unprocessable("FILTER_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
 		}
 		outputs := make([]ws.StageColumn, 0, len(step.Outputs)+len(resolved))
 		for _, output := range step.Outputs {
@@ -380,7 +379,7 @@ func (s *Service) ConstructionCandidateWithFilterSources(
 
 	candidate.Steps, candidate.SourceProjections = steps, projections
 	if err := validateFilterSourceColumns(candidate.Steps, request.ChangedStepID, request.FilterSources); err != nil {
-		return ws.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_COLUMN_MISMATCH", err.Error(), err)
+		return ws.Construction{}, unprocessable("FILTER_SOURCE_COLUMN_MISMATCH", err.Error(), err)
 	}
 	return candidate, nil
 }

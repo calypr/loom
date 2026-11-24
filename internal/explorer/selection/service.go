@@ -36,16 +36,6 @@ type PublishedRevision struct {
 	Outputs              []string
 }
 
-type RevisionReader interface {
-	GetSelectionRevisionSource(context.Context, string) (*PublishedRevision, error)
-}
-
-type RevisionReaderFunc func(context.Context, string) (*PublishedRevision, error)
-
-func (f RevisionReaderFunc) GetSelectionRevisionSource(ctx context.Context, id string) (*PublishedRevision, error) {
-	return f(ctx, id)
-}
-
 type CapabilityResolver struct {
 	Current        func(context.Context, string, string, string) (capability.Snapshot, error)
 	ForCompilation func(context.Context, string, string) (AuthorizedCapability, error)
@@ -71,7 +61,7 @@ type ErrorFactory struct {
 
 type Config struct {
 	Store                               Store
-	RevisionReader                      RevisionReader
+	ReadPublishedRevision               func(context.Context, string) (*PublishedRevision, error)
 	Capability                          CapabilityResolver
 	CapabilityProvider                  func() CapabilityResolver
 	SelectionSourceResolver             SelectionSourceResolver
@@ -82,11 +72,10 @@ type Config struct {
 }
 
 type Service struct {
-	store          Store
-	revisionReader RevisionReader
-	config         Config
-	errors         ErrorFactory
-	isNotFound     func(error) bool
+	store      Store
+	config     Config
+	errors     ErrorFactory
+	isNotFound func(error) bool
 }
 
 func NewService(config Config) (*Service, error) {
@@ -99,7 +88,7 @@ func NewService(config Config) (*Service, error) {
 	if config.IsNotFound == nil {
 		config.IsNotFound = func(error) bool { return false }
 	}
-	return &Service{store: config.Store, revisionReader: config.RevisionReader, config: config, errors: config.Errors, isNotFound: config.IsNotFound}, nil
+	return &Service{store: config.Store, config: config, errors: config.Errors, isNotFound: config.IsNotFound}, nil
 }
 
 func (s *Service) selectionReferenceValidator() SelectionReferenceValidator {
@@ -152,15 +141,6 @@ func sortStrings(values []string) {
 			values[j], values[j-1] = values[j-1], values[j]
 		}
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 const (
@@ -356,7 +336,7 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 			return SelectionCreateResult{}, s.errors.Unavailable("selection", "PUBLISHED_SELECTION_UNAVAILABLE", "published selection sources are not configured", nil)
 		}
 		intent := req.Source.PublishedOutput
-		revision, err := s.revisionReader.GetSelectionRevisionSource(ctx, intent.RevisionID)
+		revision, err := s.config.ReadPublishedRevision(ctx, intent.RevisionID)
 		if err != nil {
 			return SelectionCreateResult{}, err
 		}

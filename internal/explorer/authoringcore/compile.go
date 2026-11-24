@@ -55,7 +55,7 @@ func (s *Core) CompileAuthorized(ctx context.Context, request CompileRequest, au
 			return nil, support.Conflict("population", "INVALID_POPULATION_SCOPE", "the effective authorization scope is stale", nil, err)
 		}
 	}
-	resolvedInputs, err := ResolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest, s.store)
+	resolvedInputs, err := ResolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest, s.config.Selections)
 	if err != nil {
 		var typed *ports.Error
 		if errors.As(err, &typed) {

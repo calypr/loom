@@ -10,6 +10,7 @@ import (
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/compiler/scan"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type CategoryScanProof = scan.CategoryScanProof
@@ -39,6 +40,7 @@ type RowLineageUnsupportedError = rowlineage.RowLineageUnsupportedError
 
 var BindGroupRelatedOccurrenceSource = lower.BindGroupRelatedOccurrenceSource
 var CompileResolvedRecipePlan = lower.CompileResolvedRecipePlan
+var CompileResolvedRecipePlanWithPolicy = compilerpkg.CompileResolvedRecipePlanWithPolicy
 
 type CompiledGroupFieldOwner = lower.CompiledGroupFieldOwner
 type CompiledGroupFieldSourceContext = lower.CompiledGroupFieldSourceContext
@@ -69,7 +71,9 @@ const PhysicalCallExpression = ir.PhysicalCallExpression
 const PhysicalCombineAppend = ir.PhysicalCombineAppend
 const PhysicalCombineKeyJoin = ir.PhysicalCombineKeyJoin
 
+type CompilerPlanDiagnostics = ir.CompilerPlanDiagnostics
 type PhysicalOptimizationDecision = ir.PhysicalOptimizationDecision
+type PhysicalOptimizationReport = ir.PhysicalOptimizationReport
 type PhysicalPlan = ir.PhysicalPlan
 type PhysicalProjection = ir.PhysicalProjection
 
@@ -89,9 +93,9 @@ var ProbeRoot = capability.ProbeRoot
 var ProbeTraversal = capability.ProbeTraversal
 
 type RootRequest = capability.RootRequest
-type SchemaFieldDescriptor = capability.SchemaFieldDescriptor
+type SchemaFieldDescriptor = spec.SchemaFieldDescriptor
 
-var SchemaFieldDescriptors = capability.SchemaFieldDescriptors
+var SchemaFieldDescriptors = spec.SchemaFieldDescriptors
 
 type Scope = capability.Scope
 type Traversal = capability.Traversal

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
@@ -140,14 +141,14 @@ func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager
 		if prepared.ScopeIdentity.OutputID != s.Name || prepared.ScopeIdentity.Project != s.bindings.Project ||
 			prepared.ScopeIdentity.DatasetGeneration != s.bindings.DatasetGeneration ||
 			(s.bindings.AuthScopeMode != "" && prepared.ScopeIdentity.AuthScopeMode != string(s.bindings.AuthScopeMode)) ||
-			!sameExecutionStrings(prepared.ScopeIdentity.AuthResourcePaths, s.bindings.AuthResourcePaths) ||
+			!slices.Equal(prepared.ScopeIdentity.AuthResourcePaths, s.bindings.AuthResourcePaths) ||
 			!prepared.ScopeEvidence.Matches(prepared.PhysicalPlan, prepared.ScopeIdentity) {
 			return fmt.Errorf("prepared ClickHouse artifact lacks evidence for its exact output plan and scope")
 		}
 		if prepared.Identity.Project != s.bindings.Project || prepared.Identity.DatasetGeneration != s.bindings.DatasetGeneration ||
 			prepared.Identity.AuthScopeMode != authscope.ReadScopeMode(prepared.ScopeIdentity.AuthScopeMode) ||
 			(s.bindings.AuthScopeMode != "" && prepared.Identity.AuthScopeMode != s.bindings.AuthScopeMode) ||
-			!sameExecutionStrings(prepared.Identity.AuthResourcePaths, s.bindings.AuthResourcePaths) {
+			!slices.Equal(prepared.Identity.AuthResourcePaths, s.bindings.AuthResourcePaths) {
 			return fmt.Errorf("prepared ClickHouse artifact identity differs from its exact runtime scope")
 		}
 		schemaDigest, err := chartifact.SchemaDigest(stageID, columns)

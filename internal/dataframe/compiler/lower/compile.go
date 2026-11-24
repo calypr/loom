@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -111,7 +113,7 @@ func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputC
 			origin := *cloned[index].SourceOrigin
 			cloned[index].SourceOrigin = &origin
 		}
-		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+		cloned[index].NormalizedUnit = ir.CloneUnitIdentity(cloned[index].NormalizedUnit)
 		cloned[index].SourceChild = lineage.CloneSourceChild(cloned[index].SourceChild)
 		if cloned[index].RelatedRecordAnchor != nil {
 			anchor := *cloned[index].RelatedRecordAnchor
@@ -119,14 +121,6 @@ func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputC
 		}
 	}
 	return cloned
-}
-
-func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
-	if identity == nil {
-		return nil
-	}
-	cloned := *identity
-	return &cloned
 }
 
 type DynamicColumnMetadata struct {
@@ -294,6 +288,7 @@ func compileRecipeOutput(output recipeplan.OutputPlan, bindings recipe.RuntimeBi
 		AuthScopeMode:              bindings.AuthScopeMode,
 		SelectionProject:           bindings.SelectionProject,
 		SelectionMembersCollection: bindings.SelectionMembersCollection,
+		GroupRowsCollections:       bindings.GroupRowsCollections,
 	}
 	if err := validateSemanticOutputNames(output); err != nil {
 		return CompiledRecipeOutput{}, err
@@ -493,7 +488,7 @@ func describeGroupRowsStages(output recipeplan.OutputPlan, outputSchema []Compil
 			return nil, "", fmt.Errorf("group row value column ID %q is missing from the root projection", selected.ColumnID)
 		}
 		sourceColumns = append(sourceColumns, CompiledOutputColumn{
-			ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),
+			ID: field.ColumnID, Name: field.Name, Label: loomtext.FirstNonBlank(field.Label, field.Name),
 			SemanticPath: recipeSemanticPath(output.RootResourceType, output.Root.ResourceType, field.FieldRef, field.Expr.Expression),
 			Kind:         string(field.Expr.Type.Kind), Cardinality: string(field.Expr.Type.Cardinality), Nullable: field.Expr.Type.Cardinality.Optional(),
 		})

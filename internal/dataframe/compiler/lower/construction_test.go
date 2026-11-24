@@ -2,8 +2,11 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -32,7 +35,7 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 		}
 	}
 	wantNames := []string{"group", "total", "measure", "amount", "__loom_row_id"}
-	if got := compiledSchemaNames(compiled.OutputSchema); !equalStringSlices(got, wantNames) {
+	if got := compiledSchemaNames(compiled.OutputSchema); !slices.Equal(got, wantNames) {
 		t.Fatalf("final construction schema = %#v, want %#v", got, wantNames)
 	}
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
@@ -204,7 +207,7 @@ func TestCompileSourceOnlyConstructionKeepsSourcePlan(t *testing.T) {
 	if len(compiled.Stages) != 1 || compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("source-only descriptors = %#v", compiled.Stages)
 	}
-	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"group", "category", "amount", "_key"}; !equalStringSlices(got, want) {
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"group", "category", "amount", "_key"}; !slices.Equal(got, want) {
 		t.Fatalf("source-only schema = %#v, want %#v", got, want)
 	}
 }
@@ -230,7 +233,7 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
 					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
 					ContributorPolicy: "ALL_MATCHES",
-					Predicate:         &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals, Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &status}},
+					Predicate:         &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals, Value: &spec.FilterValue{Kind: recipe.FilterString, String: &status}},
 					Form:              "ALL", OutputColumnID: "observation-status",
 				}},
 				Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}, {ID: "observation-status", Name: "observation_status", Label: "Observation statuses"}},
@@ -254,7 +257,7 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	for index, column := range related.OutputColumns {
 		gotRelatedColumns[index] = column.Name
 	}
-	if !equalStringSlices(gotRelatedColumns, []string{"group", "category", "amount", "observation_status", "_key"}) {
+	if !slices.Equal(gotRelatedColumns, []string{"group", "category", "amount", "observation_status", "_key"}) {
 		t.Fatalf("related stage output schema = %#v", gotRelatedColumns)
 	}
 	if related.OutputColumns[3].Cardinality != "many" || related.OutputColumns[3].Kind != "string" {
@@ -1170,7 +1173,7 @@ func constructionTestOutput() recipe.Output {
 					ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "total_id", Operator: recipe.FilterGreaterEq,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &filterValue}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterInteger, Integer: &filterValue}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group", Label: groupLabel}, {ID: "amount_a_id", Name: "amount_a"}, {ID: "amount_b_id", Name: "amount_b"}, {ID: "total_id", Name: "total"}},
 				},
@@ -1187,16 +1190,4 @@ func constructionTestOutput() recipe.Output {
 			},
 		},
 	}
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }

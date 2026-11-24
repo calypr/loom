@@ -17,7 +17,6 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -503,7 +502,7 @@ func TestAuthoringV2CatalogBlocksObjectProjectionWithTypedChildHint(t *testing.T
 }
 
 func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	store := capabilityfixtures.NewStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
@@ -531,7 +530,7 @@ func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration
 }
 
 func TestExplorerCapabilityResolverAuthorizedExecutionRetainsInactiveGeneration(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	store := capabilityfixtures.NewStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-old", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
@@ -551,7 +550,7 @@ func TestExplorerCapabilityResolverAuthorizedExecutionRetainsInactiveGeneration(
 }
 
 func TestExplorerCapabilityResolverEnforcesProjectAuthorizationWithoutScopeResolver(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	store := capabilityfixtures.NewStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
@@ -568,7 +567,7 @@ func TestExplorerCapabilityResolverEnforcesProjectAuthorizationWithoutScopeResol
 }
 
 func TestExplorerCapabilityResolverRejectsChangedScopeAndPreservesRestrictedEmpty(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	store := capabilityfixtures.NewStore()
 	unrestricted := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), unrestricted); err != nil {
@@ -607,7 +606,7 @@ func TestExplorerCapabilityResolverRejectsChangedScopeAndPreservesRestrictedEmpt
 }
 
 func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2}}
 	fields := []catalog.FieldEnrichmentObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2}}
 	inventoryDigest, _ := catalog.ResourceInventoryDigest(inventory)
@@ -650,7 +649,7 @@ func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *test
 }
 
 func TestExplorerCapabilityResolverRebuildsLegacyIdentityAndRetainsOldToken(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2}}
 	fields := []catalog.FieldEnrichmentObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2}}
 	inventoryDigest, _ := catalog.ResourceInventoryDigest(inventory)
@@ -698,7 +697,7 @@ func TestExplorerCapabilityResolverRebuildsLegacyIdentityAndRetainsOldToken(t *t
 }
 
 func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	inventory := []catalog.ResourceInventoryObservation{
 		{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Observation", DocumentCount: 3},
 		{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2},
@@ -805,7 +804,7 @@ func sameCapabilityEntityIDs(a, b capability.Snapshot) bool {
 }
 
 func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *testing.T) {
-	manifest := testCapabilityManifest(t)
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
 	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 1}}
 	digest, _ := catalog.ResourceInventoryDigest(inventory)
 	evidence := staticCapabilityEvidence{
@@ -970,27 +969,6 @@ func TestAuthoringV2CatalogCarriesAdditiveObservedAvailability(t *testing.T) {
 	if err := json.Unmarshal(embeddedSpec, &specification); err != nil || len(specification.Components.Schemas["Catalog"].Properties["availability"]) == 0 || len(specification.Components.Schemas["CatalogObservedField"].Properties["pathObservedDocumentCount"]) == 0 {
 		t.Fatalf("embedded OpenAPI spec is missing the additive availability schema: err=%v", err)
 	}
-}
-
-func testCapabilityManifest(t *testing.T) dataset.Manifest {
-	t.Helper()
-	ref, err := dataset.NewRef("project-a", "generation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema, err := dataset.NewSchemaSnapshot("urn:test", "R5", strings.Repeat("a", 64), []string{"Patient"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := dataset.NewManifest(ref, schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err = manifest.Transition(dataset.StateStaged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return manifest
 }
 
 func roundTripGeneratedContract[T any](value any) (T, error) {
@@ -1215,5 +1193,39 @@ func TestCapabilityEvidenceSynthesizesCodeableConceptTextFieldFromProfiler(t *te
 		!reflect.DeepEqual(retained.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
 		!retained.Value.FallbackOnBlankString {
 		t.Fatalf("catalog semantic evidence changed across capability conversion: %#v", retained)
+	}
+}
+
+type capabilityWriteRecorder struct {
+	*capabilityfixtures.Store
+	writes int
+}
+
+func (r *capabilityWriteRecorder) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
+	r.writes++
+	return r.Store.Put(ctx, snapshot)
+}
+
+func TestUnavailableCapabilityEvidenceNeverWritesSnapshots(t *testing.T) {
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
+	for _, state := range []catalog.EvidenceStatus{catalog.EvidenceIncomplete, "TRUNCATED", "FAILED", "BUILDING"} {
+		t.Run(string(state), func(t *testing.T) {
+			repository := &capabilityWriteRecorder{Store: capabilityfixtures.NewStore()}
+			evidence := staticCapabilityEvidence{
+				Inventory:     catalog.ResourceInventoryResult{Available: true, Complete: true, Status: state},
+				Relationships: catalog.RelationshipObservationResult{Available: true, Complete: true},
+				Fields:        catalog.FieldEnrichmentResult{Available: true, Complete: true},
+			}
+			resolver, err := NewResolver(evidence, nil, staticActiveManifest{Manifest: manifest}, repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := resolver.Resolve(context.Background(), "project-a", ""); !errors.Is(err, capability.ErrSnapshotUnavailable) {
+				t.Fatalf("unavailable evidence error = %v", err)
+			}
+			if repository.writes != 0 {
+				t.Fatalf("unavailable evidence wrote %d snapshots", repository.writes)
+			}
+		})
 	}
 }

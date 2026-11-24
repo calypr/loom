@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,8 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/receipt/output"
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
+	"github.com/calypr/loom/internal/explorer/importedsource"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
@@ -161,7 +163,7 @@ func CompileConstructionSourceStage(ctx context.Context, request ports.Construct
 }
 
 func ContractFailure(err error) error {
-	var missing *output.ConstructionInputMissingError
+	var missing *ConstructionInputMissingError
 	if errors.As(err, &missing) {
 		message := fmt.Sprintf("the compiled receipt references construction input column %q, but that column is absent from the prior stage; the authored construction and compiler schema disagree", missing.ColumnID)
 		if missing.StepID != "" || missing.OutputName != "" {
@@ -192,11 +194,7 @@ func ContractFailure(err error) error {
 	}
 }
 
-type ImportedRecipeResolver interface {
-	Resolve(context.Context, string, ws.Workspace, ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error)
-}
-
-func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...ImportedRecipeResolver) (result *receiptmodel.CompilationReceipt, retErr error) {
+func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, receiptStore explorer.CompilationReceiptStore, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...*importedsource.Sources) (result *receiptmodel.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -252,7 +250,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 	}
 	prepareDuration = time.Since(prepareStarted)
 	compileWorkspaceStarted := time.Now()
-	if len(importedSources) > 0 {
+	if len(importedSources) > 0 && importedSources[0] != nil {
 		sources, resolveErr := importedSources[0].Resolve(ctx, request.Project, workspace, authorized)
 		if resolveErr != nil {
 			var typed *ports.Error
@@ -314,7 +312,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 		combineInputSchemas[output.Name] = inputSchemas
 	}
 	contractBuildStarted := time.Now()
-	translated, err = output.ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas, snapshot)
+	translated, err = ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas, snapshot)
 	if err != nil {
 		return nil, ContractFailure(err)
 	}
@@ -381,7 +379,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 	if err := ValidateEnginePublicColumns(&receipt, resolved); err != nil {
 		return nil, receiptCompilationConflict(receipt.ID, contractMismatch("public_columns", "", "receipt public columns", err.Error()))
 	}
-	stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
+	stored, err := receiptStore.InsertCompilationReceipt(ctx, receipt)
 	if err != nil {
 		if errors.Is(err, explorer.ErrCorruptReceipt) {
 			return nil, err
@@ -430,17 +428,6 @@ func ClassifyRecipeError(err error) error {
 	return err
 }
 
-func PersistValidatedReceipt(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, persist func(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error)) (*receiptmodel.CompilationReceipt, error) {
-	if _, err := CompileValidatedResolution(ctx, recipeEngine, receipt, bindings); err != nil {
-		id := ""
-		if receipt != nil {
-			id = receipt.ID
-		}
-		return nil, receiptCompilationConflict(id, err)
-	}
-	return persist(ctx, *receipt)
-}
-
 type ContractMismatch struct {
 	Component string
 	OutputID  string
@@ -457,10 +444,6 @@ func (e *ContractMismatch) Error() string {
 
 func contractMismatch(component, output, expected, actual string) error {
 	return &ContractMismatch{Component: component, OutputID: output, Expected: expected, Actual: actual}
-}
-
-func NewContractMismatch(component, output, expected, actual string) error {
-	return contractMismatch(component, output, expected, actual)
 }
 
 func MismatchDetails(receiptID string, err error) map[string]any {
@@ -569,9 +552,9 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 		}
 		views = append(views, view)
 	}
-	title := firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, explorerID)
+	title := cmp.Or(loomtext.FirstNonBlank(compiled.Workspace.Explorer.Title, explorerID), "Explorer")
 	if len(tabs) > 0 {
-		title = firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, tabs[0].Title, explorerID)
+		title = cmp.Or(loomtext.FirstNonBlank(compiled.Workspace.Explorer.Title, tabs[0].Title, explorerID), "Explorer")
 	}
 	shared := map[string][]explorerconfig.SharedFilter{}
 	for name, bindings := range compiled.Workspace.SharedFilters {
@@ -604,15 +587,6 @@ func semanticWorkspaceColumn(document ws.Document, column string) (ws.Column, bo
 		}
 	}
 	return ws.Column{}, false
-}
-
-func firstNonEmptyWorkspaceTitle(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return "Explorer"
 }
 
 func ValidateResolution(receipt *receiptmodel.CompilationReceipt, resolved *dataframeexecution.Resolved) error {

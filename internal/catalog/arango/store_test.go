@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/semantic"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 type fakeClient struct {
@@ -23,7 +25,6 @@ type evidenceClient struct {
 	queries          []string
 	vars             []map[string]any
 	rows             map[string][]map[string]any
-	rowsByCollection map[string][]map[string]any
 	collections      map[string]bool
 	collectionChecks []string
 	collectionErr    error
@@ -188,7 +189,7 @@ func TestCapabilityEvidenceInventoryBindsBuildAndAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := inventoryTestRow(t, build)
+	marker := testkit.JSONMap(t, build)
 	client := &evidenceClient{rows: map[string][]map[string]any{
 		readResourceInventoryBuildAQL:  {marker},
 		readResourceInventoryCountsAQL: {{"resource_type": "Patient", "document_count": int64(4)}},

@@ -25,7 +25,7 @@ type ClickHouseQueryer interface {
 
 type ReaderCatalog interface {
 	GetExecution(context.Context, string) (bundlepublication.BundleExecution, error)
-	FindExecutionBySelector(context.Context, string, string, bundlepublication.DataframeSelector) (bundlepublication.BundleExecution, bundlepublication.BundleOutputRecord, error)
+	FindExecutionBySelector(context.Context, string, string, publication.DataframeSelector) (bundlepublication.BundleExecution, bundlepublication.BundleOutputRecord, error)
 	ListExecutions(context.Context, bundlepublication.BundleState, time.Time) ([]bundlepublication.BundleExecution, error)
 	GetPointer(context.Context, string) (bundlepublication.BundlePointer, error)
 }

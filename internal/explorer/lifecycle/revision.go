@@ -96,7 +96,7 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return interpretation.InterpretationRevision{}, support.Conflict("interpretation-create", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	document := findSemanticOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil {
 		return interpretation.InterpretationRevision{}, support.NotFound("interpretation-create", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
 	}
@@ -122,7 +122,7 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 		definition.Contributor = &contributor
 	}
 	candidate := match.StructuralCandidate
-	return s.CreateInterpretationRevision(ctx, interpretation.CreateInterpretationRevisionRequest{
+	return s.interpretationService.CreateInterpretationRevision(ctx, interpretation.CreateInterpretationRevisionRequest{
 		Project: request.Project, LibraryID: request.LibraryID, ParentRevisionID: request.ParentRevisionID,
 		Applicability: interpretation.InterpretationApplicability{
 			ResourceTypes: singletonInterpretationDimension(candidate.ResourceType),

@@ -18,8 +18,8 @@ import (
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type formalPopulationCase struct {
@@ -116,16 +116,16 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 		}
 		return dataframeexecution.PopulationMappingResult{Status: status, SelectedCount: 3, MappedCount: 2, UnmappedCount: 1, EmittedRows: 1, UnmappedMemberIDs: []string{"file-004"}}, nil
 	}
-	domain, createErr := explorer.NewService(store)
+	domain, createErr := explorerfixtures.NewService(store)
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
-	service, createErr := New(domain, config)
+	service, createErr := New(domain, ConfigWithTestStores(config, store))
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
 	expected := population.PopulationMappingBinding{ReceiptID: receipt.ID, OutputID: "patients", Project: project, ExplorerID: receipt.ExplorerID, Generation: selection.Generation, ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: "membership-digest", ResourceType: "Specimen"}
-	result, err := service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: requestProject, ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+	result, err := service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: requestProject, ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 	row := formalPopulationResult{ID: value.ID, Outcome: string(result.Report.Status), MemberReads: store.visits, MappingCalls: calls, Counts: []int64{}}
 	if err != nil {
 		row.Outcome = "rejected"

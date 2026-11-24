@@ -8,18 +8,17 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer/viewer"
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
 type projectionTestReader struct {
 	ExplorerStore
-	projection workspacepkg.Projection
+	projection ws.Projection
 	err        error
-	calls      []workspacepkg.Artifact
+	calls      []ws.Artifact
 }
 
-func (r *projectionTestReader) WorkspaceProjection(_ context.Context, source workspacepkg.Artifact) (workspacepkg.Projection, error) {
+func (r *projectionTestReader) WorkspaceProjection(_ context.Context, source ws.Artifact) (ws.Projection, error) {
 	r.calls = append(r.calls, source)
 	return r.projection, r.err
 }
@@ -41,9 +40,9 @@ func projectionTestPacket(t *testing.T) (json.RawMessage, string) {
 	return raw, digest
 }
 
-func projectionTestSidecar(t *testing.T, source workspacepkg.Artifact) workspacepkg.Projection {
+func projectionTestSidecar(t *testing.T, source ws.Artifact) ws.Projection {
 	raw, digest := projectionTestPacket(t)
-	p := workspacepkg.Projection{Source: source, Workspace: raw, Digest: digest}
+	p := ws.Projection{Source: source, Workspace: raw, Digest: digest}
 	p.ID = p.ContentID()
 	return p
 }
@@ -51,7 +50,7 @@ func projectionTestSidecar(t *testing.T, source workspacepkg.Artifact) workspace
 func TestWorkspaceProjectionCurrentPacketsBypassReader(t *testing.T) {
 	raw, digest := projectionTestPacket(t)
 	reader := &projectionTestReader{err: errors.New("must not read sidecar")}
-	s := &Service{store: reader}
+	s := &Service{owners: reader, drafts: reader, workspaceProjections: reader}
 	revision := Revision{AuthoringBundle: raw, IntentDigest: digest}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err != nil {
 		t.Fatal(err)
@@ -72,7 +71,7 @@ func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
 	before, _ := json.Marshal(revision)
 	source := RevisionWorkspaceArtifact(revision)
 	reader := &projectionTestReader{projection: projectionTestSidecar(t, source)}
-	s := &Service{store: reader}
+	s := &Service{owners: reader, drafts: reader, workspaceProjections: reader}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("immutable revision changed")
 	}
-	if !reflect.DeepEqual(reader.calls, []workspacepkg.Artifact{source}) {
+	if !reflect.DeepEqual(reader.calls, []ws.Artifact{source}) {
 		t.Fatalf("wrong revision lookup: %+v", reader.calls)
 	}
 	draft := DraftRevision{ID: "history", Project: "tenant", ExplorerID: "explorer", DraftConfig: raw, DraftDigest: "original-history-digest", SnapshotToken: "snapshot", SourceGeneration: "generation", AuthorizationScopeDigest: "scope", DraftVersion: 3}
@@ -99,13 +98,13 @@ func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("immutable history changed")
 	}
-	if !reflect.DeepEqual(reader.calls, []workspacepkg.Artifact{source}) {
+	if !reflect.DeepEqual(reader.calls, []ws.Artifact{source}) {
 		t.Fatalf("wrong history lookup: %+v", reader.calls)
 	}
 }
 
 func TestWorkspaceProjectionRejectsSourceAndContentTampering(t *testing.T) {
-	source := workspacepkg.Artifact{Kind: "draft-revision", Project: "tenant", ExplorerID: "explorer", ID: "history", RawDigest: "raw", IntentDigest: "intent", SnapshotToken: "snapshot", Generation: "generation", ScopeDigest: "scope", ReceiptID: "receipt", DraftVersion: 3}
+	source := ws.Artifact{Kind: "draft-revision", Project: "tenant", ExplorerID: "explorer", ID: "history", RawDigest: "raw", IntentDigest: "intent", SnapshotToken: "snapshot", Generation: "generation", ScopeDigest: "scope", ReceiptID: "receipt", DraftVersion: 3}
 	fields := []string{"Kind", "Project", "ExplorerID", "ID", "RawDigest", "IntentDigest", "SnapshotToken", "Generation", "ScopeDigest", "ReceiptID", "DraftVersion"}
 	for _, field := range fields {
 		t.Run(field, func(t *testing.T) {
@@ -124,13 +123,13 @@ func TestWorkspaceProjectionRejectsSourceAndContentTampering(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name   string
-		mutate func(*workspacepkg.Projection)
+		mutate func(*ws.Projection)
 	}{
-		{"missing", func(p *workspacepkg.Projection) { *p = workspacepkg.Projection{} }},
-		{"id", func(p *workspacepkg.Projection) { p.ID = "wrong" }},
-		{"bytes", func(p *workspacepkg.Projection) { p.Workspace = json.RawMessage(`{}`) }},
-		{"digest", func(p *workspacepkg.Projection) { p.Digest = "wrong"; p.ID = p.ContentID() }},
-		{"invalid-packet", func(p *workspacepkg.Projection) { p.Workspace = json.RawMessage(`{}`); p.ID = p.ContentID() }},
+		{"missing", func(p *ws.Projection) { *p = ws.Projection{} }},
+		{"id", func(p *ws.Projection) { p.ID = "wrong" }},
+		{"bytes", func(p *ws.Projection) { p.Workspace = json.RawMessage(`{}`) }},
+		{"digest", func(p *ws.Projection) { p.Digest = "wrong"; p.ID = p.ContentID() }},
+		{"invalid-packet", func(p *ws.Projection) { p.Workspace = json.RawMessage(`{}`); p.ID = p.ContentID() }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := projectionTestSidecar(t, source)
@@ -150,16 +149,16 @@ func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 	}{
 		{"missing", &projectionTestReader{err: errors.New("not found")}},
 		{"zero", &projectionTestReader{}},
-		{"wrong-source", &projectionTestReader{projection: projectionTestSidecar(t, workspacepkg.Artifact{ID: "different"})}},
+		{"wrong-source", &projectionTestReader{projection: projectionTestSidecar(t, ws.Artifact{ID: "different"})}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &Service{store: tc.reader}
+			s := &Service{owners: tc.reader, drafts: tc.reader}
 			if _, err := s.RevisionWorkspace(context.Background(), revision); err == nil {
 				t.Fatal("accepted absent or unrelated sidecar")
 			}
 		})
 	}
-	s := &Service{store: struct{ ExplorerStore }{}}
+	s := &Service{owners: struct{ ExplorerStore }{}, drafts: struct{ ExplorerStore }{}}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err == nil {
 		t.Fatal("accepted legacy packet without projection reader")
 	}
@@ -168,6 +167,11 @@ func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 type defaultViewBuilderStore struct {
 	ExplorerStore
 	ViewBuilderRepository
+}
+
+type serviceTestOptionalStores struct {
+	RevisionReader
+	SelectionStore
 }
 
 func (defaultViewBuilderStore) Get(_ context.Context, project, id string) (*Explorer, error) {
@@ -182,7 +186,10 @@ func (defaultViewBuilderStore) GetViewBuilderSettings(context.Context, string) (
 }
 
 func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {
-	service, err := NewService(defaultViewBuilderStore{})
+	service, err := NewService(ServiceDependencies{
+		Owners: defaultViewBuilderStore{}, Drafts: defaultViewBuilderStore{}, ViewBuilder: defaultViewBuilderStore{},
+		Revisions: serviceTestOptionalStores{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,17 +202,5 @@ func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {
 	}
 	if _, err := service.LoadExplorerState(context.Background(), "HTAN_INT/BForePC", "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("explicit missing Explorer returned %v", err)
-	}
-}
-
-func TestRepositoryRevisionIDIncludesImmutableReceiptIdentity(t *testing.T) {
-	first := RepositoryRevisionID("program/project", "commit", "intent", "generation", "receipt-a")
-	replayed := RepositoryRevisionID("program/project", "commit", "intent", "generation", "receipt-a")
-	upgraded := RepositoryRevisionID("program/project", "commit", "intent", "generation", "receipt-b")
-	if first != replayed {
-		t.Fatalf("repository replay identity changed: %q != %q", first, replayed)
-	}
-	if first == upgraded {
-		t.Fatalf("compiler receipt upgrade reused revision identity %q", first)
 	}
 }

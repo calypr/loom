@@ -14,6 +14,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -140,7 +141,7 @@ func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability
 		return rowSourceSkipObserved
 	case len(found.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(found.Cardinality):
 		return rowSourceSkipRoute
-	case !containsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
+	case !rowsource.ContainsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
 		return rowSourceSkipInventory
 	case !capability.IsSupportedConstructionSourceType(found.LogicalType):
 		return rowSourceSkipType
@@ -398,50 +399,6 @@ func constructionOwnerInputsClearedFromCandidate(base ws.Construction, candidate
 	return true
 }
 
-func constructionRootFieldAlreadyProjected(document ws.Document, steps []ws.ConstructionStep, projections []ws.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
-	slot := strings.TrimSpace(fieldPath)
-	if slot == "" {
-		return false
-	}
-	for _, column := range document.Columns {
-		if column.ColumnID == "" || column.ColumnID == slotColumnID ||
-			column.OccurrenceID != ws.RootOccurrenceID ||
-			column.Source.Kind != ws.SourceField || column.Source.Field == nil {
-			continue
-		}
-		if column.Column == "_key" || strings.HasPrefix(column.Column, "__loom_") {
-			continue
-		}
-		if strings.TrimSpace(column.Source.Field.Path) == slot {
-			return true
-		}
-	}
-	for _, projection := range projections {
-		if projection.ColumnID == slotColumnID || !constructionStepCarriesSourceLane(steps, projection.OwnerStepID) {
-			continue
-		}
-		if strings.TrimSpace(projection.FieldPath) == slot {
-			return true
-		}
-	}
-	return false
-}
-
-func constructionStepCarriesSourceLane(steps []ws.ConstructionStep, stepID string) bool {
-	if stepID == "" {
-		return false
-	}
-	for _, step := range steps {
-		if step.ID != stepID {
-			continue
-		}
-		return step.Operation.Kind == ws.ConstructionOperationDerive ||
-			step.Operation.Kind == ws.ConstructionOperationFilter ||
-			step.Operation.Kind == ws.ConstructionOperationUnpivot
-	}
-	return false
-}
-
 func clearConstructionPivotInputs(base, candidate ws.Construction, pivotID string) (ws.Construction, error) {
 	pivotIndex := constructionStepIndex(candidate.Steps, pivotID)
 	if pivotIndex < 0 {
@@ -562,23 +519,8 @@ func hasNewRootPivotSource(sources []resolvedConstructionPivotSource) bool {
 	return false
 }
 
-func uniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType, path string) (capability.Candidate, bool) {
-	var result capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID != nodeID || candidate.ResourceType != resourceType || canonicalRowPath(candidate.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		result, found = candidate, true
-	}
-	return result, found
-}
-
 func sourceCandidate(snapshot capability.Snapshot, source ws.ConstructionRelatedFieldSource) capability.Candidate {
-	candidate, _ := uniqueCapabilityCandidate(snapshot, source.CandidateID)
+	candidate, _ := capability.UniqueCapabilityCandidate(snapshot, source.CandidateID)
 	return candidate
 }
 

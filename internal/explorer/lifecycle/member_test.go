@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type populationProposalTestStore struct {
@@ -173,7 +174,7 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 			return nil, err
 		}
 	}
-	updated, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, commands)
+	updated, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, authoringv2.CommandsWithoutResolution(commands))
 	if err != nil {
 		return nil, err
 	}
@@ -206,12 +207,12 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposalTestStore, capability.Snapshot, ws.Workspace) {
 	t.Helper()
 	domain, config, store, snapshot, workspace := populationMemberProposalSetup(t)
-	return newPopulationMemberProposalService(t, domain, config), store, snapshot, workspace
+	return newPopulationMemberProposalService(t, domain, config, store), store, snapshot, workspace
 }
 
-func newPopulationMemberProposalService(t *testing.T, domain *explorer.Service, config Config) *Service {
+func newPopulationMemberProposalService(t *testing.T, domain *explorer.Service, config Config, backing explorer.ExplorerStore) *Service {
 	t.Helper()
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, backing))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +251,7 @@ func populationMemberProposalSetup(t *testing.T) (*explorer.Service, Config, *po
 	fake := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", DraftConfig: raw, DraftVersion: 7, DraftDigest: digest}, copyGet: true,
 		selection: &baseHeader, selectionMembers: members}
 	store := &populationProposalTestStore{fakeStore: fake, selections: map[string]explorerselection.SelectionRevision{}, members: map[string][]explorerselection.SelectionMember{}}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +318,7 @@ func populationProposalRequest(store *populationProposalTestStore, snapshot capa
 func TestPopulationMemberRemovalProposalCreatesExactRevisionAndAppliesOnlyPopulationChange(t *testing.T) {
 	service, store, snapshot, before := populationMemberProposalFixture(t)
 	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
-	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
+	proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,8 +483,8 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		t.Fatal(err)
 	}
 
-	service := newPopulationMemberProposalService(t, domain, config)
-	baseRoutes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	service := newPopulationMemberProposalService(t, domain, config, store)
+	baseRoutes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-base",
 	})
 	if err != nil || !baseRoutes.Complete || len(baseRoutes.Choices) != 1 || len(baseRoutes.Choices[0].Route) != 2 {
@@ -507,7 +508,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	}
 
 	removed := members[1].Ref
-	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
+	proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +594,7 @@ func TestPopulationMemberRemovalProposalRejectsStaleScopeAndForeignMember(t *tes
 			member := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 			request := populationProposalRequest(store, snapshot, member)
 			test.change(&request)
-			if _, err := service.ProposePopulationMemberRemoval(context.Background(), request); err == nil {
+			if _, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), request); err == nil {
 				t.Fatal("invalid proposal request was accepted")
 			}
 			if store.fakeStore.saveDraftCalls != 0 {
@@ -614,9 +615,9 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 			}
 			return preview(ctx, receipt, bindings, sink)
 		}
-		service := newPopulationMemberProposalService(t, domain, config)
+		service := newPopulationMemberProposalService(t, domain, config, store)
 		removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
-		proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
+		proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -637,7 +638,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 	t.Run("replay after successful apply is stale CAS", func(t *testing.T) {
 		service, store, snapshot, _ := populationMemberProposalFixture(t)
 		removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
-		proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
+		proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -663,7 +664,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 func TestPopulationMemberRemovalProposalRejectsRouteSubstitution(t *testing.T) {
 	service, store, snapshot, _ := populationMemberProposalFixture(t)
 	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
-	_, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
+	_, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)
 	}

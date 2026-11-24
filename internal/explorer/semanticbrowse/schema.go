@@ -16,46 +16,11 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	loomdigest "github.com/calypr/loom/internal/digest"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
-
-func schemaFieldCandidateID(snapshotToken, nodeID, path string) string {
-	identity, _ := json.Marshal([3]string{snapshotToken, nodeID, path})
-	return "schema_field." + base64.RawURLEncoding.EncodeToString(identity)
-}
-
-func resolveSchemaFieldCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	const prefix = "schema_field."
-	if !strings.HasPrefix(candidateID, prefix) || len(candidateID) > 4096 {
-		return capability.Candidate{}, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(candidateID, prefix))
-	if err != nil {
-		return capability.Candidate{}, false
-	}
-	var identity [3]string
-	if json.Unmarshal(payload, &identity) != nil || identity[0] != snapshot.Token ||
-		candidateID != schemaFieldCandidateID(identity[0], identity[1], identity[2]) {
-		return capability.Candidate{}, false
-	}
-	node, ok := snapshot.Node(identity[1])
-	if !ok || !node.Populated || !validSHA256Digest(snapshot.Identity.SchemaDigest) {
-		return capability.Candidate{}, false
-	}
-	for _, field := range facade.SchemaFieldDescriptors(node.ResourceType) {
-		if field.Path != identity[2] {
-			continue
-		}
-		return capability.Candidate{
-			ID: candidateID, NodeID: node.ID, ResourceType: node.ResourceType,
-			FieldPath: field.Path, Label: node.ResourceType + "." + field.Path,
-			LogicalType: field.PrimitiveType, Cardinality: field.Cardinality,
-		}, true
-	}
-	return capability.Candidate{}, false
-}
 
 const (
 	schemaFieldDefaultLimit = 20
@@ -112,14 +77,6 @@ type schemaFieldCursor struct {
 	LastPath                 string `json:"lastPath"`
 }
 
-func validSHA256Digest(value string) bool {
-	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
-}
-
 func encodeSchemaFieldCursor(cursor schemaFieldCursor) (string, error) {
 	raw, err := json.Marshal(cursor)
 	if err != nil {
@@ -149,7 +106,7 @@ func decodeSchemaFieldCursor(value string) (schemaFieldCursor, error) {
 	var cursor schemaFieldCursor
 	if err := json.Unmarshal(raw, &cursor); err != nil || cursor.Version != 1 || cursor.Project == "" ||
 		cursor.ExplorerID == "" || cursor.SnapshotToken == "" || cursor.Generation == "" ||
-		cursor.AuthorizationScopeDigest == "" || !validSHA256Digest(cursor.SchemaDigest) ||
+		cursor.AuthorizationScopeDigest == "" || !loomdigest.IsSHA256(cursor.SchemaDigest) ||
 		cursor.NodeID == "" || cursor.ResourceType == "" || cursor.Limit < 1 || cursor.Limit > schemaFieldMaxLimit || cursor.LastPath == "" {
 		return schemaFieldCursor{}, fmt.Errorf("schema field cursor is invalid")
 	}
@@ -188,7 +145,7 @@ func (b *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 	snapshot := authorized.Snapshot
 	if snapshot.ValidateToken(request.SnapshotToken) != nil ||
 		projectid.Canonical(snapshot.Identity.Project) != project || snapshot.Identity.Generation == "" ||
-		!validSHA256Digest(snapshot.Identity.SchemaDigest) {
+		!loomdigest.IsSHA256(snapshot.Identity.SchemaDigest) {
 		return result, support.Conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, nil)
 	}
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
@@ -262,7 +219,7 @@ func (b *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 	}
 	for _, descriptor := range matched[start:end] {
 		candidate := capability.Candidate{
-			ID:     schemaFieldCandidateID(snapshot.Token, node.ID, descriptor.Path),
+			ID:     capability.SchemaFieldCandidateID(snapshot.Token, node.ID, descriptor.Path),
 			NodeID: node.ID, ResourceType: resourceType, FieldPath: descriptor.Path,
 			Label: resourceType + "." + descriptor.Path, LogicalType: descriptor.PrimitiveType,
 			Cardinality: descriptor.Cardinality,
@@ -305,10 +262,3 @@ func (b *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 }
 
 type SchemaFieldCursor = schemaFieldCursor
-
-func EncodeSchemaFieldCursor(cursor SchemaFieldCursor) (string, error) {
-	return encodeSchemaFieldCursor(cursor)
-}
-func DecodeSchemaFieldCursor(value string) (SchemaFieldCursor, error) {
-	return decodeSchemaFieldCursor(value)
-}

@@ -410,7 +410,7 @@ func TestClickHouseNativeINNERJoinProjectsOWNERRecordsJSONRoundTrip(t *testing.T
 			{ID: "joined-owners", Name: "OWNER_RECORDS", LogicalType: "object", ClickHouseType: "Array(Nullable(String))", Repeated: true},
 		},
 	}
-	rendered, err := renderclickhouse.RenderCombine(plan, []ir.ResolvedClickHouseTable{leftInput, rightInput}, "owner-join-test")
+	rendered, err := renderclickhouse.RenderCombineWithLimit(plan, []ir.ResolvedClickHouseTable{leftInput, rightInput}, "owner-join-test", 0)
 	if err != nil {
 		t.Fatalf("render INNER OWNER_RECORDS join: %v", err)
 	}

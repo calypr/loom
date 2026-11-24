@@ -3,6 +3,7 @@ package compilerfixtures
 import (
 	"context"
 	"encoding/json"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"testing"
 	"time"
@@ -160,6 +161,7 @@ func LowerConstructionOutput(t *testing.T, output recipe.Output, bindings recipe
 	t.Helper()
 	project, generation := bindings.Project, bindings.DatasetGeneration
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	bindings.GroupRowsCollections = explorerdb.GroupRowsCollections()
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatalf("build construction recipe plan: %v", err)

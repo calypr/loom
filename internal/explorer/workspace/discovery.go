@@ -3,6 +3,8 @@ package workspace
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type ConstructionPivotDiscoveryCategory struct {
@@ -34,11 +36,11 @@ func ResolveConstructionPivotDiscovery(step ConstructionStep, input []StageColum
 	if !categoryOK || !valueOK || pivot.CategoryColumnID == pivot.ValueColumnID {
 		return ConstructionStep{}, fmt.Errorf("pivot discovery requires a distinct, present category/value pair")
 	}
-	categoryKind, categoryKnown := constructionPivotScalarKind(category.Type)
+	categoryKind, categoryKnown := recipe.ConstructionPivotScalarKind(category.Type)
 	if !categoryKnown {
 		return ConstructionStep{}, fmt.Errorf("pivot discovery category column %q type %q is not a supported scalar pair", pivot.CategoryColumnID, category.Type)
 	}
-	if _, valueKnown := constructionPivotScalarKind(value.Type); !valueKnown {
+	if _, valueKnown := recipe.ConstructionPivotScalarKind(value.Type); !valueKnown {
 		return ConstructionStep{}, fmt.Errorf("pivot discovery value column %q type %q is not a supported scalar pair", pivot.ValueColumnID, value.Type)
 	}
 	if len(evidence) == 0 {

@@ -56,7 +56,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "custom", Title: "Patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			return network, nil
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
+			receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, store, request, snapshot)
 			if err != nil {
 				return nil, err
 			}
@@ -139,7 +139,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			return service.StoreCompilationReceipt(ctx, clone)
+			return store.InsertCompilationReceipt(ctx, clone)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previews++
@@ -157,7 +157,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	identity := fmt.Sprintf(`"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients"`, snapshot.Token, digest)
 	networkResponse := requestJSON(t, app, http.MethodPost, basePath+"/authoring-network", "{"+identity+"}")
@@ -689,7 +689,7 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +713,7 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, store, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCallCount++
@@ -744,7 +744,7 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return app, service, snapshot, draftDigest, &previewCallCount
 }
 
@@ -907,7 +907,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"memory-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryMemoryLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_MEMORY_LIMIT_EXCEEDED"},
 		{"resource-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_RESOURCE_LIMIT_EXCEEDED"},
 		{"out-of-memory", dataframeerrors.NewError(dataframeerrors.CodeQueryBackendOutOfMemory, "private"), http.StatusServiceUnavailable, "QUERY_BACKEND_OUT_OF_MEMORY"},
-		{"receipt", &receiptapi.PreviewResolutionError{ReceiptID: "receipt-1", Err: receiptapi.NewContractMismatch("output_execution", "patients", "private-expected", "private-actual")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
+		{"receipt", &receiptapi.PreviewResolutionError{ReceiptID: "receipt-1", Err: &receiptapi.ContractMismatch{Component: "output_execution", OutputID: "patients", Expected: "private-expected", Actual: "private-actual"}}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
 		{"unknown", errors.New("private"), http.StatusInternalServerError, "PREVIEW_FAILED"},
 	}
 	for _, test := range tests {
@@ -967,7 +967,7 @@ func TestUnlistedPivotCategoryPreviewErrorIsActionable(t *testing.T) {
 }
 
 func TestClassifyReceiptPreviewResolutionErrorOnlyMarksContractFailuresForRecompile(t *testing.T) {
-	mismatch := receiptapi.ClassifyPreviewResolutionError("receipt-1", receiptapi.NewContractMismatch("output_execution", "patients", "expected", "actual"))
+	mismatch := receiptapi.ClassifyPreviewResolutionError("receipt-1", &receiptapi.ContractMismatch{Component: "output_execution", OutputID: "patients", Expected: "expected", Actual: "actual"})
 	var resolution *receiptapi.PreviewResolutionError
 	if !errors.As(mismatch, &resolution) || resolution.ReceiptID != "receipt-1" {
 		t.Fatalf("mismatch classification = %#v", mismatch)

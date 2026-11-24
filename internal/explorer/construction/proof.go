@@ -3,7 +3,6 @@ package construction
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -94,13 +93,6 @@ func constructionCompilerScope(authorized ports.AuthorizedCapability) facade.Sco
 		Project: authorized.Snapshot.Identity.Project, DatasetGeneration: authorized.Snapshot.Identity.Generation,
 		AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode,
 	}
-}
-
-func constructionChoiceIdentityMatches(choice capability.ConstructionChoice, submittedID string, identity capability.ConstructionChoiceIdentity) bool {
-	if choice.ChoiceID == submittedID {
-		return true
-	}
-	return identity.Version == "construction-choice/v1" && len(identity.Route) == 0 && reflect.DeepEqual(choice.Source, identity.Source)
 }
 
 func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot ws.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {

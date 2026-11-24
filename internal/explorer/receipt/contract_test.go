@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -31,7 +34,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
-	receipttest "github.com/calypr/loom/internal/testkit/recipetest"
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
 )
 
@@ -99,8 +101,8 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	*document = started
-	receipttest.AppendDeriveFixture(document, "scale_patient_count", ws.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, ws.ConstructionDerivedMultiply, receipttest.ColumnOperand(document.Columns[1].ColumnID), receipttest.IntegerOperand(&two), ws.ConstructionMissingInputError)
-	receipttest.AppendDeriveFixture(document, "add_one", ws.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, ws.ConstructionDerivedAdd, receipttest.ColumnOperand("scaled_patient_count"), receipttest.IntegerOperand(&one), ws.ConstructionMissingInputError)
+	recipetest.AppendDeriveFixture(document, "scale_patient_count", ws.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, ws.ConstructionDerivedMultiply, recipetest.ColumnOperand(document.Columns[1].ColumnID), recipetest.IntegerOperand(&two), ws.ConstructionMissingInputError)
+	recipetest.AppendDeriveFixture(document, "add_one", ws.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, ws.ConstructionDerivedAdd, recipetest.ColumnOperand("scaled_patient_count"), recipetest.IntegerOperand(&one), ws.ConstructionMissingInputError)
 
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:  recipetest.Registry{},
@@ -109,15 +111,12 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := explorerfixtures.NewStore()
 	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
-	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	receipt, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt with an authored derived column: %v", err)
 	}
@@ -129,7 +128,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		t.Fatalf("validate reconciled public output contract: %v", err)
 	}
 	wantColumns := []string{"c_patient", "patient_count", "scaled_patient_count", "doubled_patient_count"}
-	if got := receipttest.EmittedPublicColumnNames(receipt.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
+	if got := recipetest.EmittedPublicColumnNames(receipt.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("receipt public columns = %#v, want %#v", got, wantColumns)
 	}
 	scaled := receipt.EmittedColumns[2]
@@ -151,7 +150,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"AGGREGATE_REDUCTION", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED", "TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS"}) {
 		t.Fatalf("derived receipt contract aggregation = %#v", contract)
 	}
-	repeated, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	repeated, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile identical derived receipt again: %v", err)
 	}
@@ -228,16 +227,14 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		t.Fatalf("validate typed construction workspace: %v", err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  recipetest.Registry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		GroupRowsCollections: explorerdb.GroupRowsCollections(),
+		Registry:             recipetest.Registry{},
+		QueryRows:            func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := explorerfixtures.NewStore()
 	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		SelectionMembersCollection: "loom_explorer_selection_members",
@@ -247,7 +244,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		}}},
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
-	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	receipt, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt with typed construction stages: %v", err)
 	}
@@ -286,13 +283,13 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		t.Fatalf("filter stage descriptor = %#v", stages[1])
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: snapshot.Identity.Generation,
+		Project: "project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a", DatasetGeneration: snapshot.Identity.Generation,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: request.SelectionMembersCollection,
 	}
 	if _, err := CompileValidatedResolution(context.Background(), recipeEngine, receipt, bindings); err != nil {
 		t.Fatalf("cohort construction receipt failed deterministic re-lowering: %v", err)
 	}
-	repeated, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	repeated, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("recompile identical typed construction receipt: %v", err)
 	}
@@ -426,19 +423,22 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}
+	dependencies := explorerfixtures.Dependencies(store)
 	application, err := lifecycle.New(service, lifecycle.Config{
+		Revisions: dependencies.Revisions, RevisionWriter: dependencies.RevisionWriter,
+		SelectionStore: dependencies.Selections, Receipts: dependencies.Receipts,
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
 			ForExecution:   func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
 			Catalog:        ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return Compile(ctx, request, nil, recipeEngine, service, nil, nil)
+			return Compile(ctx, request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, _ *receiptmodel.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"system": "https://example.org", "version": nil, "code": "TUMOR", "source_count": 1}); err != nil {
@@ -454,7 +454,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
-	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	receipt, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile CODED_GROUP proposal through receipt reconciliation: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if len(stages) != 3 || stages[1].Operation != "CODED_GROUP" || stages[2].InputStageID != stepID || stages[2].Operation != "FILTER" {
 		t.Fatalf("recompiled proposal stages = %#v, want CODED_GROUP then downstream FILTER", stages)
 	}
-	repeated, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	repeated, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("recompile saved CODED_GROUP proposal without proposal token: %v", err)
 	}
@@ -503,7 +503,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		t.Fatalf("CODED_GROUP saved meaning changed after exact recompile: first=(%q,%q), second=(%q,%q)", receipt.CompilationKey, receipt.ID, repeated.CompilationKey, repeated.ID)
 	}
 
-	capabilities, err := application.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := application.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
 		OutputID: "specimens", StageID: recipe.ConstructionSourceProjectionID,
@@ -515,7 +515,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		t.Fatalf("coded-group capability choices = %#v, want only populated Specimen.type.coding[]", capabilities.SelectedStage.CodedGroupChoices)
 	}
 	document.Construction.Steps[0].Operation.CodedGroup.ChoiceID = capabilities.SelectedStage.CodedGroupChoices[0].ChoiceID
-	proposal, err := application.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := application.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
 		OutputID: "specimens", ChangedStepID: stepID,
@@ -527,7 +527,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if proposal.ProposalID == "" || proposal.PreviewStatus != "PREVIEW_PENDING" {
 		t.Fatalf("coded-group proposal response = %#v", proposal)
 	}
-	proposalReceipt, err := service.CompilationReceiptForExplorer(context.Background(), "project-a", "custom", proposal.ProposalID)
+	proposalReceipt, err := store.GetCompilationReceiptForExplorer(context.Background(), "project-a", "custom", proposal.ProposalID)
 	if err != nil || proposalReceipt == nil || proposalReceipt.ConstructionProposal == nil {
 		t.Fatalf("coded-group proposal receipt = %#v, error = %v", proposalReceipt, err)
 	}
@@ -556,7 +556,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	}
 	acceptedRequest := request
 	acceptedRequest.Workspace = accepted
-	acceptedReceipt, err := Compile(context.Background(), acceptedRequest, nil, recipeEngine, service, nil, nil)
+	acceptedReceipt, err := Compile(context.Background(), acceptedRequest, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("recompile applied CODED_GROUP draft without a fresh proposal token: %v", err)
 	}
@@ -618,15 +618,12 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := explorerfixtures.NewStore()
 	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
-	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
+	receipt, err := Compile(context.Background(), request, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile and reconcile typed derived construction output: %v", err)
 	}
@@ -666,10 +663,7 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := explorerfixtures.NewStore()
 	binding := &receiptmodel.RowDefinitionProposalBinding{
 		DraftVersion:             3,
 		DraftDigest:              "sha256:draft",
@@ -685,7 +679,7 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 		SnapshotToken:         snapshot.Token,
 		Authorized:            ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		RowDefinitionProposal: binding,
-	}, nil, recipeEngine, service, nil, nil)
+	}, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1001,14 +995,11 @@ func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := explorerfixtures.NewStore()
 	receipt, err := Compile(context.Background(), ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-	}, nil, recipeEngine, service, nil, nil)
+	}, nil, recipeEngine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile and persist receipt for empty target with sibling inputs: %v", err)
 	}
@@ -1136,15 +1127,11 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		t.Fatal(err)
 	}
 	store := explorerfixtures.NewStore()
-	service, err := explorer.NewService(store)
-	if err != nil {
-		t.Fatal(err)
-	}
 	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
-	receipt, err := Compile(context.Background(), request, nil, engine, service, nil, resolveSchemas)
+	receipt, err := Compile(context.Background(), request, nil, engine, explorerfixtures.Dependencies(store).Receipts, nil, resolveSchemas)
 	if err != nil {
 		t.Fatalf("compile sparse published APPEND receipt: %v", err)
 	}
@@ -1180,7 +1167,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	if err := receipt.Validate(); err != nil {
 		t.Fatalf("validate sparse APPEND receipt before/after persistence: %v", err)
 	}
-	persisted, err := service.CompilationReceiptForExplorer(context.Background(), "project-a", "custom", receipt.ID)
+	persisted, err := store.GetCompilationReceiptForExplorer(context.Background(), "project-a", "custom", receipt.ID)
 	if err != nil {
 		t.Fatalf("load persisted sparse APPEND receipt: %v", err)
 	}
@@ -1372,7 +1359,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 					Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "specimen_id", Operator: recipe.FilterEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
 				}},
@@ -1384,7 +1371,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 		}},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a",
+		Project: "project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a", DatasetGeneration: "generation-a",
 		AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	compiled, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, bindings)
@@ -1422,7 +1409,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 	}
 }
 
-func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) {
+func TestCompileValidatedResolutionRejectsReceiptFingerprintDrift(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: recipetest.Registry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -1444,21 +1431,13 @@ func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) 
 	receipt := &receiptmodel.CompilationReceipt{Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
 	bad := *receipt
 	bad.OutputFingerprints = map[string]string{"patients": "runtime-drift"}
-	stores := 0
-	persist := func(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
-		stores++
-		return receipt, nil
+	_, err = CompileValidatedResolution(context.Background(), recipeEngine, &bad, bindings)
+	var mismatch *ContractMismatch
+	if !errors.As(err, &mismatch) || mismatch.Component != "output_execution" ||
+		mismatch.OutputID != "patients" || mismatch.Expected != "runtime-drift" {
+		t.Fatalf("runtime mismatch error = %v, want the patients output fingerprint mismatch", err)
 	}
-	if _, err := PersistValidatedReceipt(context.Background(), recipeEngine, &bad, bindings, persist); err == nil || !strings.Contains(err.Error(), "COMPILATION_CONTRACT_MISMATCH") {
-		t.Fatalf("runtime mismatch error = %v, want COMPILATION_CONTRACT_MISMATCH", err)
-	}
-	if stores != 0 {
-		t.Fatalf("runtime mismatch reached receipt store %d times", stores)
-	}
-	if _, err := PersistValidatedReceipt(context.Background(), recipeEngine, receipt, bindings, persist); err != nil {
+	if _, err := CompileValidatedResolution(context.Background(), recipeEngine, receipt, bindings); err != nil {
 		t.Fatalf("corrected receipt rejected: %v", err)
-	}
-	if stores != 1 {
-		t.Fatalf("corrected receipt store calls = %d, want 1", stores)
 	}
 }

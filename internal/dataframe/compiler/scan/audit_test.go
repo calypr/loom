@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 )
 
 func TestPivotPresenceAudit(t *testing.T) {
@@ -20,7 +21,7 @@ func TestPivotPresenceAudit(t *testing.T) {
 		name   string
 		output recipe.Output
 	}{
-		{name: "source-derive-filter", output: categoryScanConstructionRecipeOutput()},
+		{name: "source-derive-filter", output: compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture")},
 		{name: "related", output: relatedCategoryScanOutput(relatedCategoryScanOptions{})},
 		{name: "related-unsafe", output: relatedCategoryScanOutput(relatedCategoryScanOptions{unsupportedStage: true})},
 		{name: "related-root-filter", output: relatedCategoryScanOutput(relatedCategoryScanOptions{rootFilter: true})},

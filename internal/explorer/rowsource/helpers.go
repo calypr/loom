@@ -267,6 +267,10 @@ func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, col
 	}
 	return false
 }
+func UniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType, path string) (capability.Candidate, bool) {
+	return uniqueRowSourceCandidate(snapshot, nodeID, resourceType, path)
+}
+
 func uniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType, path string) (capability.Candidate, bool) {
 	var result capability.Candidate
 	found := false
@@ -281,6 +285,10 @@ func uniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType
 	}
 	return result, found
 }
+func ConstructionGroupSourceCandidate(snapshot capability.Snapshot, choice capability.RowChoice) (capability.Candidate, bool) {
+	return constructionGroupSourceCandidate(snapshot, choice)
+}
+
 func constructionGroupSourceCandidate(snapshot capability.Snapshot, choice capability.RowChoice) (capability.Candidate, bool) {
 	var candidate capability.Candidate
 	found := false
@@ -303,6 +311,10 @@ func constructionGroupSourceCandidate(snapshot capability.Snapshot, choice capab
 func canonicalRowPath(path string) string {
 	return strings.TrimPrefix(strings.TrimSpace(path), "root.")
 }
+func ContainsSourceProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
+	return containsSourceProjectionMode(modes, want)
+}
+
 func containsSourceProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
 	for _, mode := range modes {
 		if mode == want {

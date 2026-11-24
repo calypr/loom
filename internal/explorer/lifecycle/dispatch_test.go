@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -33,7 +35,7 @@ func TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	choices, err := harness.Service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
+	choices, err := harness.Service.OwnerServices().RowDefinition.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: prepared.Project, ExplorerID: prepared.ExplorerID, SnapshotToken: prepared.SnapshotToken, OutputID: prepared.OutputID,
 	})
 	if err != nil {
@@ -207,7 +209,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: parse row-definition-choices endpoint: %w", parseErr)
 		}
 		query := parsed.Query()
-		value, err := harness.Service.ListRowDefinitionChoices(ctx, rowdef.RowDefinitionChoicesRequest{
+		value, err := harness.Service.OwnerServices().RowDefinition.ListRowDefinitionChoices(ctx, rowdef.RowDefinitionChoicesRequest{
 			Project: identity.Project, ExplorerID: identity.ExplorerID,
 			SnapshotToken: query.Get("snapshotToken"), OutputID: query.Get("outputId"),
 		})
@@ -264,14 +266,14 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 			requestValue.Limit = *body.Limit
 		}
 		layers = append(layers, "lifecycle_analyzer_compiler")
-		proposal, err := harness.Service.ProposeConstruction(ctx, requestValue)
+		proposal, err := harness.Service.OwnerServices().Construction.ProposeConstruction(ctx, requestValue)
 		if err != nil {
 			return resultError(err)
 		}
 		actual.Proposal, actual.CompiledReceipt = &proposal, actualReceipt(harness.Store.receipt)
 		actual.Disposition = proposal.PreviewStatus
 		if proposal.PreviewStatus == "PREVIEW_PENDING" && proposal.ProposalID != "" {
-			preview, previewErr := harness.Service.Preview(ctx, PreviewRequest{
+			preview, previewErr := harness.Service.OwnerServices().Core.Preview(ctx, authoringcore.PreviewRequest{
 				Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: proposal.OutputID,
 				SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
@@ -300,7 +302,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode rowdef.RowDefinitionProposal request: %w", err)
 		}
 		layers = append(layers, "lifecycle_analyzer_compiler")
-		proposal, err := harness.Service.ProposeRowDefinition(ctx, rowdef.RowDefinitionProposalRequest{
+		proposal, err := harness.Service.OwnerServices().RowDefinition.ProposeRowDefinition(ctx, rowdef.RowDefinitionProposalRequest{
 			Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken,
 			ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
 			OutputID: body.OutputID, Selection: body.Selection, Limit: body.Limit,
@@ -358,7 +360,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if body.Limit != nil {
 			limit = *body.Limit
 		}
-		preview, err := harness.Service.Preview(ctx, PreviewRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: body.ReceiptID, OutputID: body.OutputID, Limit: limit, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
+		preview, err := harness.Service.OwnerServices().Core.Preview(ctx, authoringcore.PreviewRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: body.ReceiptID, OutputID: body.OutputID, Limit: limit, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		}})
 		layers = append(layers, "preview_orchestration")
@@ -382,7 +384,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if err := json.Unmarshal(request.Body, &body); err != nil {
 			return nil, nil, fmt.Errorf("SETUP_FAILURE: decode ConstructionCapabilities request: %w", err)
 		}
-		value, err := harness.Service.GetConstructionCapabilities(ctx, construction.ConstructionCapabilitiesRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken, ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest, OutputID: body.OutputID, StageID: body.StageID, GroupStepID: body.GroupStepID})
+		value, err := harness.Service.OwnerServices().Construction.GetConstructionCapabilities(ctx, construction.ConstructionCapabilitiesRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, SnapshotToken: body.SnapshotToken, ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest, OutputID: body.OutputID, StageID: body.StageID, GroupStepID: body.GroupStepID})
 		layers = append(layers, "lifecycle_analyzer_compiler")
 		if err != nil {
 			return resultError(err)

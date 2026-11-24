@@ -62,6 +62,6 @@ func (s *Service) prepareDraft(ctx context.Context, target draftTarget, diagnost
 	}
 	return proposalDraft{
 		authorization: authorized, owner: owner, workspace: workspace,
-		document: support.ProposalDocument(workspace, target.outputID),
+		document: workspace.FindOutputDocument(target.outputID),
 	}, nil
 }

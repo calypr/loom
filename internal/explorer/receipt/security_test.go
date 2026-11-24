@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"testing"
 
@@ -78,7 +79,7 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a", SelectionProject: "project-a"})
+	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a"})
 	if err != nil {
 		t.Fatal(err)
 	}

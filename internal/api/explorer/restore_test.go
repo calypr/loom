@@ -334,7 +334,8 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(&coreProtocolGatedStore{testExplorerStore: base.store, gate: pending.gate})
+	backingStore := &coreProtocolGatedStore{testExplorerStore: base.store, gate: pending.gate}
+	domain, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,10 +356,10 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 			if base.beforeCompile != nil {
 				base.beforeCompile()
 			}
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, backingStore, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+			return backingStore.GetCompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if pending.beforePreview != nil {
@@ -374,7 +375,7 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, base.store)
 	base.app = app
 	return pending
 }
@@ -890,7 +891,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		if err := rowClient.Bootstrap(context.Background(), explorerarango.BootstrapSpec()); err != nil {
 			t.Fatal(err)
 		}
-		store, err = explorerarango.New(rowClient)
+		store, err = newTestExplorerArangoStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -902,7 +903,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if _, err := store.InsertRevision(context.Background(), explorer.Revision{ID: owner.ActiveRevisionID, Project: owner.Project, ExplorerID: owner.ExplorerID, SourceGeneration: snapshot.Identity.Generation, AuthoringBundle: original}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -923,7 +924,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}, ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, Catalog: ws.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, r ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		result, err := receiptapi.Compile(ctx, r, nil, engine, service, nil, nil)
+		result, err := receiptapi.Compile(ctx, r, nil, engine, store, nil, nil)
 		if err == nil {
 			compiled++
 		}
@@ -941,7 +942,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		}
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	base := "/api/v1/projects/project-a/explorers/route-roundtrip/authoring/v2"
 	type saved struct {
 		Workspace *ws.Workspace `json:"workspace"`
@@ -1108,7 +1109,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}
 	if rowClient != nil {
 
-		fresh, err := explorerarango.New(rowClient)
+		fresh, err := newTestExplorerArangoStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1196,7 +1197,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		ID: owner.ActiveRevisionID, Project: owner.Project, ExplorerID: owner.ExplorerID,
 		SourceGeneration: snapshot.Identity.Generation, AuthoringBundle: previousRaw,
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1210,7 +1211,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		Catalog: ws.CatalogFromCapability,
 	}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	commandBody := fmt.Sprintf(`{"commandId":"restore-draft-3","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":4,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
 		ws.CurrentSemanticsVersion, snapshot.Token, currentDigest, owner.PreviousDraftRevisionID)

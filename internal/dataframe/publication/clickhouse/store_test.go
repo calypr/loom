@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,8 +16,7 @@ import (
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
-	pubpublished "github.com/calypr/loom/internal/dataframe/published"
+	publishedpkg "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataset"
 	datasetstore "github.com/calypr/loom/internal/dataset/arango"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -108,6 +108,25 @@ func (c *uprCatalog) pinAcquireCount() int {
 	return c.pinsAcquired
 }
 
+type tableTracker struct {
+	mu     sync.Mutex
+	tables []string
+}
+
+func (h *tableTracker) trackTable(table string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !slices.Contains(h.tables, table) {
+		h.tables = append(h.tables, table)
+	}
+}
+
+func (h *tableTracker) tablesForCleanup() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.tables)
+}
+
 type uprHarness struct {
 	ctx      context.Context
 	endpoint string
@@ -118,19 +137,7 @@ type uprHarness struct {
 	suffix   string
 	log      *uprLog
 
-	mu            sync.Mutex
-	trackedTables []string
-}
-
-func (h *uprHarness) trackTable(table string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, existing := range h.trackedTables {
-		if existing == table {
-			return
-		}
-	}
-	h.trackedTables = append(h.trackedTables, table)
+	tableTracker
 }
 
 func uprOpen(t *testing.T) *uprHarness {
@@ -185,9 +192,7 @@ func (h *uprHarness) tablePresent(ctx context.Context, table string) bool {
 
 func (h *uprHarness) drainTables(t *testing.T) {
 	t.Helper()
-	h.mu.Lock()
-	tables := append([]string(nil), h.trackedTables...)
-	h.mu.Unlock()
+	tables := h.tablesForCleanup()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	for _, table := range tables {
@@ -276,20 +281,20 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 }
 
 type uprReader interface {
-	CurrentProjectDataset(ctx context.Context, project string, selector dataframepublished.DataframeSelector) (dataframepublished.Materialization, error)
-	CurrentProjectDatasets(ctx context.Context, project string) ([]dataframepublished.Materialization, error)
-	Page(ctx context.Context, materialization dataframepublished.Materialization, req dataframepublished.PageRequest) (dataframepublished.Page, error)
+	CurrentProjectDataset(ctx context.Context, project string, selector dataset.DataframeSelector) (publishedpkg.Materialization, error)
+	CurrentProjectDatasets(ctx context.Context, project string) ([]publishedpkg.Materialization, error)
+	Page(ctx context.Context, materialization publishedpkg.Materialization, req publishedpkg.PageRequest) (publishedpkg.Page, error)
 }
 
-func uprNewReader(h *uprHarness) *dataframepublished.Reader {
-	return &dataframepublished.Reader{
+func uprNewReader(h *uprHarness) *publishedpkg.Reader {
+	return &publishedpkg.Reader{
 		ClickHouse: h.ch,
 		Catalog:    h.registry,
 	}
 }
 
-func uprPageRequest() dataframepublished.PageRequest {
-	return dataframepublished.PageRequest{Unrestricted: true, First: 5}
+func uprPageRequest() publishedpkg.PageRequest {
+	return publishedpkg.PageRequest{Unrestricted: true, First: 5}
 }
 
 func uprErrChain(err error) string {
@@ -303,7 +308,7 @@ func uprErrChain(err error) string {
 	return strings.Join(parts, " <- ")
 }
 
-func uprMaterializationDigest(value dataframepublished.Materialization) string {
+func uprMaterializationDigest(value publishedpkg.Materialization) string {
 	return fmt.Sprintf("{ID=%q Name=%q PhysicalTable=%q State=%q}", value.ID, value.Name, value.PhysicalTable, value.State)
 }
 
@@ -375,7 +380,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		t.Fatalf("E2 GetExecution: %v", err)
 	}
 	e2ID := e2Exec.ID
-	if e2Exec.State.Canonical() != pubpublication.BundlePublished {
+	if !e2Exec.State.Successful() {
 		t.Fatalf("E2 precondition: state %q, want PUBLISHED", e2Exec.State)
 	}
 	if !h.tablePresent(ctx, e2Table) {
@@ -390,10 +395,10 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	}
 	_ = h.registry.ReleaseBundleLease(ctx, e2Key, "upr-precheck")
 
-	selector := dataframepublished.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
+	selector := dataset.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, e2Project, selector)
-	if err != nil || baselineMat.PhysicalTable != e2Table || baselineMat.State != dataframepublished.StateReady {
+	if err != nil || baselineMat.PhysicalTable != e2Table || baselineMat.State != publishedpkg.StateReady {
 		t.Fatalf("E2 resolvability precondition: mat=%s err=%v", uprMaterializationDigest(baselineMat), err)
 	}
 	baselinePage, baseErr := reader.Page(ctx, baselineMat, uprPageRequest())
@@ -442,7 +447,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	var (
 		wg          sync.WaitGroup
 		resolveErr  error
-		resolvedMat dataframepublished.Materialization
+		resolvedMat publishedpkg.Materialization
 		race        pageOutcome
 	)
 	wg.Add(2)
@@ -494,7 +499,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	if !dropDropped {
 		t.Fatalf("INCONCLUSIVE: production Reconcile did not drop the never-pointer-named stale control %q (state=%q marker=%q) — the sweep may have been a no-op, which would make any E2 survival vacuous", dropExec.ID, dropState, dropErrField)
 	}
-	if dropErrField != uprReconcileMark || pubpublication.BundleState(dropState).Canonical() != pubpublication.BundleFailed {
+	if dropErrField != uprReconcileMark || pubpublication.DecodeBundleState(pubpublication.BundleState(dropState)) != pubpublication.BundleFailed {
 		t.Fatalf("INCONCLUSIVE: the stale control %q was not demoted with the reconcile marker (state=%q marker=%q) — the drop path did not run as production", dropExec.ID, dropState, dropErrField)
 	}
 	if !dropClaimed || !strings.HasPrefix(dropOwner, "reconciler-") {
@@ -593,7 +598,7 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	_ = h.registry.ReleaseBundleLease(ctx, key, "owner")
 
 	victimID := mustE2ID(t, h, key)
-	selector := dataframepublished.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
+	selector := dataset.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, proj, selector)
 	if err != nil || baselineMat.PhysicalTable != table {
@@ -609,7 +614,7 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	sweepDone := make(chan struct{})
 	var (
 		wg          sync.WaitGroup
-		resolvedMat dataframepublished.Materialization
+		resolvedMat publishedpkg.Materialization
 		resolveErr  error
 		racePhase   string
 		raceRows    int
@@ -698,7 +703,7 @@ func (h *uprHarness) buildRunningExec(spec uprExecSpec, owner, table string) pub
 		State: pubpublication.BundleRunning,
 		Outputs: []pubpublication.BundleOutputRecord{{
 			Name: spec.output, PhysicalTable: table,
-			Selector: dataframepublished.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
+			Selector: dataset.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
 			RowCount: 3, ByteCount: 300,
 			State:      pubpublication.BundlePublished,
 			VerifiedAt: &verified,
@@ -757,7 +762,7 @@ func mustE2ID(t *testing.T, h *uprHarness, key string) string {
 	return exec.ID
 }
 
-var _ uprReader = (*dataframepublished.Reader)(nil)
+var _ uprReader = (*publishedpkg.Reader)(nil)
 
 const rdlDatabasePrefix = "loom_verify_rdl_"
 
@@ -988,41 +993,23 @@ func rdlSeedPublished(t *testing.T, registry *pubarango.Registry, ctx context.Co
 	return pub
 }
 
-func rdlFlipToRunning(t *testing.T, client *storearango.Client, ctx context.Context, execID string) {
+func rdlSetExecutionState(t *testing.T, client *storearango.Client, ctx context.Context, execID, state string) {
 	t.Helper()
 	patched := false
 	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
 FILTER doc != null
-UPDATE doc WITH {state: "RUNNING", updatedAt: @updatedAt} IN @@collection
+UPDATE doc WITH {state: @state, updatedAt: @updatedAt} IN @@collection
 RETURN {patched: true}`, 32, map[string]interface{}{
 		"@collection": pubarango.BundleExecutionsCollection,
 		"key":         execID,
+		"state":       state,
 		"updatedAt":   time.Now().UTC().Add(-rdlSeedAge),
 	}, func(row map[string]any) error {
 		patched, _ = row["patched"].(bool)
 		return nil
 	})
 	if err != nil || !patched {
-		t.Fatalf("rdl flip %s to RUNNING: patched=%v err=%v", execID, patched, err)
-	}
-}
-
-func rdlRestorePublished(t *testing.T, client *storearango.Client, ctx context.Context, execID string) {
-	t.Helper()
-	patched := false
-	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
-FILTER doc != null
-UPDATE doc WITH {state: "PUBLISHED", updatedAt: @updatedAt} IN @@collection
-RETURN {patched: true}`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection,
-		"key":         execID,
-		"updatedAt":   time.Now().UTC().Add(-rdlSeedAge),
-	}, func(row map[string]any) error {
-		patched, _ = row["patched"].(bool)
-		return nil
-	})
-	if err != nil || !patched {
-		t.Fatalf("rdl restore %s to PUBLISHED: patched=%v err=%v", execID, patched, err)
+		t.Fatalf("rdl set %s to %s: patched=%v err=%v", execID, state, patched, err)
 	}
 }
 
@@ -1137,7 +1124,7 @@ RETURN {active: LENGTH(FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin),
 	return active
 }
 
-func rdlMaterializationDigest(values []pubpublished.Materialization) string {
+func rdlMaterializationDigest(values []publishedpkg.Materialization) string {
 	parts := make([]string, 0, len(values))
 	for _, value := range values {
 		parts = append(parts, fmt.Sprintf("{Name=%q ID=%q PhysicalTable=%q State=%q}", value.Name, value.ID, value.PhysicalTable, value.State))
@@ -1177,7 +1164,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 	}
 	rdlCreateAndActivateRelease(t, ctx, lifecycle, projectActive, genActive, pubActive.ID, selectorActive)
 
-	reader := &pubpublished.Reader{Catalog: registry, ActiveReleaseResolver: lifecycle}
+	reader := &publishedpkg.Reader{Catalog: registry, ActiveReleaseResolver: lifecycle}
 	list, err := reader.CurrentProjectDatasets(ctx, projectActive)
 	if err != nil || len(list) != 1 || list[0].ID != pubActive.ID+":out-a" || list[0].PhysicalTable != specActive.table {
 		t.Fatalf("E1 healthy baseline broken: list=%s err=%v", rdlMaterializationDigest(list), err)
@@ -1205,8 +1192,8 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 		t.Fatalf("ABSENT-GUARD CONTROL baseline broken: un-named active-release-bound exec not listed before fault: list=%s err=%v", rdlMaterializationDigest(shadowBaseline), shadowBaselineErr)
 	}
 
-	rdlFlipToRunning(t, client, ctx, pubActive.ID)
-	rdlFlipToRunning(t, client, ctx, shadow.ID)
+	rdlSetExecutionState(t, client, ctx, pubActive.ID, "RUNNING")
+	rdlSetExecutionState(t, client, ctx, shadow.ID, "RUNNING")
 
 	catalog := newRDLCatalog(registry)
 	ch := newRDLClickHouse()
@@ -1230,7 +1217,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 
 	primaryTableDropped := ch.didDrop(specActive.table)
 	primaryDemotedByReconcile := activeErr == rdlReconcileMarker ||
-		(pubpublication.BundleState(activeState).Canonical() == pubpublication.BundleFailed)
+		(pubpublication.DecodeBundleState(pubpublication.BundleState(activeState)) == pubpublication.BundleFailed)
 
 	if primaryTableDropped || primaryDemotedByReconcile {
 
@@ -1262,7 +1249,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 		t.Fatalf("F-B9 evidence violated: the active-release-bound exec unexpectedly carries pins post-Reconcile: count=%d", pins)
 	}
 
-	rdlRestorePublished(t, client, ctx, pubActive.ID)
+	rdlSetExecutionState(t, client, ctx, pubActive.ID, "PUBLISHED")
 	healedList, healedErr := reader.CurrentProjectDatasets(ctx, projectActive)
 	if healedErr != nil || len(healedList) != 1 || healedList[0].ID != pubActive.ID+":out-a" || healedList[0].PhysicalTable != specActive.table {
 		t.Fatalf("PREVENTED claim broken: after Reconcile (which must have skipped the active exec) and restoring only the harness's RUNNING flag, the release read degraded: list=%s err=%v", rdlMaterializationDigest(healedList), healedErr)
@@ -1274,15 +1261,15 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 	t.Logf("E2 OBSERVED PREVENTED: reconcile enumerated+claimed (owner=%s) and re-read the pointer %q naming %q %d time(s), and its production guard branch skipped cleanup; active=%q post state=%q reconcileErrorField=%q table=%q dropped=%v; CurrentProjectDatasets post-fault =1=%s err=%v; single=%q err=%v",
 		mustOwner(t, catalog, specActive.key), pubActive.PointerName(), pubActive.ID, catalog.pointerReadCount(pubActive.PointerName()), pubActive.ID, activeState, activeErr, specActive.table, ch.didDrop(specActive.table), rdlMaterializationDigest(healedList), healedErr, singleAfter.ID, singleErr)
 
-	if !ch.didDrop(specStale.table) || staleErr != rdlReconcileMarker || pubpublication.BundleState(staleState).Canonical() != pubpublication.BundleFailed {
+	if !ch.didDrop(specStale.table) || staleErr != rdlReconcileMarker || pubpublication.DecodeBundleState(pubpublication.BundleState(staleState)) != pubpublication.BundleFailed {
 		t.Fatalf("LIVE-MACHINERY control broken: reconcile did not reclaim the unpointered/unbound stale control (staleState=%q staleErr=%q dropped=%v) — the sweep was not genuinely live, so the PREVENTED verdict above would be vacuous", staleState, staleErr, dropped)
 	}
 	t.Logf("E3 OBSERVED live machinery: the unpointered stale RUNNING control %s was reclaimed (state=%q marker=%q tableDropped=%v)", stale.ID, staleState, staleErr, ch.didDrop(specStale.table))
 
-	if ch.didDrop(specShadow.table) || shadowErr == rdlReconcileMarker || pubpublication.BundleState(shadowState).Canonical() != pubpublication.BundleRunning {
+	if ch.didDrop(specShadow.table) || shadowErr == rdlReconcileMarker || pubpublication.DecodeBundleState(pubpublication.BundleState(shadowState)) != pubpublication.BundleRunning {
 		t.Errorf("REGRESSION (F-B12): the unpointered ACTIVE-release-bound execution %s was reclaimed by Reconcile (state=%q marker=%q tableDropped=%v) — the post-claim active-release binding veto must deny this drop; the ACTIVE release still binds it (archived FAILED-ON-PURPOSE red: this drop destroyed advertised data and failed CurrentProjectDatasets wholesale)", shadow.ID, shadowState, shadowErr, ch.didDrop(specShadow.table))
 	}
-	rdlRestorePublished(t, client, ctx, shadow.ID)
+	rdlSetExecutionState(t, client, ctx, shadow.ID, "PUBLISHED")
 	shadowAfter, shadowListErr := reader.CurrentProjectDatasets(ctx, projectShadow)
 	if shadowListErr != nil || len(shadowAfter) != 1 || shadowAfter[0].ID != shadow.ID+":out-b" {
 		t.Fatalf("binding-veto claim broken: with the drop denied and only the harness's RUNNING flag undone, the shadow release read is not healthy: list=%s err=[%s]", rdlMaterializationDigest(shadowAfter), rdlErrChain(shadowListErr))
@@ -1457,4 +1444,53 @@ func TestReconcileSkipsPointerNamedExecutionAgainstArango(t *testing.T) {
 	t.Cleanup(func() {
 		_ = registry.ReleaseBundleLease(context.Background(), exec.Key, "reconciler")
 	})
+}
+
+type retryStateCatalog struct {
+	pubpublication.BundleCatalog
+	execution pubpublication.BundleExecution
+	claims    int
+}
+
+func (c *retryStateCatalog) FindExecutionByKey(context.Context, string) (pubpublication.BundleExecution, error) {
+	return c.execution, nil
+}
+
+func (c *retryStateCatalog) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
+	c.claims++
+	return false, nil
+}
+
+func TestBeginBundleClassifiesLegacyRetryState(t *testing.T) {
+	now := time.Now().UTC()
+	active, expired := now.Add(time.Hour), now.Add(-time.Hour)
+	for _, tc := range []struct {
+		name      string
+		state     pubpublication.BundleState
+		expires   *time.Time
+		published bool
+		claims    int
+	}{
+		{name: "already published", state: "READY", published: true},
+		{name: "active running lease", state: "LOADING", expires: &active},
+		{name: "expired running lease", state: "LOADING", expires: &expired, claims: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &retryStateCatalog{execution: pubpublication.BundleExecution{
+				ID: "legacy-execution", State: tc.state, LeaseExpiresAt: tc.expires,
+			}}
+			service := &ClickHouseBundleStore{catalog: catalog, keyLocks: make(map[string]*bundleKeyLock)}
+			tx, err := service.beginBundle(context.Background(), pubpublication.BundleIdentity{Name: "legacy-recipe"})
+			if tc.published {
+				if err != nil || tx == nil || !tx.Idempotent() || tx.execution.ID != catalog.execution.ID {
+					t.Fatalf("begin published execution = (%+v, %v)", tx, err)
+				}
+			} else if !errors.Is(err, ErrBundleInFlight) {
+				t.Fatalf("begin in-flight execution error = %v, want %v", err, ErrBundleInFlight)
+			}
+			if catalog.claims != tc.claims {
+				t.Fatalf("cleanup lease claims = %d, want %d", catalog.claims, tc.claims)
+			}
+		})
+	}
 }

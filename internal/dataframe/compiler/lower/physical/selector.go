@@ -45,24 +45,6 @@ func SelectorExecutionModeForExpression(resourceType string, selector spec.Selec
 	})
 }
 
-func selectorHasNoArrays(sel spec.Selector) bool {
-	for _, step := range sel.Steps {
-		if step.Iterate || step.Index != nil {
-			return false
-		}
-	}
-	return true
-}
-
-func selectorHasIteratedArray(sel spec.Selector) bool {
-	for _, step := range sel.Steps {
-		if step.Iterate {
-			return true
-		}
-	}
-	return false
-}
-
 func selectorExecutionModeWithContext(input selectorModeContext) ir.PhysicalSelectorExecutionMode {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOOM_PHYSICAL_RULE_TYPED_SELECTORS"))) {
 	case "off", "0", "false", "disabled":
@@ -78,10 +60,10 @@ func selectorExecutionModeWithContext(input selectorModeContext) ir.PhysicalSele
 	if !ok {
 		return ir.PhysicalSelectorGeneric
 	}
-	if selectorHasNoArrays(input.Selector) && !metadata.Repeated {
+	if input.Selector.HasNoArrays() && !metadata.Repeated {
 		return ir.PhysicalSelectorDirectScalar
 	}
-	if selectorHasIteratedArray(input.Selector) && metadata.Repeated {
+	if input.Selector.HasIteratedArray() && metadata.Repeated {
 		return ir.PhysicalSelectorConditionalArray
 	}
 	return ir.PhysicalSelectorGeneric

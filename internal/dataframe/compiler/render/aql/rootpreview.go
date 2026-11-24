@@ -254,7 +254,7 @@ func renderSourceGroupPreviewFrontier(
 		fmt.Sprintf("  FOR %s IN %s", badGroup, groupRoots),
 		fmt.Sprintf("  FILTER %s.group_key != null", badGroup),
 		fmt.Sprintf("  FILTER TYPENAME(%s.group_key) != @%s", badGroup, keyTypeBind),
-		fmt.Sprintf("  FILTER LENGTH(("),
+		"  FILTER LENGTH((",
 	)
 	lines = appendIndented(lines, badWitness)
 	lines = append(lines,
@@ -266,7 +266,7 @@ func renderSourceGroupPreviewFrontier(
 		fmt.Sprintf("  FOR %s IN %s", group, groupRoots),
 		fmt.Sprintf("  FILTER ASSERT(LENGTH(%s) == 0, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", badGroups),
 		fmt.Sprintf("  SORT %s.group_key ASC", group),
-		fmt.Sprintf("  FILTER LENGTH(("),
+		"  FILTER LENGTH((",
 	)
 	lines = appendIndented(lines, selectedWitness)
 	lines = append(lines,

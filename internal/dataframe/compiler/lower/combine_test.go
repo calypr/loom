@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -42,7 +43,7 @@ func TestCompileTerminalKeyJoinToTypedClickHousePlan(t *testing.T) {
 	if len(combine.Outputs) != 2 || combine.Outputs[0].ID != "patient" || combine.Outputs[0].ClickHouseType != "String" || combine.Outputs[1].LogicalType != "code" || combine.Outputs[1].ClickHouseType != "Nullable(String)" || !combine.Outputs[1].Nullable {
 		t.Fatalf("typed combine schema = %#v", combine.Outputs)
 	}
-	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"__loom_row_id", "patient_id", "condition_status"}; !equalStringSlices(got, want) {
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"__loom_row_id", "patient_id", "condition_status"}; !slices.Equal(got, want) {
 		t.Fatalf("final combine schema = %#v, want %#v", got, want)
 	}
 	if len(compiled.Stages) != 1 || compiled.Stages[0].Operation != "KEY_JOIN" || compiled.Stages[0].RowIdentityColumn != "__loom_row_id" {

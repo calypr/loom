@@ -16,23 +16,6 @@ type previewMigrationCollection interface {
 	DeleteIndexByID(context.Context, string) error
 }
 
-func migratePreviewSupersededCollection(ctx context.Context, collectionName string, collection previewMigrationCollection, dryRun bool) ([]PreviewSupersededIndex, error) {
-	indexes, err := collection.Indexes(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list indexes in %q: %w", collectionName, err)
-	}
-	_, candidates, _ := auditPreviewIndexCollection(collectionName, indexes)
-	if dryRun {
-		return candidates, nil
-	}
-	for _, candidate := range candidates {
-		if err := migratePreviewSupersededIndex(ctx, collection, candidate); err != nil {
-			return candidates, fmt.Errorf("migrate %s/%s: %w", collectionName, candidate.OldName, err)
-		}
-	}
-	return candidates, nil
-}
-
 func samePreviewIndexesExcept(before, after []driver.IndexResponse, excluded ...string) bool {
 	skip := make(map[string]bool, len(excluded))
 	for _, id := range excluded {

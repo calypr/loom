@@ -2,6 +2,7 @@ package compilerfixtures
 
 import (
 	"context"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -9,6 +10,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
+
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -81,7 +84,7 @@ func ReshapeOracleInteger(value int64) recipe.TableScalar {
 	return recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &value}
 }
 
-func ReshapeOracleOutput(name string, reshape *OracleReshape) recipe.Output {
+func ReshapeOracleOutput(name string, reshape *recipefixtures.OracleReshape) recipe.Output {
 	output := recipe.Output{
 		Name: name, RootResourceType: "Observation", RowGrain: "observation", RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields: []recipe.Field{
@@ -96,13 +99,14 @@ func ReshapeOracleOutput(name string, reshape *OracleReshape) recipe.Output {
 			{Name: "unrelated", Expr: recipe.Expression{Select: "root.issued"}},
 		},
 	}
-	return BindOracleCurrentConstruction(output, reshape)
+	return recipefixtures.BindOracleCurrentConstruction(output, reshape)
 }
 
 func (compile OutputCompiler) CompileReshapeOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, model.CompiledQuery, error) {
 	output = BindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-table-reshape-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	bindings.GroupRowsCollections = explorerdb.GroupRowsCollections()
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err

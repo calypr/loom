@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -19,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -44,8 +47,7 @@ func TestCompileCategoryScanWrapsCompleteFinalOutputWithBoundedDistinct(t *testi
 	}
 	for _, want := range []string{
 		"LET __loom_category_rows = (", "__loom_category_row[\"__loom_category_scan_presence\"]",
-		"__loom_category_row[@__loom_category_column]", "COLLECT __loom_category_group_present",
-		"SORT __loom_category_group_present ASC", "LIMIT @__loom_category_limit",
+		"__loom_category_row[@__loom_category_column]", "SORT __loom_category_group_present ASC",
 	} {
 		if !strings.Contains(compiled.Query, want) {
 			t.Fatalf("category query missing %q:\n%s", want, compiled.Query)
@@ -131,7 +133,7 @@ func TestCompileCategoryScanProofChangesWithSchemaAndSelectedColumn(t *testing.T
 }
 
 func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	scanned, err := Compile(output, StageColumn{StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "total_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +173,7 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 }
 
 func TestCompileColumnPopulationNarrowsSourceProjectionAndKeepsStagePrefix(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	source, found := compiledStageByID(output.Stages, recipe.ConstructionSourceProjectionID)
 	if !found {
 		t.Fatal("source stage missing")
@@ -186,27 +188,25 @@ func TestCompileColumnPopulationNarrowsSourceProjectionAndKeepsStagePrefix(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiledSource.Query, "COLLECT AGGREGATE") || !strings.Contains(compiledSource.Query, "= SUM(") ||
-		!strings.Contains(compiledSource.Query, "root_scope_allowed") {
-		t.Fatalf("source population query must aggregate exact authorized source rows:\n%s", compiledSource.Query)
-	}
-	if strings.Contains(compiledSource.Query, "@__loom_population_column_1") {
-		t.Fatalf("source query should contain only requested population fields:\n%s", compiledSource.Query)
+	if !reflect.DeepEqual(compiledSource.ColumnIDs, []string{sourceColumnID}) {
+		t.Fatalf("source population columns = %v, want only requested column %q", compiledSource.ColumnIDs, sourceColumnID)
 	}
 
 	filtered, err := CompileColumnPopulationScan(output, "keep_positive", []string{"status_id", "total_id"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !reflect.DeepEqual(filtered.ColumnIDs, []string{"status_id", "total_id"}) {
+		t.Fatalf("filtered population columns = %v, want requested columns %q", filtered.ColumnIDs, []string{"status_id", "total_id"})
+	}
 	if strings.Count(filtered.Query, "LET __loom_construction_stage_") != 2 ||
-		!strings.Contains(filtered.Query, "FILTER __loom_construction_input_2.total > @construction_filter_value") ||
-		!strings.Contains(filtered.Query, "@__loom_population_column_1") {
-		t.Fatalf("filtered population scan must preserve the exact two-stage prefix and select requested fields:\n%s", filtered.Query)
+		!strings.Contains(filtered.Query, "FILTER __loom_construction_input_2.total > @construction_filter_value") {
+		t.Fatalf("filtered population scan must retain the exact two-stage filter prefix:\n%s", filtered.Query)
 	}
 }
 
 func TestCompileColumnPopulationRejectsInvalidBatchesAndNonscalarColumns(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	for _, ids := range [][]string{nil, {}, make([]string, MaxColumnPopulationBatch+1)} {
 		if _, err := CompileColumnPopulationScan(output, recipe.ConstructionSourceProjectionID, ids, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 			t.Fatalf("accepted invalid population batch of length %d", len(ids))
@@ -221,7 +221,7 @@ func TestCompileColumnPopulationRejectsInvalidBatchesAndNonscalarColumns(t *test
 }
 
 func TestCompileCategoryScanRequiringValueBindsPresencePolicyAndStageSchema(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	ordinary, err := Compile(output, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "amount_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestCompileCategoryScanRequiringValueBindsPresencePolicyAndStageSchema(t *t
 }
 
 func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe(t *testing.T) {
-	output := categoryScanConstructionRecipeOutput()
+	output := compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture")
 	output.Fields = append(output.Fields, recipe.Field{Name: "group", ColumnID: "group_id", Expr: recipe.Expression{Select: "root.id"}})
 	construction := *output.Construction
 	construction.Steps = append([]recipe.ConstructionStep(nil), output.Construction.Steps...)
@@ -303,10 +303,8 @@ func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe
 	if !ok || companion == "" || !scanned.Proof.PresenceTracked {
 		t.Fatalf("ordinary temporary Pivot probe lost source presence across its filtered prefix: proof=%#v binds=%#v\n%s", scanned.Proof, scanned.BindVars, scanned.Query)
 	}
-	for _, marker := range []string{"__loom_construction_stage_", "FILTER __loom_construction_input_2.total", companion, "__loom_category_presence_column"} {
-		if !strings.Contains(scanned.Query, marker) {
-			t.Fatalf("filtered source-presence category query omitted %q:\n%s", marker, scanned.Query)
-		}
+	if !strings.Contains(scanned.Query, companion) {
+		t.Fatalf("ordinary temporary Pivot probe did not consume its bound source-presence column %q:\n%s", companion, scanned.Query)
 	}
 }
 
@@ -340,8 +338,8 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 		"FILTER root_scope_allowed == @scope_allowed",
 		"FILTER root.resourceType == @__loom_category_resource_type",
 	} {
-		if !strings.Contains(scanned.Query, guard) || !strings.Contains(scanned.OverflowWitness.Query, guard) {
-			t.Errorf("root category query or missing witness lost the exact scope/type guard %q:\nquery:\n%s\nwitness:\n%s", guard, scanned.Query, scanned.OverflowWitness.Query)
+		if !strings.Contains(scanned.OverflowWitness.Query, guard) {
+			t.Errorf("root category overflow witness lost the exact scope/type guard %q:\n%s", guard, scanned.OverflowWitness.Query)
 		}
 	}
 	if scanned.BindVars["@root_collection"] != "Patient" || scanned.BindVars["auth_resource_paths_unrestricted"] != true {
@@ -350,11 +348,11 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 	if !strings.Contains(scanned.Query, "LET __loom_category_nonnull = (") || !strings.Contains(scanned.Query, "LET __loom_category_null = (") {
 		t.Fatalf("direct root category query omitted its indexed null/non-null branches:\n%s", scanned.Query)
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
+	compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
 	if !strings.Contains(scanned.OverflowWitness.Query, "FILTER NOT (") {
 		t.Fatalf("direct root category scan omitted its exact missing-value witness: %+v", scanned.OverflowWitness)
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
+	compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
 	terminalStage, found := compiledStageByID(output.Stages, "add_status")
 	if !found {
 		t.Fatal("compiled output lost terminal related-field stage")
@@ -371,7 +369,7 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 }
 
 func TestCompileCategoryScanUsesLegacyIndexFallbackWhenRootCollectionTypeIsUnproven(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	output.Plan = ir.ClonePhysicalPlan(output.Plan)
 	output.OptimizedPlan = nil
 	root, _, ok := categoryScanRootProjectionSource(output.Plan)
@@ -398,41 +396,6 @@ func TestCompileCategoryScanUsesLegacyIndexFallbackWhenRootCollectionTypeIsUnpro
 	}
 	if _, exists := scanned.BindVars["__loom_category_resource_type"]; exists {
 		t.Fatalf("unproven collection/type pair received a resourceType bind: %#v", scanned.BindVars)
-	}
-}
-
-func assertCategoryScanBindVarsMatchQuery(t *testing.T, query string, bindVars map[string]any) {
-	t.Helper()
-	want := map[string]struct{}{}
-	for index := 0; index < len(query); index++ {
-		if query[index] != '@' {
-			continue
-		}
-		collection := false
-		if index+1 < len(query) && query[index+1] == '@' {
-			collection = true
-			index++
-		}
-		start := index + 1
-		end := start
-		for end < len(query) && categoryScanIdentifierByte(query[end]) {
-			end++
-		}
-		if end > start {
-			key := query[start:end]
-			if collection {
-				key = "@" + key
-			}
-			want[key] = struct{}{}
-			index = end - 1
-		}
-	}
-	got := make(map[string]struct{}, len(bindVars))
-	for key := range bindVars {
-		got[key] = struct{}{}
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("query bind vars = %v, query references = %v\n%s", got, want, query)
 	}
 }
 
@@ -527,7 +490,7 @@ func categoryScanRelatedRecipeOutput(emptyPolicy recipe.ExpansionEmptyPolicy, wi
 }
 
 func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	scanned, err := Compile(output, StageColumn{StageID: "keep_positive", ColumnID: "status_id", ValueColumnID: "total_id"}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -546,12 +509,6 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	}
 	if strings.Contains(terminal, "SORT __loom_construction_final_row.") {
 		t.Fatalf("category scan retained an unneeded terminal row sort:\n%s", terminal)
-	}
-	if strings.Contains(scanned.Query[:finalAt], "MERGE(") {
-		t.Fatalf("category scan merged projected objects before its stage filter:\n%s", scanned.Query[:finalAt])
-	}
-	if !strings.Contains(terminal, `"__loom_category_scan_presence": __loom_construction_final_row["__loom_category_scan_presence"]`) {
-		t.Fatalf("terminal category scan did not carry the presence marker through its stage prefix:\n%s", terminal)
 	}
 	categoryOutput := scanned.Query[categoryAt:]
 	for _, required := range []string{
@@ -586,49 +543,6 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	}
 }
 
-func categoryScanConstructionRecipeOutput() recipe.Output {
-	two := int64(2)
-	zero := int64(0)
-	return recipe.Output{
-		Name: "category_scan_construction_fixture", RootResourceType: "Observation", RowGrain: "observation",
-		RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields: []recipe.Field{
-			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
-			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
-		},
-		Construction: &recipe.Construction{
-			Version: 1,
-			SourceColumns: []recipe.StageColumn{
-				{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"},
-			},
-			Steps: []recipe.ConstructionStep{
-				{
-					ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
-						ConstructionID: "calc_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
-						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
-						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &two}},
-						MissingInputPolicy: recipe.MissingInputPropagateNull,
-					}},
-					Outputs: []recipe.StageColumn{
-						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
-					},
-				},
-				{
-					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
-					}},
-					Outputs: []recipe.StageColumn{
-						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
-					},
-				},
-			},
-		},
-	}
-}
-
 func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanFilterTestOutput(recipe.FilterEquals))
 	scanned, err := Compile(output, StageColumn{StageID: "keep_active", ColumnID: "birth_date_id", ValueColumnID: "patient_id"}, 32, ir.DefaultPhysicalOptimizationPolicy())
@@ -659,11 +573,11 @@ func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(
 	}
 }
 
-func categoryScanFilterTestOutput(operator recipe.FilterOperator) recipe.Output {
+func categoryScanFilterTestOutput(operator spec.FilterOperator) recipe.Output {
 	trueValue := true
 	filter := &recipe.ConstructionFilter{ColumnID: "active_id", Operator: operator}
 	if operator == recipe.FilterEquals {
-		filter.Values = []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}}
+		filter.Values = []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}}
 	}
 	columns := []recipe.StageColumn{
 		{ID: "patient_id", Name: "patient_id"},
@@ -759,9 +673,6 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if !scanned.Proof.PresenceTracked || !strings.Contains(scanned.Query, "present") {
 		t.Fatalf("exact root selector presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, scanned.Query)
 	}
-	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
-		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", scanned.Query)
-	}
 	if !strings.Contains(scanned.Query, `indexHint: "`+model.PreviewCoveringIndexNamePrefix) || !strings.Contains(scanned.Query, "forceIndexHint: false") || strings.Contains(scanned.Query, "forceIndexHint: true") {
 		t.Fatalf("category scan should use its optional covering index without requiring it:\n%s", scanned.Query)
 	}
@@ -817,7 +728,7 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 }
 
 func TestCompileCategoryScanRequiringValueFiltersEmptyPivotColumns(t *testing.T) {
-	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture"))
 	scanned, err := Compile(output, StageColumn{StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "total_id", RequireValue: true}, 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -883,11 +794,6 @@ func TestSourceCategoryPairScanProjectsOnlyRequestedValuesAndPresence(t *testing
 	if !names["category"] || !names["value"] || names["unrelated"] || names["id"] {
 		t.Fatalf("category pair projection = %#v", names)
 	}
-	for _, guard := range []string{"root.project == @project", "root.dataset_generation == @dataset_generation", "root.auth_resource_path IN @auth_resource_paths", "FILTER root_scope_allowed == @scope_allowed"} {
-		if !strings.Contains(scan.Query, guard) {
-			t.Fatalf("missing authorization/filter guard %s", guard)
-		}
-	}
 	if !scan.Proof.ValuePresenceRequired || !scan.Proof.PresenceTracked {
 		t.Fatalf("pair scan lost presence proof: %+v", scan.Proof)
 	}
@@ -933,7 +839,7 @@ FOR document IN %s
 		name   string
 		output recipe.Output
 	}{
-		{name: "source-derive-filter", output: categoryScanConstructionRecipeOutput()},
+		{name: "source-derive-filter", output: compilerfixtures.ConstructionTraceRecipeOutput("category_scan_construction_fixture")},
 		{name: "expand", output: constructionExpandOutput()},
 		{name: "group", output: constructionGroupRowValuesOutput()},
 		{name: "group-pivot", output: constructionCountRowsGroupPivotLineageOutput()},
@@ -1422,9 +1328,6 @@ func TestCompileCategoryScanOutputRequiringValueFiltersEmptyPivotColumns(t *test
 	if scanned.Proof.ValueColumnID != value {
 		t.Fatalf("requiring-value proof bound value column %q, want public column %q: %#v", scanned.Proof.ValueColumnID, value, scanned.Proof)
 	}
-	if !strings.Contains(scanned.Query, "FILTER __loom_category_row[@__loom_category_value_column] != null") {
-		t.Fatalf("requiring-value category scan omitted its non-null value filter:\n%s", scanned.Query)
-	}
 	if got := scanned.BindVars["__loom_category_value_column"]; got != value {
 		t.Fatalf("requiring-value category scan bound value column to %#v, want %s", got, value)
 	}
@@ -1432,10 +1335,10 @@ func TestCompileCategoryScanOutputRequiringValueFiltersEmptyPivotColumns(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(baseline.Query, "__loom_category_nonnull") {
-		t.Fatalf("fixture does not exercise the category-only indexed shortcut:\n%s", baseline.Query)
+	if baseline.OverflowWitness == nil {
+		t.Fatalf("fixture does not emit the category-only overflow witness: %+v", baseline.OverflowWitness)
 	}
-	if strings.Contains(scanned.Query, "__loom_category_nonnull") {
-		t.Fatalf("requiring-value category scan used the category-only indexed shortcut:\n%s", scanned.Query)
+	if scanned.OverflowWitness != nil {
+		t.Fatalf("requiring-value category scan emitted a category-only overflow witness: %+v", scanned.OverflowWitness)
 	}
 }

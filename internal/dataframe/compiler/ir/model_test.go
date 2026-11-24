@@ -5,6 +5,45 @@ import (
 	"testing"
 )
 
+func TestPhysicalTraversalDirectionTargetTypeField(t *testing.T) {
+	for _, test := range []struct {
+		direction PhysicalTraversalDirection
+		want      string
+	}{
+		{direction: PhysicalInbound, want: "from_type"},
+		{direction: PhysicalOutbound, want: "to_type"},
+		{direction: PhysicalAny, want: "to_type"},
+		{direction: "UNKNOWN", want: "to_type"},
+	} {
+		if got := test.direction.TargetTypeField(); got != test.want {
+			t.Errorf("TargetTypeField(%q) = %q, want %q", test.direction, got, test.want)
+		}
+	}
+}
+
+func TestFindStageColumnByIDKeepsFirstMatch(t *testing.T) {
+	columns := []PhysicalStageColumn{
+		{ID: "column", Name: "first"},
+		{ID: "column", Name: "second"},
+	}
+	if got, found := FindStageColumnByID(columns, "column"); !found || got.Name != "first" {
+		t.Fatalf("FindStageColumnByID duplicate = (%+v, %v), want first match", got, found)
+	}
+	if _, found := FindStageColumnByID(columns, "missing"); found {
+		t.Fatal("FindStageColumnByID found a missing ID")
+	}
+}
+
+func TestFindStageProjectionByNameKeepsFirstMatch(t *testing.T) {
+	projections := []PhysicalProjection{{Name: "column", Value: PhysicalValue{Variable: "first"}}, {Name: "column", Value: PhysicalValue{Variable: "second"}}}
+	if got, found := FindStageProjectionByName(projections, "column"); !found || got.Value.Variable != "first" {
+		t.Fatalf("FindStageProjectionByName duplicate = (%+v, %v), want first match", got, found)
+	}
+	if _, found := FindStageProjectionByName(projections, "missing"); found {
+		t.Fatal("FindStageProjectionByName found a missing name")
+	}
+}
+
 func rootPageCandidateSeedPlan() PhysicalPlan {
 	binds := map[string]any{
 		"root_collection":                  "Patient",

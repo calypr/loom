@@ -3,6 +3,8 @@ package compilerfixtures
 import (
 	"math"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -58,7 +60,7 @@ func ConstructionOracleOutput() recipe.Output {
 					ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "total_id", Operator: recipe.FilterGreaterEq,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &minimumTotal}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &minimumTotal}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "group_text_id", Name: "group_text"}, {ID: "group_number_id", Name: "group_number"},

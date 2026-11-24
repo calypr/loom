@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -105,7 +108,7 @@ func TestComposeClickHouseCombineRejectsGroupPrefix(t *testing.T) {
 
 func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.T) {
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
 		IncludeAuthResourcePath: true, SelectionMembersCollection: "loom_explorer_selection_members",
 	}
@@ -119,7 +122,7 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 				ID: "source_filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient_id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &value}},
 				}},
 				Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id", Type: "string"}},
 			}},
@@ -170,7 +173,7 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 
 func TestCohortRootCandidateScanKeepsFullInputAfterAggregatePrefix(t *testing.T) {
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: "loom_explorer_selection_members",
 	}
 	output := recipe.Output{
@@ -265,7 +268,7 @@ func TestComposedCohortGroupRowsNamespacePerMemberRecodeBinds(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: "loom_explorer_selection_members",
 	}
 	compiled := compileCompositePrefixTestOutput(t, output, bindings)
@@ -391,7 +394,7 @@ func compositeAppendTestPlan(stageID string) ir.PhysicalClickHouseCombine {
 
 func TestWorkspaceCombineScopeEvidenceComposesExactOutputAndPublishedOperands(t *testing.T) {
 	source := compileWholeRelationTestOutput(t, wholeRelationGroupOutput(), recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	})
 	if source.ScopeEvidence == nil || source.ScopeEvidenceIdentity == nil {
 		t.Fatal("source output has no compiler-issued scope evidence")

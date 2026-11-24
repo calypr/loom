@@ -159,7 +159,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 		},
 		CandidateConstruction: document.Construction,
 	}
-	response, err := service.DiscoverConstructionCategories(context.Background(), request)
+	response, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}

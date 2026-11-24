@@ -14,13 +14,13 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 type evidenceClient struct {
 	queries          []string
 	vars             []map[string]any
 	rows             map[string][]map[string]any
-	rowsByCollection map[string][]map[string]any
 	collections      map[string]bool
 	collectionChecks []string
 	collectionErr    error
@@ -105,7 +105,7 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 	build.State = semantic.Complete
 	build.SourceAvailability = semantic.SourceAvailabilityUnproven
 	build.EntryIndexVersion = semantic.EntryIndexVersion
-	buildRow := semanticInventoryTestRow(t, build)
+	buildRow := testkit.JSONMap(t, build)
 	observation := semantic.Observation{
 		SchemaVersion: semantic.ObservationSchemaVersion,
 		Source:        semantic.Source{Type: "Observation", Path: "code"},
@@ -121,7 +121,7 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 		RuleHint:     "OBSERVATION_CODE_VALUE",
 		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
 	}
-	entryRow := semanticInventoryTestRow(t, semantic.Entry{ConceptID: "concept-a", BindingID: "binding-a", Observation: observation})
+	entryRow := testkit.JSONMap(t, semantic.Entry{ConceptID: "concept-a", BindingID: "binding-a", Observation: observation})
 	client := &evidenceClient{
 		rows: map[string][]map[string]any{
 			semanticInventoryBuildByKeyAQL:               {buildRow},
@@ -208,9 +208,9 @@ func TestResolveSemanticInventorySelectionsFallsBackForLegacyBuild(t *testing.T)
 	build := semantic.NewBuild("project", "generation", "")
 	build.State = semantic.Complete
 	build.SourceAvailability = semantic.SourceAvailabilityVerified
-	buildRow := semanticInventoryTestRow(t, build)
+	buildRow := testkit.JSONMap(t, build)
 	entry := semantic.Entry{ConceptID: "concept-a", BindingID: "binding-a", Observation: semantic.Observation{SchemaVersion: semantic.ObservationSchemaVersion}}
-	entryRow := semanticInventoryTestRow(t, entry)
+	entryRow := testkit.JSONMap(t, entry)
 	client := &evidenceClient{
 		rows: map[string][]map[string]any{
 			semanticInventoryBuildByKeyAQL:        {buildRow},
@@ -232,19 +232,6 @@ func TestResolveSemanticInventorySelectionsFallsBackForLegacyBuild(t *testing.T)
 	if len(client.queries) != 2 || client.queries[1] != semanticInventoryResolveSelectionsAQL {
 		t.Fatalf("legacy selection queries = %v, want contribution fallback", client.queries)
 	}
-}
-
-func semanticInventoryTestRow(t *testing.T, value any) map[string]any {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var row map[string]any
-	if err := json.Unmarshal(encoded, &row); err != nil {
-		t.Fatal(err)
-	}
-	return row
 }
 
 func TestReadMissingRetainedSourceCollectionDoesNotQueryOrCreateIt(t *testing.T) {
@@ -457,14 +444,14 @@ func TestPageSemanticInventoryDoesNotAdvertiseOlderCompletedBuild(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			builds := []map[string]any{semanticInventoryTestRow(t, olderBuild)}
+			builds := []map[string]any{testkit.JSONMap(t, olderBuild)}
 			if test.current != nil {
-				builds = append(builds, semanticInventoryTestRow(t, *test.current))
+				builds = append(builds, testkit.JSONMap(t, *test.current))
 			}
 			client := &evidenceClient{
 				rows: map[string][]map[string]any{
 					semanticInventoryBuildsAQL: builds,
-					semanticInventoryPageAQL:   []map[string]any{semanticInventoryTestRow(t, staleEntry)},
+					semanticInventoryPageAQL:   []map[string]any{testkit.JSONMap(t, staleEntry)},
 				},
 				collections: map[string]bool{
 					semantic.BuildCollection: true,

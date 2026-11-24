@@ -23,7 +23,7 @@ func validPhysicalPlan() ir.PhysicalPlan {
 	}
 }
 
-func TestPhysicalPlanValidateGenericOperationGraph(t *testing.T) {
+func TestPhysicalPlanValidateChecksGraphAndOrdering(t *testing.T) {
 	plan := validPhysicalPlan()
 	if err := plan.Validate(); err != nil {
 		t.Fatal(err)
@@ -31,9 +31,7 @@ func TestPhysicalPlanValidateGenericOperationGraph(t *testing.T) {
 	if plan.Operations[1].Source.SemanticField != "project" || plan.Operations[2].Source.Relationship != "subject_Patient" {
 		t.Fatalf("semantic provenance was not retained: %#v", plan.Operations)
 	}
-}
 
-func TestPhysicalPlanValidateRejectsOutOfScopeAndOrdering(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*ir.PhysicalPlan)

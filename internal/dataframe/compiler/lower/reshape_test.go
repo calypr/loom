@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,8 +33,8 @@ func TestLowerSemanticGroupRejectsExpandedRootRows(t *testing.T) {
 	lowerer := constructionLowerer{plan: plan, policy: ir.DefaultPhysicalOptimizationPolicy(), usedVariables: map[string]bool{}}
 	_, _, _, err := lowerer.lowerConstructionGroup(
 		group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
-		"_key", recipe.ConstructionSourceProjectionID, "Observation",
-		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, 0, nil,
+		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, nil,
+		constructionLoweringContext{inputIdentity: "_key", inputStageID: recipe.ConstructionSourceProjectionID, rootResourceType: "Observation"},
 	)
 	if err == nil || !strings.Contains(err.Error(), "UNNEST") {
 		t.Fatalf("lower semantic Group with expanded roots error = %v, want source-grain rejection for UNNEST", err)
@@ -92,7 +93,7 @@ func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 	if sequence.Stages[0].Expand.EmptyPolicy != ir.PhysicalUnnestPreserveParent || sequence.Stages[0].Expand.OrdinalColumn != "ordinal" {
 		t.Fatalf("expand contract = %#v, want preserve-parent with public ordinal", sequence.Stages[0].Expand)
 	}
-	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"tag", "rows", "status_count", "status_distinct", "__loom_row_id"}; !equalStringSlices(got, want) {
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"tag", "rows", "status_count", "status_distinct", "__loom_row_id"}; !slices.Equal(got, want) {
 		t.Fatalf("final schema = %#v, want %#v", got, want)
 	}
 	if compiled.OutputSchema[1].Kind != string(expression.KindInteger) || compiled.OutputSchema[2].Kind != string(expression.KindInteger) || compiled.OutputSchema[3].Kind != string(expression.KindInteger) {
@@ -398,7 +399,7 @@ func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) 
 	if stage.Group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup {
 		t.Fatalf("zero-key summary missing-key policy = %q, want GROUP", stage.Group.MissingKeyPolicy)
 	}
-	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"rows", "status_count", "status_distinct", "amount_sum", "amount_mean", "__loom_row_id"}; !equalStringSlices(got, want) {
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"rows", "status_count", "status_distinct", "amount_sum", "amount_mean", "__loom_row_id"}; !slices.Equal(got, want) {
 		t.Fatalf("summary schema = %#v, want %#v", got, want)
 	}
 	if compiled.OutputSchema[3].Kind != string(expression.KindDecimal) && compiled.OutputSchema[3].Kind != string(expression.KindInteger) {
@@ -695,11 +696,11 @@ func TestOrdinaryGroupCannotReuseCodingIdentityDisplayAsScalarKey(t *testing.T) 
 				ID: "coding_label", Name: "coding_label", Kind: "string", Cardinality: "required_one",
 				SemanticValueKind: CompiledSemanticValueCodingIdentityDisplay,
 			},
-		}, "row", "group_codings", "Observation",
+		},
 		map[string]recipe.StageColumn{
 			"label_key": {ID: "label_key", Name: "label_key", Type: "string"},
 			"rows":      {ID: "rows", Name: "rows", Type: "integer"},
-		}, 1, nil,
+		}, nil, constructionLoweringContext{inputIdentity: "row", inputStageID: "group_codings", rootResourceType: "Observation", stepIndex: 1},
 	)
 	if err == nil || !strings.Contains(err.Error(), "CODING_IDENTITY display label") {
 		t.Fatalf("ordinary Group accepted Coding identity display as scalar key: %v", err)

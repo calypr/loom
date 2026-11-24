@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	compilerIR "github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -50,7 +52,7 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bindings := recipe.RuntimeBindings{Project: "group-preview-project", SelectionProject: "group-preview-project", DatasetGeneration: "group-preview-generation"}
+	bindings := recipe.RuntimeBindings{Project: "group-preview-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "group-preview-project", DatasetGeneration: "group-preview-generation"}
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit_group_scope", TranslationVersion: "test",
 		Outputs: []recipe.Output{{
@@ -92,7 +94,7 @@ func TestCompiledArtifactScopeAcceptsAuthorizedProjectAliasesAndRejectsScopeDrif
 		t.Fatal(err)
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "loom_dev_verify_example-project-1", SelectionProject: "loom_dev_verify_example/project-1",
+		Project: "loom_dev_verify_example-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "loom_dev_verify_example/project-1",
 		DatasetGeneration: "generation-1", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	bundles := []recipe.Bundle{
@@ -223,7 +225,7 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 				t.Fatal(err)
 			}
 			bindings := recipe.RuntimeBindings{
-				Project: "cohort-preview-project", SelectionProject: "cohort-preview-project",
+				Project: "cohort-preview-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "cohort-preview-project",
 				DatasetGeneration: "cohort-preview-generation", PreviewLimit: 25, IncludeSourceIdentity: true,
 			}
 			resolved, err := engine.CompileResolvedBundle(context.Background(), testCohortCompositionBundle(), bindings)
@@ -273,7 +275,7 @@ func testCohortCompositionBundle() recipe.Bundle {
 					ID: "keep_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "patient_id", Operator: recipe.FilterEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &value}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "id", Type: "string"}},
 				}},
@@ -1379,7 +1381,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 				ID: "keep_all_members", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "gender", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &keepGender}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &keepGender}},
 				}},
 				Outputs: []recipe.StageColumn{
 					{ID: "ids", Name: "ids", Type: "string"}, {ID: "gender", Name: "gender", Type: "string"},
@@ -1417,7 +1419,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 		t.Fatal(err)
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeSourceIdentity: true, PreviewLimit: 25,
 	}
 	resolved, err := engine.CompileResolvedBundle(ctx, bundle, bindings)
@@ -1429,7 +1431,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 	}
 	foundCohortStage := false
 	for _, stage := range resolved.Compiled.Outputs[0].Plan.StageSequence.Stages {
-		foundCohortStage = foundCohortStage || stage.Kind == compilerIR.PhysicalStageCohortGroupOp
+		foundCohortStage = foundCohortStage || stage.Kind == ir.PhysicalStageCohortGroupOp
 	}
 	if !foundCohortStage {
 		t.Fatal("composition did not insert its typed COHORT_GROUP stage")

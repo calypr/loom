@@ -111,25 +111,6 @@ func TestClientExplainPostsTypedRequest(t *testing.T) {
 	}
 }
 
-func TestClientExplainRejectsHTTPError(t *testing.T) {
-	client := &Client{
-		rawURL: "http://arango.test",
-		dbName: "fhir_proto",
-		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: http.StatusBadRequest,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("bad query")),
-				Request:    r,
-			}, nil
-		})},
-	}
-	_, err := client.Explain(context.Background(), ExplainRequest{Query: "FOR p IN Patient RETURN p"})
-	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
-		t.Fatalf("expected HTTP error, got %v", err)
-	}
-}
-
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

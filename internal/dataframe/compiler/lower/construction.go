@@ -167,7 +167,7 @@ func appendGroupSourceProjectionColumns(schema []CompiledOutputColumn, additiona
 		if column.RelatedRecordAnchor != nil {
 			compiled.RelatedRecordAnchor = &CompiledRelatedRecordAnchor{TargetNodeID: column.RelatedRecordAnchor.NodeID, TargetResourceType: column.RelatedRecordAnchor.ResourceType}
 		}
-		compiled.NormalizedUnit = cloneUnitIdentity(column.NormalizedUnit)
+		compiled.NormalizedUnit = ir.CloneUnitIdentity(column.NormalizedUnit)
 		result = append(result, compiled)
 		seen[column.Name] = true
 	}
@@ -306,11 +306,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
 	}
 	presenceCategoryIDs := constructionPivotCategoryColumnIDs(construction)
-	var err error
-	sourceSchema, err = attachConstructionSourcePresenceCompanions(plan, sourceSchema, presenceCategoryIDs)
-	if err != nil {
-		return nil, nil, "", err
-	}
+	sourceSchema = attachConstructionSourcePresenceCompanions(plan, sourceSchema, presenceCategoryIDs)
 	resolvedSource, err := resolveConstructionSourceSchema(plan, construction.SourceColumns, sourceSchema, outputName)
 	if err != nil {
 		return nil, nil, "", err

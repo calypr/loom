@@ -20,6 +20,7 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/ingest/identity"
 	"github.com/calypr/loom/internal/ingest/row"
 	"github.com/calypr/loom/internal/semantic"
@@ -51,22 +52,10 @@ func TestRepositorySourceLoaderArangoResumeCopyAndEmptyReplacement(t *testing.T)
 	const repository = "https://github.com/example/clinical-data"
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets,
+		Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client),
 		BatchSize: 2, WriteAPI: "import",
-		MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, gitCommit string, expectedRevision int64) (string, int64, error) {
-			release := publication.ProjectRelease{
-				ID: "source-load-test-" + operationID, Project: project, GitCommit: gitCommit,
-				Generation: generation, CreatedAt: time.Now().UTC(),
-			}
-			saved, err := datasets.SaveRelease(ctx, release)
-			if err != nil {
-				return "", 0, err
-			}
-			active, err := datasets.CompareAndSwapActivateRelease(ctx, saved, expectedRevision)
-			if err != nil {
-				return "", 0, err
-			}
-			return "test-execution-" + operationID, active.Revision, nil
+		MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
+			return activateSourceLoadForTest(ctx, client, datasets, attempt, "test-execution-"+attempt.OperationID)
 		},
 	})
 	if err != nil {
@@ -136,6 +125,8 @@ RETURN {document: doc}`
 			t.Fatalf("initial edge owner = %q, want Patient", edge.SourceFile)
 		}
 	}
+
+	assertFullAndPerFileStagingAgree(t, ctx, endpoint, database, client, datasets, project, initialActive.Release.Generation, patientPath, organizationPath)
 
 	badRows := strings.Repeat(`{"resourceType":"Organization"}`+"\n", 105)
 	badPath := writeSourceLoadTempFile(t, badRows)
@@ -277,6 +268,75 @@ RETURN {document: doc}`
 	}
 }
 
+func assertFullAndPerFileStagingAgree(t *testing.T, ctx context.Context, endpoint, database string, client *arangostore.Client, datasets *datasetarango.Store, project, perFileGeneration, patientPath, organizationPath string) {
+	t.Helper()
+	meta := t.TempDir()
+	for name, src := range map[string]string{"Patient.ndjson": patientPath, "Organization.ndjson": organizationPath} {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(meta, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref, err := publication.NewRef(project, "whole-generation-control")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = generation.Load(ctx, generation.LoadOptions{
+		ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+		Dataset:           &ref, StageOnly: true, MetaDir: meta, Project: project,
+		AuthResourcePath: "/programs/example/projects/source-load-e2e",
+		FileConcurrency:  1, WorkerCount: 1, WriterCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("stage whole generation: %v", err)
+	}
+	fullManifest, err := datasets.ReadManifest(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileManifest, err := datasets.ReadManifest(ctx, publication.Ref{Project: project, Generation: perFileGeneration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullManifest.Dataset = fileManifest.Dataset
+	if !fullManifest.IsStaged() || !reflect.DeepEqual(fullManifest, fileManifest) {
+		t.Fatalf("whole and per-file staged manifests differ: whole=%+v per-file=%+v", fullManifest, fileManifest)
+	}
+	for _, resource := range []string{"Patient", "Organization"} {
+		full := sourceLoadVertexCount(t, ctx, client, project, ref.Generation, resource)
+		perFile := sourceLoadVertexCount(t, ctx, client, project, perFileGeneration, resource)
+		if full != perFile {
+			t.Fatalf("%s row count differs: whole=%d per-file=%d", resource, full, perFile)
+		}
+	}
+	if full, perFile := len(sourceLoadEdges(t, ctx, client, project, ref.Generation)), len(sourceLoadEdges(t, ctx, client, project, perFileGeneration)); full != perFile {
+		t.Fatalf("edge count differs: whole=%d per-file=%d", full, perFile)
+	}
+	inventory, err := semanticarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrestricted := true
+	page := func(generation string) []semantic.Entry {
+		t.Helper()
+		got, err := inventory.PageSemanticInventory(ctx, semantic.PageOptions{
+			Project: project, DatasetGeneration: generation, ResourceType: "Patient",
+			AuthResourcePathsUnrestricted: &unrestricted,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Entries
+	}
+	full, perFile := page(ref.Generation), page(perFileGeneration)
+	if len(full) != 2 || !reflect.DeepEqual(full, perFile) {
+		t.Fatalf("semantic inventory differs: whole=%+v per-file=%+v", full, perFile)
+	}
+}
+
 func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *arangostore.Client, project, source, target string) {
 	t.Helper()
 	store, err := semanticarango.New(client)
@@ -405,7 +465,7 @@ COLLECT WITH COUNT INTO count
 RETURN {count}`, 1, map[string]any{
 		"@collection": resourceType, "project": project, "generation": generation,
 	}, func(row map[string]any) error {
-		count = sourceLoadNumber(row["count"])
+		count = numericInt64(row["count"])
 		return nil
 	})
 	if err != nil {
@@ -449,13 +509,13 @@ func TestSourceFileLostReceiptAcknowledgementPreservesAcceptedRows(t *testing.T)
 		upstream.Header = r.Header.Clone()
 		response, err := http.DefaultClient.Do(upstream)
 		if err != nil {
-			http.Error(w, "test proxy backend failed", 502)
+			http.Error(w, "test proxy backend failed", http.StatusBadGateway)
 			return
 		}
 		defer response.Body.Close()
 		responseBody, err := io.ReadAll(response.Body)
 		if err != nil {
-			http.Error(w, "test proxy backend response failed", 502)
+			http.Error(w, "test proxy backend response failed", http.StatusBadGateway)
 			return
 		}
 		if response.StatusCode < 300 && bytes.Contains(body, []byte("file_claims: UNSET")) && dropped.CompareAndSwap(false, true) {
@@ -487,9 +547,9 @@ func TestSourceFileLostReceiptAcknowledgementPreservesAcceptedRows(t *testing.T)
 		t.Fatal(err)
 	}
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets, BatchSize: 2,
-		MaterializeAndSelect: func(context.Context, string, string, string, string, int64) (string, int64, error) {
-			return "", 0, fmt.Errorf("publish must not run in upload regression")
+		Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client), BatchSize: 2,
+		MaterializeAndSelect: func(context.Context, PublicationAttempt) error {
+			return fmt.Errorf("publish must not run in upload regression")
 		},
 	})
 	if err != nil {
@@ -548,20 +608,18 @@ func TestSourceLoadReconcilesLostInitialActivationAcknowledgement(t *testing.T) 
 		t.Fatal(err)
 	}
 	calls := 0
-	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{Client: client, DatasetStore: datasets, BatchSize: 2, WriteAPI: "import", MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, gitCommit string, expectedRevision int64) (string, int64, error) {
+	firstCtx, loseAck := context.WithCancel(ctx)
+	defer loseAck()
+	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client), BatchSize: 2, WriteAPI: "import", MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
 		calls++
-		release, err := datasets.SaveRelease(ctx, publication.ProjectRelease{ID: "review-" + operationID, Project: project, GitCommit: gitCommit, Generation: generation, CreatedAt: time.Now().UTC()})
-		if err != nil {
-			return "", 0, err
-		}
-		active, err := datasets.CompareAndSwapActivateRelease(ctx, release, expectedRevision)
-		if err != nil {
-			return "", 0, err
+		if err := activateSourceLoadForTest(ctx, client, datasets, attempt, "execution"); err != nil {
+			return err
 		}
 		if calls == 1 {
-			return "", 0, errors.New("synthetic activation ACK lost after commit")
+			loseAck()
+			return errors.New("synthetic activation ACK lost after commit")
 		}
-		return "execution", active.Revision, nil
+		return nil
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -575,7 +633,7 @@ func TestSourceLoadReconcilesLostInitialActivationAcknowledgement(t *testing.T) 
 	if _, err := loader.UploadFile(ctx, project, operation, "Patient", writeSourceLoadTempFile(t, "")); err != nil {
 		t.Fatal(err)
 	}
-	_, firstErr := loader.Publish(ctx, project, operation)
+	_, firstErr := loader.Publish(firstCtx, project, operation)
 	active, err := datasets.ReadActiveRelease(ctx, project)
 	if err != nil {
 		t.Fatal(err)
@@ -590,11 +648,123 @@ func TestSourceLoadReconcilesLostInitialActivationAcknowledgement(t *testing.T) 
 	if firstErr == nil || active.Release.Generation != status.Generation || active.Revision != 1 {
 		t.Fatalf("activation fault not exercised: first=%v active=%#v", firstErr, active)
 	}
-	if retryErr != nil || receipt.State != "PUBLISHED" || receipt.SourceRevision != 1 || current.State != SourceLoadPublished || calls != 2 {
+	if retryErr != nil || receipt.State != "PUBLISHED" || receipt.SourceRevision != 1 || current.State != SourceLoadPublished || calls != 1 {
 		t.Fatalf("committed release did not reconcile: receipt=%#v state=%s calls=%d err=%v", receipt, current.State, calls, retryErr)
 	}
 	cached, err := loader.Publish(ctx, project, operation)
-	if err != nil || !cached.Reused || calls != 2 {
+	if err != nil || !cached.Reused || calls != 1 {
 		t.Fatalf("durable publication not reused: %#v calls=%d err=%v", cached, calls, err)
 	}
+}
+
+func TestSourceLoadReplayRetainsPublishedReleaseAfterNewerActivation(t *testing.T) {
+	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	if endpoint == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL for source-load release replay")
+	}
+	database := arangotest.KeyCollisionDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
+	t.Cleanup(func() { arangotest.DropKeyCollisionDatabase(t, endpoint, database) })
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := arangostore.Open(ctx, endpoint, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	datasets, err := datasetarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const project = "source-replay"
+	firstCtx, loseAck := context.WithCancel(ctx)
+	defer loseAck()
+	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
+		Client: client, DatasetStore: datasets, Inventory: sourceInventoryForTest(t, client), BatchSize: 2,
+		MaterializeAndSelect: func(ctx context.Context, attempt PublicationAttempt) error {
+			if err := activateSourceLoadForTest(ctx, client, datasets, attempt, "execution-"+attempt.OperationID); err != nil {
+				return err
+			}
+			if attempt.OperationID == "first" {
+				loseAck()
+				return errors.New("synthetic activation ACK lost after commit")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepare := func(operation, commit string) SourceLoadStatus {
+		t.Helper()
+		status, err := loader.Begin(ctx, project, operation, SourceLoadPlan{
+			Repository: "https://github.com/example/data", Commit: strings.Repeat(commit, 40), AuthResourcePath: "project/data",
+			Files: []SourceManifestFile{{Path: "META/Patient.ndjson"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loader.UploadFile(ctx, project, operation, "Patient", writeSourceLoadTempFile(t, "")); err != nil {
+			t.Fatal(err)
+		}
+		return status
+	}
+
+	first := prepare("first", "a")
+	_, firstErr := loader.Publish(firstCtx, project, "first")
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "activation ACK lost") {
+		t.Fatalf("expected lost acknowledgement after activation, got %v", firstErr)
+	}
+	active, err := datasets.ReadActiveRelease(ctx, project)
+	if err != nil || active.Release.Generation != first.Generation || active.Revision != 1 {
+		t.Fatalf("first release did not become active: active=%+v err=%v", active, err)
+	}
+	second := prepare("second", "b")
+	if _, err := loader.Publish(ctx, project, "second"); err != nil {
+		t.Fatal(err)
+	}
+	active, err = datasets.ReadActiveRelease(ctx, project)
+	if err != nil || active.Release.Generation != second.Generation || active.Revision != 2 {
+		t.Fatalf("second release did not become active: active=%+v err=%v", active, err)
+	}
+	receipt, replayErr := loader.Publish(ctx, project, "first")
+	status, err := loader.Status(ctx, project, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayErr != nil || receipt.ExecutionID != "execution-first" || receipt.SourceRevision != 1 || status.State != SourceLoadPublished {
+		t.Fatalf("committed first release was not recovered: receipt=%+v state=%s err=%v", receipt, status.State, replayErr)
+	}
+	stillActive, err := datasets.ReadActiveRelease(ctx, project)
+	if err != nil || stillActive.Release.ID != active.Release.ID || stillActive.Revision != active.Revision {
+		t.Fatalf("first replay changed the newer active release: active=%+v err=%v", stillActive, err)
+	}
+}
+
+func sourceInventoryForTest(t *testing.T, client *arangostore.Client) InventoryWriter {
+	t.Helper()
+	inventory, err := semanticarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return inventory
+}
+
+func activateSourceLoadForTest(ctx context.Context, client *arangostore.Client, datasets *datasetarango.Store, attempt PublicationAttempt, execution string) error {
+	release, err := datasets.SaveRelease(ctx, publication.ProjectRelease{
+		ID: "release-" + attempt.OperationID, Project: attempt.Project, Generation: attempt.Generation,
+		GitCommit: attempt.GitCommit, CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	return client.WithTransaction(ctx, arangostore.TransactionCollections{
+		Write: []string{datasetarango.LifecycleCollection, attempt.PublicationCollection()},
+	}, func(txCtx context.Context, tx arangostore.RowQueryer) error {
+		active, err := datasetarango.CompareAndSwapActivateRelease(txCtx, tx, release, attempt.ExpectedRevision)
+		if err != nil {
+			return err
+		}
+		return attempt.CompletePublication(txCtx, tx, execution, active.Revision)
+	})
 }

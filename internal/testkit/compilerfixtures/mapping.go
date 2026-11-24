@@ -7,12 +7,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
+	"github.com/calypr/loom/internal/explorer/selection"
 )
 
 func PopulationMappingTestBindings() recipe.RuntimeBindings {
 	return recipe.RuntimeBindings{
 		Project: "fixture_project", SelectionProject: "fixture/project", DatasetGeneration: "generation-a",
-		SelectionMembersCollection: "loom_explorer_selection_members",
+		SelectionMembersCollection: selection.MembersCollection,
 	}
 }
 
@@ -24,7 +26,8 @@ func CompilePopulationMappingOutput(t *testing.T, output recipe.Output) lower.Co
 		TranslationVersion:  "population-mapping-test",
 		Outputs:             []recipe.Output{output},
 	}
-	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
+	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: selection.MembersCollection}
+	bindings.GroupRowsCollections = explorerdb.GroupRowsCollections()
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)

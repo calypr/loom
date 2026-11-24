@@ -107,8 +107,7 @@ func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing
 	}
 	preparedSet := child.Prepared.Variable
 	var preparedRefs int
-	var check func(ir.PhysicalExpression)
-	check = func(expression ir.PhysicalExpression) {
+	check := func(expression ir.PhysicalExpression) {
 		switch expression.Kind {
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil && expression.Aggregate.Value != nil && expression.Aggregate.Value.Extract != nil && expression.Aggregate.Value.Extract.Prepared != nil {

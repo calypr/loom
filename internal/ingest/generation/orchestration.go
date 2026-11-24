@@ -4,21 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/bootstrap"
-	ingestevent "github.com/calypr/loom/internal/ingest/event"
-	"github.com/calypr/loom/internal/ingest/row"
-	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
+
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/releasecommit"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -234,7 +236,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return semanticStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
 		})
 	}()
-	catalogs := make(map[generationCatalogKey]*fieldprofile.Profiler)
+	catalogs := make(map[catalog.FieldProfileIdentity]*fieldprofile.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
 	rowErrorCandidates := make([][]row.RowErrorSample, len(files))
@@ -329,19 +331,14 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
 		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
-		key := generationCatalogKey{
-			project:           opts.Project,
-			datasetGeneration: plan.Dataset.Generation,
-			authResourcePath:  opts.AuthResourcePath,
-			resourceType:      result.ResourceType,
-		}
+		key := catalog.NewFieldProfileIdentity(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath, result.ResourceType)
 		merged := catalogs[key]
 		if merged == nil {
 			merged = fieldprofile.NewProfilerForGenerationWithLimits(
-				key.project,
-				key.datasetGeneration,
-				key.authResourcePath,
-				key.resourceType,
+				key.Project,
+				key.DatasetGeneration,
+				key.AuthResourcePath,
+				key.ResourceType,
 				nil,
 				opts.CatalogLimits,
 			)
@@ -425,12 +422,14 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"document_count": resourceInventorySummary.DocumentCount,
 	})
 	recordFinalization("resource_inventory")
-	if err = semanticStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
-		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
-	}
-	recordFinalization("semantic_inventory_completion")
-	inventoryComplete = true
-	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
+	stagedManifest, transitionErr := StageManifest(ctx, lifecycleStore, manifest, func() error {
+		if err := semanticStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+			return fmt.Errorf("complete semantic inventory build: %w", err)
+		}
+		recordFinalization("semantic_inventory_completion")
+		inventoryComplete = true
+		return nil
+	})
 	if transitionErr != nil {
 		return summary, transitionErr
 	}
@@ -438,7 +437,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	manifest = stagedManifest
 	manifestStaged = true
 	if !opts.StageOnly && !opts.DeferActivation {
-		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
+		if activationErr := releasecommit.ActivateGeneration(ctx, client, lifecycleStore, manifest); activationErr != nil {
 			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
 		}
 		recordFinalization("activation")

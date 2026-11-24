@@ -27,9 +27,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -206,7 +208,7 @@ func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 	}
 }
 
-func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, graph *explorerarango.Store, database string) coreProtocolReplayStores {
+func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, graph *testExplorerArangoStore, database string) coreProtocolReplayStores {
 	t.Helper()
 
 	probe := newCoreProtocolFixture(t)
@@ -225,7 +227,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	}); err != nil {
 		t.Fatalf("seed arango explorer %s/%s: %v", coreProtocolReplayProject, coreProtocolReplayExplorerID, err)
 	}
-	domain, err := explorer.NewService(graph)
+	domain, err := explorerfixtures.NewService(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,10 +257,10 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 			if fixture.beforeCompile != nil {
 				fixture.beforeCompile()
 			}
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, graph, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, requestProject, requestExplorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, requestProject, requestExplorerID, receiptID)
+			return graph.GetCompilationReceiptForExplorer(ctx, requestProject, requestExplorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
@@ -271,7 +273,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, graph)
 	fixture.app = app
 	t.Logf("core protocol replay store=arango: disposable database=%s project=%s explorerId=%s (identity bytes identical to map mode; isolation comes from the per-schedule database)", database, coreProtocolReplayProject, coreProtocolReplayExplorerID)
 	t.Log("store=arango documented divergence: draft revision ids are sha256-derived by the Arango store (internal/explorer/arango/drafts.go via key() in store.go), not the map store's draft_revision_core-protocol_N literal; the replay body never hardcodes a revision id, so both modes drive head identity solely from the save acknowledgement and stored bytes")
@@ -290,7 +292,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 		hasReceipts: func(context.Context) bool {
 			readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer readCancel()
-			return countDocuments(readCtx, t, client, explorerarango.CompilationReceiptsCollection, coreProtocolReplayProject, coreProtocolReplayExplorerID) > 0
+			return countDocuments(readCtx, t, client, explorerdb.CompilationReceiptsCollection, coreProtocolReplayProject, coreProtocolReplayExplorerID) > 0
 		},
 		history: func(_ context.Context, revisionID string) (explorer.DraftRevision, bool) {
 			readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -575,7 +577,7 @@ func runCoreProtocolReplayAgainstArango(t *testing.T, replayCases []coreProtocol
 			if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 				t.Fatal(err)
 			}
-			graph, err := explorerarango.New(client)
+			graph, err := newTestExplorerArangoStore(client)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -860,7 +862,7 @@ func runCoreProtocolConcreteAgainstArango(t *testing.T, programs []coreProtocolC
 			if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 				t.Fatal(err)
 			}
-			graph, err := explorerarango.New(client)
+			graph, err := newTestExplorerArangoStore(client)
 			if err != nil {
 				t.Fatal(err)
 			}

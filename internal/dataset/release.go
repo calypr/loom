@@ -28,6 +28,10 @@ type PublicationVerification struct {
 	PhysicalTable string            `json:"-"`
 }
 
+func (v PublicationVerification) Published() bool {
+	return v.State == "PUBLISHED"
+}
+
 type ReleasePublication struct {
 	Selector    DataframeSelector `json:"selector"`
 	ExecutionID string            `json:"executionId"`
@@ -130,7 +134,7 @@ func (s ReleaseService) validateGeneration(ctx context.Context, ref Ref) error {
 }
 
 func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (ProjectRelease, error) {
-	if s.Manifests == nil || s.Releases == nil || s.Verifier == nil {
+	if s.Manifests == nil || s.Releases == nil || (s.Verifier == nil && (len(s.Required) != 0 || len(request.OptionalSelectors) != 0)) {
 		return ProjectRelease{}, fmt.Errorf("release service dependencies are required")
 	}
 	ref, err := NewRef(strings.TrimSpace(request.Project), strings.TrimSpace(request.Generation))
@@ -172,7 +176,7 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 
 			return ProjectRelease{}, fmt.Errorf("publication verification store fault for required selector %s: %w", selector.Key(), verifyErr)
 		}
-		if verifyErr != nil || verification.Selector != selector || verification.State != "PUBLISHED" || !verification.Queryable || verification.Generation != ref.Generation {
+		if verifyErr != nil || verification.Selector != selector || !verification.Published() || !verification.Queryable || verification.Generation != ref.Generation {
 			contract.ErrorCode = "RELEASE_REQUIREMENTS_UNMET"
 			failed = append(failed, contract)
 			continue
@@ -187,7 +191,7 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 			continue
 		}
 		verification, verifyErr := s.Verifier.VerifyPublication(ctx, ref.Project, ref.Generation, selector)
-		if verifyErr == nil && verification.Selector == selector && verification.State == "PUBLISHED" && verification.Queryable && verification.Generation == ref.Generation {
+		if verifyErr == nil && verification.Selector == selector && verification.Published() && verification.Queryable && verification.Generation == ref.Generation {
 			bindings[selector.Key()] = publicationBinding(verification, false, ref.Generation)
 		}
 	}

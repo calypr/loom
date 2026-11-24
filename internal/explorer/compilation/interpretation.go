@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
@@ -126,7 +128,7 @@ func ResolveWorkspaceInterpretations(project string, workspace ws.Workspace, sna
 			if err != nil {
 				return inputs, fmt.Errorf("interpretation revision %q for %s/%s: %w", id, document.Output.ID, column.Column, err)
 			}
-			inputs.Interpretations = append(inputs.Interpretations, ResolvedInterpretation{
+			inputs.Interpretations = append(inputs.Interpretations, interpretation.ResolvedInterpretation{
 				OutputID: document.Output.ID, Column: column.Column, OccurrenceID: column.OccurrenceID,
 				Revision: revision, SelectedRuleID: rule.ID, Definition: cloneInterpretationDefinition(rule.Definition),
 			})
@@ -136,7 +138,7 @@ func ResolveWorkspaceInterpretations(project string, workspace ws.Workspace, sna
 }
 
 func ResolveInterpretationCandidate(document ws.Document, column ws.Column, snapshot capability.Snapshot) (interpretationCandidateResolution, error) {
-	occurrences, _, err := resolveSemanticRoute(document, snapshot)
+	occurrences, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve occurrence %q: %w", column.OccurrenceID, err)
 	}
@@ -171,10 +173,10 @@ func ResolveInterpretationCandidate(document ws.Document, column ws.Column, snap
 	if len(concepts) == 1 {
 		concept := concepts[0]
 		candidate = interpretation.InterpretationStructuralCandidate{
-			ResourceType:  firstNonEmpty(concept.SourceResourceType, capabilityCandidate.ResourceType),
+			ResourceType:  loomtext.FirstTrimmed(concept.SourceResourceType, capabilityCandidate.ResourceType),
 			SourceProfile: concept.SourceProfile, SourceCanonical: concept.SourceCanonical, OwningScope: concept.OwningScope,
 			System: concept.System, Code: concept.Code, ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...),
-			LogicalType: firstNonEmpty(concept.LogicalType, capabilityCandidate.LogicalType), Cardinality: capabilityCandidate.Cardinality,
+			LogicalType: loomtext.FirstTrimmed(concept.LogicalType, capabilityCandidate.LogicalType), Cardinality: capabilityCandidate.Cardinality,
 			SchemaDigest: snapshot.Identity.SchemaDigest,
 		}
 	} else {

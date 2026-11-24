@@ -1062,17 +1062,35 @@ func TestClientProfilePostsParameterizedCursorRequest(t *testing.T) {
 	}
 }
 
-func TestClientProfileRejectsHTTPError(t *testing.T) {
-	client := &Client{
-		rawURL: "http://arango.test",
-		dbName: "fhir_proto",
-		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("bad query")), Request: r}, nil
-		})},
+func TestClientRejectsHTTPError(t *testing.T) {
+	newClient := func() *Client {
+		return &Client{
+			rawURL: "http://arango.test",
+			dbName: "fhir_proto",
+			client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("bad query")), Request: r}, nil
+			})},
+		}
 	}
-	_, err := client.Profile(context.Background(), ProfileRequest{Query: "FOR p IN Patient RETURN p"})
-	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
-		t.Fatalf("expected HTTP error, got %v", err)
+	for _, test := range []struct {
+		name string
+		call func(*Client) error
+	}{
+		{name: "Explain", call: func(client *Client) error {
+			_, err := client.Explain(context.Background(), ExplainRequest{Query: "FOR p IN Patient RETURN p"})
+			return err
+		}},
+		{name: "Profile", call: func(client *Client) error {
+			_, err := client.Profile(context.Background(), ProfileRequest{Query: "FOR p IN Patient RETURN p"})
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.call(newClient())
+			if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+				t.Fatalf("expected HTTP error, got %v", err)
+			}
+		})
 	}
 }
 

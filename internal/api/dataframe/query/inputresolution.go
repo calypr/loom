@@ -3,17 +3,19 @@ package queryapi
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"strings"
 
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (s *Service) prepareRunInput(ctx context.Context, input dataframemodel.FhirDataframeInput) (dataframemodel.FhirDataframeInput, authscope.ReadScope, string, error) {
+func (s *Service) prepareRunInput(ctx context.Context, input recipe.FhirDataframeInput) (recipe.FhirDataframeInput, authscope.ReadScope, string, error) {
 	input.Project = projectid.Canonical(input.Project)
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -67,14 +69,14 @@ type scopedInputResolver struct {
 
 type nodeInput struct {
 	resourceType string
-	fields       []*dataframemodel.FhirFieldSelectInput
-	filters      []*dataframemodel.FhirFilterInput
-	pivots       []*dataframemodel.FhirPivotInput
-	aggregates   []*dataframemodel.FhirAggregateInput
-	slices       []*dataframemodel.FhirRepresentativeSliceInput
+	fields       []*recipe.FhirFieldSelectInput
+	filters      []*recipe.FhirFilterInput
+	pivots       []*recipe.FhirPivotInput
+	aggregates   []*recipe.FhirAggregateInput
+	slices       []*recipe.FhirRepresentativeSliceInput
 }
 
-func (r scopedInputResolver) resolveTraversalInputRefs(ctx context.Context, step *dataframemodel.FhirTraversalStepInput) error {
+func (r scopedInputResolver) resolveTraversalInputRefs(ctx context.Context, step *recipe.FhirTraversalStepInput) error {
 	if step == nil {
 		return nil
 	}
@@ -109,15 +111,15 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if field == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(field.FieldRef)) != "" {
-			selectorText, err := resolveFieldRef(input.resourceType, discovered, derefString(field.FieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(field.FieldRef)) != "" {
+			selectorText, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(field.FieldRef))
 			if err != nil {
 				return classifyError(err)
 			}
 			field.Selector = selectorInputFromExpression(selectorText)
 		}
 		if len(field.FallbackFieldRefs) > 0 {
-			fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+			fallbacks := make([]*recipe.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 			for _, ref := range field.FallbackFieldRefs {
 				selectorText, err := resolveFieldRef(input.resourceType, discovered, ref)
 				if err != nil {
@@ -133,8 +135,8 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if pivot == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(pivot.FieldRef)) != "" {
-			hint, err := resolvePivotFieldRef(input.resourceType, discovered, derefString(pivot.FieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(pivot.FieldRef)) != "" {
+			hint, err := resolvePivotFieldRef(input.resourceType, discovered, httpapi.OptionalString(pivot.FieldRef))
 			if err != nil {
 				return err
 			}
@@ -148,10 +150,10 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 	}
 
 	for _, filter := range input.filters {
-		if filter == nil || strings.TrimSpace(derefString(filter.FieldRef)) == "" {
+		if filter == nil || strings.TrimSpace(httpapi.OptionalString(filter.FieldRef)) == "" {
 			continue
 		}
-		selector, err := resolveFieldRef(input.resourceType, discovered, derefString(filter.FieldRef))
+		selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(filter.FieldRef))
 		if err != nil {
 			return err
 		}
@@ -162,15 +164,15 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if aggregate == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(aggregate.FieldRef)) != "" {
-			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(aggregate.FieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(aggregate.FieldRef)) != "" {
+			selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(aggregate.FieldRef))
 			if err != nil {
 				return err
 			}
 			aggregate.FhirPath = &selector
 		}
-		if strings.TrimSpace(derefString(aggregate.PredicateFieldRef)) != "" {
-			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(aggregate.PredicateFieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(aggregate.PredicateFieldRef)) != "" {
+			selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(aggregate.PredicateFieldRef))
 			if err != nil {
 				return err
 			}
@@ -182,8 +184,8 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if slice == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(slice.WhereFieldRef)) != "" {
-			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(slice.WhereFieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(slice.WhereFieldRef)) != "" {
+			selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(slice.WhereFieldRef))
 			if err != nil {
 				return err
 			}
@@ -193,15 +195,15 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 			if field == nil {
 				continue
 			}
-			if strings.TrimSpace(derefString(field.FieldRef)) != "" {
-				selectorText, err := resolveFieldRef(input.resourceType, discovered, derefString(field.FieldRef))
+			if strings.TrimSpace(httpapi.OptionalString(field.FieldRef)) != "" {
+				selectorText, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(field.FieldRef))
 				if err != nil {
 					return err
 				}
 				field.Selector = selectorInputFromExpression(selectorText)
 			}
 			if len(field.FallbackFieldRefs) > 0 {
-				fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+				fallbacks := make([]*recipe.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 				for _, ref := range field.FallbackFieldRefs {
 					selectorText, err := resolveFieldRef(input.resourceType, discovered, ref)
 					if err != nil {
@@ -281,13 +283,13 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 	}, nil
 }
 
-func selectorInputFromExpression(expression string) *dataframemodel.FhirFieldSelectorInput {
+func selectorInputFromExpression(expression string) *recipe.FhirFieldSelectorInput {
 	parts := decomposeSelector(expression)
-	var where *dataframemodel.FhirFieldPredicateInput
+	var where *recipe.FhirFieldPredicateInput
 	if parts.Where != nil {
-		where = &dataframemodel.FhirFieldPredicateInput{
+		where = &recipe.FhirFieldPredicateInput{
 			Path:  parts.Where.Path,
-			Op:    dataframemodel.FhirFieldPredicateOperation(parts.Where.Op),
+			Op:    recipe.FhirFieldPredicateOperation(parts.Where.Op),
 			Value: parts.Where.Value,
 		}
 	}
@@ -297,7 +299,7 @@ func selectorInputFromExpression(expression string) *dataframemodel.FhirFieldSel
 		sourcePath = &trimmed
 	}
 
-	return &dataframemodel.FhirFieldSelectorInput{
+	return &recipe.FhirFieldSelectorInput{
 		SourcePath: sourcePath,
 		Where:      where,
 		ValuePath:  parts.ValuePath,

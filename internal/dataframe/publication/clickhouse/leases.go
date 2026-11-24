@@ -8,6 +8,7 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/lease"
 )
 
 func (s *ClickHouseBundleStore) claimExecutionCleanup(ctx context.Context, executionID, owner string) (context.Context, func() error, error) {
@@ -29,39 +30,28 @@ func (s *ClickHouseBundleStore) claimExecutionCleanup(ctx context.Context, execu
 }
 
 func (t *clickHouseBundleTx) startLeaseRenewal(parent context.Context) {
-	ctx, cancel := context.WithCancel(parent)
-	t.leaseCancel, t.leaseDone = cancel, make(chan struct{})
-	go func() {
-		defer close(t.leaseDone)
-		interval := t.store.leaseRenewInterval
-		if interval <= 0 {
-			interval = 30 * time.Second
-		}
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				until := time.Now().UTC().Add(t.store.leaseTTL)
-				acquired, err := t.store.catalog.RenewBundleLease(ctx, t.execution.Key, t.execution.OwnerID, until)
-				t.leaseMu.Lock()
-				if err != nil || !acquired {
-					t.leaseLost = true
-					if err != nil {
-						t.leaseErr = err
-					} else {
-						t.leaseErr = ErrBundleLeaseLost
-					}
-					t.leaseMu.Unlock()
-					return
-				}
-				t.execution.LeaseExpiresAt = &until
-				t.leaseMu.Unlock()
-			case <-ctx.Done():
-				return
+	interval := t.store.leaseRenewInterval
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	renewal := lease.StartRenewal(parent, interval, func(ctx context.Context) error {
+		until := time.Now().UTC().Add(t.store.leaseTTL)
+		acquired, err := t.store.catalog.RenewBundleLease(ctx, t.execution.Key, t.execution.OwnerID, until)
+		t.leaseMu.Lock()
+		defer t.leaseMu.Unlock()
+		if err != nil || !acquired {
+			t.leaseLost = true
+			if err != nil {
+				t.leaseErr = err
+				return err
 			}
+			t.leaseErr = ErrBundleLeaseLost
+			return ErrBundleLeaseLost
 		}
-	}()
+		t.execution.LeaseExpiresAt = &until
+		return nil
+	})
+	t.leaseRenewal = renewal
 }
 
 func (t *clickHouseBundleTx) ensureLease() error {
@@ -85,11 +75,11 @@ func (t *clickHouseBundleTx) ensureLease() error {
 
 func (t *clickHouseBundleTx) stopLease() error {
 	t.leaseStopOnce.Do(func() {
-		if t.leaseCancel != nil {
-			t.leaseCancel()
+		if t.leaseRenewal != nil {
+			t.leaseRenewal.Cancel(nil)
 			timer := time.NewTimer(bundleCleanupTimeout)
 			select {
-			case <-t.leaseDone:
+			case <-t.leaseRenewal.Done():
 				if !timer.Stop() {
 					select {
 					case <-timer.C:

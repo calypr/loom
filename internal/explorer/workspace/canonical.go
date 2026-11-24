@@ -2,11 +2,13 @@ package workspace
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -126,47 +128,53 @@ func (w Workspace) NormalizePresentationOrders() Workspace {
 }
 
 func normalizeFilterOrders(columns []Column) {
-	indexes := make([]int, 0, len(columns))
-	for index := range columns {
-		if columns[index].Filter != nil {
-			indexes = append(indexes, index)
+	items := orderedAuxiliaryPresentations(columns, func(column *Column) (*int, bool) {
+		if column.Filter == nil {
+			return nil, false
 		}
-	}
-	sort.SliceStable(indexes, func(i, j int) bool {
-		left, right := columns[indexes[i]], columns[indexes[j]]
-		return auxiliaryPresentationLess(left.Filter.Order, left.Column, right.Filter.Order, right.Column)
+		return column.Filter.Order, true
 	})
-	for order, index := range indexes {
+	for order, index := range items {
 		value := order
 		columns[index].Filter.Order = &value
 	}
 }
 
 func normalizeChartOrders(columns []Column) {
-	indexes := make([]int, 0, len(columns))
-	for index := range columns {
-		if columns[index].Chart != nil {
-			indexes = append(indexes, index)
+	items := orderedAuxiliaryPresentations(columns, func(column *Column) (*int, bool) {
+		if column.Chart == nil {
+			return nil, false
 		}
-	}
-	sort.SliceStable(indexes, func(i, j int) bool {
-		left, right := columns[indexes[i]], columns[indexes[j]]
-		return auxiliaryPresentationLess(left.Chart.Order, left.Column, right.Chart.Order, right.Column)
+		return column.Chart.Order, true
 	})
-	for order, index := range indexes {
+	for order, index := range items {
 		value := order
 		columns[index].Chart.Order = &value
 	}
 }
 
-func auxiliaryPresentationLess(leftOrder *int, leftColumn string, rightOrder *int, rightColumn string) bool {
-	if (leftOrder == nil) != (rightOrder == nil) {
-		return leftOrder != nil
+func orderedAuxiliaryPresentations(columns []Column, order func(*Column) (*int, bool)) []int {
+	indexes := make([]int, 0, len(columns))
+	for index := range columns {
+		if _, present := order(&columns[index]); present {
+			indexes = append(indexes, index)
+		}
 	}
-	if leftOrder != nil && *leftOrder != *rightOrder {
-		return *leftOrder < *rightOrder
-	}
-	return leftColumn < rightColumn
+	slices.SortStableFunc(indexes, func(i, j int) int {
+		left, _ := order(&columns[i])
+		right, _ := order(&columns[j])
+		if left == nil && right != nil {
+			return 1
+		}
+		if left != nil && right == nil {
+			return -1
+		}
+		if left != nil && *left != *right {
+			return cmp.Compare(*left, *right)
+		}
+		return cmp.Compare(columns[i].Column, columns[j].Column)
+	})
+	return indexes
 }
 
 func presentationOrder(column Column) (class, order int) {
@@ -237,9 +245,9 @@ func cloneConstructionChoice(in *capability.ConstructionChoice) *capability.Cons
 	return &out
 }
 
-func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+func cloneConceptCandidates(in []capability.ConceptCandidate) []capability.ConceptCandidate {
 	if len(in) == 0 {
-		return []ConceptCandidate{}
+		return []capability.ConceptCandidate{}
 	}
 	out := capability.CloneConceptCandidates(in)
 	sort.Slice(out, func(i, j int) bool {

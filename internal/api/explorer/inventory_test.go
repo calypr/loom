@@ -20,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -56,7 +57,8 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 			Cardinality: "optional_one", LogicalType: "decimal", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
 		}},
 	}
-	domain, err := explorer.NewService(newTestExplorerStore())
+	backingStore := newTestExplorerStore()
+	domain, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +84,7 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	}
 	denied := false
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error {
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error {
 		if denied {
 			return errors.New("denied")
 		}
@@ -136,7 +138,7 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 		Nodes:    []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
 	}
 	store := newTestExplorerStore()
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +152,7 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	path := "/api/v1/projects/project-a/explorers/explorer/authoring/v2/semantic-inventory"
 	response := requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","rowRoot":"Observation","outputId":"out_000000000000000000000000"}`)
 	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "EXPLORER_NOT_FOUND") {

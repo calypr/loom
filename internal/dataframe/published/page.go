@@ -67,7 +67,7 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	args := make([]any, 0)
 	where := make([]string, 0, len(req.Filters)+1)
 	if !req.Unrestricted {
-		if hasColumn(materialization.Columns, authResourcePathColumn) {
+		if hasAuthResourcePathColumn(materialization.Columns) {
 			where = append(where, "`auth_resource_path` IN ?")
 			args = append(args, req.AuthResourcePaths)
 		} else {
@@ -187,7 +187,7 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 	args := make([]any, 0)
 	where := make([]string, 0, len(req.Filters)+1)
 	if !req.Unrestricted {
-		if hasColumn(materialization.Columns, authResourcePathColumn) {
+		if hasAuthResourcePathColumn(materialization.Columns) {
 			where = append(where, "`auth_resource_path` IN ?")
 			args = append(args, req.AuthResourcePaths)
 		} else {
@@ -349,7 +349,7 @@ func (r *Reader) count(ctx context.Context, materialization Materialization, req
 	args := make([]any, 0)
 	where := make([]string, 0, len(req.Filters)+1)
 	if !req.Unrestricted {
-		if hasColumn(materialization.Columns, authResourcePathColumn) {
+		if hasAuthResourcePathColumn(materialization.Columns) {
 			where = append(where, "`auth_resource_path` IN ?")
 			args = append(args, req.AuthResourcePaths)
 		} else {
@@ -397,9 +397,9 @@ func pageCursorPredicate(cursor *pageCursor, sortBy *Sort) (string, []any, error
 	return fmt.Sprintf("(`%s` IS NULL OR `%s` %s ? OR (`%s` = ? AND `__loom_row_id` > ?))", sortBy.Column, sortBy.Column, op, sortBy.Column), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
 }
 
-func hasColumn(columns []Column, name string) bool {
+func hasAuthResourcePathColumn(columns []Column) bool {
 	for _, column := range columns {
-		if column.Name == name {
+		if column.Name == authResourcePathColumn {
 			return true
 		}
 	}

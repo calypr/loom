@@ -39,20 +39,6 @@ func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explo
 	return ws.NewWorkspace(owner.Title), nil
 }
 
-func verifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) error {
-	if receipt == nil {
-		return fmt.Errorf("compilation receipt is required")
-	}
-	digest, err := workspace.Digest()
-	if err != nil {
-		return err
-	}
-	if receipt.IntentDigest != digest {
-		return fmt.Errorf("receipt intent digest %q does not match workspace digest %q", receipt.IntentDigest, digest)
-	}
-	return nil
-}
-
 func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request interpretation.PreviewInterpretationCandidateRequest) (interpretation.PreviewInterpretationCandidateResult, error) {
 	if err := interpretation.ValidateCandidatePreviewRequest(request); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Malformed("interpretation-preview", err.Error(), err)
@@ -91,7 +77,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	}
 
 	catalog := s.core.Catalog(snapshot, request.ExplorerID)
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "interpretation-preview", []authoringv2.Command{{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: request.OutputID, Payload: &authoringv2.ColumnPayload{Column: request.Column, InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "preview", RevisionID: request.RevisionID}}}})
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "interpretation-preview", authoringv2.CommandsWithoutResolution([]authoringv2.Command{{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: request.OutputID, Payload: &authoringv2.ColumnPayload{Column: request.Column, InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "preview", RevisionID: request.RevisionID}}}}))
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Unprocessable("interpretation-preview", "INVALID_INTERPRETATION_CANDIDATE", err.Error(), err)
 	}
@@ -108,10 +94,10 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base workspace cannot be normalized for compilation", nil, err)
 	}
-	if err := verifyPreviewReceiptIntent(baseReceipt, baseForCompilation); err != nil {
+	if err := support.VerifyPreviewReceiptIntent(baseReceipt, baseForCompilation); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base receipt does not represent the current draft", nil, err)
 	}
-	if err := verifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {
+	if err := support.VerifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the proposed workspace", nil, err)
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
@@ -178,8 +164,4 @@ func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *rec
 		return interpretation.PreviewRows{}, summary, err
 	}
 	return rows, summary, nil
-}
-
-func (s *Service) Preview(ctx context.Context, request PreviewRequest) (authoringcore.PreviewResult, error) {
-	return s.core.Preview(ctx, request)
 }

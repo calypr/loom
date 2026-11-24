@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/calypr/loom/internal/explorer/selection"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
@@ -18,6 +20,7 @@ import (
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -37,9 +40,9 @@ type explorerComponents struct {
 }
 
 func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *arangostore.Client, storage storageComponents, scopeResolver *authscope.ScopeResolver) (explorerComponents, error) {
-	explorerStore, catalogStore := storage.explorer, storage.catalog
+	explorerStore, catalogStore := storage.explorerOwners, storage.catalog
 	activeManifestResolver := publicationcontract.ActiveResolver(storage.lifecycle)
-	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
+	if err := explorerarango.MigrateLegacyRepositoryConfigs(ctx, lifecycleClient, storage.explorerOwners, storage.explorerDrafts, storage.explorerRevisions, storage.explorerProjections); err != nil {
 		return explorerComponents{}, fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
 	}
 	capabilitySnapshots, err := capabilitydb.NewCapabilitySnapshotStore(lifecycleClient)
@@ -50,7 +53,11 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 	if err != nil {
 		return explorerComponents{}, fmt.Errorf("create Explorer capability resolver: %w", err)
 	}
-	explorerService, err := explorer.NewService(explorerStore)
+	explorerService, err := explorer.NewService(explorer.ServiceDependencies{
+		Owners: explorerStore, Drafts: storage.explorerDrafts,
+		Revisions: storage.explorerRevisions, ViewBuilder: storage.explorerViewBuilder,
+		WorkspaceProjections: storage.explorerProjections,
+	})
 	if err != nil {
 		return explorerComponents{}, fmt.Errorf("create Explorer service: %w", err)
 	}
@@ -62,11 +69,11 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 }
 
 func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComponents, dataframe dataframeComponents, explorerDeps explorerComponents, scopeResolver *authscope.ScopeResolver, releaseService *publicationcontract.ReleaseService, releaseRuntime *publicationcontract.ReleaseRuntime) (lifecycle.Config, error) {
-	recipeRegistry, explorerStore, semanticStore := storage.recipes, storage.explorer, storage.semantic
+	recipeRegistry, semanticStore := storage.recipes, storage.semantic
 	configuredRecipeName, configuredRecipeVersion := storage.recipeName, storage.recipeVersion
 	recipeEngine, bundleTarget, publishedRegistry := dataframe.engine, dataframe.target, dataframe.registry
 	materializationReader, degradation := dataframe.reader, dataframe.degradation
-	capabilityResolver, explorerService, artifactStore := explorerDeps.capability, explorerDeps.service, explorerDeps.artifacts
+	capabilityResolver, artifactStore := explorerDeps.capability, explorerDeps.artifacts
 	validateExplorerReleaseGeneration := releaseService.ValidateGeneration
 	importedSources := importedsource.New(recipeRegistry, recipeEngine, capabilityResolver, configuredRecipeName, configuredRecipeVersion)
 	var combineInputSchemas receiptapi.CombineInputSchemaResolver
@@ -74,8 +81,8 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		combineInputSchemas = receiptapi.NewCombineInputSchemaResolver(materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
 	}
 	receiptRuntime := receiptapi.NewRuntime(receiptapi.RuntimeConfig{
-		Engine: recipeEngine, Explorers: explorerService, CapabilityResolver: capabilityResolver,
-		Logger: logger, CombineInputSchemas: combineInputSchemas, ImportedSources: importedSources,
+		Engine: recipeEngine, Receipts: storage.explorerReceipts, CapabilityResolver: capabilityResolver,
+		Logger: logger, CombineInputSchemas: combineInputSchemas, ImportedSources: &importedSources,
 		ConstructionSourceStage: importedSources.SourceStage,
 		Materializer: receiptapi.NewMaterializer(
 			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
@@ -107,11 +114,11 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure row-choice schema resolver: %w", err)
 	}
-	explicitGroupResolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(explorerStore)
+	explicitGroupResolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(storage.explorerGroups, storage.explorerSelections)
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
-	var selectionSourceResolver lifecycle.SelectionSourceResolver
+	var selectionSourceResolver selection.SelectionSourceResolver
 	if materializationReader != nil {
 		selectionSourceResolver = published.SelectionSourceAdapter{Reader: materializationReader}
 	}
@@ -127,15 +134,24 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		SemanticInventory:                  semanticStore.PageSemanticInventory,
 		SemanticCoverage:                   semanticStore.LookupSemanticCoverage,
 		ResolveSemanticInventorySelections: semanticStore.ResolveSemanticInventorySelections,
-		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
-		InterpretationRepository:           explorerStore,
+		SelectionMembersCollection:         explorerdb.SelectionMembersCollection,
+		InterpretationRepository:           storage.explorerInterpretation,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
 		SelectionSourceResolver:            selectionSourceResolver,
-		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
+		SelectionReferenceValidator:        storage.explorerSelections.ValidateSelectionReferences,
+		ExplorerOwners:                     storage.explorerOwners,
+		DraftStore:                         storage.explorerDrafts,
+		DraftRevisions:                     storage.explorerDraftRevisions,
+		Revisions:                          storage.explorerRevisions,
+		RevisionWriter:                     storage.explorerRevisions,
+		Receipts:                           storage.explorerReceipts,
+		AuthoringPublisher:                 storage.explorerPublisher,
+		RepositoryActivator:                storage.explorerActivator,
+		SelectionStore:                     storage.explorerSelections,
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
-		ExplicitGroupRepository:            explorerStore,
+		ExplicitGroupRepository:            storage.explorerGroups,
 		ScanCategories:                     receiptRuntime.ScanCategories,
 		ScanColumnPopulation:               receiptRuntime.ScanColumnPopulation,
 		CompileReceipt:                     compileReceipt,
@@ -162,16 +178,25 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		RowLineage:                receiptRuntime.RowLineage,
 		MaterializeReceipt:        receiptRuntime.MaterializeReceipt,
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
-		ActivateRelease:           releaseRuntime.Activate,
+		PrepareRepositoryRelease:  releaseRuntime.PrepareRepository,
 		PrepareRelease:            releaseRuntime.Prepare,
 		PersistPublishedWorkspace: persistPublishedWorkspace,
 	}
 	return lifecycleConfig, nil
 }
 
-func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, lifecycleConfig lifecycle.Config) *explorerapi.Handlers {
+func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, storage storageComponents, lifecycleConfig lifecycle.Config) (*explorerapi.Handlers, error) {
 	materializationReader, publishedRegistry := dataframe.reader, dataframe.registry
 	explorerService := explorerDeps.service
+	application, err := lifecycle.New(explorerService, lifecycleConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create Explorer lifecycle application: %w", err)
+	}
+	owners := application.OwnerServices()
+	cellTrace := receiptapi.NewCellTraceService(receiptapi.CellTraceServiceConfig{
+		Reader: owners.Core, ForExecution: lifecycleConfig.Capability.ForExecution,
+		SelectionMembersCollection: lifecycleConfig.SelectionMembersCollection, Executor: lifecycleConfig.CellTrace,
+	})
 	readRecipeExecution := recipeexec.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
 	var constructionInputsReader constructioninputs.ExactReader
 	if materializationReader != nil {
@@ -186,8 +211,11 @@ func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authsc
 			return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 		},
 		Explorers:          explorerService,
-		Lifecycle:          lifecycleConfig,
-		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, explorerService),
+		Application:        application,
+		CellTrace:          cellTrace,
+		Revisions:          storage.explorerRevisions,
+		ViewBuilder:        storage.explorerViewBuilder,
+		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, storage.explorerRevisions),
 		AuthorizeExecution: readRecipeExecution,
-	})
+	}), nil
 }

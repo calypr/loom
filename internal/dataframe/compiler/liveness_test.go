@@ -23,6 +23,7 @@ import (
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -211,7 +212,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	if len(rows) != 1 || rows[0]["onset"] != "1" || !constructionNumericEqual(rows[0]["source_records"], 26) {
 		t.Fatalf("limit-1 Group rows = %#v, want onset 1 with all 26 source records", rows)
 	}
-	if got, want := sortedAnyStrings(rows[0]["tumor_values"]), []string{"Tumor", "late tumor", "solid tumor"}; !reflect.DeepEqual(got, want) {
+	if got, want := compilerfixtures.SortedAnyStrings(rows[0]["tumor_values"]), []string{"Tumor", "late tumor", "solid tumor"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("limit-1 ALL values = %#v, want %#v (late value must survive post-GROUP limit)", got, want)
 	}
 
@@ -239,7 +240,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 			byOnset[onset] = row
 		}
 	}
-	if !reflect.DeepEqual(sortedAnyStrings(byOnset["1"]["tumor_values"]), []string{"Tumor", "late tumor", "solid tumor"}) || !constructionNumericEqual(byOnset["1"]["source_records"], 26) {
+	if !reflect.DeepEqual(compilerfixtures.SortedAnyStrings(byOnset["1"]["tumor_values"]), []string{"Tumor", "late tumor", "solid tumor"}) || !constructionNumericEqual(byOnset["1"]["source_records"], 26) {
 		t.Fatalf("nonempty ALL group = %#v, want all deduplicated and correlated values from 26 contributors", byOnset["1"])
 	}
 	if values, ok := byOnset["2"]["tumor_values"].([]any); !ok || len(values) != 0 || !constructionNumericEqual(byOnset["2"]["source_records"], 1) {
@@ -273,23 +274,6 @@ func assertTumorGroupLivenessPreviewFrontier(t *testing.T, query string) {
 		t.Fatalf("correlated map work and complete GROUP must precede the separate final preview LIMIT; correlation=%d stage=%d collect=%d final-limit=%d frontier-limit=%d:\n%s",
 			correlatedMapWork, groupStage, groupCollect, finalPreviewLimit, frontierLimit, query)
 	}
-}
-
-func sortedAnyStrings(value any) []string {
-	items, ok := value.([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		text, ok := item.(string)
-		if !ok {
-			return nil
-		}
-		result = append(result, text)
-	}
-	sort.Strings(result)
-	return result
 }
 
 func tumorGroupLivenessOutput(binding *fhirbinding.CorrelatedBinding) recipe.Output {

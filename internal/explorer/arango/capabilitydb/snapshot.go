@@ -35,7 +35,7 @@ func NewCapabilitySnapshotStore(c client) (*CapabilitySnapshotStore, error) {
 }
 
 func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
-	if err := capability.ValidateSnapshot(snapshot); err != nil {
+	if err := capability.ValidateSnapshotWrite(snapshot); err != nil {
 		return nil, err
 	}
 	doc, err := canonicalSnapshotDocument(snapshot, capabilitySnapshotKey(snapshot.Token))
@@ -150,6 +150,7 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 		"authorizationScopeDigest": identity.AuthorizationScopeDigest,
 		"cacheVersion":             identity.CacheVersion,
 		"schemaDigest":             identity.SchemaDigest,
+		"shapeDigest":              identity.ShapeDigest,
 		"resourceInventoryDigest":  identity.ResourceInventoryDigest,
 		"relationshipDigest":       identity.RelationshipDigest,
 		"fieldDigest":              identity.FieldDigest,
@@ -157,11 +158,13 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 		"compilerVersion":          identity.CompilerVersion,
 		"traversalPolicyVersion":   identity.TraversalPolicyVersion,
 		"projectionPolicyVersion":  identity.ProjectionPolicyVersion,
-		"statuses":                 []string{string(capability.StatusReady), string(capability.StatusBuilding), string(capability.StatusFailed)},
 	}, func(row map[string]any) error {
 		value, err := decode[capability.Snapshot](row)
 		if err == nil {
 			err = capability.ValidateSnapshot(value)
+		}
+		if err == nil && (value.Identity != identity || !value.Usable()) {
+			return fmt.Errorf("%w: cache lookup returned a different or unusable identity", capability.ErrInvalidSnapshot)
 		}
 		if err == nil {
 			value = value.Clone()
@@ -214,6 +217,7 @@ FOR d IN @@c
     AND d.identity.authorizationScopeDigest == @authorizationScopeDigest
     AND NOT_NULL(d.identity.cacheVersion, "") == @cacheVersion
 		AND d.identity.schemaDigest == @schemaDigest
+    AND NOT_NULL(d.identity.shapeDigest, "") == @shapeDigest
 		AND d.identity.resourceInventoryDigest == @resourceInventoryDigest
 		AND d.identity.relationshipDigest == @relationshipDigest
     AND d.identity.fieldDigest == @fieldDigest
@@ -221,8 +225,8 @@ FOR d IN @@c
     AND d.identity.compilerVersion == @compilerVersion
     AND d.identity.traversalPolicyVersion == @traversalPolicyVersion
     AND d.identity.projectionPolicyVersion == @projectionPolicyVersion
-    AND d.status IN @statuses
-SORT d.status == "READY" DESC, d.token
+    AND d.status == "READY" AND d.complete == true AND d.truncated == false
+SORT d.token
 LIMIT 1
 RETURN d
 `

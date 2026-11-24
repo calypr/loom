@@ -20,11 +20,13 @@ import (
 	"github.com/arangodb/go-driver/v2/connection"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/releasecommit"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	"github.com/calypr/loom/internal/semantic/backfill"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -615,7 +617,7 @@ func activateStagedGeneration(ctx context.Context, connection arangostore.Connec
 	if err != nil {
 		return err
 	}
-	return lifecycle.Activate(ctx, manifest)
+	return releasecommit.ActivateGeneration(ctx, client, lifecycle, manifest)
 }
 
 type semanticInventoryBackfillCommand struct {
@@ -712,9 +714,9 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	return opts, connection, nil
 }
 
-func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (fieldprofile.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
+func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (fieldcatalog.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-fields", errorHandling)
-	opts := fieldprofile.PopulatedFieldOptions{}
+	opts := fieldcatalog.PopulatedFieldOptions{}
 	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
@@ -724,7 +726,7 @@ func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorH
 	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return fieldprofile.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
+		return fieldcatalog.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
 	}
 	return opts, connection, nil
 }

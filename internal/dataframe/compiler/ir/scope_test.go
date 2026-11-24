@@ -1,6 +1,7 @@
 package ir_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,20 +9,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func physicalPathEquals(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func isProjectScopePredicate(predicate ir.PhysicalPredicate, variable string) bool {
-	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && physicalPathEquals(predicate.Left.Path, []string{"project"}) && predicate.Right != nil && predicate.Right.BindKey == "project"
+	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && slices.Equal(predicate.Left.Path, []string{"project"}) && predicate.Right != nil && predicate.Right.BindKey == "project"
 }
 
 func isScopeAllowedPredicate(predicate ir.PhysicalPredicate, variable string) bool {
@@ -44,14 +33,14 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 		{
 			name: "missing root project filter",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				removePhysicalOperation(plan, findProjectFilter(t, *plan, "root"))
+				removePhysicalOperation(plan, findScopeFilter(t, *plan, "root", isProjectScopePredicate))
 			},
 			want: "project scope filter root.project == @project",
 		},
 		{
 			name: "misbound root project filter",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				index := findProjectFilter(t, *plan, "root")
+				index := findScopeFilter(t, *plan, "root", isProjectScopePredicate)
 				plan.Operations[index].Filter.Predicate.Right = &ir.PhysicalValue{BindKey: "scope_allowed"}
 			},
 			want: "project scope filter at operation",
@@ -59,14 +48,14 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 		{
 			name: "missing traversal target project filter",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				removePhysicalOperation(plan, findProjectFilter(t, *plan, "node_1"))
+				removePhysicalOperation(plan, findScopeFilter(t, *plan, "node_1", isProjectScopePredicate))
 			},
 			want: "project scope filter node_1.project == @project",
 		},
 		{
 			name: "project scope reordered after auth let",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				projectIndex := findProjectFilter(t, *plan, "root")
+				projectIndex := findScopeFilter(t, *plan, "root", isProjectScopePredicate)
 				authIndex := findTestAuthScopeLet(t, *plan, "root_scope_allowed")
 				plan.Operations[projectIndex], plan.Operations[authIndex] = plan.Operations[authIndex], plan.Operations[projectIndex]
 			},
@@ -76,7 +65,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 			name: "missing root auth scope",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				authLet := findTestAuthScopeLet(t, *plan, "root_scope_allowed")
-				authEquality := findTestAuthScopeEquality(t, *plan, "root_scope_allowed")
+				authEquality := findScopeFilter(t, *plan, "root_scope_allowed", isScopeAllowedPredicate)
 				removePhysicalOperation(plan, authEquality)
 				removePhysicalOperation(plan, authLet)
 			},
@@ -85,7 +74,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 		{
 			name: "misbound root auth allowed marker",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				index := findTestAuthScopeEquality(t, *plan, "root_scope_allowed")
+				index := findScopeFilter(t, *plan, "root_scope_allowed", isScopeAllowedPredicate)
 				plan.Operations[index].Filter.Predicate.Right = &ir.PhysicalValue{BindKey: "project"}
 			},
 			want: "auth scope equality",
@@ -97,7 +86,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 				inputs := plan.Operations[index].DerivedLet.Inputs
 				filtered := inputs[:0]
 				for _, input := range inputs {
-					if input.Variable == "node_1" && physicalPathEquals(input.Path, []string{"auth_resource_path"}) {
+					if input.Variable == "node_1" && slices.Equal(input.Path, []string{"auth_resource_path"}) {
 						continue
 					}
 					filtered = append(filtered, input)
@@ -110,7 +99,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 			name: "auth equality reordered before its let",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				authLet := findTestAuthScopeLet(t, *plan, "root_scope_allowed")
-				authEquality := findTestAuthScopeEquality(t, *plan, "root_scope_allowed")
+				authEquality := findScopeFilter(t, *plan, "root_scope_allowed", isScopeAllowedPredicate)
 				plan.Operations[authLet], plan.Operations[authEquality] = plan.Operations[authEquality], plan.Operations[authLet]
 			},
 			want: "validate physical plan before verifying generic scope",
@@ -145,14 +134,14 @@ func genericScopePhysicalPlan(t *testing.T) ir.PhysicalPlan {
 	return plan
 }
 
-func findProjectFilter(t *testing.T, plan ir.PhysicalPlan, variable string) int {
+func findScopeFilter(t *testing.T, plan ir.PhysicalPlan, variable string, matches func(ir.PhysicalPredicate, string) bool) int {
 	t.Helper()
 	for index, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalFilterOp && isProjectScopePredicate(operation.Filter.Predicate, variable) {
+		if operation.Kind == ir.PhysicalFilterOp && matches(operation.Filter.Predicate, variable) {
 			return index
 		}
 	}
-	t.Fatalf("project scope filter for %q not found", variable)
+	t.Fatalf("scope filter for %q not found", variable)
 	return 0
 }
 
@@ -164,17 +153,6 @@ func findTestAuthScopeLet(t *testing.T, plan ir.PhysicalPlan, variable string) i
 		}
 	}
 	t.Fatalf("auth scope LET %q not found", variable)
-	return 0
-}
-
-func findTestAuthScopeEquality(t *testing.T, plan ir.PhysicalPlan, variable string) int {
-	t.Helper()
-	for index, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalFilterOp && isScopeAllowedPredicate(operation.Filter.Predicate, variable) {
-			return index
-		}
-	}
-	t.Fatalf("auth scope equality for %q not found", variable)
 	return 0
 }
 

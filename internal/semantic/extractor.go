@@ -80,11 +80,6 @@ func (e *Extractor) Extract(index *schema.Index, resourceType string, payload ma
 	return run.observeSchemaSemanticsFromFacts(payload, facts)
 }
 
-func ExtractFacts(resourceType, profile string, payload map[string]any, facts []MemberFact, record func(Record)) error {
-	run := semanticObservationRun{resourceType: resourceType, profile: profile, scratch: &semanticWalkScratch{}, record: record}
-	return run.observeSchemaSemanticsFromFacts(payload, facts)
-}
-
 func (enumerator semanticFactEnumerator) collectFacts(
 	index *schema.Index,
 	payload map[string]any,
@@ -184,7 +179,7 @@ func (run *semanticObservationRun) observeSchemaSemanticsFromFacts(
 			continue
 		}
 		if url, ok := directSemanticFact(scope, "url"); ok {
-			extensionURLs[scope.ownerPath] = stringValue(url.Value)
+			extensionURLs[scope.ownerPath] = StringValue(url.Value)
 		}
 	}
 
@@ -268,8 +263,8 @@ func (scratch *semanticWalkScratch) resetScopes() {
 }
 
 func (run *semanticObservationRun) emitStandaloneCodingScope(scope *semanticScope) {
-	system := stringValue(scope.value["system"])
-	code := stringValue(scope.value["code"])
+	system := StringValue(scope.value["system"])
+	code := StringValue(scope.value["code"])
 	if strings.TrimSpace(system) == "" || strings.TrimSpace(code) == "" {
 		return
 	}
@@ -281,7 +276,7 @@ func (run *semanticObservationRun) emitStandaloneCodingScope(scope *semanticScop
 	}
 	valuePath := appendSemanticPath(keyPath, "display")
 	fallbackPath := appendSemanticPath(keyPath, "code")
-	display := stringValue(scope.value["display"])
+	display := StringValue(scope.value["display"])
 	example := display
 	if strings.TrimSpace(example) == "" {
 		example = code
@@ -297,7 +292,7 @@ func (run *semanticObservationRun) emitStandaloneCodingScope(scope *semanticScop
 		Key: Key{
 			Selector: keyPath,
 			System:   system,
-			Version:  stringValue(scope.value["version"]),
+			Version:  StringValue(scope.value["version"]),
 			Code:     code,
 			Display:  display,
 		},
@@ -367,8 +362,8 @@ func (run *semanticObservationRun) emitIdentifierScope(
 	}
 	value := semanticUseJSONNumber(valueFact.Value)
 	keyFact, _ := directSemanticFact(scope, association.keyMember)
-	system := stringValue(keyFact.Value)
-	logicalType := semanticGeneratedValueType(run.resourceType, valueFact.CanonicalPath, value, semanticValueType(value))
+	system := StringValue(keyFact.Value)
+	logicalType := semanticGeneratedValueType(run.resourceType, valueFact.CanonicalPath, semanticValueType(value))
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion,
 		Source: Source{
@@ -411,7 +406,7 @@ func (run *semanticObservationRun) emitExtensionScope(
 	if !ok {
 		return
 	}
-	url := stringValue(keyFact.Value)
+	url := StringValue(keyFact.Value)
 	if strings.TrimSpace(url) == "" {
 		return
 	}
@@ -523,12 +518,12 @@ func (run *semanticObservationRun) emitSchemaCodedValue(
 	key := Key{Selector: appendSemanticPath(conceptPath, "coding[]")}
 	if coding == nil {
 		key.Selector = appendSemanticPath(conceptPath, "text")
-		key.Display = stringValue(concept["text"])
+		key.Display = StringValue(concept["text"])
 	} else {
-		key.System = stringValue(coding["system"])
-		key.Version = stringValue(coding["version"])
-		key.Code = stringValue(coding["code"])
-		key.Display = stringValue(coding["display"])
+		key.System = StringValue(coding["system"])
+		key.Version = StringValue(coding["version"])
+		key.Code = StringValue(coding["code"])
+		key.Display = StringValue(coding["display"])
 	}
 	status := value.Status
 	if status == "" || status == "SUPPORTED" {
@@ -602,7 +597,7 @@ func semanticUseJSONNumber(value any) any {
 func semanticChoiceValueFromFact(resourceType string, fact *MemberFact) (semanticChoiceValue, bool) {
 	value := semanticUseJSONNumber(fact.Value)
 	selector := fact.Element.Name
-	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, value, semanticValueType(value))
+	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, semanticValueType(value))
 	status := "SUPPORTED"
 	var fallbackSelectors []string
 	fallbackOnBlankString := false
@@ -610,7 +605,7 @@ func semanticChoiceValueFromFact(resourceType string, fact *MemberFact) (semanti
 		projection, projected := semanticValueProjectionAssociations[fact.ReferencedType]
 		if projected {
 			selector = appendSemanticPath(selector, projection.selector)
-			valueType = semanticGeneratedValueType(resourceType, appendSemanticPath(fact.CanonicalPath, projection.selector), value, projection.logicalType)
+			valueType = semanticGeneratedValueType(resourceType, appendSemanticPath(fact.CanonicalPath, projection.selector), projection.logicalType)
 			status = semanticProjectionStatusWithFallback(object, projection.selector, projection.fallbackSelectors, projection.fallbackOnBlankString)
 			fallbackSelectors = prefixSemanticPaths(fact.Element.Name, projection.fallbackSelectors)
 			fallbackOnBlankString = projection.fallbackOnBlankString

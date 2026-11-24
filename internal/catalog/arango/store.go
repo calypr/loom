@@ -1,25 +1,22 @@
 package arango
 
 import (
-	"context"
 	"fmt"
 
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-type client interface {
-	store.RowQueryer
-	store.BatchInserter
-	store.AQLExecutor
-	CollectionExists(context.Context, string) (bool, error)
-	Bootstrap(context.Context, store.BootstrapSpec) error
+type FieldStore struct {
+	client store.CollectionBootstrapClient
 }
 
-type FieldStore struct{ client client }
+type RelationshipStore struct {
+	client store.CollectionBootstrapClient
+}
 
-type RelationshipStore struct{ client client }
-
-type ResourceStore struct{ client client }
+type ResourceStore struct {
+	client store.CollectionBootstrapClient
+}
 
 type Store struct {
 	FieldStore
@@ -27,7 +24,7 @@ type Store struct {
 	ResourceStore
 }
 
-func New(client client) (*Store, error) {
+func New(client store.CollectionBootstrapClient) (*Store, error) {
 	if client == nil {
 		return nil, fmt.Errorf("catalog Arango client is required")
 	}

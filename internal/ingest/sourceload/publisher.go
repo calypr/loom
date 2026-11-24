@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
-	dataset "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/lease"
 	"github.com/calypr/loom/internal/semantic"
-	semanticarango "github.com/calypr/loom/internal/semantic/arango"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operationID string) (SourcePublishReceipt, error) {
@@ -28,18 +30,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	if record.State == SourceLoadSuperseded {
 		return SourcePublishReceipt{}, &SourcePublishConflictError{Reason: "a newer project release superseded this source load"}
 	}
-	if !record.CopyComplete || len(record.Receipts) != len(record.Plan.Files) {
-		return SourcePublishReceipt{}, ErrSourceLoadIncomplete
-	}
-	manifest := SourceManifest{Repository: record.Plan.Repository, Commit: record.Plan.Commit}
-	for _, planned := range record.Plan.Files {
-		accepted, ok := record.Receipts[planned.Path]
-		if !ok || accepted.State != "READY" || accepted.Path != planned.Path {
-			return SourcePublishReceipt{}, ErrSourceLoadIncomplete
-		}
-		manifest.Files = append(manifest.Files, SourceFile{Path: planned.Path, SHA256: accepted.SHA256})
-	}
-	manifestHash, err := SourceManifestHash(manifest)
+	manifestHash, err := plannedSourceManifestHash(record)
 	if err != nil {
 		return SourcePublishReceipt{}, err
 	}
@@ -61,67 +52,84 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		}
 		return SourcePublishReceipt{}, ErrSourceLoadInProgress
 	}
+	record.ManifestHash = manifestHash
 	defer p.releaseSourceLoadPublication(record.Key, owner)
 	workCtx, stopLease := p.renewSourceLoadPublication(ctx, record.Key, owner)
 	defer stopLease()
-	ref, err := dataset.NewRef(project, record.Generation)
-	if err != nil {
-		return SourcePublishReceipt{}, err
-	}
-	candidate, err := p.datasets.ReadManifest(workCtx, ref)
-	if err != nil {
-		return SourcePublishReceipt{}, err
-	}
 	finalizeStarted := time.Now()
-	if candidate.State == dataset.StateLoading {
-		totalRows, err := p.finalizeSourceLoadCandidate(workCtx, record)
-		if err != nil {
-			return SourcePublishReceipt{}, err
-		}
-		inventory, err := semanticarango.New(p.client)
-		if err != nil {
-			return SourcePublishReceipt{}, err
-		}
-		build := semantic.NewBuild(project, record.Generation, record.Plan.AuthResourcePath)
-		if err := inventory.CompleteSemanticInventoryBuild(workCtx, build, totalRows, ""); err != nil {
-			return SourcePublishReceipt{}, fmt.Errorf("complete candidate semantic inventory: %w", err)
-		}
-		if _, err := p.datasets.TransitionManifest(workCtx, candidate, dataset.StateStaged); err != nil {
-			return SourcePublishReceipt{}, err
-		}
-	} else if !candidate.IsStaged() {
-		return SourcePublishReceipt{}, fmt.Errorf("candidate generation is not loadable or staged")
+	if err := p.stageSourceLoad(workCtx, record); err != nil {
+		return SourcePublishReceipt{}, err
 	}
 	if err := p.prepareLegacySourceLoadActivation(workCtx, record); err != nil {
 		return SourcePublishReceipt{}, err
 	}
 	materializeStarted := time.Now()
-	executionID, revision, err := p.materialize(workCtx, project, record.Generation, operationID, record.Plan.Commit, record.BaseRevision)
+	err = p.materialize(workCtx, PublicationAttempt{
+		Project: project, Generation: record.Generation, OperationID: operationID,
+		GitCommit: record.Plan.Commit, ExpectedRevision: record.BaseRevision, record: record, owner: owner,
+	})
+	latest, found, readErr := p.readSourceLoad(ctx, record.Key)
+	if readErr == nil && found && latest.State == SourceLoadPublished {
+		slog.InfoContext(ctx, "source load published", "operation_id", operationID, "execution_id", latest.ExecutionID,
+			"finalize_and_prepare_ms", materializeStarted.Sub(finalizeStarted).Milliseconds(),
+			"materialize_and_activate_ms", time.Since(materializeStarted).Milliseconds())
+		return sourceLoadPublicationReceipt(latest, err != nil), nil
+	}
+	if errors.Is(err, dataset.ErrReleaseActivationConflict) {
+		_ = p.supersedeSourceLoad(workCtx, record.Key, owner)
+		return SourcePublishReceipt{}, &SourcePublishConflictError{Reason: "project release changed while this source load was publishing"}
+	}
 	if err != nil {
-		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
-			_ = p.supersedeSourceLoad(workCtx, record.Key, owner)
-			return SourcePublishReceipt{}, &SourcePublishConflictError{Reason: "project release changed while this source load was publishing"}
-		}
 		return SourcePublishReceipt{}, err
 	}
-	materialized := time.Now()
-	if executionID == "" || revision <= record.BaseRevision {
-		return SourcePublishReceipt{}, fmt.Errorf("source load publication returned an invalid release receipt")
+	if readErr != nil {
+		return SourcePublishReceipt{}, readErr
 	}
-	record.ExecutionID, record.SourceRevision, record.ManifestHash, record.State = executionID, revision, manifestHash, SourceLoadPublished
-	if err := p.completeSourceLoadPublication(workCtx, record, owner); err != nil {
+	return SourcePublishReceipt{}, fmt.Errorf("publication transaction did not complete the source load receipt")
+}
 
-		latest, found, readErr := p.readSourceLoad(ctx, record.Key)
-		if readErr == nil && found && latest.State == SourceLoadPublished {
-			return sourceLoadPublicationReceipt(latest, true), nil
-		}
-		return SourcePublishReceipt{}, err
+func plannedSourceManifestHash(record sourceLoadRecord) (string, error) {
+	if !record.CopyComplete || len(record.Receipts) != len(record.Plan.Files) {
+		return "", ErrSourceLoadIncomplete
 	}
-	slog.InfoContext(ctx, "source load published", "operation_id", operationID, "execution_id", executionID,
-		"finalize_and_prepare_ms", materializeStarted.Sub(finalizeStarted).Milliseconds(),
-		"materialize_and_activate_ms", materialized.Sub(materializeStarted).Milliseconds(),
-		"complete_ms", time.Since(materialized).Milliseconds())
-	return sourceLoadPublicationReceipt(record, false), nil
+	manifest := SourceManifest{Repository: record.Plan.Repository, Commit: record.Plan.Commit}
+	for _, planned := range record.Plan.Files {
+		accepted, ok := record.Receipts[planned.Path]
+		if !ok || accepted.State != SourceFileReady || accepted.Path != planned.Path {
+			return "", ErrSourceLoadIncomplete
+		}
+		manifest.Files = append(manifest.Files, SourceFile{Path: planned.Path, SHA256: accepted.SHA256})
+	}
+	return SourceManifestHash(manifest)
+}
+
+func (p *RepositorySourceLoader) stageSourceLoad(ctx context.Context, record sourceLoadRecord) error {
+	ref, err := dataset.NewRef(record.Project, record.Generation)
+	if err != nil {
+		return err
+	}
+	candidate, err := p.datasets.ReadManifest(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if candidate.IsStaged() {
+		return nil
+	}
+	if candidate.State != dataset.StateLoading {
+		return fmt.Errorf("candidate generation is not loadable or staged")
+	}
+	totalRows, err := p.finalizeSourceLoadCandidate(ctx, record)
+	if err != nil {
+		return err
+	}
+	build := semantic.NewBuild(record.Project, record.Generation, record.Plan.AuthResourcePath)
+	_, err = generation.StageManifest(ctx, p.datasets, candidate, func() error {
+		if err := p.inventory.CompleteSemanticInventoryBuild(ctx, build, totalRows, ""); err != nil {
+			return fmt.Errorf("complete candidate semantic inventory: %w", err)
+		}
+		return nil
+	})
+	return err
 }
 
 func (p *RepositorySourceLoader) claimSourceLoadPublication(ctx context.Context, key, owner, manifestHash string) (bool, error) {
@@ -136,41 +144,35 @@ RETURN {claimed:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key":
 }
 
 func (p *RepositorySourceLoader) renewSourceLoadPublication(parent context.Context, key, owner string) (context.Context, func()) {
-	ctx, cancel := context.WithCancelCause(parent)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				updated := false
-				err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
+	renewal := lease.StartRenewal(parent, 30*time.Second, func(ctx context.Context) error {
+		updated := false
+		err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
 FILTER record != null AND record.state == @pending AND record.publish_owner == @owner AND record.publish_expires_at >= DATE_NOW()
 UPDATE record WITH {publish_expires_at:DATE_NOW()+@ttl} IN @@loads RETURN {updated:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key": key, "owner": owner, "ttl": sourceLoadClaimMillis, "pending": SourceLoadPublishPending}, func(row map[string]any) error { updated, _ = row["updated"].(bool); return nil })
-				if err != nil {
-					cancel(err)
-					return
-				}
-				if !updated {
-					cancel(&SourcePublishConflictError{Reason: "source load publication lease was lost"})
-					return
-				}
-			}
+		if err != nil {
+			return err
 		}
-	}()
-	return ctx, func() { cancel(nil); <-done }
+		if !updated {
+			return &SourcePublishConflictError{Reason: "source load publication lease was lost"}
+		}
+		return nil
+	})
+	return renewal.Context(), func() { renewal.Stop(nil) }
 }
 
-func (p *RepositorySourceLoader) completeSourceLoadPublication(ctx context.Context, record sourceLoadRecord, owner string) error {
+func (attempt PublicationAttempt) PublicationCollection() string {
+	return sourceLoadCollection
+}
+
+func (attempt PublicationAttempt) CompletePublication(ctx context.Context, tx arangostore.RowQueryer, executionID string, revision int64) error {
+	if executionID == "" || revision <= attempt.record.BaseRevision {
+		return fmt.Errorf("source load publication returned an invalid release receipt")
+	}
 	updated := false
-	err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
+	err := tx.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
 FILTER record != null AND record.state == @pending AND record.publish_owner == @owner AND record.publish_expires_at >= DATE_NOW()
 UPDATE record WITH {state:@published,execution_id:@execution,source_revision:@revision,manifest_hash:@hash,publish_owner:null,publish_expires_at:0,updated_at:@now} IN @@loads
-RETURN {updated:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key": record.Key, "owner": owner, "pending": SourceLoadPublishPending, "published": SourceLoadPublished, "execution": record.ExecutionID, "revision": record.SourceRevision, "hash": record.ManifestHash, "now": time.Now().UTC()}, func(row map[string]any) error { updated, _ = row["updated"].(bool); return nil })
+RETURN {updated:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key": attempt.record.Key, "owner": attempt.owner, "pending": SourceLoadPublishPending, "published": SourceLoadPublished, "execution": executionID, "revision": revision, "hash": attempt.record.ManifestHash, "now": time.Now().UTC()}, func(row map[string]any) error { updated, _ = row["updated"].(bool); return nil })
 	if err != nil {
 		return err
 	}

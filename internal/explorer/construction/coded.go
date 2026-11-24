@@ -187,7 +187,7 @@ func (s *Service) resolveCodedPivotCategoryChoice(
 		!semanticEntryMatchesFrameFamily(entry, frame.Family) {
 		return semantic.Entry{}, capability.Candidate{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the selected category is no longer a versionless member of this coded family", nil)
 	}
-	candidate, ok := semanticConstructionCandidate(base.Snapshot, observation)
+	candidate, ok := capability.SemanticConstructionCandidate(base.Snapshot, observation)
 	if !ok || candidate.ID != source.CandidateID || candidate.NodeID != source.NodeID || candidate.FieldPath != source.FieldPath ||
 		candidate.ID != frameIdentityCandidateID(frameIdentity) {
 		return semantic.Entry{}, capability.Candidate{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected category no longer matches its compiler-proved value field", nil, nil)
@@ -196,8 +196,8 @@ func (s *Service) resolveCodedPivotCategoryChoice(
 	if err != nil || identity.SemanticContextToken != contextToken {
 		return semantic.Entry{}, capability.Candidate{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload coded categories for the current table root", nil, err)
 	}
-	expected, err := semanticInventoryConstructionChoiceForRoute(base.Snapshot, contextToken, identity.BuildID, route, entry, candidate, false)
-	if err != nil || !constructionChoiceIdentityMatches(expected, choiceID, identity) || !reflect.DeepEqual(expected.Source, source) {
+	expected, err := capability.SemanticConstructionChoiceForRoute(base.Snapshot, contextToken, identity.BuildID, route, entry, candidate, false)
+	if err != nil || !capability.ConstructionChoiceIdentityMatches(expected, choiceID, identity) || !reflect.DeepEqual(expected.Source, source) {
 		return semantic.Entry{}, capability.Candidate{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the coded category token does not match current semantic inventory evidence", err)
 	}
 	return entry, candidate, nil

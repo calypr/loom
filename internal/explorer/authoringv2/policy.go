@@ -6,11 +6,10 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-type resolvedColumnPolicy struct{ columnID, projectionMode string }
-
-func applyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if command.resolvedColumnPolicy == nil {
+	policy, ok := resolution.(ColumnPolicyResolution)
+	if !ok {
 		return result, fmt.Errorf("column policy requires a lifecycle-resolved proposal")
 	}
 	pos := documentIndex(workspace, command.OutputID)
@@ -23,7 +22,7 @@ func applyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapsh
 	}
 	var target *ws.Column
 	for i := range document.Columns {
-		if document.Columns[i].ColumnID != command.resolvedColumnPolicy.columnID {
+		if document.Columns[i].ColumnID != policy.ColumnID {
 			continue
 		}
 		if target != nil {
@@ -39,7 +38,7 @@ func applyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapsh
 	}
 	source := target.Source
 	field := *source.Field
-	field.ProjectionMode = command.resolvedColumnPolicy.projectionMode
+	field.ProjectionMode = policy.ProjectionMode
 	source.Field = &field
-	return applyCommand(workspace, catalog, commandID, index, Command{Type: CommandUpdateColumnSource, OutputID: command.OutputID, Payload: &ColumnPayload{Column: target.Column, Source: &source}})
+	return applyCommand(workspace, catalog, commandID, index, Command{Type: CommandUpdateColumnSource, OutputID: command.OutputID, Payload: &ColumnPayload{Column: target.Column, Source: &source}}, nil)
 }

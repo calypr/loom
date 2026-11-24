@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/importedsource"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/projectid"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
@@ -24,29 +26,29 @@ import (
 
 type RuntimeConfig struct {
 	Engine                  *dataframeexecution.Engine
-	Explorers               *explorer.Service
+	Receipts                explorer.CompilationReceiptStore
 	CapabilityResolver      *capabilityresolver.Resolver
 	Logger                  *slog.Logger
 	CombineInputSchemas     CombineInputSchemaResolver
-	ImportedSources         ImportedRecipeResolver
+	ImportedSources         *importedsource.Sources
 	ConstructionSourceStage ports.ConstructionSourceStageCompiler
 	Materializer            ports.ReceiptMaterializer
 }
 
 type Runtime struct {
 	engine                  *dataframeexecution.Engine
-	explorers               *explorer.Service
+	receipts                explorer.CompilationReceiptStore
 	capabilities            *capabilityresolver.Resolver
 	logger                  *slog.Logger
 	combineInputSchemas     CombineInputSchemaResolver
-	importedSources         ImportedRecipeResolver
+	importedSources         *importedsource.Sources
 	constructionSourceStage ports.ConstructionSourceStageCompiler
 	materializer            ports.ReceiptMaterializer
 }
 
 func NewRuntime(config RuntimeConfig) Runtime {
 	return Runtime{
-		engine: config.Engine, explorers: config.Explorers,
+		engine: config.Engine, receipts: config.Receipts,
 		capabilities: config.CapabilityResolver, logger: config.Logger,
 		combineInputSchemas: config.CombineInputSchemas,
 		importedSources:     config.ImportedSources, materializer: config.Materializer,
@@ -55,7 +57,7 @@ func NewRuntime(config RuntimeConfig) Runtime {
 }
 
 func (r Runtime) CompileReceipt(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-	return Compile(ctx, request, r.capabilities, r.engine, r.explorers, r.logger, r.combineInputSchemas, r.importedSources)
+	return Compile(ctx, request, r.capabilities, r.engine, r.receipts, r.logger, r.combineInputSchemas, r.importedSources)
 }
 
 func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
@@ -66,7 +68,7 @@ func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.Cons
 }
 
 func (r Runtime) ReceiptLookup(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-	return r.explorers.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+	return r.receipts.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, receiptID)
 }
 
 func (r Runtime) PreviewReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -161,15 +163,15 @@ func (r Runtime) PopulationMapping(ctx context.Context, receipt *receiptmodel.Co
 		r.logger.Error("Explorer receipt population mapping resolution failed", "receipt_id", receipt.ID, "error", err)
 		return dataframeexecution.PopulationMappingResult{}, ClassifyPreviewResolutionError(receipt.ID, err)
 	}
-	reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+	visitMembers := func(_ context.Context, visit func(string) error) error {
 		for _, id := range memberIDs {
 			if err := visit(id); err != nil {
 				return err
 			}
 		}
 		return nil
-	})
-	return r.engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
+	}
+	return r.engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, visitMembers)
 }
 
 func (r Runtime) CellTrace(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {

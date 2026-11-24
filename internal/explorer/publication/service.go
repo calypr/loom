@@ -15,12 +15,17 @@ import (
 )
 
 type GenerationValidator func(context.Context, string, string) error
-type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
 type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
 type Config struct {
 	Core                       *authoringcore.Core
-	Store                      *explorer.Service
+	ExplorerStore              explorer.ExplorerOwnerStore
+	DraftStore                 explorer.DraftStore
+	Revisions                  explorer.RevisionReader
+	RevisionWriter             explorer.RevisionWriter
+	Receipts                   explorer.CompilationReceiptStore
+	AuthoringPublisher         explorer.AuthoringPublisher
+	RepositoryActivator        explorer.RepositoryGenerationActivator
 	Capability                 ports.CapabilityResolver
 	SelectionMembersCollection string
 	CompileReceipt             ports.ReceiptCompiler
@@ -31,7 +36,7 @@ type Config struct {
 	ArtifactMaxRows            int64
 	ArtifactMaxBytes           int64
 	ValidateReleaseGeneration  GenerationValidator
-	ActivateRelease            ReleaseActivator
+	PrepareRepositoryRelease   ReleasePreparer
 	PrepareRelease             ReleasePreparer
 	PersistPublishedWorkspace  func(context.Context, string, string, []byte) error
 	Now                        func() time.Time
@@ -39,20 +44,19 @@ type Config struct {
 
 type Service struct {
 	core   *authoringcore.Core
-	store  *explorer.Service
 	config Config
 	now    func() time.Time
 }
 
 func NewService(config Config) (*Service, error) {
-	if config.Core == nil || config.Store == nil {
-		return nil, fmt.Errorf("authoring core and Explorer store are required")
+	if config.Core == nil || config.RevisionWriter == nil {
+		return nil, fmt.Errorf("authoring core and revision writer are required")
 	}
 	now := config.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Service{core: config.Core, store: config.Store, config: config, now: now}, nil
+	return &Service{core: config.Core, config: config, now: now}, nil
 }
 
 type PublishRequest struct {

@@ -2,10 +2,7 @@ package lifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -13,33 +10,17 @@ import (
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
-	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func cloneLifecycleTestConstruction(t *testing.T, construction ws.Construction) ws.Construction {
-	t.Helper()
-	raw, err := json.Marshal(construction)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var clone ws.Construction
-	if err := json.Unmarshal(raw, &clone); err != nil {
-		t.Fatal(err)
-	}
-	return clone
+	return constructionfixtures.CloneJSON(t, construction)
 }
 
 func constructionWithoutStep(construction ws.Construction, stepID string) ws.Construction {
-	candidate := construction
-	candidate.Steps = make([]ws.ConstructionStep, 0, len(construction.Steps)-1)
-	for _, step := range construction.Steps {
-		if step.ID != stepID {
-			candidate.Steps = append(candidate.Steps, step)
-		}
-	}
-	return candidate
+	return constructionfixtures.ConstructionWithoutStep(construction, stepID)
 }
 
 func constructionStepIDs(steps []ws.ConstructionStep) []string {
@@ -48,18 +29,6 @@ func constructionStepIDs(steps []ws.ConstructionStep) []string {
 		ids = append(ids, step.ID)
 	}
 	return ids
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func seedRelatedExpandRemovalConstruction(t *testing.T, store *fakeStore) (ws.Workspace, ws.Construction) {
@@ -137,105 +106,11 @@ func seedRelatedExpandRemovalConstruction(t *testing.T, store *fakeStore) (ws.Wo
 }
 
 func relatedExpandRemovalTestStages(t *testing.T, workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
-	t.Helper()
-	stages := testConstructionStageDescriptors(workspace, outputID)
-	index := constructionDocumentIndex(workspace, outputID)
-	if index < 0 || workspace.Documents[index].Construction == nil {
-		t.Fatal("related expansion test workspace has no construction")
-	}
-	rootAnchor := stages[0].RelatedExpandAnchors[0]
-	var active *receiptmodel.ReceiptConstructionActiveRelatedRecord
-	for stepIndex, step := range workspace.Documents[index].Construction.Steps {
-		related := step.Operation.RelatedExpand
-		if related == nil {
-			if step.Operation.Kind != ws.ConstructionOperationFilter &&
-				step.Operation.Kind != ws.ConstructionOperationDerive &&
-				step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
-				step.Operation.Kind != ws.ConstructionOperationRelatedField {
-				active = nil
-			}
-			if active != nil {
-				stage := &stages[stepIndex+1]
-				stage.ActiveRelatedRecord = active
-				stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-					rootAnchor,
-					{AnchorColumnID: active.TerminalIdentityColumn, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related " + active.TargetResourceType},
-				}
-			}
-			continue
-		}
-		stage := &stages[stepIndex+1]
-		anchorKind, anchorNodeID, anchorResourceType := "root", related.Route[0].FromNodeID, related.Route[0].FromResourceType
-		if related.AnchorColumnID != "_key" {
-			if active == nil || active.TerminalIdentityColumn != related.AnchorColumnID {
-				t.Fatalf("step %q anchor %q does not match its prior active identity", step.ID, related.AnchorColumnID)
-			}
-			anchorKind, anchorNodeID, anchorResourceType = "activeRelatedRecord", active.TargetNodeID, active.TargetResourceType
-		}
-		terminalColumnID := "test_terminal_identity_" + step.ID
-		stage.RelatedExpand.AnchorColumnID = related.AnchorColumnID
-		stage.RelatedExpand.AnchorColumn = related.AnchorColumnID
-		stage.RelatedExpand.AnchorKind = anchorKind
-		stage.RelatedExpand.AnchorNodeID = anchorNodeID
-		stage.RelatedExpand.AnchorResourceType = anchorResourceType
-		stage.RelatedExpand.TerminalIdentityColumn = terminalColumnID
-		active = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-			TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
-			TerminalIdentityColumn: terminalColumnID,
-		}
-		stage.ActiveRelatedRecord = active
-		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-			rootAnchor,
-			{AnchorColumnID: terminalColumnID, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related " + active.TargetResourceType},
-		}
-	}
-	return stages
-}
-
-type lifecycleConstructionColumn struct {
-	name, label, logical string
-	nullable             bool
-	construction         string
+	return constructionfixtures.RelatedExpandRemovalStages(t, workspace, outputID)
 }
 
 func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace ws.Workspace) *receiptmodel.CompilationReceipt {
-	receipt := nativeReceipt(snapshot)
-	receipt.IntentDigest, _ = workspace.Digest()
-	receipt.NormalizedBundle, _ = workspace.CanonicalJSON()
-	columns := []lifecycleConstructionColumn{
-		{name: "patient_id", label: "Patient ID", logical: "string"},
-		{name: "category", label: "Category", logical: "string", nullable: true},
-		{name: "value", label: "Value", logical: "decimal", nullable: true},
-		{name: "value_alt", label: "Alternate value", logical: "decimal"},
-		{name: "category_number", label: "Numeric category", logical: "integer"},
-		{name: "category_boolean", label: "Boolean category", logical: "boolean"},
-		{name: "text_value", label: "Text value", logical: "string"},
-		{name: "overflow", label: "Overflow category", logical: "string"},
-	}
-	public := receiptmodel.PublicOutputContract{OutputID: "patients", Columns: make([]receiptmodel.PublicOutputColumn, 0, len(columns))}
-	receipt.EmittedColumns = make([]viewer.EmittedColumn, 0, len(columns))
-	provenance := make(map[string]string, len(columns))
-	for index, column := range columns {
-		constructionID := column.construction
-		public.Columns = append(public.Columns, receiptmodel.PublicOutputColumn{
-			Column: column.name, ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
-			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
-		})
-		receipt.EmittedColumns = append(receipt.EmittedColumns, viewer.EmittedColumn{
-			EmissionID: fmt.Sprintf("em_%02d", index), OutputID: "patients", PublicColumn: column.name,
-			ConstructionID: constructionID, Label: column.label, LogicalType: column.logical,
-			Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
-		})
-		provenance[column.name] = "EXPLICIT"
-	}
-	contract, _ := json.Marshal(receiptmodel.PublicOutputContracts{Outputs: []receiptmodel.PublicOutputContract{public}})
-	receipt.PublicOutputContract = contract
-	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
-	receipt.OutputFingerprints = map[string]string{"patients": "fingerprint-" + receipt.IntentDigest}
-	receipt.OutputColumnProvenance = map[string]map[string]string{"patients": provenance}
-	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
-	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
-	return receipt
+	return constructionfixtures.LifecycleConstructionReceipt(snapshot, workspace)
 }
 
 func lifecycleErrorCode(err error) string {
@@ -256,24 +131,7 @@ func lifecycleTestStringScalar(value string) ws.TableScalar {
 }
 
 func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
-	reference := semantic.FamilyReference{
-		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
-		SourcePath: sourcePath, System: system, Version: version,
-	}
-	reference.FamilyID = semantic.FamilyID(reference)
-	return semantic.Family{
-		FamilyReference: reference,
-		Source:          semantic.Source{Type: resourceType, Path: sourcePath},
-		KeySelector:     "code.coding[]",
-		Value: semantic.Value{
-			Selector: "code.coding[].display", Type: "string",
-			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
-		},
-		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
-		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
-		Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 2,
-		Examples: []string{"CARBOXYAMIDOTRIAZOLE", "another compound"},
-	}
+	return constructionfixtures.CodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version)
 }
 
 type libraryRepository struct {

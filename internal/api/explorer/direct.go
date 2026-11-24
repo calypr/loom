@@ -43,21 +43,7 @@ func lifecycleLegacyFailure(err error) error {
 	if !errors.As(err, &value) {
 		return err
 	}
-	status := http.StatusInternalServerError
-	switch value.Class {
-	case ports.ClassMalformed:
-		status = http.StatusBadRequest
-	case ports.ClassForbidden:
-		status = http.StatusForbidden
-	case ports.ClassNotFound:
-		status = http.StatusNotFound
-	case ports.ClassConflict:
-		status = http.StatusConflict
-	case ports.ClassUnprocessable:
-		status = http.StatusUnprocessableEntity
-	case ports.ClassUnavailable:
-		status = http.StatusServiceUnavailable
-	}
+	status := lifecycleErrorStatus(value.Class)
 	return legacyOperationFailureDetails(status, value.Code, value.Message, value.Details, err)
 }
 

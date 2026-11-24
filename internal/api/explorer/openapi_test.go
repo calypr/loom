@@ -21,7 +21,6 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -646,7 +645,7 @@ FOR d IN Patient
 	if err != nil {
 		t.Fatal(err)
 	}
-	explorerStore, err := explorerarango.New(client)
+	explorerStore, err := newTestExplorerArangoStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,10 +693,11 @@ FOR d IN Patient
 		Selections: map[string]explorerselection.SelectionRevision{},
 		Members:    map[string][]explorerselection.SelectionMember{},
 	}
-	domain, err := explorer.NewService(proposalStore)
+	domain, err := explorerfixtures.NewService(proposalStore)
 	if err != nil {
 		t.Fatal(err)
 	}
+	dependencies := explorerfixtures.Dependencies(proposalStore)
 	config := lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		Capability: ports.CapabilityResolver{
@@ -709,7 +709,12 @@ FOR d IN Patient
 		},
 		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
 	}
-	handlers := NewHandlers(Config{Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject, Explorers: domain, Lifecycle: config})
+	config = lifecycleConfigForTest(config, dependencies)
+	application := newTestLifecycleApplication(t, domain, config)
+	handlers := NewHandlers(Config{
+		Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject,
+		Explorers: domain, Application: application, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder,
+	})
 
 	toWireRef := func(id string) loomapi.SelectionResourceRef {
 		return loomapi.SelectionResourceRef{Project: project, Generation: generation, ResourceType: resourceType, Id: id}
@@ -837,11 +842,11 @@ func (a viewBuilderTestAuthorizer) AuthorizeWrite(context.Context, *authscope.Pr
 
 func viewBuilderTestApp(t *testing.T, store *viewBuilderHTTPStore, writeFault, readFault error) *fiber.App {
 	t.Helper()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service)
+	handlers := newExplorerHTTPHandlers(t, viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service, store)
 	app := fiber.New()
 	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
 	return app
@@ -931,7 +936,7 @@ func TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct(t *testin
 
 func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -943,7 +948,7 @@ func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	if err := resolver.AuthorizeWrite(ctx, principal, "project-a", "project-a"); err != nil {
 		t.Fatalf("editor grant invalid: %v", err)
 	}
-	handlers := newExplorerHTTPHandlers(authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service)
+	handlers := newExplorerHTTPHandlers(t, authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service, store)
 	state, err := handlers.authorizedViewBuilderState(ctx, "project-a", "")
 	if err != nil {
 		t.Fatal(err)
@@ -977,14 +982,14 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 		testExplorerStore: explorerfixtures.NewStore(),
 		settings:          viewer.ViewBuilderSettings{Catalogs: map[string]string{}},
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(
+	handlers := newExplorerHTTPHandlers(t,
 		authscope.ScopeAuthorizer{Resolver: resolver},
 		func(context.Context, *authscope.Principal, string) error { return nil },
-		service,
+		service, store,
 	)
 	app := fiber.New()
 	app.Use(func(c fiber.Ctx) error {

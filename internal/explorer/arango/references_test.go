@@ -9,6 +9,7 @@ import (
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -36,7 +37,7 @@ func (c *selectionReferenceClient) WithTransaction(context.Context, store.Transa
 
 func TestValidateSelectionReferencesBindsGenerationAndScope(t *testing.T) {
 	client := &selectionReferenceClient{rows: []map[string]any{{"key": "files001", "id": "files001"}, {"key": "files002", "id": "files002"}}}
-	persistence := &Store{client: client}
+	persistence := selectiondb.NewSelectionStore(client)
 	refs := []explorerselection.ResourceRef{
 		{Project: "loom_dev", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"},
 		{Project: "loom_dev", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files002"},
@@ -58,7 +59,7 @@ func TestValidateSelectionReferencesBindsGenerationAndScope(t *testing.T) {
 }
 
 func TestValidateSelectionReferencesFailsClosedForScopeAndMissingIDs(t *testing.T) {
-	persistence := &Store{client: &selectionReferenceClient{}}
+	persistence := selectiondb.NewSelectionStore(&selectionReferenceClient{})
 	ref := explorerselection.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "guessed"}
 	if err := persistence.ValidateSelectionReferences(context.Background(), "project", "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed"}}, []explorerselection.ResourceRef{ref}); !errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
 		t.Fatalf("restricted missing reference error = %v", err)
@@ -71,7 +72,7 @@ func TestValidateSelectionReferencesFailsClosedForScopeAndMissingIDs(t *testing.
 	if err := persistence.ValidateSelectionReferences(context.Background(), "project", "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, []explorerselection.ResourceRef{foreign}); !errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
 		t.Fatalf("foreign reference error = %v", err)
 	}
-	aliasStore := &Store{client: &selectionReferenceClient{rows: []map[string]any{{"key": "physical_key", "id": "logical-id"}}}}
+	aliasStore := selectiondb.NewSelectionStore(&selectionReferenceClient{rows: []map[string]any{{"key": "physical_key", "id": "logical-id"}}})
 	physicalKey := explorerselection.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "physical_key"}
 	if err := aliasStore.ValidateSelectionReferences(context.Background(), "project", "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, []explorerselection.ResourceRef{physicalKey}); !errors.Is(err, explorerselection.ErrSelectionNotFound) {
 		t.Fatalf("physical key was accepted as logical ID: %v", err)
@@ -80,7 +81,7 @@ func TestValidateSelectionReferencesFailsClosedForScopeAndMissingIDs(t *testing.
 
 func TestValidateSelectionReferencesUsesResourceStorageProjectIdentity(t *testing.T) {
 	client := &selectionReferenceClient{rows: []map[string]any{{"id": "file001"}}}
-	persistence := &Store{client: client}
+	persistence := selectiondb.NewSelectionStore(client)
 	err := persistence.ValidateSelectionReferences(context.Background(), "study/project", "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, []explorerselection.ResourceRef{{
 		Project: "study/project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "file001",
 	}})

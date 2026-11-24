@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
+func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, request PopulationMappingRequest, visitMembers func(context.Context, func(string) error) error) (PopulationMappingResult, error) {
 	if strings.TrimSpace(request.Output) == "" {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping output is required")
 	}
@@ -20,14 +20,14 @@ func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, reque
 	if err != nil {
 		return PopulationMappingResult{}, err
 	}
-	return e.populationMappingCompiled(ctx, compiled, request, reader)
+	return e.populationMappingCompiled(ctx, compiled, request, visitMembers)
 }
 
-func (e *Engine) populationMappingCompiled(ctx context.Context, compiled population.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader populationMemberReader) (PopulationMappingResult, error) {
+func (e *Engine) populationMappingCompiled(ctx context.Context, compiled population.CompiledPopulationMappingQuery, request PopulationMappingRequest, visitMembers func(context.Context, func(string) error) error) (PopulationMappingResult, error) {
 	if e == nil || e.queryRows == nil {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query executor is required")
 	}
-	if reader == nil {
+	if visitMembers == nil {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping member reader is required")
 	}
 	limit := request.MaxUnmapped
@@ -47,7 +47,7 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled populat
 	}
 
 	selected := make(map[string]struct{})
-	if err := reader.VisitMembers(ctx, func(id string) error {
+	if err := visitMembers(ctx, func(id string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

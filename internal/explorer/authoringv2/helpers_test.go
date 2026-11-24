@@ -8,9 +8,9 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func rowValueGroupedDocument() ws.Document {
@@ -52,7 +52,7 @@ func TestPopulateGroupedRowsPreservesIdentityReloadAndRemoval(t *testing.T) {
 	if !reflect.DeepEqual(reloaded.Documents[0].Construction.Steps[0].RowValues, step.RowValues) {
 		t.Fatal("reload lost contributing-record value policy")
 	}
-	removed, _, err := ApplyCommands(reloaded, commandCatalog(), "remove-gender", []Command{{Type: CommandRemoveColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "gender"}}})
+	removed, _, err := ApplyCommands(reloaded, commandCatalog(), "remove-gender", CommandsWithoutResolution([]Command{{Type: CommandRemoveColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "gender"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestRemoveProjectedFieldUsesStableIDAndExistingDownstreamCleanup(t *testing
 		t.Fatal(err)
 	}
 	workspace := constructionWorkspace(document)
-	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", []Command{{Type: CommandRemoveProjectedField, OutputID: "patients", Payload: &ColumnPayload{ColumnID: "gender_source"}}})
+	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", CommandsWithoutResolution([]Command{{Type: CommandRemoveProjectedField, OutputID: "patients", Payload: &ColumnPayload{ColumnID: "gender_source"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestPopulatePivotRowsCarriesValuesThroughFollowingFilter(t *testing.T) {
 		t.Fatal("ONE policy was not saved")
 	}
 	for _, step := range document.Construction.Steps {
-		if _, exists := findStageColumnByID(step.Outputs, rowValue.OutputColumnID); !exists {
+		if _, exists := stageColumnByID(step.Outputs, rowValue.OutputColumnID); !exists {
 			t.Fatalf("step %s dropped the new column", step.ID)
 		}
 	}
@@ -177,7 +177,8 @@ func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 }
 
 func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
-	document := rowValueGroupedDocument()
+	document := workspaceDocument("patients")
+	document.Columns = []ws.Column{constructionSourceColumn("status", "status", "Status", "string")}
 	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}
 	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
 		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
@@ -186,27 +187,33 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 		AfterStepID: "filter_status",
 		RowValues:   []ws.ExplicitGroupRowValue{{ColumnID: "status", Policy: ws.ConstructionRowValueAll}},
 	}}
-	document.Construction.Steps = []ws.ConstructionStep{
-		{
-			ID: "filter_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
-			Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
-		},
-		{
-			ID: "filter_cohorts", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
-			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_label", Operator: ws.ConstructionFilterExists}},
-
-			Outputs: []ws.StageColumn{
-				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
-				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
-				{ID: "members", Name: "members", Label: "Members", Type: "array"},
-				{ID: "status", Name: "status", Label: "Status", Type: "array"},
-			},
+	filterSource := ws.ConstructionStep{
+		ID: "filter_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
+		Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
+	}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion}
+	document.Construction.Steps = []ws.ConstructionStep{filterSource}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("valid source-stage group row setup: %v", err)
+	}
+	filterCohorts := ws.ConstructionStep{
+		ID: "filter_cohorts", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_label", Operator: ws.ConstructionFilterExists}},
+		Outputs: []ws.StageColumn{
+			{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
+			{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
+			{ID: "members", Name: "members", Label: "Members", Type: "array"},
+			{ID: "status", Name: "status", Label: "Status", Type: "array"},
 		},
 	}
-
-	normalizeConstructionOutputOrder(&document)
-	outputs := document.Construction.Steps[1].Outputs
+	candidate := *document.Construction
+	candidate.Steps = append(append([]ws.ConstructionStep(nil), candidate.Steps...), filterCohorts)
+	normalized, _, err := document.AnalyzeConstructionCandidate(candidate, "filter_cohorts", nil)
+	if err != nil {
+		t.Fatalf("rebuild cohort filter through construction candidate API: %v", err)
+	}
+	outputs := normalized.Construction.Steps[1].Outputs
 	want := []string{"group_id", "group_label", "group_ordinal", "members", "status"}
 	if len(outputs) != len(want) {
 		t.Fatalf("normalized cohort filter outputs = %#v, want five virtual-stage columns", outputs)
@@ -216,7 +223,7 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 			t.Fatalf("normalized cohort filter output %d = %#v, want column %q", index, outputs[index], id)
 		}
 	}
-	if err := document.Validate(); err != nil {
+	if err := normalized.Validate(); err != nil {
 		t.Fatalf("anchored virtual cohort schema should remain valid after normalization: %v", err)
 	}
 }
@@ -280,21 +287,21 @@ func TestNextTableOrderIncludesGeneratedGroupColumns(t *testing.T) {
 	}
 }
 
-type storedTableShape = workspace.StoredTableShape
+type storedTableShape = ws.StoredTableShape
 
-type storedTableReshape = workspace.StoredTableReshape
+type storedTableReshape = ws.StoredTableReshape
 
-type storedPivotConstruction = workspace.StoredPivotConstruction
+type storedPivotConstruction = ws.StoredPivotConstruction
 
-type storedPivotCategory = workspace.StoredPivotCategory
+type storedPivotCategory = ws.StoredPivotCategory
 
-type storedUnpivotConstruction = workspace.StoredUnpivotConstruction
+type storedUnpivotConstruction = ws.StoredUnpivotConstruction
 
-type storedUnpivotInput = workspace.StoredUnpivotInput
+type storedUnpivotInput = ws.StoredUnpivotInput
 
-type storedDerivedConstruction = workspace.StoredDerivedConstruction
+type storedDerivedConstruction = ws.StoredDerivedConstruction
 
-type storedArithmeticOperand = workspace.StoredArithmeticOperand
+type storedArithmeticOperand = ws.StoredArithmeticOperand
 
 const (
 	tableShapeSemanticsVersion              = 9
@@ -303,38 +310,33 @@ const (
 	aggregateTemporalPolicySemanticsVersion = 9
 )
 
-func frameIdentityID(source capability.SemanticFrameFamily, route []capability.ConstructionRouteStep) string {
-	return workspace.FrameIdentityID(source, route)
+func stageColumnByID(columns []ws.StageColumn, id string) (ws.StageColumn, bool) {
+	for _, column := range columns {
+		if column.ID == id {
+			return column, true
+		}
+	}
+	return ws.StageColumn{}, false
 }
 
-func findStageColumnByID(columns []ws.StageColumn, id string) (ws.StageColumn, bool) {
-	return workspace.FindStageColumnByID(columns, id)
+func constructionStageIDs(columns []ws.StageColumn) []string {
+	ids := make([]string, len(columns))
+	for index, column := range columns {
+		ids[index] = column.ID
+	}
+	return ids
 }
 
-func normalizeConstructionOutputOrder(document *ws.Document) {
-	workspace.NormalizeConstructionOutputOrder(document)
-}
-
-func cloneDocumentForConstructionChange(document ws.Document) ws.Document {
-	return workspace.CloneDocumentForConstructionChange(document)
-}
-
-func orderedStageIDs(columns []ws.StageColumn) []string { return workspace.OrderedStageIDs(columns) }
-
-func rebuildStageColumns(step ws.ConstructionStep, input []ws.StageColumn, authoredSourceIDs map[string]struct{}) ([]ws.StageColumn, error) {
-	return workspace.RebuildStageColumns(step, input, authoredSourceIDs)
-}
-
-func validateConstructionLiteral(literal ws.ConstructionLiteral) error {
-	return workspace.ValidateConstructionLiteral(literal)
-}
-
-func migrateMissingRowsBeforeCurrent(workspaceValue ws.Workspace) ws.Workspace {
-	return workspace.MigrateMissingRowsBeforeCurrent(workspaceValue)
-}
-
-func constructionSourceColumnsWithChildrenAndProjections(columns []ws.Column, projections []ws.ConstructionSourceProjection, referencedIDs []string, declared []ws.StageColumn) ([]ws.StageColumn, error) {
-	return workspace.ConstructionSourceColumnsWithChildrenAndProjections(columns, projections, referencedIDs, declared)
+func cloneDocumentFixtureByJSON(document ws.Document) ws.Document {
+	raw, err := json.Marshal(document)
+	if err != nil {
+		panic(err)
+	}
+	var cloned ws.Document
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		panic(err)
+	}
+	return cloned
 }
 
 func testCatalog() ws.CatalogSnapshot {
@@ -351,22 +353,11 @@ func testCatalog() ws.CatalogSnapshot {
 		SourceGeneration: "g", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot",
 		Complete: true, Nodes: nodes, Edges: edges,
 		Candidates: []ws.CatalogCandidate{
-			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
-			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
 		},
 		RoutePolicy: ws.RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
 	}
-}
-
-func testFieldConstructionChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
-	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
-		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
-		Cardinality: cardinality, LogicalType: "string", ProjectionModes: []capability.ProjectionMode{projection},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return &choice
 }
 
 func migrateStoredDocumentFixture(document ws.Document) (ws.Document, error) {
@@ -457,7 +448,8 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 		t.Fatalf("migrate proposal base: %v", err)
 	}
 	proposal := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
-	if err := proposal.ResolveConstructionProposal(&candidate); err != nil {
+	resolution, err := ResolveConstructionProposal(proposal, &candidate)
+	if err != nil {
 		t.Fatalf("resolve proposal: %v", err)
 	}
 	candidate.Construction.Steps[0].Operation.Pivot.Categories[0].OutputColumnID = "mutated_after_resolution"
@@ -477,7 +469,7 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 	if err := request.Validate(); err != nil {
 		t.Fatalf("valid proposal request rejected: %v", err)
 	}
-	got, results, err := ApplyCommands(workspace, commandCatalog(), request.CommandID, request.Commands)
+	got, results, err := ApplyCommands(workspace, commandCatalog(), request.CommandID, []PreparedCommand{{Command: proposal, Resolution: resolution}})
 	if err != nil {
 		t.Fatalf("apply construction proposal: %v", err)
 	}
@@ -516,11 +508,31 @@ func TestApplyConstructionProposalRejectsClientPlanAndUnresolvedApply(t *testing
 	base := legacyPivotDocument()
 	base.ArchiveRetiredShape = nil
 	workspace := constructionWorkspace(base)
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{command}); err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved construction") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", CommandsWithoutResolution([]Command{command})); err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved construction") {
 		t.Fatalf("unresolved apply error = %v", err)
 	}
-	if err := command.ResolveConstructionProposal(nil); err == nil {
+	if _, err := ResolveConstructionProposal(command, nil); err == nil {
 		t.Fatal("nil resolved candidate was accepted")
+	}
+}
+
+func TestConstructionResolutionCanExplicitlyClearConstruction(t *testing.T) {
+	base := legacyPivotDocument()
+	base.ArchiveRetiredShape = nil
+	workspace := constructionWorkspace(base)
+	candidate := base
+	candidate.Construction = nil
+	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-clear"}}
+	resolution, err := ResolveConstructionProposal(command, &candidate)
+	if err != nil {
+		t.Fatalf("resolve cleared construction: %v", err)
+	}
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "clear-construction", []PreparedCommand{{Command: command, Resolution: resolution}})
+	if err != nil {
+		t.Fatalf("apply cleared construction: %v", err)
+	}
+	if updated.Documents[0].Construction != nil {
+		t.Fatalf("construction was not cleared: %#v", updated.Documents[0].Construction)
 	}
 }
 
@@ -565,7 +577,8 @@ func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.
 	}
 
 	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
-	if err := command.ResolveConstructionProposal(&candidate); err != nil {
+	resolution, err := ResolveConstructionProposal(command, &candidate)
+	if err != nil {
 		t.Fatalf("resolve exact candidate: %v", err)
 	}
 	wantRows, err := cloneRowDefinition(candidate.Rows)
@@ -579,7 +592,7 @@ func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.
 	candidate.Rows.Groups.Source.Explicit.RevisionID = "mutated-after-resolution"
 	candidate.Rows.Groups.RowValues[0].ColumnID = "mutated-after-resolution"
 	candidate.Construction.Steps[0].ID = "mutated-after-resolution"
-	workspace, results, err := ApplyCommands(constructionWorkspace(document), commandCatalog(), "apply-anchor-removal", []Command{command})
+	workspace, results, err := ApplyCommands(constructionWorkspace(document), commandCatalog(), "apply-anchor-removal", []PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		t.Fatalf("apply anchor removal: %v", err)
 	}
@@ -653,7 +666,8 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 		}},
 	}}
 	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
-	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
+	resolution, err := ResolveRowDefinitionProposal(command, rows)
+	if err != nil {
 		t.Fatal(err)
 	}
 	rows.Groups.Source.Field.FieldPath = "mutated-after-resolution"
@@ -666,7 +680,7 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 		t.Fatalf("resolved row definition leaked into browser command: %s", wire)
 	}
 
-	got, _, err := ApplyCommands(workspace, catalog, "command-1", []Command{command})
+	got, _, err := ApplyCommands(workspace, catalog, "command-1", []PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +707,7 @@ func TestApplyRowDefinitionProposalRequiresLifecycleResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}})
+	_, _, err = ApplyCommands(workspace, commandCatalog(), "command-1", CommandsWithoutResolution([]Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}}))
 	if err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved row definition") {
 		t.Fatalf("unprepared proposal command error = %v", err)
 	}
@@ -720,7 +734,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	original := workspace.Documents[0].Columns[0]
-	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())}}}})
+	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", CommandsWithoutResolution([]Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,7 +761,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 		t.Fatalf("persisted transformation did not round-trip: %#v", got.ValueTransformation)
 	}
 
-	reloaded, _, err = ApplyCommands(reloaded, catalog, "remove-recode", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "REMOVE"}}}})
+	reloaded, _, err = ApplyCommands(reloaded, catalog, "remove-recode", CommandsWithoutResolution([]Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "REMOVE"}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,13 +781,13 @@ func TestUpdateColumnTransformationRejectsUnsupportedAndIncompleteMappings(t *te
 	command := func(transformation columntransform.ValueTransformation) Command {
 		return Command{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(transformation)}}}
 	}
-	if _, _, err := ApplyCommands(workspace, catalog, "unsupported-type", []Command{command(exactCategoryTransformation())}); err == nil || !strings.Contains(err.Error(), "COLUMN_VALUE_TYPE_UNSUPPORTED") {
+	if _, _, err := ApplyCommands(workspace, catalog, "unsupported-type", CommandsWithoutResolution([]Command{command(exactCategoryTransformation())})); err == nil || !strings.Contains(err.Error(), "COLUMN_VALUE_TYPE_UNSUPPORTED") {
 		t.Fatalf("unsupported source type error = %v, want COLUMN_VALUE_TYPE_UNSUPPORTED", err)
 	}
 
 	incomplete := exactCategoryTransformation()
 	incomplete.ExactCategoryRecode.Mappings = nil
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "incomplete-map", []Command{command(incomplete)}); err == nil || !strings.Contains(err.Error(), "mappings must not be empty") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "incomplete-map", CommandsWithoutResolution([]Command{command(incomplete)})); err == nil || !strings.Contains(err.Error(), "mappings must not be empty") {
 		t.Fatalf("incomplete map error = %v, want mapping diagnostic", err)
 	}
 }
@@ -818,7 +832,7 @@ func TestRetiredTableShapeProposalCannotMutateCurrentWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, proposal := range []string{"receipt-1", "receipt-removal", ""} {
-		_, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: proposal}}})
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", CommandsWithoutResolution([]Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: proposal}}}))
 		if err == nil {
 			t.Fatal("retired proposal reached reducer")
 		}

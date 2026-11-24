@@ -8,13 +8,6 @@ import (
 	"github.com/calypr/loom/internal/digest"
 )
 
-func stringValue(value any) string {
-	if s, ok := value.(string); ok {
-		return s
-	}
-	return ""
-}
-
 func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {
 	return sanitizeCollectionKey(project + "::" + authResourcePath + "::" + resourceType + "::" + path)
 }

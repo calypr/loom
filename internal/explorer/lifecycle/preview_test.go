@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -23,7 +24,7 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	snapshot.Nodes = []capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}}
 	snapshot.Candidates = []capability.Candidate{{ID: "candidate-id", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	workspace := lifecycleCandidatePreviewWorkspace()
 	workspace.Documents[0].Rows = ws.RecordsRowDefinition()
 	workspace.SemanticsVersion = 9
@@ -105,7 +106,7 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	snapshot.Nodes = []capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}}
 	snapshot.Candidates = []capability.Candidate{{ID: "candidate-id", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	workspace := lifecycleCandidatePreviewWorkspace()
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -121,7 +122,7 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 	}
 	catalog := config.Capability.Catalog(snapshot, "patients")
 	command := authoringv2.Command{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_id", InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "placeholder", RevisionID: string(revision.ID)}}}
-	proposed, _, err := authoringv2.ApplyCommands(workspace, catalog, "preview-command", []authoringv2.Command{command})
+	proposed, _, err := authoringv2.ApplyCommands(workspace, catalog, "preview-command", authoringv2.CommandsWithoutResolution([]authoringv2.Command{command}))
 	if err != nil {
 		t.Fatal(err)
 	}

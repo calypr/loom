@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -235,7 +237,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					t.Fatalf("trace %s action %d request base differs from accepted state: digest=%q/%q version=%d/%d err=%v", traceID, actionIndex, req.ExpectedDraftDigest, currentDigest, req.ExpectedDraftVersion, store.created.DraftVersion, err)
 				}
 				captured := constructionFromRaw(t, traceID, actionIndex, cp.CandidateConstruction)
-				if !reflect.DeepEqual(req.CandidateConstruction, captured) || req.ChangedStepID != cp.ChangedStepID || !equalStringSlices(req.RemoveStepIDs, cp.RemoveStepIDs) {
+				if !reflect.DeepEqual(req.CandidateConstruction, captured) || req.ChangedStepID != cp.ChangedStepID || !slices.Equal(req.RemoveStepIDs, cp.RemoveStepIDs) {
 					t.Fatalf("trace %s action %d full proposalRequest differs from frontend captured candidate", traceID, actionIndex)
 				}
 				for stepID, output := range expectation.DownstreamOutputTypes {
@@ -255,21 +257,21 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					if err := json.Unmarshal(cp.AcceptedDocument, &doc); err != nil {
 						t.Fatalf("trace %s action %d decode acceptedDocument: %v", traceID, actionIndex, err)
 					}
-					if current := support.ProposalDocument(accepted, req.OutputID); current == nil || !reflect.DeepEqual(doc, *current) {
+					if current := accepted.FindOutputDocument(req.OutputID); current == nil || !reflect.DeepEqual(doc, *current) {
 						t.Fatalf("trace %s action %d acceptedDocument differs from acceptedWorkspace", traceID, actionIndex)
 					}
 				}
 				baseCompiles, candidateCompiles := stats.base, stats.candidate
 				before := append([]byte(nil), store.created.DraftConfig...)
 				beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
-				baseDoc := support.ProposalDocument(accepted, req.OutputID)
+				baseDoc := accepted.FindOutputDocument(req.OutputID)
 				if baseDoc == nil || baseDoc.Construction == nil {
 					t.Fatalf("trace %s action %d accepted document has no construction", traceID, actionIndex)
 				}
 				if _, _, err := baseDoc.AnalyzeConstructionCandidate(req.CandidateConstruction, req.ChangedStepID, req.RemoveStepIDs); err != nil {
 					t.Fatalf("trace %s action %d actual Document.AnalyzeConstructionCandidate: %v", traceID, actionIndex, err)
 				}
-				lastProposal, err = service.ProposeConstruction(context.Background(), req)
+				lastProposal, err = service.OwnerServices().Construction.ProposeConstruction(context.Background(), req)
 				if err != nil {
 					t.Fatalf("trace %s action %d actual ProposeConstruction: %v", traceID, actionIndex, err)
 				}
@@ -288,7 +290,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					}
 					summary.ReadyProposalCount++
 					ready = true
-					preview, previewErr := service.Preview(context.Background(), PreviewRequest{
+					preview, previewErr := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 						Project: req.Project, ExplorerID: req.ExplorerID, ReceiptID: lastProposal.ProposalID, OutputID: req.OutputID, Limit: req.Limit,
 						SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 							return func(map[string]any) error { return nil }, nil
@@ -384,8 +386,8 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				if err != nil || persistedDigest != store.created.DraftDigest || !bytes.Equal(persistedCanonical, appliedCanonical) || !bytes.Equal(store.created.DraftConfig, persistedCanonical) {
 					t.Fatalf("trace %s action %d persisted canonical workspace differs from Apply reply: storedDigest=%q persistedDigest=%q err=%v", traceID, actionIndex, store.created.DraftDigest, persistedDigest, err)
 				}
-				appliedDoc := support.ProposalDocument(applied.Workspace, lastProposal.OutputID)
-				persistedDoc := support.ProposalDocument(persistedWorkspace, lastProposal.OutputID)
+				appliedDoc := applied.Workspace.FindOutputDocument(lastProposal.OutputID)
+				persistedDoc := persistedWorkspace.FindOutputDocument(lastProposal.OutputID)
 				if appliedDoc == nil || appliedDoc.Construction == nil || persistedDoc == nil || persistedDoc.Construction == nil {
 					t.Fatalf("trace %s action %d acknowledgement omitted the applied document construction", traceID, actionIndex)
 				}
@@ -407,7 +409,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				if reloadErr != nil || !bytes.Equal(readCanonical, persistedCanonical) || afterReload.DraftDigest != persistedDigest || afterReload.DraftVersion != version+1 {
 					t.Fatalf("fresh Builder lost saved Group: err=%v", reloadErr)
 				}
-				reloadCaps, reloadErr := reloadService.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
+				reloadCaps, reloadErr := reloadService.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
 				if reloadErr != nil {
 					t.Fatalf("fresh Group capabilities: %v", reloadErr)
 				}
@@ -538,7 +540,7 @@ func prepareOperationHistorySeeds(t *testing.T, traces operationHistoryTraceFile
 		prepareRequest := construction.ConstructionProposalRequest{Project: workspaceContext.Project, ExplorerID: workspaceContext.ExplorerID, SnapshotToken: identity.SnapshotToken,
 			ExpectedDraftVersion: identity.AcceptedVersion, ExpectedDraftDigest: identity.AcceptedDigest, OutputID: identity.OutputID}
 		service, store, _, _, stats := newOperationHistoryService(t, workspace, prepareRequest)
-		if _, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+		if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: prepareRequest.Project, ExplorerID: prepareRequest.ExplorerID, SnapshotToken: prepareRequest.SnapshotToken,
 			ExpectedDraftVersion: prepareRequest.ExpectedDraftVersion, ExpectedDraftDigest: prepareRequest.ExpectedDraftDigest,
 			OutputID: prepareRequest.OutputID, StageID: recipe.ConstructionSourceProjectionID,
@@ -639,7 +641,7 @@ func newOperationHistoryService(t *testing.T, w ws.Workspace, request constructi
 }
 
 func sameOperationHistoryExpectation(a, b operationHistoryExpectation) bool {
-	return a.ProposalStatus == b.ProposalStatus && equalStringSlices(a.StepIDs, b.StepIDs) && reflect.DeepEqual(a.GroupOutputTypes, b.GroupOutputTypes) && reflect.DeepEqual(a.DownstreamInputTypes, b.DownstreamInputTypes) && reflect.DeepEqual(a.DownstreamOutputTypes, b.DownstreamOutputTypes) && a.CandidateGroupKeyOutputID == b.CandidateGroupKeyOutputID && a.AcceptedGroupKeyOutputID == b.AcceptedGroupKeyOutputID && a.GroupKeyOutputRelation == b.GroupKeyOutputRelation && a.AcceptedAggregate == b.AcceptedAggregate && a.CandidateAggregate == b.CandidateAggregate && a.AcceptedChangesOnApply == b.AcceptedChangesOnApply && a.ApplyAck == b.ApplyAck && equalTraceMissingInputs(a.MissingInputs, b.MissingInputs) && equalStringSlices(a.RemovedStepIDs, b.RemovedStepIDs)
+	return a.ProposalStatus == b.ProposalStatus && slices.Equal(a.StepIDs, b.StepIDs) && reflect.DeepEqual(a.GroupOutputTypes, b.GroupOutputTypes) && reflect.DeepEqual(a.DownstreamInputTypes, b.DownstreamInputTypes) && reflect.DeepEqual(a.DownstreamOutputTypes, b.DownstreamOutputTypes) && a.CandidateGroupKeyOutputID == b.CandidateGroupKeyOutputID && a.AcceptedGroupKeyOutputID == b.AcceptedGroupKeyOutputID && a.GroupKeyOutputRelation == b.GroupKeyOutputRelation && a.AcceptedAggregate == b.AcceptedAggregate && a.CandidateAggregate == b.CandidateAggregate && a.AcceptedChangesOnApply == b.AcceptedChangesOnApply && a.ApplyAck == b.ApplyAck && slices.Equal(a.MissingInputs, b.MissingInputs) && slices.Equal(a.RemovedStepIDs, b.RemovedStepIDs)
 }
 
 func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, aggregateOutputID string, expected operationHistoryExpectation, accepted ws.Construction, proposal construction.ConstructionProposalResponse, receipt *receiptmodel.CompilationReceipt, outputID string) {
@@ -772,10 +774,10 @@ func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, ag
 		}
 		return wantMissing[i].ID < wantMissing[j].ID
 	})
-	if !equalTraceMissingInputs(missing, wantMissing) {
+	if !slices.Equal(missing, wantMissing) {
 		t.Fatalf("trace %s action %d missing inputs %#v != %#v", id, actionIndex, missing, wantMissing)
 	}
-	if !equalStringSlices(proposal.DependencyImpact.RemovedStepIDs, expected.RemovedStepIDs) {
+	if !slices.Equal(proposal.DependencyImpact.RemovedStepIDs, expected.RemovedStepIDs) {
 		t.Fatalf("trace %s action %d removed steps %v != model %v", id, actionIndex, proposal.DependencyImpact.RemovedStepIDs, expected.RemovedStepIDs)
 	}
 	if proposal.PreviewStatus == "PREVIEW_PENDING" {

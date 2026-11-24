@@ -7,24 +7,28 @@ import (
 	"encoding/json"
 	"fmt"
 
+	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const Collection = "loom_dataframe_recipes"
 
-type Client = arangostore.RowBatchClient
-
 type Registry struct {
-	client    Client
-	batchSize int
+	client      arangostore.RowBatchClient
+	publication *publicationarango.Registry
+	batchSize   int
 }
 
-func New(client Client) (*Registry, error) {
+func New(client arangostore.RowBatchClient) (*Registry, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Arango recipe registry client is required")
 	}
-	return &Registry{client: client, batchSize: 32}, nil
+	publication, err := publicationarango.New(client)
+	if err != nil {
+		return nil, fmt.Errorf("create publication registry for recipe usage: %w", err)
+	}
+	return &Registry{client: client, publication: publication, batchSize: 32}, nil
 }
 
 func BootstrapSpec() arangostore.BootstrapSpec {
@@ -45,18 +49,10 @@ func (r *Registry) ReplaceRecipeVersion(ctx context.Context, entry recipe.Entry)
 		return err
 	}
 	doc["name"], doc["translationVersion"], doc["digest"] = entry.Bundle.Name, entry.Bundle.TranslationVersion, entry.Digest
-	replaced := false
-	err = r.client.QueryRows(ctx, `LET used = FIRST(FOR execution IN @@executions
-  FILTER (execution.name == @name OR execution.Name == @name)
-    AND (execution.translationVersion == @translationVersion OR execution.TranslationVersion == @translationVersion)
-  LIMIT 1 RETURN true)
-FILTER used == null
-REPLACE {_key: @key} WITH @document IN @@recipes
-RETURN {replaced: true}`, r.batchSize, map[string]interface{}{
-		"@executions": "loom_dataframe_bundle_executions", "@recipes": Collection,
-		"name": entry.Bundle.Name, "translationVersion": entry.Bundle.TranslationVersion,
-		"key": recipeDocumentKey(entry.Bundle.Name, entry.Bundle.TranslationVersion), "document": doc,
-	}, func(map[string]any) error { replaced = true; return nil })
+	replaced, err := r.publication.ReplaceRecipeVersionIfUnused(
+		ctx, Collection, recipeDocumentKey(entry.Bundle.Name, entry.Bundle.TranslationVersion),
+		entry.Bundle.Name, entry.Bundle.TranslationVersion, doc,
+	)
 	if err != nil {
 		return err
 	}
@@ -106,12 +102,7 @@ func (r *Registry) loadRecipe(ctx context.Context, query string, vars map[string
 }
 
 func (r *Registry) RecipeVersionUsed(ctx context.Context, name, translationVersion string) (bool, error) {
-	used := false
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER (doc.name == @name OR doc.Name == @name) AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion) LIMIT 1 RETURN {used: true}`, r.batchSize, map[string]interface{}{"@collection": "loom_dataframe_bundle_executions", "name": name, "translationVersion": translationVersion}, func(map[string]any) error {
-		used = true
-		return nil
-	})
-	return used, err
+	return r.publication.RecipeVersionUsed(ctx, name, translationVersion)
 }
 
 func recipeDocumentKey(name, translationVersion string) string {

@@ -1,24 +1,17 @@
 package arango
 
 import (
-	"context"
 	"fmt"
 
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-type client interface {
-	store.RowQueryer
-	store.BatchInserter
-	store.AQLExecutor
-	CollectionExists(context.Context, string) (bool, error)
-	Bootstrap(context.Context, store.BootstrapSpec) error
+type SemanticInventoryStore struct {
+	client store.CollectionBootstrapClient
 }
 
-type SemanticInventoryStore struct{ client client }
-
 type SemanticCoverageStore struct {
-	client    client
+	client    store.CollectionBootstrapClient
 	inventory SemanticInventoryStore
 }
 
@@ -27,7 +20,7 @@ type Store struct {
 	SemanticCoverageStore
 }
 
-func New(c client) (*Store, error) {
+func New(c store.CollectionBootstrapClient) (*Store, error) {
 	if c == nil {
 		return nil, fmt.Errorf("semantic Arango client is required")
 	}

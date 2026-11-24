@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -15,12 +17,25 @@ import (
 
 type constructionStageLowering struct {
 	input       constructionStageInput
+	context     constructionLoweringContext
 	inputByID   map[string]CompiledOutputColumn
 	outputByID  map[string]recipe.StageColumn
 	publicInput []CompiledOutputColumn
 	physical    ir.PhysicalConstructionStage
 	schema      []CompiledOutputColumn
 	identity    string
+}
+
+type constructionLoweringContext struct {
+	inputRow         string
+	inputIdentity    string
+	inputStageID     string
+	rootResourceType string
+	stepIndex        int
+}
+
+func (work *constructionStageLowering) loweringContext() constructionLoweringContext {
+	return work.context
 }
 
 func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.ConstructionStep, input constructionStageInput) (constructionStageResult, error) {
@@ -45,6 +60,10 @@ func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.Constructi
 	work := constructionStageLowering{
 		input: input, inputByID: inputByID, outputByID: outputByID,
 		publicInput: publicCompiledSchema(inputSchema), physical: base,
+		context: constructionLoweringContext{
+			inputRow: inputRow, inputIdentity: inputIdentity, inputStageID: inputStageID,
+			rootResourceType: rootResourceType, stepIndex: index,
+		},
 	}
 	var err error
 	switch step.Operation.Kind {
@@ -121,7 +140,7 @@ func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.Constructi
 		}
 	}
 	if base.Kind != ir.PhysicalStageRelatedExpandOp && preservesActiveRelatedRecord(base.Kind) {
-		if rootAnchor, ok := retainedRootResourceAnchor(inputSchema, rootResourceType); ok && rootAnchor.Name != outputIdentity {
+		if rootAnchor, ok := rootContributorRootKey(inputSchema, rootResourceType); ok && rootAnchor.Name != outputIdentity {
 			rootAnchor.Identity = false
 			outputSchema = append(outputSchema, rootAnchor)
 			base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
@@ -199,9 +218,10 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	related recipe.ConstructionRelatedSource,
 	inputByID map[string]CompiledOutputColumn,
 	outputByID map[string]recipe.StageColumn,
-	inputRow, inputIdentity, rootResourceType string,
-	index int,
+	context constructionLoweringContext,
 ) ([]ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputRow, inputIdentity := context.inputRow, context.inputIdentity
+	rootResourceType, index := context.rootResourceType, context.stepIndex
 	if related.AnchorColumnID != inputIdentity || rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {
 		reason := "row_identity_changed"
 		if rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {
@@ -407,7 +427,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	projections := make([]ir.PhysicalProjection, 0, len(step.Outputs)+1)
 	for _, declaration := range step.Outputs {
 		if prior, exists := inputByID[declaration.ID]; exists {
-			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+			prior.Name, prior.Label = declaration.Name, loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 			outputSchema = append(outputSchema, prior)
 			projections = append(projections, ir.PhysicalProjection{Name: prior.Name, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputByID[declaration.ID].Name}}})
 			continue
@@ -420,7 +440,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 			return nil, nil, fmt.Errorf("related source output column %q is missing from step schema", related.OutputColumnID)
 		}
 		outputSchema = append(outputSchema, CompiledOutputColumn{
-			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+			ID: declaration.ID, Name: declaration.Name, Label: loomtext.FirstNonBlank(declaration.Label, declaration.Name),
 			SemanticPath: "related_source:" + related.Source.NodeID + "." + selectorPath,
 			Kind:         outputKind, Cardinality: string(outputCardinality), Nullable: outputNullable,
 		})
@@ -519,7 +539,7 @@ func reconcileConstructionShapeSchema(declarations []recipe.StageColumn, outputN
 			return nil, fmt.Errorf("stage output ID %q name %q has no physical shape output", declaration.ID, declaration.Name)
 		}
 		column.ID, column.Name = declaration.ID, declaration.Name
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		column.Internal, column.Identity = false, false
 		result = append(result, column)
 	}
@@ -551,7 +571,7 @@ func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, compu
 			return nil, fmt.Errorf("unpivot output ID %q name %q has no physical output", declaration.ID, declaration.Name)
 		}
 		column.ID, column.Name = declaration.ID, declaration.Name
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		column.Internal, column.Identity = false, false
 		result = append(result, column)
 	}
@@ -638,26 +658,13 @@ func constructionPhysicalFilter(plan *ir.PhysicalPlan, filter recipe.Constructio
 	return ir.PhysicalFilter{Predicate: predicate}, nil
 }
 
-func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
+func constructionFilterLiteral(value spec.FilterValue) (any, error) {
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	switch value.Kind {
-	case recipe.FilterString:
-		return *value.String, nil
-	case recipe.FilterCode:
-		return value.Code.Code, nil
-	case recipe.FilterBoolean:
-		return *value.Boolean, nil
-	case recipe.FilterInteger:
-		return *value.Integer, nil
-	case recipe.FilterDecimal:
-		return *value.Decimal, nil
-	case recipe.FilterDate:
-		return *value.Date, nil
-	case recipe.FilterDateTime:
-		return *value.DateTime, nil
-	default:
+	if literal, ok := spec.FilterLiteralValue(value); ok {
+		return literal, nil
+	} else {
 		return nil, fmt.Errorf("unsupported construction filter value kind %q", value.Kind)
 	}
 }

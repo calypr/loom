@@ -10,12 +10,12 @@ import (
 	"testing/synctest"
 	"time"
 
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
@@ -126,15 +126,15 @@ func queryapiGenderRows() []map[string]any {
 	return []map[string]any{{"_key": "p1", "gender": "female"}}
 }
 
-func queryapiSelector(valuePath string) *dataframemodel.FhirFieldSelectorInput {
-	return &dataframemodel.FhirFieldSelectorInput{ValuePath: valuePath}
+func queryapiSelector(valuePath string) *recipe.FhirFieldSelectorInput {
+	return &recipe.FhirFieldSelectorInput{ValuePath: valuePath}
 }
 
-func queryapiGenderInput() dataframemodel.FhirDataframeInput {
-	return dataframemodel.FhirDataframeInput{
+func queryapiGenderInput() recipe.FhirDataframeInput {
+	return recipe.FhirDataframeInput{
 		Project:          "P1",
 		RootResourceType: "Patient",
-		RootFields:       []*dataframemodel.FhirFieldSelectInput{{Name: "gender", Selector: queryapiSelector("gender")}},
+		RootFields:       []*recipe.FhirFieldSelectInput{{Name: "gender", Selector: queryapiSelector("gender")}},
 	}
 }
 
@@ -166,7 +166,7 @@ type runOutcome struct {
 	err    error
 }
 
-func runAsync(service *Service, input dataframemodel.FhirDataframeInput) <-chan runOutcome {
+func runAsync(service *Service, input recipe.FhirDataframeInput) <-chan runOutcome {
 	done := make(chan runOutcome, 1)
 	go func() {
 		result, err := service.Run(context.Background(), input, nil)
@@ -320,22 +320,22 @@ func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		input    dataframemodel.FhirDataframeInput
+		input    recipe.FhirDataframeInput
 		wantCode dataframeerrors.ErrorCode
 	}{
 		{
 
 			name: "compiler rejects reserved projection name",
-			input: dataframemodel.FhirDataframeInput{
+			input: recipe.FhirDataframeInput{
 				Project: "P1", RootResourceType: "Patient",
-				RootFields: []*dataframemodel.FhirFieldSelectInput{{Name: "_key", Selector: queryapiSelector("gender")}},
+				RootFields: []*recipe.FhirFieldSelectInput{{Name: "_key", Selector: queryapiSelector("gender")}},
 			},
 			wantCode: dataframeerrors.CodeBackendUnavailable,
 		},
 		{
 
 			name: "preparation rejects cross-grain row grain",
-			input: func() dataframemodel.FhirDataframeInput {
+			input: func() recipe.FhirDataframeInput {
 				grain := "specimen"
 				input := queryapiGenderInput()
 				input.RowGrain = &grain
@@ -450,10 +450,7 @@ func builderReadyManifest(t *testing.T, project, generationID string) publicatio
 	if err != nil {
 		t.Fatalf("NewManifest() error = %v", err)
 	}
-	manifest, err = manifest.Transition(publication.StateReady)
-	if err != nil {
-		t.Fatalf("Transition(READY) error = %v", err)
-	}
+	manifest.State = publication.StateReady
 	return manifest
 }
 
@@ -500,12 +497,12 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		Dataframes:             dataframes,
 	})
 
-	if _, err := service.Run(context.Background(), dataframemodel.FhirDataframeInput{
+	if _, err := service.Run(context.Background(), recipe.FhirDataframeInput{
 		Project: project, RootResourceType: "Patient",
 	}, nil); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if _, _, _, err := service.prepareRunInput(context.Background(), dataframemodel.FhirDataframeInput{
+	if _, _, _, err := service.prepareRunInput(context.Background(), recipe.FhirDataframeInput{
 		Project: project, RootResourceType: "Patient",
 	}); err != nil {
 		t.Fatalf("PrepareRunInput() error = %v", err)
@@ -590,7 +587,7 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 		Dataframes: dataframes,
 	})
 
-	result, err := service.Run(dataframeBuilderRestrictedEmptyContext(), dataframemodel.FhirDataframeInput{
+	result, err := service.Run(dataframeBuilderRestrictedEmptyContext(), recipe.FhirDataframeInput{
 		Project:          "P1",
 		RootResourceType: "Patient",
 	}, nil)
@@ -719,7 +716,7 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 
 	for _, project := range []string{canonical, legacy} {
 		t.Run(project, func(t *testing.T) {
-			if _, err := service.Run(ctx, dataframemodel.FhirDataframeInput{Project: project, RootResourceType: "Patient"}, nil); err != nil {
+			if _, err := service.Run(ctx, recipe.FhirDataframeInput{Project: project, RootResourceType: "Patient"}, nil); err != nil {
 				t.Fatalf("Run(%q) error = %v", project, err)
 			}
 			response, err := service.Introspect(ctx, IntrospectionRequest{Project: project, RootResourceType: "Patient"})

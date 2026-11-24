@@ -2,7 +2,12 @@ package compilation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -167,7 +172,7 @@ func recipeConstructionSourceColumns(columns []ws.Column, emitted []viewer.Emitt
 		} else {
 			stageColumn.Type = emission.LogicalType
 			stageColumn.Nullable = emission.Nullable
-			stageColumn.Label = firstNonEmpty(emission.Label, emission.PublicColumn)
+			stageColumn.Label = loomtext.FirstTrimmed(emission.Label, emission.PublicColumn)
 		}
 		stageColumn.Name = emission.PublicColumn
 		if strings.TrimSpace(stageColumn.Label) == "" {
@@ -236,7 +241,7 @@ func repeatedCountSourceChild(owners []ws.Column, emission viewer.EmittedColumn)
 		}
 		if index == 0 {
 			coordinates, targetBoundary = current, boundaries[len(current)]
-		} else if targetBoundary != boundaries[len(current)] || !sameLineageCoordinates(coordinates, current) {
+		} else if targetBoundary != boundaries[len(current)] || !slices.Equal(coordinates, current) {
 			return lineage.SourceChild{}, fmt.Errorf("shared count owners resolve to different structural boundaries")
 		}
 	}
@@ -275,18 +280,6 @@ func repeatedSourceBoundaries(path string) []string {
 		boundaries = append(boundaries, strings.Join(parts[:index+1], "."))
 	}
 	return boundaries
-}
-
-func sameLineageCoordinates(left, right []lineage.Coordinate) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func requiredConstructionID(value string) bool {
@@ -361,13 +354,13 @@ func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.Cons
 		if authored.Filter == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("filter payload is required")
 		}
-		values := make([]recipe.FilterValue, 0, len(authored.Filter.Values))
+		values := make([]spec.FilterValue, 0, len(authored.Filter.Values))
 		for index, value := range authored.Filter.Values {
-			if !recipe.FilterValueKind(value.Kind).Valid() {
+			if !spec.FilterValueKind(value.Kind).Valid() {
 				return recipe.ConstructionOperation{}, fmt.Errorf("filter.values[%d] has unsupported kind %q", index, value.Kind)
 			}
-			mapped := recipe.FilterValue{
-				Kind: recipe.FilterValueKind(value.Kind), String: value.String, Boolean: value.Boolean,
+			mapped := spec.FilterValue{
+				Kind: spec.FilterValueKind(value.Kind), String: value.String, Boolean: value.Boolean,
 				Integer: value.Integer, Decimal: value.Decimal, Date: value.Date, DateTime: value.DateTime,
 			}
 			if value.Code != nil {
@@ -376,7 +369,7 @@ func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.Cons
 			values = append(values, mapped)
 		}
 		operation.Filter = &recipe.ConstructionFilter{
-			ColumnID: authored.Filter.ColumnID, Operator: recipe.FilterOperator(authored.Filter.Operator), Values: values,
+			ColumnID: authored.Filter.ColumnID, Operator: spec.FilterOperator(authored.Filter.Operator), Values: values,
 		}
 	case ws.ConstructionOperationUnpivot:
 		if authored.Unpivot == nil {
@@ -603,10 +596,7 @@ func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.Cons
 		if authored.Combine == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("combine payload is required")
 		}
-		mapped, err := recipeConstructionCombine(authored.Combine)
-		if err != nil {
-			return recipe.ConstructionOperation{}, err
-		}
+		mapped := recipeConstructionCombine(authored.Combine)
 		operation.Combine = mapped
 
 	default:
@@ -642,7 +632,7 @@ func recipeConstructionGroup(group *ws.ConstructionGroup) (*recipe.ConstructionG
 		ConstructionID:   group.ConstructionID,
 		MissingKeyPolicy: recipe.ConstructionGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
 		Keys:             make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
-		Aggregates:       make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
+		Aggregates:       append(make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)), group.Aggregates...),
 	}
 	for _, key := range group.Keys {
 		mappedKey := recipe.ConstructionGroupKey{
@@ -665,35 +655,17 @@ func recipeConstructionGroup(group *ws.ConstructionGroup) (*recipe.ConstructionG
 		}
 		mapped.Keys = append(mapped.Keys, mappedKey)
 	}
-	for _, aggregate := range group.Aggregates {
-		mapped.Aggregates = append(mapped.Aggregates, recipe.ConstructionGroupAggregate{
-			Operation:     recipe.ConstructionGroupAggregateOp(aggregate.Operation),
-			InputColumnID: aggregate.InputColumnID, OutputColumnID: aggregate.OutputColumnID,
-		})
-	}
+
 	return mapped, nil
 }
 
-func recipeConstructionCombine(combine *ws.ConstructionCombine) (*recipe.ConstructionCombine, error) {
-	mapped := &recipe.ConstructionCombine{
-		Kind:             recipe.ConstructionCombineKind(combine.Kind),
-		Keys:             make([]recipe.ConstructionCombineKey, 0, len(combine.Keys)),
-		Projections:      make([]recipe.ConstructionCombineProjection, 0, len(combine.Projections)),
-		JoinType:         recipe.ConstructionCombineJoinType(combine.JoinType),
-		RightMatchPolicy: recipe.ConstructionCombineRightMatchPolicy(combine.RightMatchPolicy),
-		MembershipMode:   recipe.ConstructionCombineMembershipMode(combine.MembershipMode),
-	}
-	for _, key := range combine.Keys {
-		mapped.Keys = append(mapped.Keys, recipe.ConstructionCombineKey{
-			LeftColumnID: key.LeftColumnID, RightColumnID: key.RightColumnID,
-		})
-	}
-	for _, projection := range combine.Projections {
-		mapped.Projections = append(mapped.Projections, recipe.ConstructionCombineProjection{
-			OutputColumnID: projection.OutputColumnID, InputIndex: projection.InputIndex, InputColumnID: projection.InputColumnID,
-		})
-	}
-	return mapped, nil
+func recipeConstructionCombine(combine *ws.ConstructionCombine) *recipe.ConstructionCombine {
+	mapped := recipe.ConstructionCombine(*combine)
+	mapped.Keys = make([]recipe.ConstructionCombineKey, len(combine.Keys))
+	copy(mapped.Keys, combine.Keys)
+	mapped.Projections = make([]recipe.ConstructionCombineProjection, len(combine.Projections))
+	copy(mapped.Projections, combine.Projections)
+	return &mapped
 }
 
 func recipeConstructionGroupFieldSource(
@@ -721,13 +693,8 @@ func recipeConstructionGroupFieldSource(
 		if input.CurrentStage == nil || input.RelatedOccurrence != nil {
 			return nil, fmt.Errorf("CURRENT_STAGE Group fieldSource requires one currentStage payload")
 		}
-		current := input.CurrentStage
-		mappedInput = &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &recipe.ConstructionGroupCurrentStageFieldSource{
-			SourceRole: current.SourceRole, OccurrenceID: current.OccurrenceID,
-			OwnerResourceType: current.OwnerResourceType, ResourceType: current.ResourceType,
-			CandidateID: current.CandidateID, CanonicalPath: current.CanonicalPath,
-			BoundarySelector: current.BoundarySelector,
-		}}
+		current := *input.CurrentStage
+		mappedInput = &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &current}
 	case "RELATED_OCCURRENCE":
 		if input.RelatedOccurrence == nil || input.CurrentStage != nil {
 			return nil, fmt.Errorf("RELATED_OCCURRENCE Group fieldSource requires one relatedOccurrence payload")
@@ -769,13 +736,13 @@ func constructionRelatedPredicate(predicate *ws.ContributorPredicate) (*recipe.C
 	}
 	mapped := &recipe.ConstructionRelatedPredicate{
 		CandidateID: predicate.CandidateID,
-		Operator:    recipe.FilterOperator(predicate.Operator),
+		Operator:    spec.FilterOperator(predicate.Operator),
 		Quantifier:  recipe.ArrayQuantifier(predicate.Quantifier),
 	}
 	if predicate.Value == nil {
 		return mapped, nil
 	}
-	value := &recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
+	value := &spec.FilterValue{Kind: spec.FilterValueKind(predicate.Value.Kind)}
 	switch predicate.Value.Kind {
 	case ws.ContributorString:
 		if predicate.Value.String != nil {

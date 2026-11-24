@@ -15,15 +15,19 @@ const workspaceProjectionCollection = db.WorkspaceProjectionsCollection
 
 const workspaceMigrationVersion = "wp18_workspace_v1"
 
-const workspaceMigrationLedger = "loom_schema_migrations"
+type WorkspaceProjectionStore struct{ client store.RowQueryer }
+
+func NewWorkspaceProjectionStore(client store.RowQueryer) *WorkspaceProjectionStore {
+	return &WorkspaceProjectionStore{client: client}
+}
 
 func workspaceProjectionCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{Name: workspaceProjectionCollection}
 }
 
-var _ workspacepkg.ProjectionReader = (*Store)(nil)
+var _ workspacepkg.ProjectionReader = (*WorkspaceProjectionStore)(nil)
 
-func (s *Store) WorkspaceProjection(ctx context.Context, source workspacepkg.Artifact) (workspacepkg.Projection, error) {
+func (s *WorkspaceProjectionStore) WorkspaceProjection(ctx context.Context, source workspacepkg.Artifact) (workspacepkg.Projection, error) {
 	var projection *workspacepkg.Projection
 	err := s.client.QueryRows(ctx, `LET migrations = (
  FOR migration IN @@ledger FILTER migration._key IN [@encodingVersion,@constructionVersion] RETURN migration
@@ -36,7 +40,7 @@ FOR projection IN @@projections
   (projection._key == @encodingKey AND POSITION(versions,@encodingVersion)))
  SORT projection._key == @constructionKey ? 0 : 1
  LIMIT 1 RETURN {projection:JSON_STRINGIFY(projection), constructionComplete:constructionComplete}`, 1,
-		map[string]any{"@ledger": workspaceMigrationLedger, "encodingVersion": workspaceMigrationVersion,
+		map[string]any{"@ledger": store.SchemaMigrationsCollection, "encodingVersion": workspaceMigrationVersion,
 			"constructionVersion": tableShapeWorkspaceMigrationVersion, "@projections": workspaceProjectionCollection,
 			"encodingKey": source.Key(), "constructionKey": tableShapeConstructionTarget.projectionKey(source)}, func(row map[string]any) error {
 			value, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["projection"])

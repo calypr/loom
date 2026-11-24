@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 type resourceInventoryWrite struct {
@@ -27,19 +28,6 @@ type resourceInventoryTestClient struct {
 	queries      []string
 	vars         []map[string]any
 	writes       []resourceInventoryWrite
-}
-
-func inventoryTestRow(t *testing.T, value any) map[string]any {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var row map[string]any
-	if err := json.Unmarshal(encoded, &row); err != nil {
-		t.Fatal(err)
-	}
-	return row
 }
 
 func (c *resourceInventoryTestClient) CollectionExists(_ context.Context, name string) (bool, error) {
@@ -206,7 +194,7 @@ func TestResourceInventoryReadSumsOnlyAuthorizedPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &resourceInventoryTestClient{markerRows: []map[string]any{inventoryTestRow(t, build)}, countRows: counts}
+	client := &resourceInventoryTestClient{markerRows: []map[string]any{testkit.JSONMap(t, build)}, countRows: counts}
 	adapter, err := New(client)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +228,7 @@ func TestResourceInventoryRestrictedEmptyScopeReturnsNoRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &resourceInventoryTestClient{markerRows: []map[string]any{inventoryTestRow(t, build)}, countRows: counts}
+	client := &resourceInventoryTestClient{markerRows: []map[string]any{testkit.JSONMap(t, build)}, countRows: counts}
 	adapter, _ := New(client)
 	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{
 		Project: "p", DatasetGeneration: "g", ResourceTypes: []string{"Patient"}, AuthResourcePaths: []string{},
@@ -262,7 +250,7 @@ func TestResourceInventoryStaleMarkerIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	build.Complete = false
-	client := &resourceInventoryTestClient{markerRows: []map[string]any{inventoryTestRow(t, build)}}
+	client := &resourceInventoryTestClient{markerRows: []map[string]any{testkit.JSONMap(t, build)}}
 	adapter, _ := New(client)
 	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{Project: "p", DatasetGeneration: "g", ResourceTypes: []string{"Patient"}})
 	if !errors.Is(err, ErrResourceInventoryBuildUnavailable) || result.Available || result.Complete || result.Status != catalog.EvidenceUnavailable || len(result.Values) != 0 {

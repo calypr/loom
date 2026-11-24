@@ -43,11 +43,7 @@ type ImportedCatalogParameters struct {
 	Kinds        []string                `json:"kinds,omitempty"`
 	Naming       recipe.ColumnNaming     `json:"naming,omitempty"`
 }
-type ImportedCatalogOutput struct {
-	FieldPath string `json:"fieldPath"`
-	Enabled   bool   `json:"enabled"`
-	Name      string `json:"name,omitempty"`
-}
+type ImportedCatalogOutput = recipe.CatalogProjectionOutputOverride
 type ImportedDynamicParameters struct {
 	Name         string                  `json:"name"`
 	ColumnPrefix *string                 `json:"columnPrefix,omitempty"`

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -40,15 +42,12 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 				return nil, fmt.Errorf("group row value output %q collides with an existing group column", field.Name)
 			}
 			seen[field.Name] = true
-			cardinality := field.Expr.Type.Cardinality
-			nullable := cardinality.Optional()
+			cardinality, nullable := expression.OptionalOne, true
 			if selected.Policy == recipe.ConstructionRowValueAll {
 				cardinality, nullable = expression.Many, false
-			} else {
-				cardinality, nullable = expression.OptionalOne, true
 			}
 			columns = append(columns, CompiledOutputColumn{
-				ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),
+				ID: field.ColumnID, Name: field.Name, Label: loomtext.FirstNonBlank(field.Label, field.Name),
 				SemanticPath: recipeSemanticPath(output.RootResourceType, output.Root.ResourceType, field.FieldRef, field.Expr.Expression),
 				Kind:         string(field.Expr.Type.Kind), Cardinality: string(cardinality), Nullable: nullable,
 			})
@@ -79,16 +78,16 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 		}
 		if existing, exists := logical[name]; exists {
 			if output.Collision == "overwrite" {
-				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: ir.CloneUnitIdentity(normalizedUnit), Discovered: discovered}
 				return
 			}
 
 			if existing.Discovered && !discovered {
-				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: ir.CloneUnitIdentity(normalizedUnit), Discovered: false}
 			}
 			return
 		}
-		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
+		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: ir.CloneUnitIdentity(normalizedUnit), Discovered: discovered}
 	}
 	addType := func(name, semanticPath string, typ expression.Type, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		kind := string(typ.Kind)

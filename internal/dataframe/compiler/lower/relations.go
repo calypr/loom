@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -187,7 +189,7 @@ func (lowerer *constructionLowerer) lowerConstructionGroupRelatedCodingKey(
 		},
 	}
 	column := CompiledOutputColumn{
-		ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+		ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 		SemanticValueKind: CompiledSemanticValueCodingIdentityDisplay,
 		Kind:              "string", Cardinality: string(expression.RequiredOne),
 		Nullable:     missingPolicy.Normalized() == recipe.ConstructionGroupMissingKeyGroup,
@@ -201,10 +203,10 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedEligibility(
 	step recipe.ConstructionStep,
 	related recipe.ConstructionRelatedEligibility,
 	input map[string]CompiledOutputColumn,
-	outputs map[string]recipe.StageColumn,
-	inputRow, inputIdentity, rootResourceType string,
-	stepIndex int,
+	context constructionLoweringContext,
 ) (ir.PhysicalFilter, []ir.PhysicalOperation, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputRow, inputIdentity := context.inputRow, context.inputIdentity
+	rootResourceType, stepIndex := context.rootResourceType, context.stepIndex
 	if related.AnchorColumnID == "" || inputIdentity == "" || len(related.Route) == 0 {
 		return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility requires a retained exact row resource anchor")
 	}
@@ -415,7 +417,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedEligibility(
 		if !exists || prior.Internal {
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility output ID %q is not a public input column", declaration.ID)
 		}
-		prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+		prior.Name, prior.Label = declaration.Name, loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 		compiled = append(compiled, prior)
 	}
 	projections := stagePassThroughProjections(step.Outputs, input, inputRow)
@@ -426,10 +428,10 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 	step recipe.ConstructionStep,
 	related recipe.ConstructionRelatedExpand,
 	input map[string]CompiledOutputColumn,
-	outputs map[string]recipe.StageColumn,
-	inputRow, inputIdentity, rootResourceType string,
-	stepIndex int,
+	context constructionLoweringContext,
 ) (ir.PhysicalStageRelatedExpand, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputRow, inputIdentity := context.inputRow, context.inputIdentity
+	rootResourceType, stepIndex := context.rootResourceType, context.stepIndex
 	if related.AnchorColumnID == "" || inputIdentity == "" {
 		return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion requires a retained row resource anchor")
 	}
@@ -613,7 +615,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 			if prior.Internal {
 				return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion cannot expose hidden input column %q", declaration.ID)
 			}
-			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+			prior.Name, prior.Label = declaration.Name, loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 			compiledByID[declaration.ID] = prior
 			projectionByID[declaration.ID] = ir.PhysicalProjection{Name: declaration.Name, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{input[declaration.ID].Name}}}
 			continue
@@ -626,7 +628,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 			cardinality, nullable = string(expression.OptionalOne), true
 		}
 		compiledByID[declaration.ID] = CompiledOutputColumn{
-			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+			ID: declaration.ID, Name: declaration.Name, Label: loomtext.FirstNonBlank(declaration.Label, declaration.Name),
 			SemanticPath: "related_expand:" + related.TargetNodeID + ":id", Kind: string(expression.KindString),
 			Cardinality: cardinality, Nullable: nullable,
 		}
@@ -746,13 +748,12 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
 	input map[string]CompiledOutputColumn,
-	inputIdentity string,
-	inputStageID string,
-	rootResourceType string,
 	outputs map[string]recipe.StageColumn,
-	stepIndex int,
 	stage *ir.PhysicalConstructionStage,
+	context constructionLoweringContext,
 ) (ir.PhysicalStageGroup, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputIdentity, inputStageID := context.inputIdentity, context.inputStageID
+	rootResourceType, stepIndex := context.rootResourceType, context.stepIndex
 	constructionBind := nextTableReshapeBindKey(lowerer.plan.BindVars, "construction_group_id")
 	lowerer.plan.BindVars[constructionBind] = group.ConstructionID
 	physical := ir.PhysicalStageGroup{
@@ -851,7 +852,7 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 				RuleVersion: category.RuleVersion, FamilyID: category.FamilyID, System: category.System, Version: category.Version,
 			}
 			metadataByOutputID[output.ID] = CompiledOutputColumn{
-				ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+				ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 				Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne),
 				Nullable:     group.MissingKeyPolicy.Normalized() == recipe.ConstructionGroupMissingKeyGroup,
 				SemanticPath: "construction_semantic_group:" + category.BindingID + ":" + category.FamilyID,
@@ -916,7 +917,7 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 			}
 			physical.Keys = append(physical.Keys, physicalKey)
 			inputColumn.ID, inputColumn.Name = output.ID, output.Name
-			inputColumn.Label = constructionFirstNonEmpty(output.Label, output.Name)
+			inputColumn.Label = loomtext.FirstNonBlank(output.Label, output.Name)
 			inputColumn.Internal = false
 			metadataByOutputID[output.ID] = inputColumn
 			projectionByOutputID[output.ID] = inputProjection
@@ -945,7 +946,7 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 		physical.Keys = append(physical.Keys, physicalKey)
 		column := inputColumn
 		column.ID, column.Name = output.ID, output.Name
-		column.Label = constructionFirstNonEmpty(output.Label, inputColumn.Label, output.Name)
+		column.Label = loomtext.FirstNonBlank(output.Label, inputColumn.Label, output.Name)
 		metadataByOutputID[output.ID] = column
 		projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalKey.Variable}}
 	}
@@ -983,7 +984,7 @@ func (lowerer *constructionLowerer) lowerConstructionGroup(
 		if !ok {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group output schema contains unexpected column ID %q", declaration.ID)
 		}
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		column.Name = declaration.Name
 		projection := projectionByOutputID[declaration.ID]
 		projection.Name = declaration.Name

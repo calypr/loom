@@ -2,8 +2,9 @@ package lifecycle
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/semantic"
 	"reflect"
+
+	"github.com/calypr/loom/internal/semantic"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -19,14 +20,13 @@ func (s *Service) prepareFrameSourceCommand(
 	project, explorerID string,
 	authorized ports.AuthorizedCapability,
 	workspace ws.Workspace,
-	catalogSnapshot ws.CatalogSnapshot,
 	command authoringv2.Command,
 	identity capability.ConstructionChoiceIdentity,
-) ([]authoringv2.Command, error) {
+) ([]authoringv2.PreparedCommand, error) {
 	if command.Type != authoringv2.CommandSetFrameSource && command.Type != authoringv2.CommandReplaceFrameSource {
 		return nil, support.Malformed("commands", "unsupported frame source command", nil)
 	}
-	document := findSemanticOutput(workspace, command.OutputID)
+	document := workspace.FindOutputDocument(command.OutputID)
 	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -61,7 +61,7 @@ func (s *Service) prepareFrameSourceCommand(
 	if err != nil {
 		return nil, invalidFrameSource("the frame source route and value no longer compile")
 	}
-	provenCandidate, ok = semanticbrowse.SemanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
+	provenCandidate, ok = capability.SemanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
 	if !ok {
 		return nil, invalidFrameSource("the frame source fallback selectors no longer match compiler-proved candidates")
 	}
@@ -94,20 +94,11 @@ func (s *Service) prepareFrameSourceCommand(
 	if err != nil {
 		return nil, invalidFrameSource("the selected frame definition is invalid")
 	}
-	commands := []authoringv2.Command{command}
-	if err := commands[0].ResolveFrameSource(frame); err != nil {
+	resolution, err := authoringv2.ResolveFrameSource(command, frame)
+	if err != nil {
 		return nil, invalidFrameSource("the resolved frame definition is invalid")
 	}
-	return commands, nil
-}
-
-type BrowseFrameSourceOptionsRequest = semanticbrowse.BrowseFrameSourceOptionsRequest
-type FrameSourceForm = semanticbrowse.FrameSourceForm
-type FrameSourceOption = semanticbrowse.FrameSourceOption
-type BrowseFrameSourceOptionsResponse = semanticbrowse.BrowseFrameSourceOptionsResponse
-
-func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
-	return s.browseService().BrowseFrameSourceOptions(ctx, request)
+	return []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}, nil
 }
 
 func invalidFrameSource(message string) error {

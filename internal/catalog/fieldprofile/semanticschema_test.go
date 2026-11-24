@@ -235,10 +235,16 @@ func TestSchemaSemanticValueWalkMatchesByteWalkObservations(t *testing.T) {
 			t.Fatalf("fact %d value differs from raw JSON: raw=%#v value=%#v", i, rawValue, valueFacts[i].Value)
 		}
 	}
-	byteEmissions := observeSchemaFactsForTest(t, index, "SignalPacket", "fixture/SignalPacket.ndjson:1", decoded, byteFacts)
-	valueEmissions := observeSchemaFactsForTest(t, index, "SignalPacket", "fixture/SignalPacket.ndjson:1", decoded, valueFacts)
-	if !reflect.DeepEqual(byteEmissions, valueEmissions) {
-		t.Fatalf("semantic emission sequence differs:\nbyte=%#v\nvalue=%#v", byteEmissions, valueEmissions)
+	walkerEmissions := observeSchemaWithExtractorForTest(t, index, "SignalPacket", "fixture/SignalPacket.ndjson:1", decoded)
+	profiler := NewProfilerForGeneration("project", "generation", "scope", "SignalPacket", nil)
+	var profilerEmissions []semanticEmissionForTest
+	if err := profiler.observeSchemaSemanticsWithEvidence(index, decoded, "", "fixture/SignalPacket.ndjson:1", func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+		profilerEmissions = append(profilerEmissions, semanticEmissionForTest{observation, examples, evidence})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(walkerEmissions, profilerEmissions) {
+		t.Fatalf("semantic emission sequence differs:\nextractor=%#v\nprofiler=%#v", walkerEmissions, profilerEmissions)
 	}
 }
 
@@ -248,11 +254,12 @@ type semanticEmissionForTest struct {
 	Evidence    SemanticCoverageEmissionEvidence
 }
 
-func observeSchemaFactsForTest(t *testing.T, index *schema.Index, resourceType, sourceID string, payload map[string]any, facts []semantic.MemberFact) []semanticEmissionForTest {
+func observeSchemaWithExtractorForTest(t *testing.T, index *schema.Index, resourceType, sourceID string, payload map[string]any) []semanticEmissionForTest {
 	t.Helper()
 	profiler := NewProfilerForGeneration("project", "generation", "scope", resourceType, nil)
 	var emissions []semanticEmissionForTest
-	err := semantic.ExtractFacts(resourceType, "", payload, facts, func(record semantic.Record) {
+	var extractor semantic.Extractor
+	err := extractor.Extract(index, resourceType, payload, "", func(record semantic.Record) {
 		profiler.recordSchemaSemanticObservation(record, sourceID, func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 			emissions = append(emissions, semanticEmissionForTest{observation, examples, evidence})
 		})
@@ -379,7 +386,7 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 					t.Fatalf("%s:%d fact %d differs: byte=%#v value=%#v", path, lineNumber, factIndex, oldFact, newFact)
 				}
 			}
-			oldEmissions := observeSchemaFactsForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload, byteFacts)
+			oldEmissions := observeSchemaWithExtractorForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload)
 			var newEmissions []semanticEmissionForTest
 			if err := profiler.observeSchemaSemanticsWithEvidence(index, payload, "", fmt.Sprintf("%s:%d", path, lineNumber), func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 				newEmissions = append(newEmissions, semanticEmissionForTest{observation, examples, evidence})

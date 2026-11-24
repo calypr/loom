@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	workspacepkg "github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
@@ -64,13 +63,13 @@ func TestWorkspaceProjectionSourceKeySurvivesJSONMapRoundTrip(t *testing.T) {
 
 func TestWorkspaceProjectionContentIDSurvivesJSONMapRoundTrip(t *testing.T) {
 	raw := json.RawMessage(` {"z":2,"number":1152921504606846976,"a":{"y":2,"x":1}} `)
-	p := workspacepkg.Projection{Source: workspacepkg.Artifact{Kind: "revision", Project: "tenant", ID: "id", RawDigest: workspaceBytesDigest(raw)}, Workspace: raw, Digest: "digest"}
+	p := ws.Projection{Source: ws.Artifact{Kind: "revision", Project: "tenant", ID: "id", RawDigest: workspaceBytesDigest(raw)}, Workspace: raw, Digest: "digest"}
 	p.ID = p.ContentID()
 	encoded, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded workspacepkg.Projection
+	var decoded ws.Projection
 	if err = json.Unmarshal(projectionMapRoundTrip(t, encoded), &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +97,8 @@ func TestWorkspaceProjectionReorderedValidContentStillAuthenticates(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := workspacepkg.Artifact{Kind: "revision", Project: "tenant", ID: "revision", RawDigest: "original-raw"}
-	p := workspacepkg.Projection{Source: source, Workspace: raw, Digest: digest}
+	source := ws.Artifact{Kind: "revision", Project: "tenant", ID: "revision", RawDigest: "original-raw"}
+	p := ws.Projection{Source: source, Workspace: raw, Digest: digest}
 	p.ID = p.ContentID()
 	p.Workspace = projectionMapRoundTrip(t, raw)
 	if _, err = p.Validate(source); err != nil {

@@ -195,7 +195,7 @@ func reauthorizeConstructionRelatedField(
 	step ws.ConstructionStep,
 	related ws.ConstructionRelatedField,
 ) error {
-	inputStageID, err := relatedFieldInputStageID(step)
+	inputStageID, err := relatedInputStageID(step, "related field")
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
@@ -241,7 +241,7 @@ func reauthorizeConstructionRelatedField(
 		choiceSource.LogicalType != related.Source.LogicalType {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field source differs from its stage-bound server choice", nil)
 	}
-	candidate, found := uniqueCapabilityCandidate(base.Snapshot, related.Source.CandidateID)
+	candidate, found := capability.UniqueCapabilityCandidate(base.Snapshot, related.Source.CandidateID)
 	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
 		candidate.FieldPath != related.Source.Path || (candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
 		len(candidate.RepeatedBoundaries) != 0 || !relatedFieldPathExecutable(candidate.FieldPath) ||
@@ -278,7 +278,7 @@ func constructionCodedGroupChoices(
 	}
 	occurrence, err := resolveRowChoiceOccurrence(
 		base.Snapshot, base.Document.RootResourceType, base.Document.Route,
-		ws.RootOccurrenceID, "",
+		ws.RootOccurrenceID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("the direct root occurrence is not available for coded grouping: %w", err)
@@ -301,7 +301,7 @@ func constructionCodedGroupChoices(
 			populatedPaths[candidate.FieldPath] = struct{}{}
 		}
 	}
-	choices := make([]receiptmodel.ReceiptConstructionCodedGroupChoice, 0, len(paths))
+	choices := make([]capability.ConstructionCodedGroupChoice, 0, len(paths))
 	for _, path := range paths {
 		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.Document.RootResourceType), path)
 		if err != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
@@ -319,10 +319,7 @@ func constructionCodedGroupChoices(
 		if err != nil {
 			return nil, err
 		}
-		choices = append(choices, receiptmodel.ReceiptConstructionCodedGroupChoice{
-			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, ResourceType: choice.ResourceType,
-			CodingPath: choice.CodingPath, Label: choice.Label,
-		})
+		choices = append(choices, choice)
 	}
 	return choices, nil
 }
@@ -358,7 +355,7 @@ func reauthorizeConstructionCodedGroup(
 		coded.Source.FHIRType != "Coding" || coded.Source.Cardinality != "MANY" || coded.Source.Shape != "ARRAY" || len(coded.Source.Route) != 0 {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source facts must identify a root repeated Coding path with an empty route", nil)
 	}
-	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, coded.Source.OccurrenceID, "")
+	occurrence, err := resolveRowChoiceOccurrence(base.Snapshot, base.Document.RootResourceType, base.Document.Route, coded.Source.OccurrenceID)
 	if err != nil || len(occurrence.Route) != 0 {
 		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the root Coding occurrence is no longer available in the authorized snapshot", nil, err)
 	}
@@ -415,9 +412,9 @@ func constructionStageSupportsCodedGroup(stage receiptmodel.ReceiptConstructionS
 	return false
 }
 
-func relatedFieldInputStageID(step ws.ConstructionStep) (string, error) {
+func relatedInputStageID(step ws.ConstructionStep, operation string) (string, error) {
 	if len(step.Inputs) != 1 {
-		return "", fmt.Errorf("related field requires exactly one input stage")
+		return "", fmt.Errorf("%s requires exactly one input stage", operation)
 	}
 	input := step.Inputs[0]
 	switch input.Kind {
@@ -425,11 +422,11 @@ func relatedFieldInputStageID(step ws.ConstructionStep) (string, error) {
 		return recipe.ConstructionSourceProjectionID, nil
 	case ws.ConstructionInputStepOutput:
 		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
-			return "", fmt.Errorf("related field input step ID must be exact")
+			return "", fmt.Errorf("%s input step ID must be exact", operation)
 		}
 		return input.StepID, nil
 	default:
-		return "", fmt.Errorf("related field input must be a source or prior construction stage")
+		return "", fmt.Errorf("%s input must be a source or prior construction stage", operation)
 	}
 }
 
@@ -440,7 +437,7 @@ func reauthorizeConstructionRelatedExpand(
 	step ws.ConstructionStep,
 	related ws.ConstructionRelatedExpand,
 ) error {
-	inputStageID, err := relatedExpandInputStageID(step)
+	inputStageID, err := relatedInputStageID(step, "related expansion")
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
@@ -509,24 +506,6 @@ func reauthorizeConstructionRelatedEligibility(
 	})
 }
 
-func relatedExpandInputStageID(step ws.ConstructionStep) (string, error) {
-	if len(step.Inputs) != 1 {
-		return "", fmt.Errorf("related expansion requires exactly one input stage")
-	}
-	input := step.Inputs[0]
-	switch input.Kind {
-	case ws.ConstructionInputSourceProjection:
-		return recipe.ConstructionSourceProjectionID, nil
-	case ws.ConstructionInputStepOutput:
-		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
-			return "", fmt.Errorf("related expansion input step ID must be exact")
-		}
-		return input.StepID, nil
-	default:
-		return "", fmt.Errorf("related expansion input must be a source or prior construction stage")
-	}
-}
-
 func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootResourceType string, related ws.ConstructionRelatedExpand) error {
 	if related.ContributorSource == nil || related.ContributorChoiceID == "" {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor predicate has no exact field choice", nil)
@@ -553,7 +532,7 @@ func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootRes
 	}
 	form := capability.ConstructionChoiceValue
 	if capability.IsRepeatedCardinality(source.Cardinality) {
-		candidate, found := uniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
+		candidate, found := capability.UniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
 		if !found {
 			return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact related expansion contributor is no longer available", nil, nil)
 		}

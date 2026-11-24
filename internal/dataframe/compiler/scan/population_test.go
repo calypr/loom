@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -41,7 +43,7 @@ func TestColumnPopulationMatchesExactArangoStageRows(t *testing.T) {
 				ID: "drop_large", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "amount", Operator: recipe.FilterGreaterThan,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &threshold}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterInteger, Integer: &threshold}},
 				}},
 				Outputs: columns,
 			}},

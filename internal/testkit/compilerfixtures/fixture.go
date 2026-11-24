@@ -6,6 +6,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 )
 
 func CurrentOracleSource(name string) recipe.Output {
@@ -49,6 +50,7 @@ func CurrentOracleUnpivotOutput(policy recipe.UnpivotNullRowPolicy) recipe.Outpu
 func (compile OutputCompiler) CompileCurrentConstructionOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, model.CompiledQuery, error) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "current-construction-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	bindings.GroupRowsCollections = explorerdb.GroupRowsCollections()
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err

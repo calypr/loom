@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -37,7 +37,7 @@ func (r *countingInterpretationRepository) CreateInterpretationRevision(context.
 }
 
 func TestLifecycleResolvesEachDistinctRevisionOnce(t *testing.T) {
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	repository := &countingInterpretationRepository{revision: revision}
 	service := newTestService(t, &fakeStore{}, Config{InterpretationRepository: repository})
 	inputs, err := service.core.ResolveWorkspaceInterpretations(context.Background(), "project-a", lifecycleInterpretationWorkspace(string(revision.ID), false), lifecycleInterpretationSnapshot())
@@ -92,16 +92,4 @@ func lifecycleInterpretationWorkspace(revisionID string, inline bool) ws.Workspa
 		},
 		Tabs: []ws.Tab{{ID: "patients_a", Title: "Patients A", OutputID: "patients_a", Order: 0, Visible: true}, {ID: "patients_b", Title: "Patients B", OutputID: "patients_b", Order: 1, Visible: true}}, SemanticsVersion: ws.CurrentSemanticsVersion,
 	}
-}
-
-func lifecyclePrepareInterpretation(t *testing.T) interpretation.InterpretationRevision {
-	t.Helper()
-	revision, err := interpretation.PrepareInterpretationRevision(interpretation.InterpretationRevision{
-		Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "lifecycle",
-		CreatedAt: time.Unix(1, 0).UTC(), Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return revision
 }

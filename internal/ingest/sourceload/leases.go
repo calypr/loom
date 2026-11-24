@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/calypr/loom/internal/lease"
 )
 
 func (p *RepositorySourceLoader) claimCandidateCopy(ctx context.Context, key, owner string) (bool, error) {
@@ -47,34 +49,17 @@ RETURN {released: true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key
 }
 
 func (p *RepositorySourceLoader) renewCandidateCopyLease(parent context.Context, key, owner string) (context.Context, func()) {
-	ctx, cancel := context.WithCancelCause(parent)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				updated, err := p.renewCandidateCopyLeaseOnce(ctx, key, owner)
-				if err != nil {
-					cancel(fmt.Errorf("renew candidate initialization lease: %w", err))
-					return
-				}
-				if !updated {
-					cancel(&SourcePublishConflictError{Reason: "candidate initialization lease was lost"})
-					return
-				}
-			}
+	renewal := lease.StartRenewal(parent, 30*time.Second, func(ctx context.Context) error {
+		updated, err := p.renewCandidateCopyLeaseOnce(ctx, key, owner)
+		if err != nil {
+			return fmt.Errorf("renew candidate initialization lease: %w", err)
 		}
-	}()
-	stop := func() {
-		cancel(context.Canceled)
-		<-done
-	}
-	return ctx, stop
+		if !updated {
+			return &SourcePublishConflictError{Reason: "candidate initialization lease was lost"}
+		}
+		return nil
+	})
+	return renewal.Context(), func() { renewal.Stop(context.Canceled) }
 }
 
 func (p *RepositorySourceLoader) renewCandidateCopyLeaseOnce(ctx context.Context, key, owner string) (bool, error) {
@@ -114,34 +99,17 @@ RETURN {claimed: true}`, 1, map[string]any{
 }
 
 func (p *RepositorySourceLoader) renewSourceLoadFileLease(parent context.Context, key, path, owner string) (context.Context, func()) {
-	ctx, cancel := context.WithCancelCause(parent)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				ok, err := p.renewSourceLoadFileOnce(ctx, key, path, owner)
-				if err != nil {
-					cancel(fmt.Errorf("renew source file upload lease: %w", err))
-					return
-				}
-				if !ok {
-					cancel(&SourcePublishConflictError{Reason: "source file upload lease was lost"})
-					return
-				}
-			}
+	renewal := lease.StartRenewal(parent, 30*time.Second, func(ctx context.Context) error {
+		updated, err := p.renewSourceLoadFileOnce(ctx, key, path, owner)
+		if err != nil {
+			return fmt.Errorf("renew source file upload lease: %w", err)
 		}
-	}()
-	stop := func() {
-		cancel(context.Canceled)
-		<-done
-	}
-	return ctx, stop
+		if !updated {
+			return &SourcePublishConflictError{Reason: "source file upload lease was lost"}
+		}
+		return nil
+	})
+	return renewal.Context(), func() { renewal.Stop(context.Canceled) }
 }
 
 func (p *RepositorySourceLoader) renewSourceLoadFileOnce(ctx context.Context, key, path, owner string) (bool, error) {

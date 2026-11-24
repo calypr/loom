@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	publication "github.com/calypr/loom/internal/dataset"
+
 	"github.com/calypr/loom/internal/ingest/identity"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
@@ -52,21 +54,21 @@ RETURN {
 				t.Fatal(err)
 			}
 			logicalKey := SanitizeKey(test.logicalKey)
-			if result["vertex"] != identity.GenerationDocumentKey(project, generation, "Patient", logicalKey) {
-				t.Fatalf("AQL vertex key = %v, Go key = %q", result["vertex"], identity.GenerationDocumentKey(project, generation, "Patient", logicalKey))
+			if result["vertex"] != identity.GenerationDocumentKeyWithFormat(project, generation, "Patient", logicalKey, publication.IdentityFormatCompact) {
+				t.Fatalf("AQL vertex key = %v, Go key = %q", result["vertex"], identity.GenerationDocumentKeyWithFormat(project, generation, "Patient", logicalKey, publication.IdentityFormatCompact))
 			}
 			from := "Observation/" + SanitizeKey(test.fromID)
 			to := "Patient/" + SanitizeKey(test.toID)
 			edgeKey := SanitizeKey(test.logicalEdgeID)
-			if result["edge"] != identity.GenerationEdgeKey(project, generation, edgeKey, from, to) {
-				t.Fatalf("AQL edge key = %v, Go key = %q", result["edge"], identity.GenerationEdgeKey(project, generation, edgeKey, from, to))
+			if result["edge"] != identity.GenerationEdgeKeyWithFormat(project, generation, edgeKey, from, to, publication.IdentityFormatCompact) {
+				t.Fatalf("AQL edge key = %v, Go key = %q", result["edge"], identity.GenerationEdgeKeyWithFormat(project, generation, edgeKey, from, to, publication.IdentityFormatCompact))
 			}
 		})
 	}
 }
 
-func TestVertexFromFHIRWithExtraRejectsNonConcreteResourceTypes(t *testing.T) {
-	if _, err := VertexFromFHIRWithExtra("project", "PractitionerQualification", map[string]any{"id": "qualification-1"}, nil); err == nil {
+func TestGeneratedRowBuilderRejectsNonConcreteResourceTypes(t *testing.T) {
+	if _, _, err := NewGeneratedRowBuilder("project", "").Build("PractitionerQualification", []byte(`{"id":"qualification-1"}`), map[string]float64{}); err == nil {
 		t.Fatal("backbone definition was accepted as a graph vertex")
 	}
 }

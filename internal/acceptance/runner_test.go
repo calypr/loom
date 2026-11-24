@@ -353,7 +353,7 @@ func TestNewRejectsMissingFetcher(t *testing.T) {
 	}
 }
 
-func callRun(t *testing.T, runner *Runner, ctx context.Context) (report Report, runErr error, recovered any, stack string) {
+func callRun(t *testing.T, runner *Runner, ctx context.Context) (report Report, recovered any, stack string, runErr error) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -362,7 +362,7 @@ func callRun(t *testing.T, runner *Runner, ctx context.Context) (report Report, 
 		}
 	}()
 	report, runErr = runner.Run(ctx)
-	return report, runErr, nil, ""
+	return report, nil, "", runErr
 }
 
 func zeroValueFaultConfig(t *testing.T, mutate func(*Config)) Config {
@@ -405,7 +405,7 @@ func TestRunRejectsStructLiteralRunnerWithNamedFault(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := &Runner{cfg: tc.cfg}
-			report, runErr, recovered, stack := callRun(t, runner, ctx)
+			report, recovered, stack, runErr := callRun(t, runner, ctx)
 			if recovered != nil {
 				t.Fatalf("Runner{} constructed as a struct literal bypassing New must fault with a named error, not a raw nil deref:\npanic: %v\n%s", recovered, stack)
 			}
@@ -436,7 +436,7 @@ func TestRunStructLiteralWithCompleteConfigKeepsRuntimeErrors(t *testing.T) {
 		c.Run.ClickHouseDatabase = databaseName(c.Run.RunID)
 	})
 	runner := &Runner{cfg: cfg}
-	report, runErr, recovered, stack := callRun(t, runner, context.Background())
+	report, recovered, stack, runErr := callRun(t, runner, context.Background())
 	if recovered != nil {
 		t.Fatalf("a complete struct-literal Runner must not panic:\npanic: %v\n%s", recovered, stack)
 	}

@@ -162,16 +162,16 @@ func TestRevisionRegistryClassifiesRegisterFaults(t *testing.T) {
 		return userErr
 	}
 
-	registry, client := registryWith()
+	registry, _ := registryWith()
 	if _, err := registry.Register(context.Background(), "project-a", valid(""), ""); err == nil || userFault(t, err, dataframeerrors.CodeInvalidRequest) == nil {
 		t.Fatal("missing recipe name not typed")
 	}
-	registry, client = registryWith()
+	registry, _ = registryWith()
 	if _, err := registry.Register(context.Background(), "", valid("files"), ""); err == nil || userFault(t, err, dataframeerrors.CodeInvalidRequest) == nil {
 		t.Fatal("missing project not typed")
 	}
 
-	registry, client = registryWith()
+	registry, _ = registryWith()
 	if _, err := registry.Register(context.Background(), "project-a", valid("files"), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestRevisionRegistryClassifiesRegisterFaults(t *testing.T) {
 		t.Fatal("stale parent error must not be retryable (matches sibling STALE_CURSOR defaults, internal/dataframe/published/errors.go:39)")
 	}
 
-	registry, client = registryWith()
+	registry, client := registryWith()
 	if _, err := registry.Register(context.Background(), "project-a", valid("files"), "some-digest"); err == nil || userFault(t, err, dataframeerrors.CodeInvalidRequest) == nil {
 		t.Fatal("first revision with parent not typed")
 	}

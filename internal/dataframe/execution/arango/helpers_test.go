@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -184,7 +186,7 @@ func graphRowsCheckGroupedDynamicInventories(t *testing.T, ctx context.Context, 
 			source := recipe.Output{Name: "subjects", RootResourceType: "ResearchSubject", RowGrain: "resource", RootColumnNaming: recipe.RootColumnNamingExact, Fields: []recipe.Field{{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "identifier", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"allowed", "alsoallowed"}}}}
 			if tc.empty {
 				id := "no-such-subject"
-				source.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &id}}}}
+				source.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &id}}}}
 			}
 			group := recipe.ConstructionGroup{ConstructionID: "group", Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "count_id"}}}
 			outputs := []recipe.StageColumn{{ID: "count_id", Name: "row_count", Type: "integer"}}

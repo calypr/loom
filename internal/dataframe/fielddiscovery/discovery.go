@@ -82,10 +82,10 @@ func discoveryError(err error) error {
 	}
 }
 
-func extensionObservations(fields []fieldcatalog.ExtensionValueObservation) []schema.ExtensionValueObservation {
-	values := make([]schema.ExtensionValueObservation, len(fields))
+func extensionObservations(fields []fieldcatalog.ExtensionValueObservation) []fieldcatalog.ExtensionValueObservation {
+	values := make([]fieldcatalog.ExtensionValueObservation, len(fields))
 	for i, value := range fields {
-		values[i] = schema.ExtensionValueObservation{URL: value.URL, SourcePath: value.SourcePath, ValuePath: value.ValuePath, ValueType: value.ValueType, URLPath: append([]string(nil), value.URLPath...)}
+		values[i] = fieldcatalog.ExtensionValueObservation{URL: value.URL, SourcePath: value.SourcePath, ValuePath: value.ValuePath, ValueType: value.ValueType, URLPath: append([]string(nil), value.URLPath...)}
 	}
 	return values
 }

@@ -9,8 +9,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	"github.com/calypr/loom/internal/dataset"
-	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/releasecommit"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -31,58 +31,61 @@ func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt receipt
 		management = viewer.ManagementRepository
 	}
 	var out *explorer.Revision
-	err = s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection, db.CompilationReceiptsCollection, db.ViewBuilderSettingsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
-		if err := tx.QueryRows(txCtx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "doc": receiptDoc}, func(map[string]any) error { return nil }); err != nil {
-			return err
-		}
-		var stored *receiptmodel.CompilationReceipt
-		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "key": receipt.ID, "project": receipt.Project, "explorerId": receipt.ExplorerID}, func(row map[string]any) error {
-			value, err := db.Decode[receiptmodel.CompilationReceipt](row)
-			if err != nil {
-				return err
+	_, err = releasecommit.GoLive(ctx, s.client, releasecommit.Request{
+		Release: release, ExpectedRevision: expectedReleaseRevision, RequireCurrentGeneration: true,
+		Collections: store.TransactionCollections{Write: []string{db.ExplorersCollection, db.RevisionsCollection, db.CompilationReceiptsCollection, db.ViewBuilderSettingsCollection}},
+		Prepare: func(txCtx context.Context, tx store.RowQueryer) (releasecommit.Participant, error) {
+			if err := tx.QueryRows(txCtx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "doc": receiptDoc}, func(map[string]any) error { return nil }); err != nil {
+				return nil, err
 			}
-			if err := validateReceipt(value); err != nil {
-				return err
+			var stored *receiptmodel.CompilationReceipt
+			if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, 1, map[string]any{"@c": db.CompilationReceiptsCollection, "key": receipt.ID, "project": receipt.Project, "explorerId": receipt.ExplorerID}, func(row map[string]any) error {
+				value, err := db.Decode[receiptmodel.CompilationReceipt](row)
+				if err != nil {
+					return err
+				}
+				if err := validateReceipt(value); err != nil {
+					return err
+				}
+				stored = &value
+				return nil
+			}); err != nil {
+				return nil, err
 			}
-			stored = &value
-			return nil
-		}); err != nil {
-			return err
-		}
-		if stored == nil {
-			return explorer.ErrNotFound
-		}
-		if !sameReceipt(*stored, receipt) {
-			return explorer.ErrCorruptReceipt
-		}
-		if err := tx.QueryRows(txCtx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN NEW`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID, "doc": revisionDoc}, func(map[string]any) error { return nil }); err != nil {
-			return err
-		}
-		if _, err := datasetarango.CompareAndSwapPublishRelease(txCtx, tx, release, expectedReleaseRevision); err != nil {
-			return err
-		}
-		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{"@explorers": db.ExplorersCollection, "@revisions": db.RevisionsCollection, "explorerKey": explorerDocumentKey(revision.Project, revision.ExplorerID), "revisionKey": revision.ID, "project": revision.Project, "explorerId": revision.ExplorerID, "management": management})
-		if err != nil {
-			return err
-		}
-		if !found {
-			return explorer.ErrDraftConflict
-		}
-		state, err := activationStateFromRow(row)
-		if err != nil {
-			return err
-		}
-		if err := activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC()); err != nil {
-			return err
-		}
-		if err := registerAuthoringViewCatalog(txCtx, tx, revision); err != nil {
-			return err
-		}
-		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
-			value, err := db.Decode[explorer.Revision](row)
-			out = &value
-			return err
-		})
+			if stored == nil {
+				return nil, explorer.ErrNotFound
+			}
+			if !sameReceipt(*stored, receipt) {
+				return nil, explorer.ErrCorruptReceipt
+			}
+			if err := tx.QueryRows(txCtx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN NEW`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID, "doc": revisionDoc}, func(map[string]any) error { return nil }); err != nil {
+				return nil, err
+			}
+			return func(txCtx context.Context, tx store.RowQueryer, _ dataset.ActiveRelease) error {
+				row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{"@explorers": db.ExplorersCollection, "@revisions": db.RevisionsCollection, "explorerKey": explorerDocumentKey(revision.Project, revision.ExplorerID), "revisionKey": revision.ID, "project": revision.Project, "explorerId": revision.ExplorerID, "management": management})
+				if err != nil {
+					return err
+				}
+				if !found {
+					return explorer.ErrDraftConflict
+				}
+				state, err := activationStateFromRow(row)
+				if err != nil {
+					return err
+				}
+				if err := activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC()); err != nil {
+					return err
+				}
+				if err := registerAuthoringViewCatalog(txCtx, tx, revision); err != nil {
+					return err
+				}
+				return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": db.RevisionsCollection, "key": revision.ID}, func(row map[string]any) error {
+					value, err := db.Decode[explorer.Revision](row)
+					out = &value
+					return err
+				})
+			}, nil
+		},
 	})
 	return out, err
 }
