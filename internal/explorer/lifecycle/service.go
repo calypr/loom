@@ -171,7 +171,8 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	}
 	service.proposalService = proposalService
 	publicationService, err := publication.NewService(publication.Config{
-		Core: service.core, Store: store, Capability: config.Capability,
+		Core: service.core, Store: store, ExplorerStore: config.ExplorerStore,
+		RevisionWriter: config.RevisionWriter, Capability: config.Capability,
 		SelectionMembersCollection: config.SelectionMembersCollection,
 		CompileReceipt:             config.CompileReceipt, MaterializeReceipt: config.MaterializeReceipt,
 		ArtifactStore: config.ArtifactStore, PublishedReader: config.PublishedReader,

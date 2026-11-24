@@ -1070,6 +1070,8 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	// Essential: the in-memory store retains strings from request parameters after the handler returns.
 	app := fiber.New(fiber.Config{Immutable: true})
 	config := lifecycle.Config{
+		ExplorerStore:  store,
+		RevisionWriter: store,
 		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },

@@ -132,6 +132,8 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
 		SelectionSourceResolver:            selectionSourceResolver,
 		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
+		ExplorerStore:                      explorerStore,
+		RevisionWriter:                     explorerStore,
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,

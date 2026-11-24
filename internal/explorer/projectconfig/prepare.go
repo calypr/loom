@@ -126,7 +126,7 @@ func prepareProjectConfigSnapshot(resolved execution.Resolved, executionValue pu
 
 func (snapshot projectConfigSnapshot) configRevision(definition explorerconfig.ProjectConfig, digest string, configJSON json.RawMessage, revisionID string, executionValue publication.BundleExecution, diagnostics []viewer.Diagnostic) explorer.Revision {
 	readyAt := executionValue.PublishedAt.UTC()
-	return explorer.Revision{
+	return explorer.NewRevision(explorer.Revision{
 		ID: revisionID, Project: executionValue.Project, ExplorerID: definition.ID,
 		Config: configJSON, IntentDigest: digest,
 		PublicOutputContract: append(json.RawMessage(nil), snapshot.contractJSON...),
@@ -143,9 +143,9 @@ func (snapshot projectConfigSnapshot) configRevision(definition explorerconfig.P
 			State: string(explorer.RevisionReady), Generation: executionValue.DatasetGeneration,
 			ExecutionID: executionValue.ID, RevisionID: revisionID, UpdatedAt: readyAt,
 		},
-		Diagnostics: append([]viewer.Diagnostic{}, diagnostics...), Status: explorer.RevisionReady,
-		CreatedAt: executionValue.CreatedAt.UTC(), ReadyAt: &readyAt,
-	}
+		Diagnostics: append([]viewer.Diagnostic{}, diagnostics...),
+		CreatedAt:   executionValue.CreatedAt.UTC(), ReadyAt: &readyAt,
+	})
 }
 
 func validatePreparedExecution(resolved execution.Resolved, published publication.BundleExecution, sourceCommit string) error {

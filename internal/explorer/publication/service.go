@@ -18,9 +18,15 @@ type GenerationValidator func(context.Context, string, string) error
 type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
 type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
+type RevisionWriter interface {
+	InsertRevision(context.Context, explorer.Revision) (*explorer.Revision, error)
+}
+
 type Config struct {
 	Core                       *authoringcore.Core
 	Store                      *explorer.Service
+	ExplorerStore              explorer.ExplorerStore
+	RevisionWriter             RevisionWriter
 	Capability                 ports.CapabilityResolver
 	SelectionMembersCollection string
 	CompileReceipt             ports.ReceiptCompiler

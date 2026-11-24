@@ -64,6 +64,8 @@ type Config struct {
 	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 
 	InterpretationRepository interpretation.Repository
+	ExplorerStore            explorer.ExplorerStore
+	RevisionWriter           publication.RevisionWriter
 
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator

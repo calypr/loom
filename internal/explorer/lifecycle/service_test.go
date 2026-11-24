@@ -353,6 +353,8 @@ type testServiceOption func(*testServiceSetup)
 
 func newTestService(t *testing.T, store *fakeStore, config Config, options ...testServiceOption) *Service {
 	t.Helper()
+	config.ExplorerStore = store
+	config.RevisionWriter = store
 	return newTestServiceFromSetup(t, testServiceSetup{Config: &config, Store: store}, options...)
 }
 
