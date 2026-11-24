@@ -116,14 +116,6 @@ func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexRe
 	return definitions
 }
 
-func ensurePreviewCoveringIndex(ctx context.Context, col previewIndexCollection, name string, fields []string) error {
-	return ensurePreviewCoveringIndexDefinition(ctx, col, name, fields, nil)
-}
-
-func ensurePreviewCoveringIndexWithStoredValues(ctx context.Context, col previewIndexCollection, name string, fields, storedValues []string) error {
-	return ensurePreviewCoveringIndexDefinition(ctx, col, name, fields, storedValues)
-}
-
 func ensurePreviewCoveringIndexDefinition(ctx context.Context, col previewIndexCollection, name string, fields, storedValues []string) error {
 	if len(storedValues) != 0 && !validPreviewCoveringIndexStoredValuesDefinition(name, fields, storedValues) {
 		return fmt.Errorf("invalid preview covering index specification")
@@ -181,10 +173,6 @@ func rollbackCreatedPreviewIndex(ctx context.Context, col previewIndexCollection
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), previewCoveringIndexCleanupTimeout)
 	defer cancel()
 	return col.DeleteIndexByID(cleanupCtx, id)
-}
-
-func previewCoveringIndexMatches(index driver.IndexResponse, fields []string) bool {
-	return previewCoveringIndexMatchesDefinition(index, fields, nil)
 }
 
 func previewCoveringIndexMatchesDefinition(index driver.IndexResponse, fields, storedValues []string) bool {
