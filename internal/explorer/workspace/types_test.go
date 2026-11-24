@@ -145,13 +145,13 @@ func testCatalog() CatalogSnapshot {
 
 func TestCatalogDigestCanonicalizesConceptCandidateOrder(t *testing.T) {
 	first := testCatalog()
-	first.Candidates[0].ConceptCandidates = []ConceptCandidate{
+	first.Candidates[0].ConceptCandidates = []capability.ConceptCandidate{
 		{SourceResourceType: "Patient", SourcePath: "z", ExtensionURLPath: []string{"z"}, ObservedUnits: []string{"unit-z"}, Examples: []string{"example-z"}, Completeness: "COMPLETE", Status: "OBSERVED"},
 		{SourceResourceType: "Patient", SourcePath: "a", ExtensionURLPath: []string{"a"}, ObservedUnits: []string{"unit-a"}, Examples: []string{"example-a"}, Completeness: "COMPLETE", Status: "OBSERVED"},
 	}
 	second := first
 	second.Candidates = append([]CatalogCandidate(nil), first.Candidates...)
-	second.Candidates[0].ConceptCandidates = append([]ConceptCandidate(nil), first.Candidates[0].ConceptCandidates...)
+	second.Candidates[0].ConceptCandidates = append([]capability.ConceptCandidate(nil), first.Candidates[0].ConceptCandidates...)
 	second.Candidates[0].ConceptCandidates[0], second.Candidates[0].ConceptCandidates[1] = second.Candidates[0].ConceptCandidates[1], second.Candidates[0].ConceptCandidates[0]
 	firstDigest, err := first.Digest()
 	if err != nil {
@@ -389,7 +389,7 @@ func TestCatalogAggregateBatchMatchesIndividualChoices(t *testing.T) {
 			{ID: "obs-updated", NodeID: "observation", FieldPath: "meta.lastUpdated", LogicalType: "date_time", Cardinality: "optional_one"},
 			{ID: "report-issued", NodeID: "report", FieldPath: "issued", LogicalType: "date_time", Cardinality: "optional_one"},
 			{ID: "patient-updated", NodeID: "patient", FieldPath: "meta.lastUpdated", LogicalType: "date_time", Cardinality: "optional_one"},
-			{ID: "obs-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one", ConceptCandidates: []ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg", "cm", "furlong"}}}},
+			{ID: "obs-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one", ConceptCandidates: []capability.ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg", "cm", "furlong"}}}},
 			{ID: "repeated", NodeID: "observation", FieldPath: "effectiveDateTime", LogicalType: "date_time", Cardinality: "many", Repeated: true},
 			{ID: "missing-node", NodeID: "absent", FieldPath: "id", LogicalType: "string"},
 		},
@@ -463,7 +463,7 @@ func syntheticWideTransformationCatalog(size int) CatalogSnapshot {
 		case 3:
 			candidate.FieldPath = "valueQuantity.value"
 			candidate.LogicalType = "decimal"
-			candidate.ConceptCandidates = []ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"}}}
+			candidate.ConceptCandidates = []capability.ConceptCandidate{{ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"}}}
 		}
 		catalog.Candidates = append(catalog.Candidates, candidate)
 	}

@@ -200,10 +200,8 @@ type CatalogCandidate struct {
 	SuggestionsComplete   bool                                      `json:"-"`
 	SuggestionsTruncated  bool                                      `json:"-"`
 	SuggestionCount       int                                       `json:"-"`
-	ConceptCandidates     []ConceptCandidate                        `json:"conceptCandidates,omitempty"`
+	ConceptCandidates     []capability.ConceptCandidate             `json:"conceptCandidates,omitempty"`
 }
-
-type ConceptCandidate = capability.ConceptCandidate
 
 type RepeatedBoundary struct {
 	Path     string `json:"path"`

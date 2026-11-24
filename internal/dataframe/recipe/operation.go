@@ -23,9 +23,9 @@ type ConstructionOperand struct {
 }
 
 type ConstructionFilter struct {
-	ColumnID string         `json:"columnId"`
-	Operator FilterOperator `json:"operator"`
-	Values   []FilterValue  `json:"values,omitempty"`
+	ColumnID string              `json:"columnId"`
+	Operator spec.FilterOperator `json:"operator"`
+	Values   []spec.FilterValue  `json:"values,omitempty"`
 }
 
 type ConstructionUnpivot struct {

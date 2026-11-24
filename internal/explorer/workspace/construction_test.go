@@ -41,6 +41,40 @@ func terminalCombineDocument() Document {
 	return document
 }
 
+func TestConstructionGroupLeavesJSONMatchRecipe(t *testing.T) {
+	cases := []struct {
+		name      string
+		workspace any
+		recipe    any
+	}{
+		{
+			name:      "aggregate",
+			workspace: ConstructionGroupAggregate{Operation: ConstructionGroupSum, InputColumnID: "amount", OutputColumnID: "total"},
+			recipe:    recipe.ConstructionGroupAggregate{Operation: recipe.ConstructionGroupSum, InputColumnID: "amount", OutputColumnID: "total"},
+		},
+		{
+			name:      "current stage source",
+			workspace: ConstructionGroupFieldCurrentStage{SourceRole: "ROOT", OccurrenceID: "root", OwnerResourceType: "Patient", ResourceType: "Patient", CanonicalPath: "id"},
+			recipe:    recipe.ConstructionGroupCurrentStageFieldSource{SourceRole: "ROOT", OccurrenceID: "root", OwnerResourceType: "Patient", ResourceType: "Patient", CanonicalPath: "id"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceJSON, err := json.Marshal(test.workspace)
+			if err != nil {
+				t.Fatalf("marshal workspace value: %v", err)
+			}
+			recipeJSON, err := json.Marshal(test.recipe)
+			if err != nil {
+				t.Fatalf("marshal recipe value: %v", err)
+			}
+			if !bytes.Equal(workspaceJSON, recipeJSON) {
+				t.Fatalf("JSON differs: workspace=%s recipe=%s", workspaceJSON, recipeJSON)
+			}
+		})
+	}
+}
+
 func TestConstructionCombineJSONMatchesRecipe(t *testing.T) {
 	combine := ConstructionCombine{
 		Kind:             ConstructionCombineKeyJoin,

@@ -630,7 +630,7 @@ func recipeConstructionGroup(group *ws.ConstructionGroup) (*recipe.ConstructionG
 		ConstructionID:   group.ConstructionID,
 		MissingKeyPolicy: recipe.ConstructionGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
 		Keys:             make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
-		Aggregates:       make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
+		Aggregates:       append(make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)), group.Aggregates...),
 	}
 	for _, key := range group.Keys {
 		mappedKey := recipe.ConstructionGroupKey{
@@ -653,35 +653,17 @@ func recipeConstructionGroup(group *ws.ConstructionGroup) (*recipe.ConstructionG
 		}
 		mapped.Keys = append(mapped.Keys, mappedKey)
 	}
-	for _, aggregate := range group.Aggregates {
-		mapped.Aggregates = append(mapped.Aggregates, recipe.ConstructionGroupAggregate{
-			Operation:     recipe.ConstructionGroupAggregateOp(aggregate.Operation),
-			InputColumnID: aggregate.InputColumnID, OutputColumnID: aggregate.OutputColumnID,
-		})
-	}
+
 	return mapped, nil
 }
 
 func recipeConstructionCombine(combine *ws.ConstructionCombine) *recipe.ConstructionCombine {
-	mapped := &recipe.ConstructionCombine{
-		Kind:             recipe.ConstructionCombineKind(combine.Kind),
-		Keys:             make([]recipe.ConstructionCombineKey, 0, len(combine.Keys)),
-		Projections:      make([]recipe.ConstructionCombineProjection, 0, len(combine.Projections)),
-		JoinType:         recipe.ConstructionCombineJoinType(combine.JoinType),
-		RightMatchPolicy: recipe.ConstructionCombineRightMatchPolicy(combine.RightMatchPolicy),
-		MembershipMode:   recipe.ConstructionCombineMembershipMode(combine.MembershipMode),
-	}
-	for _, key := range combine.Keys {
-		mapped.Keys = append(mapped.Keys, recipe.ConstructionCombineKey{
-			LeftColumnID: key.LeftColumnID, RightColumnID: key.RightColumnID,
-		})
-	}
-	for _, projection := range combine.Projections {
-		mapped.Projections = append(mapped.Projections, recipe.ConstructionCombineProjection{
-			OutputColumnID: projection.OutputColumnID, InputIndex: projection.InputIndex, InputColumnID: projection.InputColumnID,
-		})
-	}
-	return mapped
+	mapped := recipe.ConstructionCombine(*combine)
+	mapped.Keys = make([]recipe.ConstructionCombineKey, len(combine.Keys))
+	copy(mapped.Keys, combine.Keys)
+	mapped.Projections = make([]recipe.ConstructionCombineProjection, len(combine.Projections))
+	copy(mapped.Projections, combine.Projections)
+	return &mapped
 }
 
 func recipeConstructionGroupFieldSource(
@@ -709,13 +691,8 @@ func recipeConstructionGroupFieldSource(
 		if input.CurrentStage == nil || input.RelatedOccurrence != nil {
 			return nil, fmt.Errorf("CURRENT_STAGE Group fieldSource requires one currentStage payload")
 		}
-		current := input.CurrentStage
-		mappedInput = &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &recipe.ConstructionGroupCurrentStageFieldSource{
-			SourceRole: current.SourceRole, OccurrenceID: current.OccurrenceID,
-			OwnerResourceType: current.OwnerResourceType, ResourceType: current.ResourceType,
-			CandidateID: current.CandidateID, CanonicalPath: current.CanonicalPath,
-			BoundarySelector: current.BoundarySelector,
-		}}
+		current := *input.CurrentStage
+		mappedInput = &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &current}
 	case "RELATED_OCCURRENCE":
 		if input.RelatedOccurrence == nil || input.CurrentStage != nil {
 			return nil, fmt.Errorf("RELATED_OCCURRENCE Group fieldSource requires one relatedOccurrence payload")

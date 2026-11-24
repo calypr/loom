@@ -29,10 +29,7 @@ func sourceParameters(output recipe.Output) map[string]*ws.ImportedSourceParamet
 			result[sourcePath(parent, "fields")] = &ws.ImportedSourceParameters{FieldGroup: f}
 		}
 		for i, x := range catalogs {
-			var outputs []ws.ImportedCatalogOutput
-			for _, override := range x.OutputOverrides {
-				outputs = append(outputs, ws.ImportedCatalogOutput{FieldPath: override.FieldPath, Enabled: override.Enabled, Name: override.Name})
-			}
+			outputs := append([]ws.ImportedCatalogOutput(nil), x.OutputOverrides...)
 			result[sourceIndexPath(parent, "catalogProjections", i)] = &ws.ImportedSourceParameters{Catalog: &ws.ImportedCatalogParameters{Name: x.Name, IncludePaths: x.IncludePaths, ExcludePaths: x.ExcludePaths, Outputs: outputs, Kinds: x.Kinds, Naming: x.Naming}}
 		}
 		for i, x := range dynamics {

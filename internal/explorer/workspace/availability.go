@@ -1,5 +1,7 @@
 package workspace
 
+import "github.com/calypr/loom/internal/explorer/capability"
+
 type CatalogAvailabilitySourceReadiness struct {
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
@@ -27,13 +29,13 @@ type CatalogObservedResource struct {
 }
 
 type CatalogObservedField struct {
-	ResourceType              string             `json:"resourceType"`
-	Path                      string             `json:"path"`
-	ObservedShapeKind         string             `json:"observedShapeKind"`
-	PathObservedDocumentCount int64              `json:"pathObservedDocumentCount"`
-	Examples                  []string           `json:"examples"`
-	ExamplesTruncated         bool               `json:"examplesTruncated"`
-	SemanticObservations      []ConceptCandidate `json:"semanticObservations"`
+	ResourceType              string                        `json:"resourceType"`
+	Path                      string                        `json:"path"`
+	ObservedShapeKind         string                        `json:"observedShapeKind"`
+	PathObservedDocumentCount int64                         `json:"pathObservedDocumentCount"`
+	Examples                  []string                      `json:"examples"`
+	ExamplesTruncated         bool                          `json:"examplesTruncated"`
+	SemanticObservations      []capability.ConceptCandidate `json:"semanticObservations"`
 }
 
 type CatalogObservedRelationship struct {

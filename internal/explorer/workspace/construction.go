@@ -439,12 +439,10 @@ func (l *ConstructionLiteral) UnmarshalJSON(raw []byte) error {
 }
 
 type ConstructionFilter struct {
-	ColumnID string                     `json:"columnId"`
-	Operator ConstructionFilterOperator `json:"operator"`
-	Values   []FilterValue              `json:"values,omitempty"`
+	ColumnID string              `json:"columnId"`
+	Operator spec.FilterOperator `json:"operator"`
+	Values   []FilterValue       `json:"values,omitempty"`
 }
-
-type ConstructionFilterOperator = spec.FilterOperator
 
 const (
 	ConstructionFilterEquals      = spec.FilterEquals
@@ -460,17 +458,15 @@ const (
 )
 
 type FilterValue struct {
-	Kind     ConstructionFilterValueKind `json:"kind"`
-	String   *string                     `json:"string,omitempty"`
-	Code     *CodeValue                  `json:"code,omitempty"`
-	Boolean  *bool                       `json:"boolean,omitempty"`
-	Integer  *int64                      `json:"integer,omitempty"`
-	Decimal  *float64                    `json:"decimal,omitempty"`
-	Date     *string                     `json:"date,omitempty"`
-	DateTime *string                     `json:"dateTime,omitempty"`
+	Kind     spec.FilterValueKind `json:"kind"`
+	String   *string              `json:"string,omitempty"`
+	Code     *CodeValue           `json:"code,omitempty"`
+	Boolean  *bool                `json:"boolean,omitempty"`
+	Integer  *int64               `json:"integer,omitempty"`
+	Decimal  *float64             `json:"decimal,omitempty"`
+	Date     *string              `json:"date,omitempty"`
+	DateTime *string              `json:"dateTime,omitempty"`
 }
-
-type ConstructionFilterValueKind = spec.FilterValueKind
 
 const (
 	ConstructionFilterString   = spec.FilterString
@@ -677,15 +673,7 @@ func (input *ConstructionGroupFieldSourceInput) UnmarshalJSON(raw []byte) error 
 	return nil
 }
 
-type ConstructionGroupFieldCurrentStage struct {
-	SourceRole        string `json:"sourceRole"`
-	OccurrenceID      string `json:"occurrenceId"`
-	OwnerResourceType string `json:"ownerResourceType"`
-	ResourceType      string `json:"resourceType"`
-	CandidateID       string `json:"candidateId,omitempty"`
-	CanonicalPath     string `json:"canonicalPath"`
-	BoundarySelector  string `json:"boundarySelector,omitempty"`
-}
+type ConstructionGroupFieldCurrentStage = recipe.ConstructionGroupCurrentStageFieldSource
 
 type ConstructionGroupFieldRelatedRouteStep struct {
 	StepIndex        int    `json:"stepIndex"`
@@ -973,20 +961,16 @@ type ConstructionGroupSemanticCategory struct {
 	CodingPath   string `json:"codingPath,omitempty"`
 }
 
-type ConstructionGroupAggregate struct {
-	Operation      ConstructionGroupAggregateOp `json:"operation"`
-	InputColumnID  string                       `json:"inputColumnId,omitempty"`
-	OutputColumnID string                       `json:"outputColumnId"`
-}
+type ConstructionGroupAggregate = recipe.ConstructionGroupAggregate
 
-type ConstructionGroupAggregateOp string
+type ConstructionGroupAggregateOp = recipe.ConstructionGroupAggregateOp
 
 const (
-	ConstructionGroupCountRows     ConstructionGroupAggregateOp = "COUNT_ROWS"
-	ConstructionGroupCountNonNull  ConstructionGroupAggregateOp = "COUNT_NON_NULL"
-	ConstructionGroupCountDistinct ConstructionGroupAggregateOp = "COUNT_DISTINCT"
-	ConstructionGroupSum           ConstructionGroupAggregateOp = "SUM"
-	ConstructionGroupMean          ConstructionGroupAggregateOp = "MEAN"
+	ConstructionGroupCountRows     = recipe.ConstructionGroupCountRows
+	ConstructionGroupCountNonNull  = recipe.ConstructionGroupCountNonNull
+	ConstructionGroupCountDistinct = recipe.ConstructionGroupCountDistinct
+	ConstructionGroupSum           = recipe.ConstructionGroupSum
+	ConstructionGroupMean          = recipe.ConstructionGroupMean
 )
 
 type ConstructionExpand struct {

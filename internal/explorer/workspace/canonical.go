@@ -245,9 +245,9 @@ func cloneConstructionChoice(in *capability.ConstructionChoice) *capability.Cons
 	return &out
 }
 
-func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+func cloneConceptCandidates(in []capability.ConceptCandidate) []capability.ConceptCandidate {
 	if len(in) == 0 {
-		return []ConceptCandidate{}
+		return []capability.ConceptCandidate{}
 	}
 	out := capability.CloneConceptCandidates(in)
 	sort.Slice(out, func(i, j int) bool {
