@@ -205,7 +205,7 @@ func TestBuildGenericPhysicalPlanPolicyDisablesPreparedSelectors(t *testing.T) {
 			t.Fatalf("prepared selector set survived explicit disable: %#v", operation.Set.Prepared)
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(optimized)
+	rendered, err := aql.Render(optimized, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestSharedHeterogeneousTraversalRetainsEdgeNodeTypePairing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("OptimizePhysicalPlan() error = %v", err)
 			}
-			rendered, err := aql.RenderPhysicalPlan(optimized)
+			rendered, err := aql.Render(optimized, aql.Options{})
 			if err != nil {
 				t.Fatalf("RenderPhysicalPlan() error = %v", err)
 			}

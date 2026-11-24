@@ -49,7 +49,7 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 2 || output.RowIdentity.Fields[0] != "project" || output.RowIdentity.Fields[1] != "_key" {
 		t.Fatalf("normal grouped-Pivot lowering identity = %#v", output.RowIdentity)
 	}
-	preview, err := aql.RenderPhysicalPlan(output.Plan)
+	preview, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 		t.Fatalf("composed cohort Preview identity schema = %#v, want a required compiler-owned object", finalIdentity)
 	}
 
-	preview, err := aql.RenderPhysicalPlan(output.Plan)
+	preview, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

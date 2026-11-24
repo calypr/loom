@@ -23,7 +23,7 @@ func TestCorrelatedPhysicalScalarSelectorAQLFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectionQuery, err := aql.RenderPhysicalPlan(projection)
+	projectionQuery, err := aql.Render(projection, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCorrelatedPhysicalScalarSelectorAQLFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filterQuery, err := aql.RenderPhysicalPlan(filter)
+	filterQuery, err := aql.Render(filter, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

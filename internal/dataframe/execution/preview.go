@@ -146,7 +146,7 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: source == nil || !source.sampledAggregate, PartialValidation: query.PartialValidation}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: source == nil || !source.sampledAggregate, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = rowlineage.RowLineageCapabilityForOutput(output)
@@ -327,12 +327,12 @@ func normalizePreviewLimit(limit int) (int, error) {
 
 func validatePreviewPlan(query model.CompiledQuery, limit int, engine ir.PhysicalEngine) error {
 	if engine == ir.PhysicalEngineClickHouse {
-		if query.PlanMode != "clickhouse" || query.PlanProfile != "pinned_table_combine" || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
+		if query.PlanMode != "clickhouse" || query.PlanProfile != "pinned_table_combine" || query.PhysicalPlan.ClickHouseCombine == nil || query.Limit != limit {
 			return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled ClickHouse combine plan is not in the approved preview plan class", nil)
 		}
 		return nil
 	}
-	if query.PlanMode != previewPlanMode || query.PlanProfile != previewPlanProfile || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
+	if query.PlanMode != previewPlanMode || query.PlanProfile != previewPlanProfile || strings.TrimSpace(query.Query) == "" || query.PhysicalPlan.Version == 0 || query.PhysicalPlan.Engine == ir.PhysicalEngineClickHouse || query.Limit != limit {
 		return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled preview plan is not in the approved preview plan class", nil)
 	}
 	return nil

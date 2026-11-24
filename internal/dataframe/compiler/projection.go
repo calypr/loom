@@ -1,13 +1,19 @@
 package compiler
 
 import (
+	"fmt"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
 func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (string, map[string]any, error) {
-	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan, indexName, disableIndex)
+	index, err := semanticGroupPreviewIndex(plan, indexName, disableIndex)
+	if err != nil {
+		return "", nil, err
+	}
+	rendered, err := aql.Render(plan, aql.Options{RootIndex: index, Preview: aql.SemanticGroupProjectionFactorizationPreview{}})
 	if err != nil {
 		return "", nil, err
 	}
@@ -15,11 +21,31 @@ func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName s
 }
 
 func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (string, map[string]any, error) {
-	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan, indexName, disableIndex)
+	index, err := semanticGroupPreviewIndex(plan, indexName, disableIndex)
+	if err != nil {
+		return "", nil, err
+	}
+	rendered, err := aql.Render(plan, aql.Options{RootIndex: index, Preview: aql.SemanticGroupProjectionAssessmentPreview{}})
 	if err != nil {
 		return "", nil, err
 	}
 	return rendered.Query, rendered.BindVars, nil
+}
+
+func semanticGroupPreviewIndex(plan ir.PhysicalPlan, indexName string, disableIndex bool) (aql.RootIndex, error) {
+	if disableIndex {
+		if indexName != "" {
+			if err := aql.ValidateSemanticGroupProjectionPreviewPlan(plan); err != nil {
+				return aql.RootIndex{}, err
+			}
+			return aql.RootIndex{}, fmt.Errorf("a disabled root index cannot also carry index hint %q", indexName)
+		}
+		return aql.RootIndexDisabled(), nil
+	}
+	if indexName != "" {
+		return aql.RootIndexHint(indexName), nil
+	}
+	return aql.RootIndex{}, nil
 }
 
 func previewGroupProjectionSpec(plan ir.PhysicalPlan) *model.PreviewGroupProjectionSpec {

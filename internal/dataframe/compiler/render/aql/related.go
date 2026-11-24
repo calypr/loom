@@ -6,10 +6,103 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
+func (r *physicalPlanRenderer) renderConstructionExpandStage(stage ir.PhysicalConstructionStage) ([]string, error) {
+	expand := stage.Expand
+	if expand == nil {
+		return nil, fmt.Errorf("expand stage is missing payload")
+	}
+	if _, ok := r.bindVars[expand.ConstructionIDBindKey]; !ok {
+		return nil, fmt.Errorf("expand construction ID bind %q is missing", expand.ConstructionIDBindKey)
+	}
+	columnBind := r.newInternalBindKey("construction_expand_column")
+	r.bindVars[columnBind] = expand.InputColumn
+	identityColumn := ""
+	for _, column := range stage.InputColumns {
+		if column.Identity {
+			identityColumn = column.Name
+			break
+		}
+	}
+	if identityColumn == "" {
+		return nil, fmt.Errorf("expand input has no row identity column")
+	}
+	identityColumnBind := r.newInternalBindKey("construction_expand_identity_column")
+	r.bindVars[identityColumnBind] = identityColumn
+	rawVariable := r.newInternalVariable("construction_expand_raw")
+	errorMessage := fmt.Sprintf("CONCAT(\"%s: construction \", @%s, \" has no items for row \", %s[@%s])", dataframeerrors.CodeConstructionExpansionEmpty, expand.ConstructionIDBindKey, stage.InputRowVariable, identityColumnBind)
+	lines := []string{
+		fmt.Sprintf("  LET %s = %s[@%s]", rawVariable, stage.InputRowVariable, columnBind),
+		fmt.Sprintf("  FILTER ASSERT(%s == null OR IS_ARRAY(%s), \"CONSTRUCTION_EXPAND_ARRAY_TYPE_MISMATCH\")", rawVariable, rawVariable),
+		fmt.Sprintf("  LET %s = (%s == null ? [] : %s)", expand.ItemsVariable, rawVariable, rawVariable),
+	}
+	if expand.EmptyPolicy == ir.PhysicalUnnestError {
+		lines = append(lines, fmt.Sprintf("  FILTER ASSERT(LENGTH(%s) > 0, %s)", expand.ItemsVariable, errorMessage))
+	}
+	indices := fmt.Sprintf("LENGTH(%s) == 0 ? [] : RANGE(0, LENGTH(%s) - 1)", expand.ItemsVariable, expand.ItemsVariable)
+	if expand.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
+		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", expand.ItemsVariable, expand.ItemsVariable)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  FOR %s IN (%s)", expand.IndexVariable, indices),
+		fmt.Sprintf("  LET %s = (%s == null ? null : %s[%s])", expand.ItemVariable, expand.IndexVariable, expand.ItemsVariable, expand.IndexVariable),
+	)
+	itemType, err := aqlTableScalarType(expand.InputKind)
+	if err != nil {
+		return nil, fmt.Errorf("expand item: %w", err)
+	}
+	itemTypeBind := r.newInternalBindKey("construction_expand_item_type")
+	r.bindVars[itemTypeBind] = itemType
+	lines = append(lines,
+		fmt.Sprintf("  FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_EXPAND_ITEM_TYPE_MISMATCH\")", expand.ItemVariable, expand.ItemVariable, itemTypeBind),
+		fmt.Sprintf("  LET %s = TO_STRING([[\"input\", %s[@%s]], [\"construction\", @%s], [\"ordinal\", %s]])",
+			expand.IdentityVariable, stage.InputRowVariable, identityColumnBind, expand.ConstructionIDBindKey, expand.IndexVariable),
+	)
+	output, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return nil, fmt.Errorf("output projection: %w", err)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = %s", stage.OutputRowVariable, output),
+		"  RETURN "+stage.OutputRowVariable,
+	)
+	return lines, nil
+}
+
+func constructionRelatedExpandIdentityExpression(inputRow, parentIdentityColumnBind, constructionIDBind, itemVariable string) string {
+	return fmt.Sprintf(
+		"TO_STRING([[\"input\", %s[@%s]], [\"construction\", @%s], (%s == null ? [\"empty\"] : [\"related\", %s.terminal_id])])",
+		inputRow, parentIdentityColumnBind, constructionIDBind, itemVariable, itemVariable,
+	)
+}
+
+func terminalRelatedExpandPreviewStage(sequence *ir.PhysicalStageSequence) (int, bool) {
+	if sequence == nil || len(sequence.Stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil {
+		return -1, false
+	}
+	index := len(sequence.Stages) - 1
+	stage := sequence.Stages[index]
+	if stage.ID != sequence.FinalStageID || stage.Kind != ir.PhysicalStageRelatedExpandOp ||
+		stage.RelatedExpand == nil || stage.RowIdentityColumn == "" || stage.RowIdentityColumn != sequence.FinalRowIdentity ||
+		stage.Filter != nil || len(stage.DerivedLets) != 0 || stage.RelatedExpand.IdentityVariable == "" {
+		return -1, false
+	}
+	for _, projection := range stage.OutputProjections {
+		if projection.Name != stage.RowIdentityColumn {
+			continue
+		}
+		return index, projection.Expression == nil && projection.Value.Variable == stage.RelatedExpand.IdentityVariable &&
+			projection.Value.BindKey == "" && len(projection.Value.Path) == 0
+	}
+	return -1, false
+}
+
 const relatedCategoryTargetCollectionBind = "__loom_related_category_target_collection"
+
 const relatedCategoryLimitBind = "__loom_category_limit"
+
 const relatedCategoryMaxValues = 256
 
 func renderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCategoryScan, targetCollectionBind string) (string, error) {
@@ -511,4 +604,59 @@ func RenderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCate
 		return RenderedPhysicalPlan{}, err
 	}
 	return RenderedPhysicalPlan{Query: query, BindVars: binds}, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionRelatedExpandStage(stage ir.PhysicalConstructionStage, previewLimitBindKey string) ([]string, error) {
+	related := stage.RelatedExpand
+	if related == nil {
+		return nil, fmt.Errorf("related expansion stage is missing its typed payload")
+	}
+	records, err := r.renderSubplan(related.RelatedRecords, "  ", false)
+	if err != nil {
+		return nil, fmt.Errorf("render exact related-resource route: %w", err)
+	}
+	identityColumnBind := r.newInternalBindKey("related_expand_parent_identity_column")
+	r.bindVars[identityColumnBind] = related.ParentIdentityColumn
+	lines := make([]string, 0, 12)
+	if previewLimitBindKey != "" {
+		rawRecordsVariable := r.newInternalVariable("related_expand_raw_records")
+		candidateVariable := r.newInternalVariable("related_expand_preview_candidate")
+
+		lines = append(lines,
+			fmt.Sprintf("  LET %s = %s", rawRecordsVariable, records),
+			fmt.Sprintf("  LET %s = (", related.RelatedRecordsVariable),
+			fmt.Sprintf("    FOR %s IN %s", candidateVariable, rawRecordsVariable),
+			fmt.Sprintf("      SORT %s ASC", constructionRelatedExpandIdentityExpression(stage.InputRowVariable, identityColumnBind, related.ConstructionIDBindKey, candidateVariable)),
+			fmt.Sprintf("      LIMIT @%s", previewLimitBindKey),
+			fmt.Sprintf("      RETURN %s", candidateVariable),
+			"  )",
+		)
+	} else {
+		lines = append(lines, fmt.Sprintf("  LET %s = %s", related.RelatedRecordsVariable, records))
+	}
+	errorMessage := fmt.Sprintf(
+		"CONCAT(\"%s: related expansion construction \", @%s, \" has no related records for row \", %s[@%s])",
+		dataframeerrors.CodeConstructionExpansionEmpty, related.ConstructionIDBindKey, stage.InputRowVariable, identityColumnBind,
+	)
+	if related.EmptyPolicy == ir.PhysicalUnnestError {
+		lines = append(lines, fmt.Sprintf("  FILTER ASSERT(LENGTH(%s) > 0, %s)", related.RelatedRecordsVariable, errorMessage))
+	}
+	indices := fmt.Sprintf("LENGTH(%s) == 0 ? [] : RANGE(0, LENGTH(%s) - 1)", related.RelatedRecordsVariable, related.RelatedRecordsVariable)
+	if related.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
+		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", related.RelatedRecordsVariable, related.RelatedRecordsVariable)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  FOR %s IN (%s)", related.IndexVariable, indices),
+		fmt.Sprintf("  LET %s = (%s == null ? null : %s[%s])", related.ItemVariable, related.IndexVariable, related.RelatedRecordsVariable, related.IndexVariable),
+		fmt.Sprintf("  LET %s = %s", related.IdentityVariable, constructionRelatedExpandIdentityExpression(stage.InputRowVariable, identityColumnBind, related.ConstructionIDBindKey, related.ItemVariable)),
+	)
+	object, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return nil, fmt.Errorf("render related expansion output row: %w", err)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = %s", stage.OutputRowVariable, object),
+		"  RETURN "+stage.OutputRowVariable,
+	)
+	return lines, nil
 }

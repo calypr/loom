@@ -45,7 +45,7 @@ func TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	rendered, err := aql.Render(compiled.Outputs[0].Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

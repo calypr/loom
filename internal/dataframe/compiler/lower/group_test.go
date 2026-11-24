@@ -26,7 +26,7 @@ func TestGroupedSourceColumnPolicies(t *testing.T) {
 				RowValues: []recipe.ConstructionRowValue{{InputColumnID: "gender", OutputColumnID: "gender_values", Policy: policy}},
 			}}}}
 			compiled := compileDerivedTestOutput(t, output)
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -51,7 +51,7 @@ func TestCodedShapesCarryContributingSourceValues(t *testing.T) {
 			step.RowValues = []recipe.ConstructionRowValue{{InputColumnID: "resource_id", OutputColumnID: "contributor_ids", Policy: recipe.ConstructionRowValueAll}}
 			step.Outputs = append(step.Outputs, recipe.StageColumn{ID: "contributor_ids", Name: "source_ids", Type: "array"})
 			compiled := compileDerivedTestOutput(t, output)
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +88,7 @@ func TestPivotCarriesContributingSourceValues(t *testing.T) {
 	step.RowValues = []recipe.ConstructionRowValue{{InputColumnID: "amount_id", OutputColumnID: "source_values", Policy: recipe.ConstructionRowValueAll}}
 	step.Outputs = append(step.Outputs, recipe.StageColumn{ID: "source_values", Name: "source_values", Type: "array"})
 	compiled := compileDerivedTestOutput(t, output)
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestBoundScalarAndCodingKeysCompileFromZeroPublicSourceColumns(t *testing.T
 			t.Fatalf("zero-public source acquired a public column: %#v", column)
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render mixed field-source Group: %v", err)
 	}

@@ -70,7 +70,7 @@ func TestExactCategoryRecodeCompilesLowersAndRendersWithoutChangingShape(t *test
 		}
 	}
 
-	rendered, err := facade.RenderPhysicalPlan(physical)
+	rendered, err := facade.Render(physical, facade.RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestExactCategoryRecodeCompilesLowersAndRendersWithoutChangingShape(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	keepRendered, err := facade.RenderPhysicalPlan(compileRecipePhysicalPlan(t, keepCompiled.Bundle))
+	keepRendered, err := facade.Render(compileRecipePhysicalPlan(t, keepCompiled.Bundle), facade.RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

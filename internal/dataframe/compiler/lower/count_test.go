@@ -40,7 +40,7 @@ func TestRelatedEligibilityCountRowsUsesScopedReverseRoute(t *testing.T) {
 		},
 	}
 	compiled := compileDerivedTestOutput(t, output)
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestRelatedEligibilityCountRowsUsesScopedReverseRoute(t *testing.T) {
 	restricted := ir.ClonePhysicalPlan(compiled.Plan)
 	restricted.BindVars["auth_resource_paths_unrestricted"] = false
 	restricted.BindVars["auth_resource_paths"] = []string{"/project/Patient/42"}
-	restrictedRendered, err := aql.RenderPhysicalPlan(restricted)
+	restrictedRendered, err := aql.Render(restricted, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestRelatedEligibilityCountRowsUsesScopedReverseRoute(t *testing.T) {
 
 	denied := ir.ClonePhysicalPlan(compiled.Plan)
 	denied.BindVars["scope_allowed"] = false
-	deniedRendered, err := aql.RenderPhysicalPlan(denied)
+	deniedRendered, err := aql.Render(denied, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

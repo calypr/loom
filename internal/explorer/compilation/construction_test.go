@@ -428,7 +428,7 @@ func compileRelatedScalarGroupRowValue(t *testing.T, projection string, policy w
 	if err != nil {
 		t.Fatalf("lower related scalar %s into grouped row values: %v", projection, err)
 	}
-	rendered, err := facade.RenderPhysicalPlan(lowered.Outputs[0].Plan)
+	rendered, err := facade.Render(lowered.Outputs[0].Plan, facade.RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

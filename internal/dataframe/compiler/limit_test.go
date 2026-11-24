@@ -22,7 +22,7 @@ func TestRenderFirstProjectionStopsSelectorAfterFirstValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestRenderArrayProjectionRetainsEverySelectorValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRenderChildSelectorLimitsOnlyWhenEveryConsumerUsesFirst(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rendered, err := aql.RenderPhysicalPlan(plan)
+		rendered, err := aql.Render(plan, aql.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}

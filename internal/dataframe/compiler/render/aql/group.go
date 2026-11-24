@@ -2,8 +2,10 @@ package aql
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 const constructionGroupRelatedCodingOrdinalSemantics = "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY"
@@ -273,16 +275,13 @@ func semanticGroupProjectionPreviewShape(
 	return root, stage, semantic, nil
 }
 
-func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, indexName string, disableIndex, assessment bool) (RenderedPhysicalPlan, error) {
+func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, index RootIndex, assessment bool) (RenderedPhysicalPlan, error) {
 	root, stage, semantic, err := semanticGroupProjectionPreviewShape(plan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	if disableIndex && indexName != "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("a disabled root index cannot also carry index hint %q", indexName)
-	}
-	if indexName != "" && !rootIndexHintPattern.MatchString(indexName) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexName)
+	if err := index.validateHint(); err != nil {
+		return RenderedPhysicalPlan{}, err
 	}
 	collectionKeys, err := collectionBindKeys(plan)
 	if err != nil {
@@ -292,7 +291,7 @@ func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, indexName string
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = false
 	source, err := renderPhysicalPlanWithOptions(sourcePlan, physicalRenderOptions{
-		rootIndexHint: indexName, disableRootIndex: disableIndex,
+		rootIndex:      index,
 		internalPrefix: "semantic_group_projection_source_", omitTerminalReturn: true,
 	})
 	if err != nil {
@@ -325,4 +324,861 @@ func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, indexName string
 	}
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
+}
+
+func (r *physicalPlanRenderer) renderCohortRootScan(root ir.PhysicalRootScan) ([]string, error) {
+	source := root.CohortSource
+	if source == nil {
+		return nil, fmt.Errorf("cohort root source is required")
+	}
+	revision := r.newInternalVariable("cohort_source_revision")
+	revisionGuard := r.newInternalVariable("cohort_source_revision_guard")
+	selection := r.newInternalVariable("cohort_source_selection")
+	selectionGuard := r.newInternalVariable("cohort_source_selection_guard")
+	selectionMember := r.newInternalVariable("cohort_source_selection_member")
+	selectionCandidate := r.newInternalVariable("cohort_source_selection_candidate")
+	memberships := r.newInternalVariable("cohort_source_membership")
+	membershipRow := r.newInternalVariable("cohort_source_membership_row")
+	membershipCandidate := r.newInternalVariable("cohort_source_membership_candidate")
+	membershipCheck := r.newInternalVariable("cohort_source_membership_check")
+	unassigned := r.newInternalVariable("cohort_source_unassigned")
+	policyGuard := r.newInternalVariable("cohort_source_policy_guard")
+	candidateIDs := r.newInternalVariable("cohort_source_candidate_ids")
+	candidateID := r.newInternalVariable("cohort_source_candidate_id")
+	lines := []string{
+		fmt.Sprintf("LET %s = DOCUMENT(@@%s, @%s)", revision, source.RevisionCollectionBindKey, source.RevisionIDBindKey),
+		fmt.Sprintf("FOR %s IN [ASSERT(%s != null AND %s.state == \"COMPLETE\" AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s, \"EXPLICIT_GROUP_REVISION_INVALID\")]", revisionGuard, revision, revision, revision, source.ProjectBindKey, revision, source.DatasetGenerationBindKey, revision, source.ResourceTypeBindKey),
+		fmt.Sprintf("  FILTER %s", revisionGuard),
+		fmt.Sprintf("LET %s = DOCUMENT(@@%s, %s.sourceSelectionRevisionId)", selection, source.SelectionCollectionBindKey, revision),
+		fmt.Sprintf("FOR %s IN [ASSERT(%s != null AND %s.complete == true AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s AND %s.scopeDigest == %s.scopeDigest AND %s.sourceMembershipDigest == %s.membershipDigest, \"EXPLICIT_GROUP_SOURCE_STALE\")]", selectionGuard, selection, selection, selection, source.ProjectBindKey, selection, source.DatasetGenerationBindKey, selection, source.ResourceTypeBindKey, revision, selection, revision, selection),
+		fmt.Sprintf("  FILTER %s", selectionGuard),
+		fmt.Sprintf("LET %s = (FOR %s IN @@%s", memberships, membershipRow, source.MembershipsCollectionBindKey),
+		fmt.Sprintf("  FILTER %s.revisionId == %s._key AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s", membershipRow, revision, membershipRow, source.ProjectBindKey, membershipRow, source.DatasetGenerationBindKey, membershipRow, source.ResourceTypeBindKey),
+		fmt.Sprintf("  FILTER %s.ref.project == %s.project AND %s.ref.generation == %s.generation AND %s.ref.resourceType == %s.resourceType AND %s.ref.id == %s.id", membershipRow, membershipRow, membershipRow, membershipRow, membershipRow, membershipRow, membershipRow, membershipRow),
+		fmt.Sprintf("  RETURN %s)", membershipRow),
+		fmt.Sprintf("LET %s = (FOR %s IN @@%s", unassigned, selectionMember, source.SelectionMembersCollectionBindKey),
+		fmt.Sprintf("  FILTER %s.selectionId == %s._key AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s", selectionMember, selection, selectionMember, source.ProjectBindKey, selectionMember, source.DatasetGenerationBindKey, selectionMember, source.ResourceTypeBindKey),
+		fmt.Sprintf("  FILTER LENGTH(FOR %s IN %s FILTER %s.project == %s.project AND %s.generation == %s.generation AND %s.resourceType == %s.resourceType AND %s.id == %s.id RETURN 1) == 0", membershipCheck, memberships, membershipCheck, selectionMember, membershipCheck, selectionMember, membershipCheck, selectionMember, membershipCheck, selectionMember),
+		fmt.Sprintf("  RETURN %s)", selectionMember),
+		fmt.Sprintf("FOR %s IN [ASSERT(@%s != \"ERROR\" OR LENGTH(%s) == 0, \"EXPLICIT_GROUP_UNASSIGNED_MEMBER\")]", policyGuard, source.PolicyBindKey, unassigned),
+		fmt.Sprintf("  FILTER %s", policyGuard),
+		fmt.Sprintf("LET %s = UNION_DISTINCT(", candidateIDs),
+		fmt.Sprintf("  (FOR %s IN @@%s FILTER %s.selectionId == %s._key AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s RETURN %s.id),", selectionCandidate, source.SelectionMembersCollectionBindKey, selectionCandidate, selection, selectionCandidate, source.ProjectBindKey, selectionCandidate, source.DatasetGenerationBindKey, selectionCandidate, source.ResourceTypeBindKey, selectionCandidate),
+		fmt.Sprintf("  (FOR %s IN %s RETURN %s.id)", membershipCandidate, memberships, membershipCandidate),
+		")",
+		fmt.Sprintf("FOR %s IN %s", candidateID, candidateIDs),
+		fmt.Sprintf("  FOR %s IN @@%s", root.Variable, root.CollectionBindKey),
+		fmt.Sprintf("    FILTER %s.id == %s AND %s.project == @%s AND %s.dataset_generation == @%s AND %s.resourceType == @%s", root.Variable, candidateID, root.Variable, source.ResourceProjectBindKey, root.Variable, source.DatasetGenerationBindKey, root.Variable, source.ResourceTypeBindKey),
+	}
+	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.PhysicalConstructionStage, inputRows string) ([]string, error) {
+	cohort := stage.CohortGroup
+	if cohort == nil || strings.TrimSpace(inputRows) == "" {
+		return nil, fmt.Errorf("cohort group stage and input rows are required")
+	}
+	rows := cohort.Rows
+	contributorInput := fmt.Sprintf("%s.%s", stage.InputRowVariable, cohort.ContributorInputColumn)
+	contributors := r.newInternalVariable("cohort_root_contributors")
+	lines := []string{
+		fmt.Sprintf("  LET %s = UNIQUE(FLATTEN((FOR %s IN %s RETURN (IS_ARRAY(%s) ? %s : [%s])), 1))", contributors,
+			stage.InputRowVariable, inputRows, contributorInput, contributorInput, contributorInput),
+		fmt.Sprintf("  LET revision = DOCUMENT(@@%s, @%s)", rows.RevisionCollectionBindKey, rows.RevisionIDBindKey),
+		fmt.Sprintf("  FOR revision_guard IN [ASSERT(revision != null AND revision.state == \"COMPLETE\" AND revision.project == @%s AND revision.generation == @%s AND revision.resourceType == @%s, \"EXPLICIT_GROUP_REVISION_INVALID\")]", rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey),
+		"    FILTER revision_guard",
+		fmt.Sprintf("  LET selection = DOCUMENT(@@%s, revision.sourceSelectionRevisionId)", rows.SelectionCollectionBindKey),
+		fmt.Sprintf("  FOR selection_guard IN [ASSERT(selection != null AND selection.complete == true AND selection.project == @%s AND selection.generation == @%s AND selection.resourceType == @%s AND revision.scopeDigest == selection.scopeDigest AND revision.sourceMembershipDigest == selection.membershipDigest, \"EXPLICIT_GROUP_SOURCE_STALE\")]", rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey),
+		"    FILTER selection_guard",
+		fmt.Sprintf("  LET all_memberships = (FOR member IN @@%s", rows.MembershipsCollectionBindKey),
+		fmt.Sprintf("    FILTER member.revisionId == revision._key AND member.project == @%s AND member.generation == @%s AND member.resourceType == @%s", rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey),
+		"    FILTER member.ref.project == member.project AND member.ref.generation == member.generation AND member.ref.resourceType == member.resourceType AND member.ref.id == member.id",
+		"    SORT member.groupId ASC, member.project ASC, member.generation ASC, member.resourceType ASC, member.id ASC",
+		"    RETURN member)",
+		fmt.Sprintf("  LET unassigned = (FOR selected IN @@%s", rows.SelectionMembersCollectionBindKey),
+		fmt.Sprintf("    FILTER selected.selectionId == selection._key AND selected.project == @%s AND selected.generation == @%s AND selected.resourceType == @%s", rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey),
+		"    FILTER LENGTH(FOR member IN all_memberships FILTER member.project == selected.project AND member.generation == selected.generation AND member.resourceType == selected.resourceType AND member.id == selected.id RETURN 1) == 0",
+		"    SORT selected.project ASC, selected.generation ASC, selected.resourceType ASC, selected.id ASC",
+		"    RETURN selected)",
+		fmt.Sprintf("  FOR policy_guard IN [ASSERT(@%s != \"ERROR\" OR LENGTH(unassigned) == 0, \"EXPLICIT_GROUP_UNASSIGNED_MEMBER\")]", rows.PolicyBindKey),
+		"    FILTER policy_guard",
+		fmt.Sprintf("  LET definitions = (FOR definition IN @@%s FILTER definition.revisionId == revision._key AND definition.project == @%s SORT definition.ordinal ASC, definition.groupId ASC RETURN definition)", rows.DefinitionsCollectionBindKey, rows.ProjectBindKey),
+	}
+	memberRecords := r.newInternalVariable("cohort_group_member_records")
+	memberRow := r.newInternalVariable("cohort_group_member_record")
+	source := r.newInternalVariable("cohort_group_source")
+	definition := r.newInternalVariable("cohort_group_definition")
+	groupRows := r.newInternalVariable("cohort_group_rows")
+	groupContributorKeys := r.newInternalVariable("cohort_group_contributor_keys")
+	unassignedContributorKeys := r.newInternalVariable("cohort_unassigned_contributors")
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = (FOR %s IN definitions", groupRows, definition),
+		fmt.Sprintf("    LET %s = (FOR member IN all_memberships", memberRecords),
+		fmt.Sprintf("      FILTER member.groupId == %s.groupId", definition),
+		fmt.Sprintf("      LET %s = FIRST(FOR resource IN @@%s", source, rows.ResourceCollectionBindKey),
+		fmt.Sprintf("        FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType", rows.ResourceProjectBindKey),
+
+		fmt.Sprintf("        SORT (resource._key IN %s) DESC, resource._key ASC", contributors),
+		"        RETURN resource)",
+		fmt.Sprintf("      FILTER %s", cohortMemberInputPredicate(source, contributors, cohort.PreserveMissingMembers)),
+		fmt.Sprintf("      FILTER %s", cohortMemberAuthorizationPredicate(source, rows, cohort.PreserveMissingMembers)),
+		fmt.Sprintf("      RETURN {source_identity: {project: member.ref.project, generation: member.ref.generation, resource_type: member.ref.resourceType, id: member.ref.id}, payload: %s == null ? null : %s.payload, __loom_storage_key: %s == null ? null : %s._key})", source, source, source, source),
+		fmt.Sprintf("    LET members = (FOR %s IN %s RETURN KEEP(%s, \"source_identity\", \"payload\"))", memberRow, memberRecords, memberRow),
+		fmt.Sprintf("    LET %s = UNIQUE((FOR member IN %s FILTER member.__loom_storage_key != null RETURN member.__loom_storage_key))", groupContributorKeys, memberRecords),
+		fmt.Sprintf("    RETURN {group_revision_id: revision._key, group_id: %s.groupId, group_label: %s.label, group_ordinal: %s.ordinal, __loom_row_id: {group_revision_id: revision._key, group_id: %s.groupId}, members: members, %q: %s})", definition, definition, definition, definition, cohort.RootContributorOutputColumn, groupContributorKeys),
+	)
+	lines = append(lines,
+		"  LET unassigned_records = (FOR selected IN unassigned",
+		"    LET source = FIRST(FOR resource IN @@"+rows.ResourceCollectionBindKey,
+		fmt.Sprintf("      FILTER resource.id == selected.id AND resource.project == @%s AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType", rows.ResourceProjectBindKey),
+		fmt.Sprintf("      SORT (resource._key IN %s) DESC, resource._key ASC", contributors),
+		"      RETURN resource)",
+		fmt.Sprintf("    FILTER %s", cohortMemberInputPredicate("source", contributors, cohort.PreserveMissingMembers)),
+		fmt.Sprintf("    FILTER %s", cohortMemberAuthorizationPredicate("source", rows, cohort.PreserveMissingMembers)),
+		"    RETURN {source_identity: {project: selected.project, generation: selected.generation, resource_type: selected.resourceType, id: selected.id}, payload: source == null ? null : source.payload, __loom_storage_key: source == null ? null : source._key})",
+		"  LET unassigned_members = (FOR member IN unassigned_records RETURN KEEP(member, \"source_identity\", \"payload\"))",
+		fmt.Sprintf("  LET %s = UNIQUE((FOR member IN unassigned_records FILTER member.__loom_storage_key != null RETURN member.__loom_storage_key))", unassignedContributorKeys),
+		fmt.Sprintf("  LET unassigned_row = {group_revision_id: revision._key, group_id: \"__loom_unassigned__\", group_label: \"Unassigned\", group_ordinal: MAX(definitions[*].ordinal) + 1, __loom_row_id: {group_revision_id: revision._key, group_id: \"__loom_unassigned__\"}, members: unassigned_members, %q: %s}", cohort.RootContributorOutputColumn, unassignedContributorKeys),
+		fmt.Sprintf("  LET rows = @%s == \"GROUP_AS_UNASSIGNED\" AND LENGTH(unassigned) > 0 ? APPEND(%s, [unassigned_row]) : %s", rows.PolicyBindKey, groupRows, groupRows),
+		fmt.Sprintf("  FOR %s IN rows", stage.OutputRowVariable),
+		fmt.Sprintf("  SORT %s.group_ordinal ASC, %s.group_id ASC", stage.OutputRowVariable, stage.OutputRowVariable),
+	)
+	if len(rows.MemberValues) == 0 {
+		lines = append(lines, "  RETURN "+stage.OutputRowVariable)
+		return lines, nil
+	}
+	valueRows := r.newInternalVariable("cohort_value_rows")
+	projections := make([]string, 0, len(rows.MemberValues))
+	values := make([]ir.PhysicalStageRowValue, 0, len(rows.MemberValues))
+	outputs := make([]string, 0, len(rows.MemberValues)+1)
+	for index, value := range rows.MemberValues {
+		expression, err := r.renderExpression(value.Expression)
+		if err != nil {
+			return nil, err
+		}
+		variable := r.newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
+		projections = append(projections, fmt.Sprintf("%q: %s", value.Output, expression))
+		outputs = append(outputs, fmt.Sprintf("%q: %s", value.Output, variable))
+		values = append(values, ir.PhysicalStageRowValue{InputColumn: value.Output, InputKind: value.Kind, InputMany: value.Expression.Cardinality == ir.PhysicalArrayCardinality, Output: value.Output, Policy: value.Policy, Variable: variable})
+	}
+	lines = append(lines, fmt.Sprintf("  LET %s = (FOR cohort_member IN %s.members RETURN {%s})", valueRows, stage.OutputRowVariable, strings.Join(projections, ", ")))
+	reduction, err := r.renderConstructionRowValueLets(values, valueRows, "")
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, reduction...)
+	lines = append(lines, "  RETURN MERGE("+stage.OutputRowVariable+", {"+strings.Join(outputs, ", ")+"})")
+	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalConstructionStage, input constructionGroupInput) ([]string, error) {
+	group := stage.Group
+	if group == nil {
+		return nil, fmt.Errorf("group stage is missing payload")
+	}
+	if group.RelatedOccurrence != nil {
+		if err := validateConstructionGroupRelatedOccurrenceRendererShape(group.RelatedOccurrence); err != nil {
+			return nil, err
+		}
+		if input.SourceRowInScope {
+			if err := validateConstructionGroupRelatedRootKeyInput(stage, group.RelatedOccurrence); err != nil {
+				return nil, err
+			}
+		}
+	}
+	countRowsOnly := len(group.Aggregates) != 0
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" {
+			countRowsOnly = false
+			break
+		}
+	}
+	if group.RootContributorInputColumn != "" || group.DynamicRuntimeKeysVariable != "" {
+
+		countRowsOnly = false
+	}
+	aggregateRowValues := countRowsOnly && (input.RowsVariable != "" || input.SourceRowInScope) && constructionGroupRowValuesCanAggregate(group.RowValues)
+	if len(group.RowValues) != 0 && !aggregateRowValues {
+		countRowsOnly = false
+	}
+	if input.SourceRowInScope && (input.RowsVariable != "" ||
+		(len(group.Keys) == 0 && group.SemanticKey == nil && group.CodingKey == nil && !(countRowsOnly && aggregateRowValues))) {
+		return nil, fmt.Errorf("in-scope source row requires a keyed Group or a keyless COUNT_ROWS Group with row values")
+	}
+	lines := make([]string, 0, 8+len(group.Keys)*2+len(group.Aggregates)+len(group.RowValues))
+	rowSource := input.RowsVariable
+	inputRowVariable := stage.InputRowVariable
+	var projectedRowsVariable string
+	if !countRowsOnly && !aggregateRowValues && group.RelatedOccurrence == nil {
+		projected, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.InputProjections})
+		if err != nil {
+			return nil, fmt.Errorf("input projection: %w", err)
+		}
+		if input.SourceRowInScope {
+			inputRowVariable = r.newInternalVariable("construction_group_projected_input")
+			lines = append(lines, fmt.Sprintf("  LET %s = %s", inputRowVariable, projected))
+		} else {
+			projectedRowsVariable = r.newInternalVariable("construction_group_input_rows")
+			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s RETURN %s)", projectedRowsVariable, stage.InputRowVariable, input.RowsVariable, projected))
+			rowSource = projectedRowsVariable
+		}
+		if len(group.Keys) == 0 {
+			if !input.SourceRowInScope {
+				rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", projectedRowsVariable, projectedRowsVariable)
+			}
+		}
+	}
+	if group.RelatedOccurrence != nil && !countRowsOnly && !aggregateRowValues && input.RowsVariable != "" &&
+		!input.SourceRowInScope && len(group.Keys) == 0 && group.SemanticKey == nil && group.CodingKey == nil {
+		rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", input.RowsVariable, input.RowsVariable)
+	}
+	if aggregateRowValues && len(group.Keys) == 0 && input.RowsVariable != "" {
+		rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", input.RowsVariable, input.RowsVariable)
+	}
+	if input.RowsVariable != "" {
+		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
+	} else if !input.SourceRowInScope && (!countRowsOnly || len(group.Keys) != 0 || group.SemanticKey != nil || group.CodingKey != nil) {
+		return nil, fmt.Errorf("only keyless COUNT_ROWS groups can consume the current source scope")
+	}
+	if group.RelatedOccurrence != nil {
+		mergedLines, mergedInput, err := r.renderConstructionGroupRelatedOccurrenceInput(
+			stage, inputRowVariable, group.RelatedOccurrence,
+			!countRowsOnly && !aggregateRowValues,
+		)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, mergedLines...)
+		inputRowVariable = mergedInput
+	}
+	semanticMembershipVariable := ""
+	if group.SemanticKey != nil {
+		semanticLines, membershipsVariable, err := r.renderConstructionGroupSemanticMembership(group.SemanticKey, input, inputRowVariable)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, semanticLines...)
+		semanticMembershipVariable = r.newInternalVariable("construction_group_semantic_membership")
+		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", semanticMembershipVariable, membershipsVariable))
+	}
+	keys, err := r.renderConstructionGroupKeys(stage, inputRowVariable, semanticMembershipVariable, lines)
+	if err != nil {
+		return nil, err
+	}
+	lines, err = r.renderConstructionGroupCollection(group, inputRowVariable, keys, countRowsOnly, aggregateRowValues)
+	if err != nil {
+		return nil, err
+	}
+	identity := "TO_STRING([" + strings.Join(keys.identityParts, ", ") + "])"
+	lines = append(lines, fmt.Sprintf("  LET %s = %s", group.IdentityVariable, identity))
+	output, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return nil, fmt.Errorf("output projection: %w", err)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = %s", stage.OutputRowVariable, output),
+		"  RETURN "+stage.OutputRowVariable,
+	)
+	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
+	stage ir.PhysicalConstructionStage,
+	parentRow string,
+	adapter *ir.PhysicalStageGroupRelatedOccurrenceAdapter,
+	projectBaseRow bool,
+) ([]string, string, error) {
+	if parentRow == "" {
+		return nil, "", fmt.Errorf("related Group adapter has no in-scope parent row")
+	}
+	lines := make([]string, 0, len(adapter.ScalarProjections)+16)
+	baseRow := parentRow
+	if projectBaseRow {
+		relatedColumns := make(map[string]struct{}, len(adapter.ScalarProjections)+2)
+		for _, projection := range adapter.ScalarProjections {
+			relatedColumns[projection.InputColumn] = struct{}{}
+		}
+		if adapter.CodingMembershipColumn != "" {
+			relatedColumns[adapter.CodingMembershipColumn] = struct{}{}
+		}
+		relatedColumns[adapter.OccurrenceKeyColumn] = struct{}{}
+		baseProjections := make([]ir.PhysicalProjection, 0, len(stage.InputProjections))
+		for _, projection := range stage.InputProjections {
+			if _, related := relatedColumns[projection.Name]; related {
+				continue
+			}
+			baseProjections = append(baseProjections, projection)
+		}
+		projected, err := r.renderReturn(ir.PhysicalReturn{Projections: baseProjections})
+		if err != nil {
+			return nil, "", fmt.Errorf("related Group base input projection: %w", err)
+		}
+		baseRow = r.newInternalVariable("construction_group_related_base_row")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s", baseRow, projected))
+	}
+
+	related := adapter.RelatedRecords
+	targetField := "__loom_related_target"
+	indexField := "__loom_related_index"
+	routeResult := r.newInternalVariable("construction_group_related_route_result")
+	routeRow := r.newInternalVariable("construction_group_related_route_row")
+	relatedStage := ir.PhysicalConstructionStage{
+		ID:                stage.ID + "_related_input",
+		InputRowVariable:  parentRow,
+		OutputRowVariable: routeRow,
+		OutputProjections: []ir.PhysicalProjection{
+			{Name: targetField, Value: ir.PhysicalValue{Variable: related.ItemVariable}},
+			{Name: indexField, Value: ir.PhysicalValue{Variable: related.IndexVariable}},
+		},
+		RelatedExpand: &related,
+	}
+	routeLines, err := r.renderConstructionRelatedExpandStage(relatedStage, "")
+	if err != nil {
+		return nil, "", fmt.Errorf("render related Group route: %w", err)
+	}
+	lines = append(lines, fmt.Sprintf("  FOR %s IN (", routeResult))
+	lines = append(lines, appendIndented(nil, routeLines)...)
+	lines = append(lines, "  )")
+	targetVariable := r.newInternalVariable("construction_group_related_target")
+	indexVariable := r.newInternalVariable("construction_group_related_index")
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = %s[@%s]", targetVariable, routeResult, r.newInternalBindKeyWithValue("construction_group_related_target_field", targetField)),
+		fmt.Sprintf("  LET %s = %s[@%s]", indexVariable, routeResult, r.newInternalBindKeyWithValue("construction_group_related_index_field", indexField)),
+		fmt.Sprintf("  LET %s = %s != null", adapter.RouteHasItemVariable, indexVariable),
+	)
+
+	itemPresent := ""
+	ordinalVariable := ""
+	terminalVariable := r.newInternalVariable("construction_group_related_terminal_id")
+	lines = append(lines, fmt.Sprintf("  LET %s = (%s ? %s.terminal_id : null)", terminalVariable, adapter.RouteHasItemVariable, targetVariable))
+	if adapter.CodingUnnest != nil {
+		coding := *adapter.CodingUnnest
+		occurrenceID := adapter.RelatedRecords.TargetResourceType
+		if len(adapter.RelatedRecords.Route) != 0 {
+			occurrenceID = adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID
+		}
+		coding.Owner = ir.PhysicalUnnestOwner{
+			OccurrenceID:  occurrenceID,
+			ResourceType:  adapter.RelatedRecords.TargetResourceType,
+			RootVariable:  targetVariable,
+			OwnerVariable: targetVariable,
+		}
+		coding.Expression = ir.PhysicalExpression{
+			Kind:         ir.PhysicalValueExpression,
+			Cardinality:  ir.PhysicalArrayCardinality,
+			NullBehavior: ir.PhysicalEmptyOnNull,
+			Value:        &ir.PhysicalValue{Variable: targetVariable, Path: []string{adapter.CodingArrayColumn}},
+		}
+
+		coding.EmptyPolicy = ir.PhysicalUnnestPreserveParent
+		codingLines, unnestErr := r.renderUnnest(coding, "  ", 0, 0)
+		if unnestErr != nil {
+			return nil, "", fmt.Errorf("render related Group Coding expansion: %w", unnestErr)
+		}
+		lines = append(lines, codingLines...)
+		itemPresent = r.newInternalVariable("construction_group_related_coding_present")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s AND %s", itemPresent, adapter.RouteHasItemVariable, coding.HasItemVariable))
+		ordinalVariable = r.newInternalVariable("construction_group_related_coding_ordinal")
+		lines = append(lines, fmt.Sprintf("  LET %s = (%s ? %s : null)", ordinalVariable, itemPresent, coding.Ordinality))
+		switch adapter.CodingEmptyPolicy {
+		case ir.PhysicalUnnestPreserveParent:
+		case ir.PhysicalUnnestExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER !%s OR %s", adapter.RouteHasItemVariable, coding.HasItemVariable))
+		case ir.PhysicalUnnestError:
+			errorBind := r.newInternalBindKeyWithValue("construction_group_related_coding_occurrence", coding.Owner.OccurrenceID)
+			message := fmt.Sprintf("CONCAT(\"%s: row expansion occurrence \", @%s, \" has no items for owner \", %s)", dataframeerrors.CodeConstructionExpansionEmpty, errorBind, terminalVariable)
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(!%s OR %s, %s)", adapter.RouteHasItemVariable, coding.HasItemVariable, message))
+		default:
+			return nil, "", fmt.Errorf("unsupported related Group Coding empty policy %q", adapter.CodingEmptyPolicy)
+		}
+	}
+
+	valueExpression := func(variable string, path ...string) ir.PhysicalExpression {
+		value := ir.PhysicalValue{Variable: variable, Path: path}
+		return ir.PhysicalExpression{
+			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull, Value: &value,
+		}
+	}
+	objectExpression := func(fields ...ir.PhysicalExpressionProjection) *ir.PhysicalExpression {
+		return &ir.PhysicalExpression{
+			Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality,
+			NullBehavior: ir.PhysicalPreserveNull, Object: &ir.PhysicalObject{Fields: fields},
+		}
+	}
+	projections := make([]ir.PhysicalProjection, 0, len(adapter.ScalarProjections)+3)
+	for _, projection := range adapter.ScalarProjections {
+		projections = append(projections, ir.PhysicalProjection{
+			Name:  projection.InputColumn,
+			Value: ir.PhysicalValue{Variable: targetVariable, Path: []string{projection.ResultField}},
+		})
+	}
+	if adapter.CodingUnnest != nil {
+		coding := adapter.CodingUnnest
+		projections = append(projections, ir.PhysicalProjection{
+			Name: adapter.CodingMembershipColumn,
+			Expression: objectExpression(
+				ir.PhysicalExpressionProjection{Name: "system", Expression: valueExpression(coding.OutputVariable, "system")},
+				ir.PhysicalExpressionProjection{Name: "version", Expression: valueExpression(coding.OutputVariable, "version")},
+				ir.PhysicalExpressionProjection{Name: "code", Expression: valueExpression(coding.OutputVariable, "code")},
+				ir.PhysicalExpressionProjection{Name: "display", Expression: valueExpression(coding.OutputVariable, "display")},
+			),
+		})
+	}
+	rootID := valueExpression(parentRow, "_key")
+	terminalID := valueExpression(terminalVariable)
+	var ifItemPresent, ordinalValue ir.PhysicalExpression
+	if adapter.CodingUnnest == nil {
+		ifItemPresent = r.groupRelatedOccurrenceLiteral(false, "construction_group_related_occurrence_item_present")
+		ordinalValue = r.groupRelatedOccurrenceLiteral(nil, "construction_group_related_occurrence_ordinal")
+	} else {
+		ifItemPresent = r.groupRelatedOccurrenceValue(itemPresent)
+		ordinalValue = r.groupRelatedOccurrenceValue(ordinalVariable)
+	}
+	projections = append(projections, ir.PhysicalProjection{
+		Name: adapter.OccurrenceKeyColumn,
+		Expression: objectExpression(
+			ir.PhysicalExpressionProjection{Name: "root_id", Expression: rootID},
+			ir.PhysicalExpressionProjection{Name: "terminal_id", Expression: terminalID},
+			ir.PhysicalExpressionProjection{Name: "item_present", Expression: ifItemPresent},
+			ir.PhysicalExpressionProjection{Name: "ordinal", Expression: ordinalValue},
+		),
+	})
+	relatedProjection, err := r.renderReturn(ir.PhysicalReturn{Projections: projections})
+	if err != nil {
+		return nil, "", fmt.Errorf("render related Group occurrence projection: %w", err)
+	}
+	merged := r.newInternalVariable("construction_group_related_input")
+	lines = append(lines, fmt.Sprintf("  LET %s = (%s == null ? null : MERGE(%s, %s))", merged, parentRow, baseRow, relatedProjection))
+	return lines, merged, nil
+}
+
+func (r *physicalPlanRenderer) groupRelatedOccurrenceLiteral(value any, base string) ir.PhysicalExpression {
+	bind := r.newInternalBindKey(base)
+	r.bindVars[bind] = value
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: bind},
+	}
+}
+
+func (r *physicalPlanRenderer) groupRelatedOccurrenceValue(value string) ir.PhysicalExpression {
+	physicalValue := ir.PhysicalValue{Variable: value}
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Value: &physicalValue,
+	}
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
+	semantic *ir.PhysicalStageGroupSemanticKey,
+	input constructionGroupInput,
+	inputRowVariable string,
+) ([]string, string, error) {
+	if semantic == nil || semantic.RootCollectionBindKey == "" || semantic.SourceIdentityColumn == "" {
+		return nil, "", fmt.Errorf("semantic group key has no source identity")
+	}
+	root := semantic.SourceRootVariable
+	lines := make([]string, 0, len(semantic.PathSegments)+8)
+	if !input.SourceRowInScope {
+		identityColumn := r.newInternalBindKeyWithValue("construction_group_semantic_source_identity", semantic.SourceIdentityColumn)
+		root = r.newInternalVariable("construction_group_semantic_root")
+		lines = append(lines, fmt.Sprintf("  LET %s = DOCUMENT(@@%s, %s[@%s])", root, semantic.RootCollectionBindKey, inputRowVariable, identityColumn))
+	}
+	payload := r.newInternalVariable("construction_group_semantic_payload")
+	lines = append(lines, fmt.Sprintf("  LET %s = (%s == null ? {} : %s.payload)", payload, root, root))
+	rawCodings := r.newInternalVariable("construction_group_semantic_raw_codings")
+	rawLines := []string{fmt.Sprintf("  LET %s = (", rawCodings)}
+	pathExpression := payload
+	for index, segment := range semantic.PathSegments {
+		attribute := fmt.Sprintf("%s[%q]", pathExpression, segment.Name)
+		if !segment.Repeated {
+			pathExpression = attribute
+			continue
+		}
+		item := r.newInternalVariable(fmt.Sprintf("construction_group_semantic_path_%d", index))
+		rawLines = append(rawLines, fmt.Sprintf("    FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
+		pathExpression = item
+	}
+	rawLines = append(rawLines, "      RETURN "+pathExpression, "  )")
+	lines = append(lines, rawLines...)
+	membershipLines, memberships, err := r.renderConstructionGroupSemanticMembershipFromRaw(semantic, rawCodings)
+	if err != nil {
+		return nil, "", err
+	}
+	lines = append(lines, membershipLines...)
+	return lines, memberships, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembershipFromRaw(
+	semantic *ir.PhysicalStageGroupSemanticKey,
+	rawCodings string,
+) ([]string, string, error) {
+	if semantic == nil || rawCodings == "" {
+		return nil, "", fmt.Errorf("semantic group raw Coding projection is incomplete")
+	}
+	lines := make([]string, 0, 8)
+	matched := r.newInternalVariable("construction_group_semantic_matches")
+	codeSystemBind := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
+	codeVersionBind := r.newInternalBindKeyWithValue("construction_group_semantic_version", semantic.Version)
+	coding := r.newInternalVariable("construction_group_semantic_coding")
+	codingVersion := fmt.Sprintf("(TYPENAME(%s.version) == \"string\" AND TRIM(%s.version) != \"\" ? %s.version : null)", coding, coding, coding)
+	versionPredicate := fmt.Sprintf("%s == @%s", codingVersion, codeVersionBind)
+	if semantic.Version == "" {
+		versionPredicate = codingVersion + " == null"
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER TYPENAME(%s) == \"object\" FILTER %s.system == @%s FILTER %s RETURN %s)",
+			matched, coding, rawCodings, coding, coding, codeSystemBind, versionPredicate, coding),
+	)
+	local := r.newInternalVariable("construction_group_semantic_row_memberships")
+	matchedCoding := r.newInternalVariable("construction_group_semantic_matched_coding")
+	code := r.newInternalVariable("construction_group_semantic_code")
+	display := r.newInternalVariable("construction_group_semantic_display")
+	localCode := fmt.Sprintf("(TYPENAME(%s.code) == \"string\" AND TRIM(%s.code) != \"\" ? %s.code : null)", matchedCoding, matchedCoding, matchedCoding)
+	localDisplay := fmt.Sprintf("(TYPENAME(%s.display) == \"string\" AND TRIM(%s.display) != \"\" ? %s.display : null)", matchedCoding, matchedCoding, matchedCoding)
+	matchedVersion := "null"
+	if semantic.Version != "" {
+		matchedVersion = "@" + codeVersionBind
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = (LENGTH(%s) == 0 ? [{system: null, version: null, code: null, display: null}] : (FOR %s IN %s COLLECT %s = %s AGGREGATE %s = MIN(%s) RETURN {system: (%s != null ? @%s : null), version: (%s != null ? %s : null), code: %s, display: %s}))",
+			local, matched, matchedCoding, matched, code, localCode, display, localDisplay, code, codeSystemBind, code, matchedVersion, code, display),
+	)
+
+	return lines, local, nil
+}
+
+func (r *physicalPlanRenderer) renderRootContributorSet(
+	inputColumn string,
+	inputMany bool,
+	rowsVariable string,
+	rowField string,
+	outputVariable string,
+) ([]string, error) {
+	if inputColumn == "" || rowsVariable == "" || outputVariable == "" {
+		return nil, fmt.Errorf("root contributor set requires input, rows, and output")
+	}
+	columnBind := r.newInternalBindKey("root_contributor_column")
+	r.bindVars[columnBind] = inputColumn
+	rowVariable := r.newInternalVariable("root_contributor_row")
+	value := fmt.Sprintf("%s.%s[@%s]", rowVariable, rowField, columnBind)
+	if !inputMany {
+		value = "[" + value + "]"
+	}
+	return []string{fmt.Sprintf(
+		"  LET %s = SORTED_UNIQUE(FLATTEN((FOR %s IN %s FILTER %s.present RETURN %s), 1))",
+		outputVariable, rowVariable, rowsVariable, rowVariable, value,
+	)}, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupAggregate(group *ir.PhysicalStageGroup, aggregate ir.PhysicalStageGroupAggregate, index int) (string, error) {
+	if aggregate.Operation == "COUNT_ROWS" {
+		member := r.newInternalVariable(fmt.Sprintf("construction_group_count_rows_%d", index))
+		return fmt.Sprintf("LENGTH((FOR %s IN %s FILTER %s.present RETURN 1))", member, group.GroupRowsVariable, member), nil
+	}
+	columnBind := r.newInternalBindKey(fmt.Sprintf("construction_group_aggregate_column_%d", index))
+	r.bindVars[columnBind] = aggregate.InputColumn
+	typeName, err := aqlTableScalarType(aggregate.InputKind)
+	if err != nil {
+		return "", err
+	}
+	typeBind := r.newInternalBindKey(fmt.Sprintf("construction_group_aggregate_type_%d", index))
+	r.bindVars[typeBind] = typeName
+	member := r.newInternalVariable(fmt.Sprintf("construction_group_member_%d", index))
+	value := fmt.Sprintf("%s.row[@%s]", member, columnBind)
+	valuesVariable := r.newInternalVariable(fmt.Sprintf("construction_group_values_%d", index))
+	values := fmt.Sprintf("(FOR %s IN %s FILTER %s.present FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_VALUE_TYPE_MISMATCH\") RETURN %s)",
+		member, group.GroupRowsVariable, member, value, value, typeBind, value)
+	if aggregate.Operation == "COUNT_NON_NULL" {
+		return "LENGTH(" + values + ")", nil
+	}
+	if aggregate.Operation == "COUNT_DISTINCT" {
+		return "LENGTH(SORTED_UNIQUE(" + values + "))", nil
+	}
+	if aggregate.Operation != "SUM" && aggregate.Operation != "MIN" && aggregate.Operation != "MAX" && aggregate.Operation != "MEAN" {
+		return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
+	}
+
+	reducer := aggregate.Operation
+	if reducer == "MEAN" {
+		reducer = "SUM"
+	}
+	result := reducer + "(" + valuesVariable + ")"
+	if aggregate.Operation == "MEAN" {
+		result += " / LENGTH(" + valuesVariable + ")"
+	}
+	return fmt.Sprintf("FIRST(FOR %s IN [%s] RETURN LENGTH(%s) == 0 ? null : %s)",
+		valuesVariable, values, valuesVariable, result), nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupProjectionRawCodings(root string, semantic *ir.PhysicalStageGroupSemanticKey) (string, error) {
+	if root == "" || semantic == nil || len(semantic.PathSegments) == 0 {
+		return "", fmt.Errorf("semantic Group Coding projection is incomplete")
+	}
+	pathExpression := root + ".payload"
+	lines := make([]string, 0, len(semantic.PathSegments)+2)
+	seenRepeated := false
+	for index, segment := range semantic.PathSegments {
+		attribute := fmt.Sprintf("%s[%q]", pathExpression, segment.Name)
+		if !segment.Repeated {
+			pathExpression = attribute
+			continue
+		}
+		if index == len(semantic.PathSegments)-1 && !seenRepeated {
+			return fmt.Sprintf("(IS_ARRAY(%s) ? %s : [])", attribute, attribute), nil
+		}
+		seenRepeated = true
+		item := r.newInternalVariable(fmt.Sprintf("semantic_group_projection_path_%d", index+1))
+		lines = append(lines, fmt.Sprintf("FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
+		pathExpression = item
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("semantic Group Coding path has no repeated segment")
+	}
+	lines = append(lines, "RETURN "+pathExpression)
+	for index := range lines {
+		lines[index] = "  " + lines[index]
+	}
+	return "(\n" + strings.Join(lines, "\n") + "\n)", nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupProjectionAssessment(
+	sourceQuery string,
+	root *ir.PhysicalRootScan,
+	semantic *ir.PhysicalStageGroupSemanticKey,
+) ([]string, error) {
+	rawProjection, err := r.renderSemanticGroupProjectionRawCodings(root.Variable, semantic)
+	if err != nil {
+		return nil, err
+	}
+	sample := r.newInternalVariable("semantic_group_projection_sample")
+	projection := r.newInternalVariable("semantic_group_projection_sample_value")
+	distinct := r.newInternalVariable("semantic_group_projection_distinct")
+	distinctProjection := r.newInternalVariable("semantic_group_projection_distinct_value")
+	serialized := r.newInternalVariable("semantic_group_projection_serialized_lengths")
+	serializedCharacters := r.newInternalVariable("semantic_group_projection_serialized_characters")
+	limitBind := r.newInternalBindKey("semantic_group_projection_sample_limit")
+	r.bindVars[limitBind] = semanticGroupProjectionSampleLimit
+	lines := []string{"LET " + sample + " = ("}
+	for _, line := range strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n") {
+		lines = append(lines, "  "+line)
+	}
+	lines = append(lines,
+		"  LET "+projection+" = "+rawProjection,
+		"  FILTER LENGTH("+projection+") > 0",
+		"  LIMIT @"+limitBind,
+		"  RETURN "+projection,
+		")",
+		"LET "+distinct+" = UNIQUE("+sample+")",
+		"LET "+serialized+" = (FOR "+distinctProjection+" IN "+distinct+" RETURN LENGTH(JSON_STRINGIFY("+distinctProjection+")))",
+		"LET "+serializedCharacters+" = SUM("+serialized+")",
+		"RETURN {sampleRows: LENGTH("+sample+"), distinctProjections: LENGTH("+distinct+"), serializedCharacters: "+serializedCharacters+"}",
+	)
+	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupProjectionFactorization(
+	sourceQuery string,
+	root *ir.PhysicalRootScan,
+	stage *ir.PhysicalConstructionStage,
+	semantic *ir.PhysicalStageGroupSemanticKey,
+	previewLimitBindKey string,
+) ([]string, error) {
+	group := stage.Group
+	rawProjection, err := r.renderSemanticGroupProjectionRawCodings(root.Variable, semantic)
+	if err != nil {
+		return nil, err
+	}
+	raw := r.newInternalVariable("semantic_group_projection_raw")
+	projection := r.newInternalVariable("semantic_group_projection_distinct_raw")
+	weight := r.newInternalVariable("semantic_group_projection_weight")
+	membership := r.newInternalVariable("semantic_group_projection_membership")
+	count := r.newInternalVariable("semantic_group_projection_count_rows")
+	displayMin := r.newInternalVariable("semantic_group_projection_min_display")
+	lines := strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n")
+	lines = append(lines, "LET "+raw+" = "+rawProjection)
+	lines = append(lines, "COLLECT "+projection+" = "+raw+" WITH COUNT INTO "+weight)
+	semanticLines, localMemberships, err := r.renderConstructionGroupSemanticMembershipFromRaw(semantic, projection)
+	if err != nil {
+		return nil, fmt.Errorf("render semantic Group extractor: %w", err)
+	}
+	for _, line := range semanticLines {
+		lines = append(lines, strings.TrimPrefix(line, "  "))
+	}
+	lines = append(lines, "FOR "+membership+" IN "+localMemberships)
+	switch group.MissingKeyPolicy {
+	case ir.PhysicalStageGroupMissingKeyGroup:
+	case ir.PhysicalStageGroupMissingKeyExclude:
+		lines = append(lines, "FILTER "+membership+".code != null")
+	case ir.PhysicalStageGroupMissingKeyError:
+		lines = append(lines, "FILTER ASSERT("+membership+".code != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")")
+	default:
+		return nil, fmt.Errorf("unsupported semantic Group missing-key policy %q", group.MissingKeyPolicy)
+	}
+	lines = append(lines, fmt.Sprintf("COLLECT %s = [%s.system, %s.version, %s.code] AGGREGATE %s = SUM(%s), %s = MIN(%s.display)",
+		semantic.TupleVariable, membership, membership, membership, count, weight, displayMin, membership))
+	lines = append(lines, "SORT "+semantic.TupleVariable+" ASC")
+	if previewLimitBindKey != "" {
+		lines = append(lines, "LIMIT @"+previewLimitBindKey)
+	}
+	lines = append(lines,
+		fmt.Sprintf("LET %s = (%s != null ? %s : %s[2])", semantic.LabelVariable, displayMin, displayMin, semantic.TupleVariable),
+		fmt.Sprintf("LET %s = %s", group.Aggregates[0].Variable, count),
+	)
+	constructionBind := group.ConstructionIDBindKey
+	semanticOutputID := ""
+	for _, column := range stage.OutputColumns {
+		if column.Name == semantic.OutputColumn {
+			semanticOutputID = column.ID
+			break
+		}
+	}
+	if semanticOutputID == "" {
+		return nil, fmt.Errorf("semantic Group output %q has no stable column ID", semantic.OutputColumn)
+	}
+	semanticOutputBind := r.newInternalBindKeyWithValue("semantic_group_projection_output_column", semanticOutputID)
+	familyBinding := r.newInternalBindKeyWithValue("semantic_group_projection_binding", semantic.BindingID)
+	familyRule := r.newInternalBindKeyWithValue("semantic_group_projection_rule", semantic.RuleVersion)
+	familyID := r.newInternalBindKeyWithValue("semantic_group_projection_family", semantic.FamilyID)
+	familySystem := r.newInternalBindKeyWithValue("semantic_group_projection_system", semantic.System)
+	familyVersion := r.newInternalBindKeyWithValue("semantic_group_projection_version", semantic.Version)
+	familyPath := r.newInternalBindKeyWithValue("semantic_group_projection_path", semantic.CodingPath)
+	identityParts := []string{
+		"[\"construction\", @" + constructionBind + "]",
+		"[\"operation\", \"GROUP\"]",
+		"[@" + semanticOutputBind + ", \"semantic_family\", @" + familyBinding + ", @" + familyRule + ", @" + familyID +
+			", @" + familySystem + ", @" + familyVersion + ", @" + familyPath + ", " + semantic.TupleVariable + "]",
+	}
+	identity := "TO_STRING([" + strings.Join(identityParts, ", ") + "])"
+	lines = append(lines, fmt.Sprintf("LET %s = %s", group.IdentityVariable, identity))
+	output, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return nil, fmt.Errorf("render semantic Group output row: %w", err)
+	}
+	lines = append(lines, fmt.Sprintf("LET %s = %s", stage.OutputRowVariable, output), "RETURN "+stage.OutputRowVariable)
+	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupKeys(stage ir.PhysicalConstructionStage, inputRowVariable, semanticMembershipVariable string, lines []string) (groupKeyRendering, error) {
+	group := stage.Group
+	collectKeys := make([]string, 0, len(group.Keys))
+	sortKeys := make([]string, 0, len(group.Keys))
+	keyTypeAssertions := make([]string, 0, len(group.Keys))
+	identityParts := []string{"[\"construction\", @" + group.ConstructionIDBindKey + "]", "[\"operation\", \"GROUP\"]"}
+	for index, key := range group.Keys {
+		columnBind := r.newInternalBindKey(fmt.Sprintf("construction_group_key_column_%d", index))
+		r.bindVars[columnBind] = key.InputColumn
+		typeName, err := aqlTableScalarType(key.Kind)
+		if err != nil {
+			return groupKeyRendering{}, fmt.Errorf("group key %q: %w", key.InputColumn, err)
+		}
+		typeBind := r.newInternalBindKey(fmt.Sprintf("construction_group_key_type_%d", index))
+		r.bindVars[typeBind] = typeName
+		value := fmt.Sprintf("%s[@%s]", inputRowVariable, columnBind)
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyGroup:
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER %s != null", value))
+		case ir.PhysicalStageGroupMissingKeyError:
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", value))
+		default:
+			return groupKeyRendering{}, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
+		}
+		keyTypeAssertions = append(keyTypeAssertions, fmt.Sprintf("  FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", key.Variable, key.Variable, typeBind))
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s", key.Variable, value))
+		sortKeys = append(sortKeys, key.Variable+" ASC")
+		nameBind := r.newInternalBindKey(fmt.Sprintf("construction_group_identity_key_%d", index))
+		for _, column := range stage.OutputColumns {
+			if column.Name == key.OutputColumn {
+				r.bindVars[nameBind] = column.ID
+				break
+			}
+		}
+		identityParts = append(identityParts, "[@"+nameBind+", "+key.Variable+"]")
+	}
+	semanticDisplayVariable := ""
+	semanticDisplayAggregateVariable := ""
+	if group.SemanticKey != nil {
+		semantic := group.SemanticKey
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = [%s.system, %s.version, %s.code]", semantic.TupleVariable, semanticMembershipVariable, semanticMembershipVariable, semanticMembershipVariable))
+		sortKeys = append(sortKeys, semantic.TupleVariable+" ASC")
+		semanticDisplayVariable = semanticMembershipVariable + ".display"
+		semanticDisplayAggregateVariable = r.newInternalVariable("construction_group_semantic_min_display")
+		familyBinding := r.newInternalBindKeyWithValue("construction_group_semantic_binding", semantic.BindingID)
+		familyRule := r.newInternalBindKeyWithValue("construction_group_semantic_rule", semantic.RuleVersion)
+		familyID := r.newInternalBindKeyWithValue("construction_group_semantic_family", semantic.FamilyID)
+		familySystem := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
+		familyVersion := r.newInternalBindKeyWithValue("construction_group_semantic_identity_version", semantic.Version)
+		familyPath := r.newInternalBindKeyWithValue("construction_group_semantic_path", semantic.CodingPath)
+		semanticOutputID := ""
+		for _, column := range stage.OutputColumns {
+			if column.Name == semantic.OutputColumn {
+				semanticOutputID = column.ID
+				break
+			}
+		}
+		if semanticOutputID == "" {
+			return groupKeyRendering{}, fmt.Errorf("semantic Group output %q has no stable column ID", semantic.OutputColumn)
+		}
+		semanticOutputBind := r.newInternalBindKeyWithValue("construction_group_semantic_output_column", semanticOutputID)
+		identityParts = append(identityParts,
+			"[@"+semanticOutputBind+", \"semantic_family\", @"+familyBinding+", @"+familyRule+", @"+familyID+", @"+familySystem+", @"+familyVersion+", @"+familyPath+", "+semantic.TupleVariable+"]")
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyGroup:
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER %s.code != null", semanticMembershipVariable))
+		case ir.PhysicalStageGroupMissingKeyError:
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s.code != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", semanticMembershipVariable))
+		default:
+			return groupKeyRendering{}, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
+		}
+	}
+	codingDisplayVariable := ""
+	codingDisplayAggregateVariable := ""
+	if group.CodingKey != nil {
+		coding := group.CodingKey
+		if group.SemanticKey != nil || coding.MembershipColumn == "" || coding.InputTupleVariable == "" || coding.TupleVariable == "" || coding.LabelVariable == "" {
+			return groupKeyRendering{}, fmt.Errorf("CODING_IDENTITY Group key is incomplete or conflicts with a semantic family key")
+		}
+		membershipBind := r.newInternalBindKey("construction_group_coding_membership_column")
+		r.bindVars[membershipBind] = coding.MembershipColumn
+		membership := r.newInternalVariable("construction_group_coding_membership")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s[@%s]", membership, inputRowVariable, membershipBind))
+		lines = append(lines, codingIdentityMembershipTypeAssertions(membership)...)
+		display := fmt.Sprintf("(TRIM(%s.display) != \"\" ? %s.display : null)", membership, membership)
+		codingDisplayVariable = r.newInternalVariable("construction_group_coding_display")
+		codingDisplayAggregateVariable = r.newInternalVariable("construction_group_coding_min_display")
+		lines = append(lines,
+			fmt.Sprintf("  LET %s = %s", coding.InputTupleVariable, codingIdentityTupleExpression(membership)),
+			fmt.Sprintf("  LET %s = %s", codingDisplayVariable, display),
+		)
+		missingCodeFilter, err := codingIdentityMissingCodeFilter(group.MissingKeyPolicy, coding.InputTupleVariable)
+		if err != nil {
+			return groupKeyRendering{}, err
+		}
+		if missingCodeFilter != "" {
+			lines = append(lines, "  "+missingCodeFilter)
+		}
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s", coding.TupleVariable, coding.InputTupleVariable))
+		sortKeys = append(sortKeys, coding.TupleVariable+" ASC")
+		outputID := ""
+		for _, column := range stage.OutputColumns {
+			if column.Name == coding.OutputColumn {
+				outputID = column.ID
+				break
+			}
+		}
+		if outputID == "" {
+			return groupKeyRendering{}, fmt.Errorf("CODING_IDENTITY Group output %q has no stable column ID", coding.OutputColumn)
+		}
+		outputBind := r.newInternalBindKeyWithValue("construction_group_coding_output_column", outputID)
+		identityParts = append(identityParts, "[@"+outputBind+", \"coding_identity\", "+coding.TupleVariable+"]")
+	}
+	return groupKeyRendering{
+		lines: lines, collectKeys: collectKeys, sortKeys: sortKeys,
+		keyTypeAssertions: keyTypeAssertions, identityParts: identityParts,
+		semanticDisplayVariable: semanticDisplayVariable, semanticDisplayAggregateVariable: semanticDisplayAggregateVariable,
+		codingDisplayVariable: codingDisplayVariable, codingDisplayAggregateVariable: codingDisplayAggregateVariable,
+	}, nil
 }

@@ -23,7 +23,7 @@ func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.Physic
 	}
 	renderer, lines, frontier := reverse.renderer, reverse.lines, reverse.frontier
 
-	grouped := renderer.navigation().newInternalVariable("grouped_rows")
+	grouped := renderer.newInternalVariable("grouped_rows")
 	lines = append(lines, fmt.Sprintf("LET %s = (", grouped))
 	groupLines, err := renderer.renderConstructionGroupStage(sequence.Stages[1], constructionGroupInput{RowsVariable: frontier})
 	if err != nil {
@@ -101,9 +101,9 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 	}}
 
 	lines := make([]string, 0, 16+len(traversals)*14)
-	frontier := renderer.navigation().newInternalVariable("terminal_frontier")
-	terminalDoc := renderer.navigation().newInternalVariable("terminal")
-	terminalAuth := renderer.navigation().newInternalVariable("terminal_scope_allowed")
+	frontier := renderer.newInternalVariable("terminal_frontier")
+	terminalDoc := renderer.newInternalVariable("terminal")
+	terminalAuth := renderer.newInternalVariable("terminal_scope_allowed")
 	lines = append(lines,
 		fmt.Sprintf("LET %s = (", frontier),
 		fmt.Sprintf("  FOR %s IN @@%s", terminalDoc, terminalCollectionBind),
@@ -128,9 +128,9 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 		if inverseEndpoint == "" || previousEndpoint == "" {
 			return relatedEligibilityReverseFrontier{}, false, nil
 		}
-		nextFrontier := renderer.navigation().newInternalVariable(fmt.Sprintf("route_frontier_%d", index+1))
-		current := renderer.navigation().newInternalVariable(fmt.Sprintf("route_target_%d", index+1))
-		edgeAuth := renderer.navigation().newInternalVariable(fmt.Sprintf("route_edge_scope_allowed_%d", index+1))
+		nextFrontier := renderer.newInternalVariable(fmt.Sprintf("route_frontier_%d", index+1))
+		current := renderer.newInternalVariable(fmt.Sprintf("route_target_%d", index+1))
+		edgeAuth := renderer.newInternalVariable(fmt.Sprintf("route_edge_scope_allowed_%d", index+1))
 		previous := traversal.SourceVariable
 		lines = append(lines,
 			fmt.Sprintf("LET %s = (", nextFrontier),
@@ -150,7 +150,7 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 			fmt.Sprintf("    FILTER %s.project == @project", previous),
 			fmt.Sprintf("    FILTER %s.dataset_generation == @dataset_generation", previous),
 		)
-		previousAuth := renderer.navigation().newInternalVariable(fmt.Sprintf("route_source_scope_allowed_%d", index+1))
+		previousAuth := renderer.newInternalVariable(fmt.Sprintf("route_source_scope_allowed_%d", index+1))
 		lines = append(lines,
 			fmt.Sprintf("    LET %s = @auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths", previousAuth, previous),
 			fmt.Sprintf("    FILTER %s == @scope_allowed", previousAuth),
@@ -166,8 +166,8 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 func terminalRelatedEligibilityCategoryScanOnly(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (ir.PhysicalConstructionStage, ir.PhysicalProjection, string, bool) {
 	if sequence == nil || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
 		sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 1 || options.terminalProjectionColumn == "" ||
-		options.projectionPresenceMarkerColumn == "" || len(options.preserveProjectionPresenceNames) != 1 || options.twoScanPivotPreview ||
-		options.dynamicPivotPreview || options.pivotGroupTupleFilter != nil || sequence.SourceRowIdentity != "_key" {
+		options.projectionPresenceMarkerColumn == "" || len(options.preserveProjectionPresenceNames) != 1 || options.twoScanPivot() ||
+		options.dynamicPivot() || options.pivotGroupTupleFilter != nil || sequence.SourceRowIdentity != "_key" {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
 	if _, preserved := options.preserveProjectionPresenceNames[options.terminalProjectionColumn]; !preserved {
@@ -295,15 +295,15 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 		return RenderedPhysicalPlan{}, false, err
 	}
 	renderer, lines, frontier := reverse.renderer, reverse.lines, reverse.frontier
-	rootFrontier := renderer.navigation().newInternalVariable("category_root_frontier")
-	rootDocument := renderer.navigation().newInternalVariable("category_root")
-	rootAuth := renderer.navigation().newInternalVariable("category_root_scope_allowed")
-	categoryPresent := renderer.navigation().newInternalVariable("category_present")
-	categoryValue := renderer.navigation().newInternalVariable("category_value")
-	groupPresent := renderer.navigation().newInternalVariable("group_present")
-	groupValue := renderer.navigation().newInternalVariable("group_value")
-	categoryRows := renderer.navigation().newInternalVariable("category_rows")
-	categoryResult := renderer.navigation().newInternalVariable("category_result")
+	rootFrontier := renderer.newInternalVariable("category_root_frontier")
+	rootDocument := renderer.newInternalVariable("category_root")
+	rootAuth := renderer.newInternalVariable("category_root_scope_allowed")
+	categoryPresent := renderer.newInternalVariable("category_present")
+	categoryValue := renderer.newInternalVariable("category_value")
+	groupPresent := renderer.newInternalVariable("group_present")
+	groupValue := renderer.newInternalVariable("group_value")
+	categoryRows := renderer.newInternalVariable("category_rows")
+	categoryResult := renderer.newInternalVariable("category_result")
 	categoryNameBind := renderer.newInternalBindKey("category_column_name")
 	renderer.bindVars[categoryNameBind] = options.terminalProjectionColumn
 	categoryName := fmt.Sprintf("[@%s]", categoryNameBind)
@@ -330,7 +330,7 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 	if sourceProjection.Presence != nil {
 		presence := *sourceProjection.Presence
 		presence.Source.Variable = rootDocument
-		presentExpression, err = renderer.tableShape().renderProjectionPresence(presence)
+		presentExpression, err = renderer.renderProjectionPresence(presence)
 		if err != nil {
 			return RenderedPhysicalPlan{}, false, fmt.Errorf("render direct root category presence: %w", err)
 		}
@@ -360,7 +360,7 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, true, nil
 }
 
-func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, columnName, markerColumn string, sampleSize int) (RenderedPhysicalPlan, bool, error) {
+func renderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, columnName, markerColumn string, sampleSize int) (RenderedPhysicalPlan, bool, error) {
 	if sampleSize < 1 {
 		return RenderedPhysicalPlan{}, false, fmt.Errorf("category overflow sample size must be positive")
 	}
@@ -413,13 +413,13 @@ func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, colum
 	}
 	presenceExpression := "true"
 	if projection.Presence != nil {
-		presenceExpression, err = renderer.tableShape().renderProjectionPresence(*projection.Presence)
+		presenceExpression, err = renderer.renderProjectionPresence(*projection.Presence)
 		if err != nil {
 			return RenderedPhysicalPlan{}, false, fmt.Errorf("render category witness presence: %w", err)
 		}
 	}
-	present := renderer.navigation().newInternalVariable("present")
-	value := renderer.navigation().newInternalVariable("value")
+	present := renderer.newInternalVariable("present")
+	value := renderer.newInternalVariable("value")
 	lines = append(lines,
 		fmt.Sprintf("LET %s = %s", present, presenceExpression),
 		fmt.Sprintf("LET %s = %s ? (%s) : null", value, present, valueExpression),
@@ -433,7 +433,7 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 	if sequence == nil || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
 		sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 2 ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview || options.dynamicPivotPreview || options.pivotGroupTupleFilter != nil {
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivot() || options.dynamicPivot() || options.pivotGroupTupleFilter != nil {
 		return false
 	}
 	eligibility, group := sequence.Stages[0], sequence.Stages[1]

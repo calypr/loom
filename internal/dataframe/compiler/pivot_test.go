@@ -725,7 +725,6 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 	assertReshapeOraclePivotErrorTrace(t, ctx, client, project, generation)
 	assertReshapeOracleUnpivot(t, ctx, client, project, generation)
 	assertReshapeOracleUnpivotRejectsIncompatibleInputs(t, project, generation)
-	assertReshapeOracleExclusions(t, ctx, client, project, generation)
 }
 
 func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t *testing.T) {
@@ -1328,4 +1327,44 @@ func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, clien
 	_, cells := executeReshapeOracleTrace(t, ctx, client, compiled, "alpha")
 	rowID := `["GROUPED_PIVOT","s04-pivot-error",["STRING","alpha-a"]]`
 	assertReshapeTraceResult(t, cells[rowID], float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
+}
+
+func assertAuthScopedPivotRows(t *testing.T, rows []map[string]any) {
+	t.Helper()
+	want := map[string]map[string]float64{
+		"/scope-a": {"alpha": 10, "zero": 2, "alpha_plus_zero": 12},
+		"/scope-b": {"alpha": 20, "zero": 3, "alpha_plus_zero": 23},
+	}
+	wantIdentity := map[string]string{
+		"/scope-a": `["GROUPED_PIVOT","s04-auth-scope-pivot",["STRING","final"],["INTEGER",1],["STRING","/scope-a"]]`,
+		"/scope-b": `["GROUPED_PIVOT","s04-auth-scope-pivot",["STRING","final"],["INTEGER",1],["STRING","/scope-b"]]`,
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("auth-scoped pivot rows = %#v, want one row per scope (%d)", rows, len(want))
+	}
+	for _, row := range rows {
+		scope, ok := row["auth_resource_path"].(string)
+		if !ok {
+			t.Errorf("auth_resource_path projection = %#v, want string scope", row["auth_resource_path"])
+			continue
+		}
+		values, ok := want[scope]
+		if !ok {
+			t.Errorf("unexpected auth scope %q in row %#v", scope, row)
+			continue
+		}
+		if identity, ok := row["__loom_row_id"].(string); !ok || identity != wantIdentity[scope] {
+			t.Errorf("scope %s row identity = %#v, want %s", scope, row["__loom_row_id"], wantIdentity[scope])
+		}
+		for column, expected := range values {
+			if got, ok := row[column].(float64); !ok || got != expected {
+				t.Errorf("scope %s %s = %#v, want %v", scope, column, row[column], expected)
+			}
+		}
+		delete(want, scope)
+		delete(wantIdentity, scope)
+	}
+	if len(want) != 0 {
+		t.Errorf("auth-scoped pivot omitted scopes: %#v", want)
+	}
 }

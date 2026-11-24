@@ -50,7 +50,7 @@ func TestBoundFirstCodingGroupCompilesWithoutPublicSourceColumns(t *testing.T) {
 	if publicSourceColumns != 0 {
 		t.Fatalf("bound empty source unexpectedly gained %d public projection columns: %#v", publicSourceColumns, compiled.Stages[0].Columns)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render bound empty-source Group: %v", err)
 	}

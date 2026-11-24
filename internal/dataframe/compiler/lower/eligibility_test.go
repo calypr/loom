@@ -80,7 +80,7 @@ func TestCompileRelatedEligibilityPreservesRowsAndCountsDistinctTerminalResource
 			if len(stage.OutputColumns) != len(stage.InputColumns) {
 				t.Fatalf("eligibility changed output schema width: in=%d out=%d", len(stage.InputColumns), len(stage.OutputColumns))
 			}
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -310,7 +310,7 @@ func TestRelatedEligibilityUsesActiveRelatedRecordAnchor(t *testing.T) {
 	if compiled.Stages[2].ActiveRelatedRecord == nil || compiled.Stages[2].ActiveRelatedRecord.TargetNodeID != "observation-node" {
 		t.Fatalf("eligibility did not preserve active related-record capability: %#v", compiled.Stages[2])
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 )
 
 const categoryColumnBind = "__loom_category_column"
+
 const categoryLimitBind = "__loom_category_limit"
 
 type RenderedCategoryScan struct {
@@ -108,7 +109,7 @@ func (renderer categoryScanRenderer) render(plan ir.PhysicalPlan) (RenderedCateg
 	query += categoryDistinctSuffix(variables, terminal.PresenceMarkerColumn, presenceBind, valueBind)
 	result := RenderedCategoryScan{RenderedPhysicalPlan: RenderedPhysicalPlan{Query: query, BindVars: binds}}
 	if plan.StageSequence != nil && terminal.ValueColumn == "" {
-		witness, eligible, err := RenderRelatedEligibilityCategoryOverflowWitness(witnessPlan, terminal.CategoryColumn, terminal.PresenceMarkerColumn, terminal.MaxValues*4+1)
+		witness, eligible, err := renderRelatedEligibilityCategoryOverflowWitness(witnessPlan, terminal.CategoryColumn, terminal.PresenceMarkerColumn, terminal.MaxValues*4+1)
 		if err != nil {
 			return RenderedCategoryScan{}, err
 		}

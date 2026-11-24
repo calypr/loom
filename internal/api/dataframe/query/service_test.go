@@ -312,9 +312,6 @@ func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 	if diagnostics.ArangoQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
 		t.Fatalf("negative backend diagnostics: %+v", diagnostics)
 	}
-	if diagnostics.Plan.Fingerprint == "" {
-		t.Fatal("plan diagnostics fingerprint is empty, want the compiled plan identity")
-	}
 	if diagnostics.Compilation >= diagnostics.Total {
 		t.Fatalf("compilation %v is not bounded by total %v", diagnostics.Compilation, diagnostics.Total)
 	}

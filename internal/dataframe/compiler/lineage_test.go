@@ -29,7 +29,7 @@ func TestSemanticGroupUsesExactFamilyTupleAndReconstructsContributors(t *testing
 	if stage.Group == nil || stage.Group.SemanticKey == nil || stage.Group.SemanticKey.SourceIdentityColumn != "_key" {
 		t.Fatalf("lowered semantic Group has no exact root-key family binding: %#v", stage.Group)
 	}
-	groupPlan, err := aql.RenderPhysicalPlan(output.Plan)
+	groupPlan, err := aql.Render(output.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

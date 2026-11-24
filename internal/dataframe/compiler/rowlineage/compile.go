@@ -265,7 +265,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("verify row lineage physical scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("render row lineage physical plan: %w", err)
 	}

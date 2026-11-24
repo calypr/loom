@@ -70,6 +70,10 @@ func ResolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 			}{column.Name, column.SemanticPath, column.DynamicName, column.SourceKey, column.ValueType, column.AllowUnknownKeys, column.Many})
 		}
 
+		plan, err := facade.MarshalLegacyPhysical(facade.CanonicalExecutionPhysicalPlan(output.Plan))
+		if err != nil {
+			return nil, nil, fmt.Errorf("fingerprint output %q: %w", output.Name, err)
+		}
 		payload, err := json.Marshal(struct {
 			Version, CompilerVersion         int
 			Name, RootResourceType, RowGrain string
@@ -78,8 +82,8 @@ func ResolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 			OutputSchema                     any
 			RowIdentity                      any
 			DynamicColumns                   any
-			Plan                             facade.PhysicalPlan
-		}{3, resolved.Compiled.Version, output.Name, output.RootResourceType, string(output.RowGrain), resolved.Semantic.ScopeDigest, resolved.Compiled.SourceGeneration, append([]string(nil), output.Columns...), columns, output.RowIdentity, dynamic, facade.CanonicalExecutionPhysicalPlan(output.Plan)})
+			Plan                             json.RawMessage
+		}{3, resolved.Compiled.Version, output.Name, output.RootResourceType, string(output.RowGrain), resolved.Semantic.ScopeDigest, resolved.Compiled.SourceGeneration, append([]string(nil), output.Columns...), columns, output.RowIdentity, dynamic, plan})
 		if err != nil {
 			return nil, nil, fmt.Errorf("fingerprint output %q: %w", output.Name, err)
 		}

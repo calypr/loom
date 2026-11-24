@@ -22,7 +22,7 @@ func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
 	if got, ok := plan.BindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 		t.Fatalf("physical unrestricted bind = %#v, want false", plan.BindVars["auth_resource_paths_unrestricted"])
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

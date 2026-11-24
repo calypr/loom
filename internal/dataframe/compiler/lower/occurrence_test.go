@@ -173,7 +173,7 @@ func TestRelatedGroupFieldSourcesShareOneExactRouteAdapter(t *testing.T) {
 	if err := compiled.Plan.Validate(); err != nil {
 		t.Fatalf("validate compiled related Group: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render compiled related Group: %v", err)
 	}

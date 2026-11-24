@@ -37,7 +37,6 @@ type PreviewSummary struct {
 	RowCount         int
 	PlanMode         string
 	PlanProfile      string
-	PlanFingerprint  string
 	TraversalCount   int
 	LoweringDuration time.Duration
 	QueryDuration    time.Duration

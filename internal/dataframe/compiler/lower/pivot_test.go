@@ -35,7 +35,7 @@ func TestConstructionCodedPivotStreamsRootAndCorrelatesCategoryWithOwnedValue(t 
 		t.Fatalf("coded Pivot value selector = %q, want %q", got, want)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

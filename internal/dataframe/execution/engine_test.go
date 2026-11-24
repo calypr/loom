@@ -320,7 +320,7 @@ func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.Output != "Patient" || summary.RowCount != 1 || summary.PlanMode != "physical" || summary.PlanProfile != "generic_fhir_graph_recipe" || summary.PlanFingerprint == "" {
+	if summary.Output != "Patient" || summary.RowCount != 1 || summary.PlanMode != "physical" || summary.PlanProfile != "generic_fhir_graph_recipe" {
 		t.Fatalf("unsafe or incomplete preview summary: %#v", summary)
 	}
 	if len(rows) != 1 || rows[0]["id"] != "p1" || len(rows[0]) != 1 {
@@ -1046,15 +1046,15 @@ func TestNormalizePreviewErrorClassifiesDeadlineAsPreviewTimeout(t *testing.T) {
 }
 
 func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
-	valid := model.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
+	valid := model.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, Query: "RETURN 1", PhysicalPlan: ir.PhysicalPlan{Version: 1}}
 	if err := validatePreviewPlan(valid, 2, ir.PhysicalEngineAQL); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []model.CompiledQuery{
-		{PlanMode: "logical", PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}},
-		{PlanMode: previewPlanMode, PlanProfile: "other", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}},
+		{PlanMode: "logical", PlanProfile: previewPlanProfile, Limit: 2, Query: "RETURN 1", PhysicalPlan: ir.PhysicalPlan{Version: 1}},
+		{PlanMode: previewPlanMode, PlanProfile: "other", Limit: 2, Query: "RETURN 1", PhysicalPlan: ir.PhysicalPlan{Version: 1}},
 		{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2},
-		{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 3, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}},
+		{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 3, Query: "RETURN 1", PhysicalPlan: ir.PhysicalPlan{Version: 1}},
 	} {
 		if err := validatePreviewPlan(invalid, 2, ir.PhysicalEngineAQL); err == nil {
 			t.Fatalf("invalid plan %#v was admitted", invalid)
@@ -1062,7 +1062,7 @@ func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 			t.Fatalf("invalid plan error = %v, want PLAN_TOO_EXPENSIVE", err)
 		}
 	}
-	clickHouse := model.CompiledQuery{PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "combine-fingerprint"}}
+	clickHouse := model.CompiledQuery{PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", Limit: 2, PhysicalPlan: ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineClickHouse, ClickHouseCombine: &ir.PhysicalClickHouseCombine{}}}
 	if err := validatePreviewPlan(clickHouse, 2, ir.PhysicalEngineClickHouse); err != nil {
 		t.Fatalf("valid pinned ClickHouse preview plan: %v", err)
 	}

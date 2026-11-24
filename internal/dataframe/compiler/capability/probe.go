@@ -494,7 +494,7 @@ func compile(ctx context.Context, scope Scope, output recipeplan.OutputPlan, opt
 	if err := contextErr(ctx); err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
-	rendered, err := aql.RenderPhysicalPlan(optimized)
+	rendered, err := aql.Render(optimized, aql.Options{})
 	if err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}

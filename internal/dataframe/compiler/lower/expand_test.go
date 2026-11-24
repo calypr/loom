@@ -50,7 +50,7 @@ func TestCompileRelatedExpandSupportsScalarContributorPredicate(t *testing.T) {
 	}
 
 	compiled := compileDerivedTestOutput(t, output)
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestCompileRelatedExpandSupportsRepeatedScalarContributorPredicate(t *testi
 		t.Fatal("related terminal subplan omitted the repeated contributor filter")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestCompileRelatedExpandSupportsRepeatedScalarContributorPredicate(t *testi
 		t.Fatalf("primitive repeated terminal selector was rejected: %v", err)
 	}
 	terminalRepeatedCompiled := compileDerivedTestOutput(t, terminalRepeatedOutput)
-	terminalRepeatedQuery, err := aql.RenderPhysicalPlan(terminalRepeatedCompiled.Plan)
+	terminalRepeatedQuery, err := aql.Render(terminalRepeatedCompiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(
 				t.Fatalf("related expansion stage descriptor lacks downstream identity contract: %#v", compiled.Stages[1])
 			}
 
-			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			rendered, err := aql.Render(compiled.Plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -406,7 +406,7 @@ func TestRelatedExpandAfterGroupUsesCompilerOwnedRootContributors(t *testing.T) 
 		!hasCompiledColumn(compiled.OutputSchema, related.TerminalIdentityColumn, true) {
 		t.Fatalf("related expansion lost grouped values or exact terminal identity: %#v", compiled.OutputSchema)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestOnwardRelatedExpandLooksUpActiveIdentityAndPreservesNullParentRows(t *t
 	if activeLookup == nil || activeLookup.ExactID.Path[0] != observationIdentity || compiled.Plan.BindVars[activeLookup.CollectionBindKey] != "Observation" {
 		t.Fatalf("onward expansion must point-lookup the selected Observation identity: lookup=%#v binds=%#v", activeLookup, compiled.Plan.BindVars)
 	}
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

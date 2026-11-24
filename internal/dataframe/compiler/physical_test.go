@@ -28,7 +28,7 @@ func TestCorrelatedPhysicalProjectionScopesCodingAndValueToOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestCorrelatedPhysicalProjectionPreservesDeclaredReductionAndAlias(t *testi
 			if outputName != "height_cm" {
 				t.Fatalf("output projection name = %q, want height_cm", outputName)
 			}
-			rendered, err := aql.RenderPhysicalPlan(plan)
+			rendered, err := aql.Render(plan, aql.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,7 +115,7 @@ func TestCorrelatedPhysicalProjectionMarksUnsupportedChoiceArm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestCorrelatedPhysicalStringAllPreservesArrayAndDeduplicatesCodingAliases(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestCorrelatedPhysicalFilterUsesSameCodingBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestCorrelatedPhysicalVersionedFilterMatchesSameCodingVersion(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestCorrelatedPhysicalProjectionReadsValueFromMatchedCoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestCorrelatedPhysicalVersionlessKeyMatchesOnlyMissingOrNullVersion(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestCorrelatedPhysicalFilterReadsValueFromMatchedCoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func TestExtensionPhysicalProjectionKeepsNestedURLAndValueScope(t *testing.T) {
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("extension plan invalid: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +480,7 @@ func TestExtensionPhysicalProjectionMakesWrongArmExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestExtensionPhysicalProjectionReducesAllOwnersTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestCorrelatedPhysicalFiltersKeepIndependentTerminologyBinds(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

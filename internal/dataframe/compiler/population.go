@@ -88,7 +88,7 @@ func CompileColumnPopulationScan(output lower.CompiledRecipeOutput, stageID stri
 	if err != nil {
 		return CompiledColumnPopulationScan{}, fmt.Errorf("apply column population execution window: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return CompiledColumnPopulationScan{}, fmt.Errorf("render column population stage: %w", err)
 	}

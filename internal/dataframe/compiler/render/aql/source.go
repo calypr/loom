@@ -21,7 +21,7 @@ func (source stageSourceRenderer) groupSourceRowVariable() string {
 		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow || sequence.OutputAuthResourcePathBindKey != "" ||
 		options.omitTerminalReturn || options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
 		options.omitTerminalRowSort || options.projectionPresenceMarkerColumn != "" ||
-		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview || options.dynamicPivotPreview {
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivot() || options.dynamicPivot() {
 		return ""
 	}
 	stage := stages[0]
@@ -83,7 +83,7 @@ func (source stageSourceRenderer) codedGroupSourceRootVariable() string {
 	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
 	if sequence == nil || len(stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview ||
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivot() ||
 		stages[0].Kind != ir.PhysicalStageCodedGroupOp || stages[0].CodedGroup == nil ||
 		stages[0].InputStageID != sequence.SourceStageID || !stages[0].CodedGroup.SourceRowsUnique ||
 		stages[0].CodedGroup.SourceIdentityColumn != "_key" || len(sourcePlan.Operations) < 2 ||
@@ -123,7 +123,7 @@ func (source stageSourceRenderer) codedPivotSourceRootVariable() string {
 	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
 	if sequence == nil || len(stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview ||
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivot() ||
 		stages[0].Kind != ir.PhysicalStagePivotOp || stages[0].GroupedPivot == nil ||
 		stages[0].GroupedPivot.CodedCorrelation == nil || stages[0].InputStageID != sequence.SourceStageID ||
 		stages[0].GroupedPivot.CodedSourceVariable == "" || !stages[0].GroupedPivot.OneInputRowPerGroup ||
@@ -163,11 +163,11 @@ func (source stageSourceRenderer) codedPivotSourceRootVariable() string {
 
 func (source stageSourceRenderer) streamingMissingCategoryPivotSourceRootVariable() string {
 	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
-	if sequence == nil || !options.streamingMissingCategoryPivotPreview || len(stages) != 1 ||
+	if sequence == nil || !options.streamingMissingCategoryPivot() || len(stages) != 1 ||
 		sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil || sequence.PopulationMappingReturn != nil ||
 		sequence.PreviewSourceWindowByRootID || sequence.OutputAuthResourcePathBindKey != "" ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview || options.dynamicPivotPreview {
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivot() || options.dynamicPivot() {
 		return ""
 	}
 	stage := stages[0]

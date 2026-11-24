@@ -12,7 +12,7 @@ import (
 
 func TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop(t *testing.T) {
 	plan := genericUnnestPlan(t, ir.PhysicalUnnestExclude, "")
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -38,7 +38,7 @@ func TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop(t *testing.T
 
 func TestRenderPhysicalPlanPreserveParentUnnestAndOrdinality(t *testing.T) {
 	plan := genericUnnestPlan(t, ir.PhysicalUnnestPreserveParent, "item_index")
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRenderPhysicalPlanPreserveParentUnnestAndOrdinality(t *testing.T) {
 
 func TestRenderPhysicalPlanErrorUnnestUsesAssertAtOwnerBoundary(t *testing.T) {
 	plan := genericUnnestPlan(t, ir.PhysicalUnnestError, "item_index")
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -77,7 +77,7 @@ func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
 	}
 	unnest := plan.Operations[last-1]
 	plan.Operations = append(append(append([]ir.PhysicalOperation{}, plan.Operations[:last-1]...), window, unnest), plan.Operations[last])
-	if _, err := aql.RenderPhysicalPlan(plan); err == nil || !strings.Contains(err.Error(), "unnest") {
+	if _, err := aql.Render(plan, aql.Options{}); err == nil || !strings.Contains(err.Error(), "unnest") {
 		t.Fatalf("RenderPhysicalPlan() error = %v, want unnest ordering failure", err)
 	}
 }
@@ -85,7 +85,7 @@ func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
 func TestRenderPhysicalPlanWithRootPageKeysUsesSortedDocumentLookup(t *testing.T) {
 	plan := genericUnnestPlan(t, ir.PhysicalUnnestExclude, "")
 	plan.BindVars["root_page_keys"] = []string{"patient-1", "patient-2"}
-	rendered, err := aql.RenderPhysicalPlanWithRootPageKeys(plan, "root_page_keys", 0)
+	rendered, err := aql.Render(plan, aql.Options{Preview: aql.RootPageKeysPreview{BindKey: "root_page_keys", RelatedExpandLimit: 0}})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlanWithRootPageKeys() error = %v", err)
 	}

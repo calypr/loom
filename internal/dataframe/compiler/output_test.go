@@ -3,7 +3,6 @@ package compiler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,7 +39,7 @@ func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
 		t.Fatal("missing current stage output-row window")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(windowed)
+	rendered, err := aql.Render(windowed, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +77,7 @@ func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
 		t.Fatal("missing current stage output-row window")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(windowed)
+	rendered, err := aql.Render(windowed, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +339,7 @@ func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
 			t.Fatalf("sort key %d = %#v, want %#v", index, sort.Keys[index], wantKeys[index])
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(window)
+	rendered, err := aql.Render(window, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +436,7 @@ func TestCanonicalExecutionPhysicalPlanPreservesValidRelatedCellTrace(t *testing
 	if physical.StageSequence.CellTraceReturn.Construction.RelatedSource.Subplan.Operations[0].Source != wantSource {
 		t.Fatal("canonicalization mutated the validated source plan")
 	}
-	data, err := json.Marshal(canonical)
+	data, err := ir.MarshalLegacyPhysical(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}

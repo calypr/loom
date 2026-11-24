@@ -3,7 +3,6 @@ package ir
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 )
@@ -13,7 +12,6 @@ func valueString(value any) string {
 }
 
 type CompilerPlanDiagnostics struct {
-	Fingerprint                       string
 	TraversalSets                     int
 	EndpointTraversalCount            int
 	NativeTraversalCount              int
@@ -68,7 +66,6 @@ func (r RichSourceReuse) TotalConsumers() int {
 
 func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 	diagnostics := CompilerPlanDiagnostics{
-		Fingerprint:             PhysicalPlanFingerprint(plan),
 		SharedTraversalCount:    plan.SharedTraversalCount,
 		RequiredMatchReuseCount: plan.RequiredMatchReuseCount,
 		OptimizationPolicy:      clonePhysicalOptimizationReport(plan.OptimizationPolicy),
@@ -216,7 +213,7 @@ func countObjectLookupConsumers(expression *PhysicalExpression) int {
 }
 
 func PhysicalPlanFingerprint(plan PhysicalPlan) string {
-	encoded, err := json.Marshal(plan)
+	encoded, err := MarshalLegacyPhysical(plan)
 	if err != nil {
 		return ""
 	}
@@ -257,7 +254,7 @@ func collectRichConsumerGroups(expression *PhysicalExpression, groups map[string
 	if source == "" {
 		return
 	}
-	payload, err := json.Marshal(expression)
+	payload, err := MarshalLegacyPhysical(expression)
 	if err != nil {
 		return
 	}

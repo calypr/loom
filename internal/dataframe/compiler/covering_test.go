@@ -146,7 +146,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 	if !reflect.DeepEqual(query.PreviewCoveringIndex.Fields, wantFields) || !reflect.DeepEqual(query.PreviewCoveringIndex.StoredValues, wantStoredValues) {
 		t.Fatalf("stored-values index = %+v, want fields=%v storedValues=%v", query.PreviewCoveringIndex, wantFields, wantStoredValues)
 	}
-	unhinted, err := aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(physical)
+	unhinted, err := aql.Render(physical, aql.Options{Preview: aql.StreamingMissingCategoryPivotPreview{}})
 	if err != nil {
 		t.Fatalf("render unhinted streaming Pivot: %v", err)
 	}

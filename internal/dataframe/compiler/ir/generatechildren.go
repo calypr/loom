@@ -43,7 +43,7 @@ func main() {
 			"PhysicalPathSeedOp": "PathSeed", "PhysicalPathExtendOp": "PathExtend", "PhysicalGraphReturnOp": "GraphReturn",
 			"PhysicalCollectionScanOp": "CollectionScan", "PhysicalKeySetLookupOp": "KeySetLookup", "PhysicalDocumentLookupOp": "DocumentLookup",
 			"PhysicalPopulationMappingReturnOp": "PopulationMappingReturn", "PhysicalCellTraceReturnOp": "CellTraceReturn",
-			"PhysicalTableShapeExclusionReturnOp": "TableShapeExclusionReturn", "PhysicalGroupRowsOp": "GroupRows",
+			"PhysicalGroupRowsOp":    "GroupRows",
 			"PhysicalGroupedPivotOp": "GroupedPivot", "PhysicalUnpivotOp": "Unpivot",
 		},
 		expressionMap: map[string]string{
@@ -141,7 +141,7 @@ func (g *generator) validateRegistry() error {
 func containsKnownPayloadType(expr ast.Expr, owner string) bool {
 	name := baseTypeName(expr)
 	if owner == "PhysicalOperation" {
-		return name == "PhysicalRootScan" || name == "PhysicalTraversal" || name == "PhysicalFilter" || name == "PhysicalDerivedLet" || name == "PhysicalExpressionLet" || name == "PhysicalSet" || name == "PhysicalUnnest" || name == "PhysicalSort" || name == "PhysicalLimit" || name == "PhysicalReturn" || name == "PhysicalPathSeed" || name == "PhysicalPathExtend" || name == "PhysicalGraphReturn" || name == "PhysicalCollectionScan" || name == "PhysicalKeySetLookup" || name == "PhysicalDocumentLookup" || name == "PhysicalPopulationMappingReturn" || name == "PhysicalCellTraceReturn" || name == "PhysicalTableShapeExclusionReturn" || name == "PhysicalGroupRows" || name == "PhysicalGroupedPivot" || name == "PhysicalUnpivot"
+		return name == "PhysicalRootScan" || name == "PhysicalTraversal" || name == "PhysicalFilter" || name == "PhysicalDerivedLet" || name == "PhysicalExpressionLet" || name == "PhysicalSet" || name == "PhysicalUnnest" || name == "PhysicalSort" || name == "PhysicalLimit" || name == "PhysicalReturn" || name == "PhysicalPathSeed" || name == "PhysicalPathExtend" || name == "PhysicalGraphReturn" || name == "PhysicalCollectionScan" || name == "PhysicalKeySetLookup" || name == "PhysicalDocumentLookup" || name == "PhysicalPopulationMappingReturn" || name == "PhysicalCellTraceReturn" || name == "PhysicalGroupRows" || name == "PhysicalGroupedPivot" || name == "PhysicalUnpivot"
 	}
 	if owner == "PhysicalExpression" {
 		return name == "PhysicalValue" || name == "PhysicalLiteral" || name == "PhysicalExtract" || name == "PhysicalAggregate" || name == "PhysicalPivotMap" || name == "PhysicalOwnerRecords" || name == "PhysicalSlice" || name == "PhysicalObjectLookup" || name == "PhysicalKeyedMap" || name == "PhysicalObjectKeys" || name == "PhysicalKeySet" || name == "PhysicalObject" || name == "PhysicalSubplan" || name == "PhysicalCall" || name == "PhysicalRelatedField"

@@ -24,7 +24,7 @@ func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,11 +116,11 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := aql.RenderPhysicalPlan(plan)
+	first, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := aql.RenderPhysicalPlan(plan)
+	second, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,11 +171,11 @@ func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
 	returnOp := plan.Operations[len(plan.Operations)-1].Return
 	returnOp.Projections = []ir.PhysicalProjection{{Name: "row", Expression: &outer}}
 
-	first, err := aql.RenderPhysicalPlan(plan)
+	first, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
-	second, err := aql.RenderPhysicalPlan(plan)
+	second, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("second RenderPhysicalPlan() error = %v", err)
 	}
@@ -233,7 +233,7 @@ func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
 	}
 	returnOp := plan.Operations[len(plan.Operations)-1].Return
 	returnOp.Projections = []ir.PhysicalProjection{{Name: "row", Expression: &object}}
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -328,7 +328,7 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			plan := newPlan(t)
 			test.mutate(&plan)
-			_, err := aql.RenderPhysicalPlan(plan)
+			_, err := aql.Render(plan, aql.Options{})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("RenderPhysicalPlan() error = %v; want substring %q", err, test.want)
 			}
@@ -343,7 +343,7 @@ func TestRenderPhysicalPlanRejectsMissingGenericScope(t *testing.T) {
 	}
 	plan.Operations = append(plan.Operations[:1], plan.Operations[2:]...)
 
-	_, err = aql.RenderPhysicalPlan(plan)
+	_, err = aql.Render(plan, aql.Options{})
 	if err == nil || !strings.Contains(err.Error(), "generic physical plan scope") {
 		t.Fatalf("RenderPhysicalPlan() error = %v, want scope validation failure", err)
 	}
@@ -365,7 +365,7 @@ func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testin
 			break
 		}
 	}
-	_, err = aql.RenderPhysicalPlan(plan)
+	_, err = aql.Render(plan, aql.Options{})
 	if err == nil || !strings.Contains(err.Error(), "must constrain edge.from_type") {
 		t.Fatalf("RenderPhysicalPlan() error = %v, want inbound edge discriminator rejection", err)
 	}
@@ -385,7 +385,7 @@ func TestRenderPhysicalPlanKeepsCollectionAndProjectionValuesOutOfAQL(t *testing
 		}
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	rendered, err := aql.Render(plan, aql.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

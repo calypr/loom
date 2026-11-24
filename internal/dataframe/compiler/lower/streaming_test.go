@@ -50,7 +50,7 @@ func TestMixedScalarAndCodingIdentityGroupStreamsExistingUnnestRows(t *testing.T
 		}},
 	}
 	compiled := compileDerivedTestOutput(t, output)
-	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	rendered, err := aql.Render(compiled.Plan, aql.Options{})
 	if err != nil {
 		t.Fatalf("render full mixed Group plan: %v", err)
 	}
