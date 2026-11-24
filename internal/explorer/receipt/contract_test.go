@@ -1422,7 +1422,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 	}
 }
 
-func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) {
+func TestCompileValidatedResolutionRejectsReceiptFingerprintDrift(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: recipetest.Registry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -1444,21 +1444,13 @@ func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) 
 	receipt := &receiptmodel.CompilationReceipt{Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []viewer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
 	bad := *receipt
 	bad.OutputFingerprints = map[string]string{"patients": "runtime-drift"}
-	stores := 0
-	persist := func(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error) {
-		stores++
-		return receipt, nil
+	_, err = CompileValidatedResolution(context.Background(), recipeEngine, &bad, bindings)
+	var mismatch *ContractMismatch
+	if !errors.As(err, &mismatch) || mismatch.Component != "output_execution" ||
+		mismatch.OutputID != "patients" || mismatch.Expected != "runtime-drift" {
+		t.Fatalf("runtime mismatch error = %v, want the patients output fingerprint mismatch", err)
 	}
-	if _, err := PersistValidatedReceipt(context.Background(), recipeEngine, &bad, bindings, persist); err == nil || !strings.Contains(err.Error(), "COMPILATION_CONTRACT_MISMATCH") {
-		t.Fatalf("runtime mismatch error = %v, want COMPILATION_CONTRACT_MISMATCH", err)
-	}
-	if stores != 0 {
-		t.Fatalf("runtime mismatch reached receipt store %d times", stores)
-	}
-	if _, err := PersistValidatedReceipt(context.Background(), recipeEngine, receipt, bindings, persist); err != nil {
+	if _, err := CompileValidatedResolution(context.Background(), recipeEngine, receipt, bindings); err != nil {
 		t.Fatalf("corrected receipt rejected: %v", err)
-	}
-	if stores != 1 {
-		t.Fatalf("corrected receipt store calls = %d, want 1", stores)
 	}
 }

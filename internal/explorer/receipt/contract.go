@@ -430,17 +430,6 @@ func ClassifyRecipeError(err error) error {
 	return err
 }
 
-func PersistValidatedReceipt(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, persist func(context.Context, receiptmodel.CompilationReceipt) (*receiptmodel.CompilationReceipt, error)) (*receiptmodel.CompilationReceipt, error) {
-	if _, err := CompileValidatedResolution(ctx, recipeEngine, receipt, bindings); err != nil {
-		id := ""
-		if receipt != nil {
-			id = receipt.ID
-		}
-		return nil, receiptCompilationConflict(id, err)
-	}
-	return persist(ctx, *receipt)
-}
-
 type ContractMismatch struct {
 	Component string
 	OutputID  string
