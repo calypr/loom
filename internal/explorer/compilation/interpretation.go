@@ -128,7 +128,7 @@ func ResolveWorkspaceInterpretations(project string, workspace ws.Workspace, sna
 			if err != nil {
 				return inputs, fmt.Errorf("interpretation revision %q for %s/%s: %w", id, document.Output.ID, column.Column, err)
 			}
-			inputs.Interpretations = append(inputs.Interpretations, ResolvedInterpretation{
+			inputs.Interpretations = append(inputs.Interpretations, interpretation.ResolvedInterpretation{
 				OutputID: document.Output.ID, Column: column.Column, OccurrenceID: column.OccurrenceID,
 				Revision: revision, SelectedRuleID: rule.ID, Definition: cloneInterpretationDefinition(rule.Definition),
 			})

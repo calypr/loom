@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/importedsource"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -28,7 +29,7 @@ type RuntimeConfig struct {
 	CapabilityResolver      *capabilityresolver.Resolver
 	Logger                  *slog.Logger
 	CombineInputSchemas     CombineInputSchemaResolver
-	ImportedSources         ImportedRecipeResolver
+	ImportedSources         *importedsource.Sources
 	ConstructionSourceStage ports.ConstructionSourceStageCompiler
 	Materializer            ports.ReceiptMaterializer
 }
@@ -39,7 +40,7 @@ type Runtime struct {
 	capabilities            *capabilityresolver.Resolver
 	logger                  *slog.Logger
 	combineInputSchemas     CombineInputSchemaResolver
-	importedSources         ImportedRecipeResolver
+	importedSources         *importedsource.Sources
 	constructionSourceStage ports.ConstructionSourceStageCompiler
 	materializer            ports.ReceiptMaterializer
 }

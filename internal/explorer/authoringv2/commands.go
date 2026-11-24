@@ -832,7 +832,7 @@ func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, ro
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) || strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
 		return fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL requires outputId and proposalId")
 	}
-	population := ws.Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: clonePopulationRouteSteps(route)}
+	population := ws.Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: ws.ClonePopulationRouteSteps(route)}
 	if err := population.Validate(); err != nil {
 		return fmt.Errorf("resolved population is invalid: %w", err)
 	}
@@ -1234,15 +1234,6 @@ func initializeEmptyConstructionBeforeSourceAdd(workspace *ws.Workspace, outputI
 	}
 	workspace.Documents[documentPos] = upgraded
 	return nil
-}
-
-func clonePopulationRouteSteps(route []ws.PopulationRouteStep) []ws.PopulationRouteStep {
-	if route == nil {
-		return nil
-	}
-	cloned := make([]ws.PopulationRouteStep, len(route))
-	copy(cloned, route)
-	return cloned
 }
 
 func setPopulationRoute(document *ws.Document, selectionRevisionID string, route []ws.PopulationRouteStep) {

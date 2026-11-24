@@ -17,6 +17,7 @@ import (
 
 	loomtext "github.com/calypr/loom/internal/foundation/text"
 
+	"github.com/calypr/loom/internal/explorer/importedsource"
 	"github.com/calypr/loom/internal/explorer/receipt/output"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -195,11 +196,7 @@ func ContractFailure(err error) error {
 	}
 }
 
-type ImportedRecipeResolver interface {
-	Resolve(context.Context, string, ws.Workspace, ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error)
-}
-
-func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...ImportedRecipeResolver) (result *receiptmodel.CompilationReceipt, retErr error) {
+func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...*importedsource.Sources) (result *receiptmodel.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -255,7 +252,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 	}
 	prepareDuration = time.Since(prepareStarted)
 	compileWorkspaceStarted := time.Now()
-	if len(importedSources) > 0 {
+	if len(importedSources) > 0 && importedSources[0] != nil {
 		sources, resolveErr := importedSources[0].Resolve(ctx, request.Project, workspace, authorized)
 		if resolveErr != nil {
 			var typed *ports.Error

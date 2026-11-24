@@ -304,7 +304,7 @@ type viewerProjectionInputs struct {
 }
 
 func prepareViewerProjectionInputs(revision *Revision, config explorerconfig.ConfigV2, hasConfig bool) (viewerProjectionInputs, error) {
-	bundle := recipeIdentityMetadata(revision.Recipe)
+	bundle := receiptmodel.RecipeIdentityMetadata(revision.Recipe)
 	if hasConfig && len(config.Recipe) > 0 {
 		parsed, parseErr := recipe.ParseArchivedMetadata(config.Recipe)
 		if parseErr != nil {

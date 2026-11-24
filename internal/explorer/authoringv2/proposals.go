@@ -72,7 +72,7 @@ func applyApplyPopulationMemberProposal(workspace *ws.Workspace, command Command
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	population := *command.resolvedPopulation
-	population.Route = clonePopulationRouteSteps(command.resolvedPopulation.Route)
+	population.Route = ws.ClonePopulationRouteSteps(command.resolvedPopulation.Route)
 	if err := population.Validate(); err != nil {
 		return result, fmt.Errorf("resolved population is invalid: %w", err)
 	}

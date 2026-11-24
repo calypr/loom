@@ -75,7 +75,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	}
 	receiptRuntime := receiptapi.NewRuntime(receiptapi.RuntimeConfig{
 		Engine: recipeEngine, Explorers: explorerService, CapabilityResolver: capabilityResolver,
-		Logger: logger, CombineInputSchemas: combineInputSchemas, ImportedSources: importedSources,
+		Logger: logger, CombineInputSchemas: combineInputSchemas, ImportedSources: &importedSources,
 		ConstructionSourceStage: importedSources.SourceStage,
 		Materializer: receiptapi.NewMaterializer(
 			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
