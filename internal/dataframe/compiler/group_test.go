@@ -18,6 +18,9 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -44,7 +47,7 @@ func TestConstructionCodedGroupCountsDistinctRootCodingTuplesAgainstArango(t *te
 		{"id": "coded-missing"},
 	})
 
-	output := constructionCodedGroupTestOutput()
+	output := compilerfixtures.ObservationCodedGroupOutput()
 	rows := executeConstructionOutput(t, ctx, client, output, project, generation)
 	if len(rows) != 3 {
 		t.Fatalf("coded grouping rows = %#v, want system-a, system-b, and one missing tuple", rows)
@@ -99,7 +102,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 		Project: project, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"Observation/visible"},
 	}
-	allOutput := constructionCodedGroupTestOutput()
+	allOutput := compilerfixtures.ObservationCodedGroupOutput()
 	allCompiled := lowerConstructionOutput(t, allOutput, bindings)
 	allQuery, err := CompileRecipeOutputWithPolicy(allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -112,7 +115,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 
 	selectionID := "selection-" + t.Name()
 	insertCodedGroupPopulationMembers(t, ctx, client, populationCollection, selectionID, project, generation, []string{"visible-a", "hidden"})
-	selectedOutput := constructionCodedGroupTestOutput()
+	selectedOutput := compilerfixtures.ObservationCodedGroupOutput()
 	selectedOutput.Population = &recipe.PopulationConstraint{
 		SelectionRevisionID: selectionID, MembershipDigest: "sha256:coded-group-inline-members",
 		MemberCount: 2, ResourceType: "Observation",
@@ -362,13 +365,13 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	identityProbe.BindVars["diagnostic_scalar_key"] = "active"
 	identityProbe.BindVars["diagnostic_semantic_tuple"] = []any{targetSystem, targetVersion, "shared-code"}
 	delete(identityProbe.BindVars, rowlineage.RowLineageRowIDBind)
-	identityResult := executeRowLineageOracleQuery(t, ctx, client, identityProbe)
+	identityResult := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, identityProbe)
 	selectedGroup, _ := identityResult["selectedGroup"].(map[string]any)
 	lineageIdentity, _ := selectedGroup["identity"].(string)
 	if lineageIdentity != sharedCodeRowID {
 		t.Fatalf("executed semantic Group identity = %q, want actual grouped row ID %q; probe=%#v", lineageIdentity, sharedCodeRowID, identityResult)
 	}
-	lineage := executeRowLineageOracleQuery(t, ctx, client, lineageQuery)
+	lineage := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, lineageQuery)
 	contributors, _ := lineage["contributors"].([]any)
 	if lineage["found"] != true || lineage["hasMore"] != false || len(contributors) != 2 {
 		t.Fatalf("semantic Group row lineage = %#v, want the two exact matching source rows; grouped row=%#v executed identity=%#v; AQL:\n%s",

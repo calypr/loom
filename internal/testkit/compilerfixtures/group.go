@@ -10,8 +10,15 @@ func CodedGroupComponent(code string) map[string]any {
 	}}}
 }
 
-func ConstructionCodedGroupTestOutput() recipe.Output {
-	const idColumn = "resource_id"
+func ObservationCodedGroupOutput() recipe.Output {
+	return codedGroupOutput("coded_group_rows", "Observation", "resource_id", "component[].code.coding[]")
+}
+
+func BodyStructureCodedGroupOutput() recipe.Output {
+	return codedGroupOutput("body_structures", "BodyStructure", "body_structure_id", "includedStructure[].structure.coding[]")
+}
+
+func codedGroupOutput(name, resourceType, idColumn, codingPath string) recipe.Output {
 	columns := []recipe.StageColumn{
 		{ID: "system_id", Name: "code_system", Type: "string", Nullable: true},
 		{ID: "version_id", Name: "code_version", Type: "string", Nullable: true},
@@ -19,7 +26,7 @@ func ConstructionCodedGroupTestOutput() recipe.Output {
 		{ID: "count_id", Name: "source_records", Type: "integer"},
 	}
 	return recipe.Output{
-		Name: "coded_group_rows", RootResourceType: "Observation", RowGrain: "resource",
+		Name: name, RootResourceType: resourceType, RowGrain: "resource",
 		Fields: []recipe.Field{{Name: idColumn, ColumnID: idColumn, Expr: recipe.Expression{Select: "root.id"}}},
 		Construction: &recipe.Construction{
 			Version: 1, SourceColumns: []recipe.StageColumn{{ID: idColumn, Name: idColumn}},
@@ -28,7 +35,7 @@ func ConstructionCodedGroupTestOutput() recipe.Output {
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionCodedGroupOp, CodedGroup: &recipe.ConstructionCodedGroup{
 					ConstructionID: "group_codes",
 					Source: recipe.ConstructionCodedGroupSource{
-						OccurrenceID: "base", ResourceType: "Observation", CodingPath: "component[].code.coding[]",
+						OccurrenceID: "base", ResourceType: resourceType, CodingPath: codingPath,
 						FHIRType: "Coding", Cardinality: "MANY", Shape: "ARRAY", Route: []recipe.ConstructionRelatedRouteStep{},
 					},
 					MissingKeyPolicy:     recipe.ConstructionGroupMissingKeyGroup,

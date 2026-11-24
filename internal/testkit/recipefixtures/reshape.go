@@ -1,43 +1,46 @@
-package lower
+package recipefixtures
 
 import "github.com/calypr/loom/internal/dataframe/recipe"
 
-type oracleReshape struct {
+type OracleReshape struct {
 	Kind         string
-	GroupedPivot *oraclePivot
-	Unpivot      *oracleUnpivot
+	GroupedPivot *OraclePivot
+	Unpivot      *OracleUnpivot
 }
 
 const (
-	oracleReshapePivot   = "GROUPED_PIVOT"
-	oracleReshapeUnpivot = "UNPIVOT"
+	OracleReshapePivot   = "GROUPED_PIVOT"
+	OracleReshapeUnpivot = "UNPIVOT"
 )
 
-type oraclePivot struct {
+type OraclePivot struct {
 	ConstructionID              string
 	GroupKeys                   []string
 	CategoryColumn, ValueColumn string
-	Categories                  []oraclePivotCategory
+	Categories                  []OraclePivotCategory
 	DuplicatePolicy             recipe.PivotDuplicatePolicy
 	MissingCellPolicy           recipe.PivotMissingCellPolicy
 	UnlistedCategoryPolicy      recipe.PivotUnlistedCategoryPolicy
 }
-type oraclePivotCategory struct {
+
+type OraclePivotCategory struct {
 	Key           recipe.TableScalar
 	Output, Label string
 }
-type oracleUnpivot struct {
+
+type OracleUnpivot struct {
 	ConstructionID                               string
-	Inputs                                       []oracleUnpivotInput
+	Inputs                                       []OracleUnpivotInput
 	KeyOutput, KeyLabel, ValueOutput, ValueLabel string
 	NullRowPolicy                                recipe.UnpivotNullRowPolicy
 }
-type oracleUnpivotInput struct {
+
+type OracleUnpivotInput struct {
 	Column string
 	Key    recipe.TableScalar
 }
 
-func bindOracleCurrentConstruction(output recipe.Output, shape *oracleReshape) recipe.Output {
+func BindOracleCurrentConstruction(output recipe.Output, shape *OracleReshape) recipe.Output {
 	if shape == nil {
 		return output
 	}
@@ -52,7 +55,7 @@ func bindOracleCurrentConstruction(output recipe.Output, shape *oracleReshape) r
 	}
 	step := recipe.ConstructionStep{Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}}
 	switch shape.Kind {
-	case oracleReshapePivot:
+	case OracleReshapePivot:
 		p := shape.GroupedPivot
 		step.ID = "pivot"
 		pivot := &recipe.ConstructionPivot{ConstructionID: p.ConstructionID, GroupKeyIDs: append([]string{}, p.GroupKeys...), CategoryColumnID: p.CategoryColumn, ValueColumnID: p.ValueColumn, DuplicatePolicy: p.DuplicatePolicy, MissingCellPolicy: p.MissingCellPolicy, UnlistedCategoryPolicy: p.UnlistedCategoryPolicy}
@@ -68,7 +71,7 @@ func bindOracleCurrentConstruction(output recipe.Output, shape *oracleReshape) r
 			step.Outputs = append(step.Outputs, recipe.StageColumn{ID: category.Output, Name: category.Output, Label: category.Label})
 		}
 		step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: pivot}
-	case oracleReshapeUnpivot:
+	case OracleReshapeUnpivot:
 		u := shape.Unpivot
 		step.ID = "unpivot"
 		unpivot := &recipe.ConstructionUnpivot{ConstructionID: u.ConstructionID, KeyOutputColumnID: u.KeyOutput, ValueOutputColumnID: u.ValueOutput, NullRowPolicy: u.NullRowPolicy}

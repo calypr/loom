@@ -3,10 +3,11 @@ package lower
 import (
 	"testing"
 
-	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	irscope "github.com/calypr/loom/internal/dataframe/compiler/ir/scope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -177,16 +178,16 @@ func wholeRelationGroupOutput() recipe.Output {
 
 func wholeRelationTablePivotOutput() recipe.Output {
 	zero := int64(0)
-	return bindOracleCurrentConstruction(recipe.Output{
+	return recipefixtures.BindOracleCurrentConstruction(recipe.Output{
 		Name: "pivoted", RootResourceType: "Patient", RowGrain: "patient",
 		Fields: []recipe.Field{
 			{Name: "gender", Expr: recipe.Expression{Select: "gender"}},
 			{Name: "category", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
 			{Name: "value", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
 		},
-	}, &oracleReshape{Kind: oracleReshapePivot, GroupedPivot: &oraclePivot{
+	}, &recipefixtures.OracleReshape{Kind: recipefixtures.OracleReshapePivot, GroupedPivot: &recipefixtures.OraclePivot{
 		ConstructionID: "pivot", GroupKeys: []string{"gender"}, CategoryColumn: "category", ValueColumn: "value",
-		Categories:      []oraclePivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &zero}, Output: "zero", Label: "Zero"}},
+		Categories:      []recipefixtures.OraclePivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &zero}, Output: "zero", Label: "Zero"}},
 		DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
 		UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 	}})

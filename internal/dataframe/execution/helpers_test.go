@@ -6,47 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/calypr/loom/internal/dataframe/recipe"
 )
-
-type oracleReshape struct {
-	Kind         string
-	GroupedPivot *oraclePivot
-	Unpivot      *oracleUnpivot
-}
-
-const (
-	oracleReshapePivot   = "GROUPED_PIVOT"
-	oracleReshapeUnpivot = "UNPIVOT"
-)
-
-type oraclePivot struct {
-	ConstructionID              string
-	GroupKeys                   []string
-	CategoryColumn, ValueColumn string
-	Categories                  []oraclePivotCategory
-	DuplicatePolicy             recipe.PivotDuplicatePolicy
-	MissingCellPolicy           recipe.PivotMissingCellPolicy
-	UnlistedCategoryPolicy      recipe.PivotUnlistedCategoryPolicy
-}
-
-type oraclePivotCategory struct {
-	Key           recipe.TableScalar
-	Output, Label string
-}
-
-type oracleUnpivot struct {
-	ConstructionID                               string
-	Inputs                                       []oracleUnpivotInput
-	KeyOutput, KeyLabel, ValueOutput, ValueLabel string
-	NullRowPolicy                                recipe.UnpivotNullRowPolicy
-}
-
-type oracleUnpivotInput struct {
-	Column string
-	Key    recipe.TableScalar
-}
 
 func CompiledQueryFingerprint(compiled CompiledQuery) string {
 	keys := make([]string, 0, len(compiled.BindVars))

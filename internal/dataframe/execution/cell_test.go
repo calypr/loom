@@ -7,20 +7,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+
 	celltrace "github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -650,14 +653,14 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 		if traceErr != nil {
 			t.Fatalf("trace %q: %v", want.id, traceErr)
 		}
-		if !result.Complete || result.Status != CellTraceValue || !executionTraceNumberEqual(result.Value, want.total) {
+		if !result.Complete || result.Status != CellTraceValue || !compilerfixtures.ConstructionNumericEqual(result.Value, want.total) {
 			t.Fatalf("trace %q = %#v, want complete value %v", want.id, result, want.total)
 		}
 		if len(result.Contributions) != 1 {
 			t.Fatalf("trace %q contributors = %#v, want one source-column contribution", want.id, result.Contributions)
 		}
 		contribution := result.Contributions[0]
-		if contribution.InputStageID != "source_projection" || contribution.InputColumnID != "amount_id" || contribution.InputColumn != "amount" || contribution.OutputStageID != "derive_total" || contribution.OutputColumnID != "total_id" || contribution.OutputColumn != "total" || contribution.FinalStageID != "keep_positive" || contribution.ConstructionID != "calc_total" || contribution.Operation != "DERIVE" || !executionTraceNumberEqual(contribution.Value, float64(want.amount)) {
+		if contribution.InputStageID != "source_projection" || contribution.InputColumnID != "amount_id" || contribution.InputColumn != "amount" || contribution.OutputStageID != "derive_total" || contribution.OutputColumnID != "total_id" || contribution.OutputColumn != "total" || contribution.FinalStageID != "keep_positive" || contribution.ConstructionID != "calc_total" || contribution.Operation != "DERIVE" || !compilerfixtures.ConstructionNumericEqual(contribution.Value, float64(want.amount)) {
 			t.Fatalf("trace %q provenance = %#v", want.id, contribution)
 		}
 		if contribution.ResourceID != "" || contribution.ResourceType != "" {
@@ -706,19 +709,6 @@ func executionConstructionTraceOutput() recipe.Output {
 				},
 			},
 		},
-	}
-}
-
-func executionTraceNumberEqual(value any, want float64) bool {
-	switch got := value.(type) {
-	case float64:
-		return math.Abs(got-want) < 1e-9
-	case int64:
-		return float64(got) == want
-	case int:
-		return float64(got) == want
-	default:
-		return false
 	}
 }
 

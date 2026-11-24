@@ -2,16 +2,15 @@ package compiler
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -64,8 +63,8 @@ func TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango(t *t
 		if err != nil {
 			t.Fatalf("compile Pivot lineage for %s: %v", rowID, err)
 		}
-		result := executeRowLineageOracleQuery(t, ctx, client, lineage)
-		contributors := lineageContributorRows(t, result)
+		result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, lineage)
+		contributors := recipetest.LineageContributorRows(t, result)
 		if result["found"] != true || len(contributors) == 0 {
 			t.Fatalf("forward Pivot row %s has no complete lineage: %#v", rowID, result)
 		}
@@ -92,9 +91,9 @@ func TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango(t *t
 		t.Fatalf("Pivot lineage partition covered %d of %d forward sources: %#v", len(seen), len(sourceByID), seen)
 	}
 
-	alphaTrace := compileAndFindCellTrace(t, ctx, client, pivotCompiled, "alpha", targetID)
+	alphaTrace := recipetest.CompileAndFindCellTrace(t, ctx, client, pivotCompiled, "alpha", targetID)
 	alphaSources := map[string]float64{}
-	for _, item := range traceContributions(t, alphaTrace, ir.PhysicalCellTraceContributionsField) {
+	for _, item := range recipetest.TraceContributions(t, alphaTrace, ir.PhysicalCellTraceContributionsField) {
 		id := item["resourceId"].(string)
 		alphaSources[id] = item["value"].(float64)
 	}
@@ -121,8 +120,8 @@ func TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango(t *t
 	if derivedRow["__loom_row_id"] != targetID {
 		t.Fatalf("Pivot/Derive identity = %#v, Pivot identity = %q", derivedRow["__loom_row_id"], targetID)
 	}
-	derivedTrace := compileAndFindCellTrace(t, ctx, client, derived, "alpha_plus_zero", targetID)
-	inputs := traceContributions(t, derivedTrace, ir.PhysicalCellTraceContributionsField)
+	derivedTrace := recipetest.CompileAndFindCellTrace(t, ctx, client, derived, "alpha_plus_zero", targetID)
+	inputs := recipetest.TraceContributions(t, derivedTrace, ir.PhysicalCellTraceContributionsField)
 	inputValues := make(map[string]float64, len(inputs))
 	for _, input := range inputs {
 		column, ok := input["inputColumn"].(string)
@@ -157,11 +156,11 @@ func TestPivotLineagePartitionsForwardRowsAndTraceReconstructsAgainstArango(t *t
 		t.Fatalf("forward UNPIVOT has no alpha-a decimal row: %#v", unpivotRows)
 	}
 	unpivotID := unpivotRow["__loom_row_id"].(string)
-	unpivotTrace := compileAndFindCellTrace(t, ctx, client, unpivoted, "amount", unpivotID)
+	unpivotTrace := recipetest.CompileAndFindCellTrace(t, ctx, client, unpivoted, "amount", unpivotID)
 	if unpivotTrace[ir.PhysicalCellTraceValueField] != unpivotRow["amount"] {
 		t.Fatalf("UNPIVOT trace value = %#v, forward value = %#v", unpivotTrace[ir.PhysicalCellTraceValueField], unpivotRow["amount"])
 	}
-	unpivotSources := traceContributions(t, unpivotTrace, ir.PhysicalCellTraceContributionsField)
+	unpivotSources := recipetest.TraceContributions(t, unpivotTrace, ir.PhysicalCellTraceContributionsField)
 	if len(unpivotSources) != 1 || unpivotSources[0]["resourceId"] != "alpha-a" || unpivotSources[0]["value"] != unpivotRow["amount"] {
 		t.Fatalf("UNPIVOT trace sources = %#v, want alpha-a's forward amount", unpivotSources)
 	}
@@ -176,60 +175,4 @@ func findAgreementRow(t *testing.T, rows []map[string]any, group string, number 
 	}
 	t.Fatalf("forward rows have no group (%s, %v): %#v", group, number, rows)
 	return nil
-}
-
-func compileAndFindCellTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column, rowID string) map[string]any {
-	t.Helper()
-	trace, err := celltrace.CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatalf("compile trace for %s: %v", column, err)
-	}
-	var match map[string]any
-	var returned []map[string]any
-	if err := client.QueryRows(ctx, trace.Query, 100, trace.BindVars, func(row map[string]any) error {
-		var identity any
-		returned = append(returned, row)
-		if trace.ExplicitIdentityColumn != "" {
-			identity = row[trace.ExplicitIdentityColumn]
-		} else if trace.IdentityPartsColumn != "" {
-			identity = row[trace.IdentityPartsColumn]
-		}
-		if trace.ExplicitIdentityColumn != "" {
-			if identity == rowID {
-				match = row
-			}
-			return nil
-		}
-		encoded, _ := json.Marshal(identity)
-		if string(encoded) == rowID {
-			match = row
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("execute %s trace query: %v\n%s", column, err, trace.Query)
-	}
-	if match == nil {
-		t.Fatalf("trace for %s did not return forward row identity %s, identity columns=(%q,%q), rows=%#v", column, rowID, trace.ExplicitIdentityColumn, trace.IdentityPartsColumn, returned)
-	}
-	if match[trace.OmissionColumn] != nil && match[trace.OmissionColumn] != "" {
-		t.Fatalf("trace for %s reports omission %v", column, match[trace.OmissionColumn])
-	}
-	return match
-}
-
-func traceContributions(t *testing.T, row map[string]any, column string) []map[string]any {
-	t.Helper()
-	raw, ok := row[column].([]any)
-	if !ok {
-		t.Fatalf("trace %s = %#v, want array", column, row[column])
-	}
-	items := make([]map[string]any, 0, len(raw))
-	for _, item := range raw {
-		value, ok := item.(map[string]any)
-		if !ok {
-			t.Fatalf("trace contributor = %#v, want object", item)
-		}
-		items = append(items, value)
-	}
-	return items
 }

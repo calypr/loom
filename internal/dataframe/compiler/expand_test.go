@@ -17,6 +17,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -121,7 +123,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 				if err != nil {
 					t.Fatalf("compile row lineage for %s: %v", parent, err)
 				}
-				result := executeRowLineageOracleQuery(t, ctx, client, compiled)
+				result := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compiled)
 				contributors := result["contributors"].([]any)
 				want := 2
 				if parent == "p2" || parent == "p3" {
@@ -150,7 +152,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		forgedResult := executeRowLineageOracleQuery(t, ctx, client, forged)
+		forgedResult := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, forged)
 		if forgedResult["found"] != false || len(forgedResult["contributors"].([]any)) != 0 {
 			t.Fatalf("forged related row identity disclosed contributors: %#v", forgedResult)
 		}
@@ -705,21 +707,6 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 		t.Fatalf("compile related-expansion query: %v", err)
 	}
 	return compiled.Outputs[0], query
-}
-
-func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query rowlineage.CompiledRowLineageQuery) map[string]any {
-	t.Helper()
-	rows := make([]map[string]any, 0, 1)
-	if err := client.QueryRows(ctx, query.Query, 32, query.BindVars, func(row map[string]any) error {
-		rows = append(rows, row)
-		return nil
-	}); err != nil {
-		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, query.Query)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("row lineage returned %d rows, want one result: %#v", len(rows), rows)
-	}
-	return rows[0]
 }
 
 func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgainstArango(t *testing.T) {

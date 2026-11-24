@@ -9,6 +9,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
+
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -81,7 +83,7 @@ func ReshapeOracleInteger(value int64) recipe.TableScalar {
 	return recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &value}
 }
 
-func ReshapeOracleOutput(name string, reshape *OracleReshape) recipe.Output {
+func ReshapeOracleOutput(name string, reshape *recipefixtures.OracleReshape) recipe.Output {
 	output := recipe.Output{
 		Name: name, RootResourceType: "Observation", RowGrain: "observation", RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields: []recipe.Field{
@@ -96,7 +98,7 @@ func ReshapeOracleOutput(name string, reshape *OracleReshape) recipe.Output {
 			{Name: "unrelated", Expr: recipe.Expression{Select: "root.issued"}},
 		},
 	}
-	return BindOracleCurrentConstruction(output, reshape)
+	return recipefixtures.BindOracleCurrentConstruction(output, reshape)
 }
 
 func (compile OutputCompiler) CompileReshapeOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, model.CompiledQuery, error) {

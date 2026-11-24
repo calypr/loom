@@ -16,6 +16,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -163,7 +165,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	}
 	assertLineage := func(query rowlineage.CompiledRowLineageQuery, wantFound bool, wantIDs, wantKeys []string) {
 		t.Helper()
-		got := executeRowLineageOracleQuery(t, ctx, client, query)
+		got := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, query)
 		if got["found"] != wantFound || got["hasMore"] != false {
 			t.Fatalf("lineage found/hasMore = %#v/%#v, want %t/false", got["found"], got["hasMore"], wantFound)
 		}

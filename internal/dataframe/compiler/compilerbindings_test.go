@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
 )
 
 var compileCurrentConstructionOracle = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).CompileCurrentConstructionOracle
@@ -46,13 +47,13 @@ var compileConstructionOutputQuery = compilerfixtures.OutputCompiler(CompileReci
 
 var compileReshapeOracle = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).CompileReshapeOracle
 
-type oraclePivot = compilerfixtures.OraclePivot
+type oraclePivot = recipefixtures.OraclePivot
 
-type oraclePivotCategory = compilerfixtures.OraclePivotCategory
+type oraclePivotCategory = recipefixtures.OraclePivotCategory
 
-type oracleReshape = compilerfixtures.OracleReshape
+type oracleReshape = recipefixtures.OracleReshape
 
-const oracleReshapePivot = compilerfixtures.OracleReshapePivot
+const oracleReshapePivot = recipefixtures.OracleReshapePivot
 
 var reshapeOracleOutput = compilerfixtures.ReshapeOracleOutput
 
@@ -60,13 +61,13 @@ var reshapeOracleString = compilerfixtures.ReshapeOracleString
 
 var reshapeOracleUnpivotOutput = compilerfixtures.ReshapeOracleUnpivotOutput
 
-var bindOracleCurrentConstruction = compilerfixtures.BindOracleCurrentConstruction
+var bindOracleCurrentConstruction = recipefixtures.BindOracleCurrentConstruction
 
-const oracleReshapeUnpivot = compilerfixtures.OracleReshapeUnpivot
+const oracleReshapeUnpivot = recipefixtures.OracleReshapeUnpivot
 
-type oracleUnpivot = compilerfixtures.OracleUnpivot
+type oracleUnpivot = recipefixtures.OracleUnpivot
 
-type oracleUnpivotInput = compilerfixtures.OracleUnpivotInput
+type oracleUnpivotInput = recipefixtures.OracleUnpivotInput
 
 var constructionNumericEqual = compilerfixtures.ConstructionNumericEqual
 
@@ -83,8 +84,6 @@ var executeConstructionOutputError = compilerfixtures.OutputCompiler(CompileReci
 var populationMappingTestBindings = compilerfixtures.PopulationMappingTestBindings
 
 var directRelatedExpandOutput = compilerfixtures.DirectRelatedExpandOutput
-
-var constructionCodedGroupTestOutput = compilerfixtures.ConstructionCodedGroupTestOutput
 
 var codedGroupComponent = compilerfixtures.CodedGroupComponent
 

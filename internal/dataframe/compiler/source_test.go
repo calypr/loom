@@ -17,6 +17,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/recipetest"
+
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -1064,7 +1066,7 @@ func assertExpandedCodingGroupLineage(
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage for %q: %v", row["coding"], err)
 	}
-	lineage := executeRowLineageOracleQuery(t, ctx, client, query)
+	lineage := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, query)
 	contributors, _ := lineage["contributors"].([]any)
 	wantCount := 0
 	for _, count := range wantOwners {
