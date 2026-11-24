@@ -678,7 +678,6 @@ func (s *Service) constructionGroupFieldChoices(
 func (s *Service) constructionGroupRowValueChoices(
 	ctx context.Context,
 	base Base,
-	outputID string,
 	stage receiptmodel.ReceiptConstructionStage,
 	groupStepID string,
 ) ([]ConstructionGroupFieldChoice, error) {
@@ -715,7 +714,6 @@ func (s *Service) constructionGroupRowValueChoices(
 func (s *Service) resolveConstructionGroupFieldSources(
 	ctx context.Context,
 	base Base,
-	outputID string,
 	candidate ws.Construction,
 ) (ws.Construction, error) {
 	priorByStep := make(map[string][]ws.ConstructionGroupKey)
@@ -807,7 +805,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			}
 		}
 		if groupStepHasRowValueFieldSource(*step) {
-			rowChoices, choiceErr := s.constructionGroupRowValueChoices(ctx, base, outputID, *stage, step.ID)
+			rowChoices, choiceErr := s.constructionGroupRowValueChoices(ctx, base, *stage, step.ID)
 			if choiceErr != nil {
 				return candidate, choiceErr
 			}

@@ -502,7 +502,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	builders := []func(context.Context) error{
 		func(ctx context.Context) error {
 			var err error
-			groupRowValueChoices, err = s.constructionGroupRowValueChoices(ctx, base, request.OutputID, *selected, request.GroupStepID)
+			groupRowValueChoices, err = s.constructionGroupRowValueChoices(ctx, base, *selected, request.GroupStepID)
 			if err != nil {
 				return fmt.Errorf("compile Group row-value choices: %w", err)
 			}
@@ -601,7 +601,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateConstruction, err = s.resolveConstructionGroupFieldSources(ctx, base, request.OutputID, candidateConstruction)
+	candidateConstruction, err = s.resolveConstructionGroupFieldSources(ctx, base, candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
@@ -859,7 +859,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 		liveBase.Document = candidateDocument
 		liveBase.Construction = *candidateDocument.Construction
 		liveBase.Stages = receipt.ConstructionStages[command.OutputID]
-		reauthorized, reauthErr := s.resolveConstructionGroupFieldSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction)
+		reauthorized, reauthErr := s.resolveConstructionGroupFieldSources(ctx, liveBase, *candidateDocument.Construction)
 		if reauthErr != nil || !reflect.DeepEqual(reauthorized, *candidateDocument.Construction) {
 			return nil, nil, nil, conflict("commands", "STALE_GROUP_FIELD_BINDING", "the Group field binding no longer matches the live compiler-resolved source stage", nil, reauthErr)
 		}
@@ -1037,7 +1037,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 	}
 
 	catalogSnapshot := s.config.Capability.Catalog(snapshot, request.ExplorerID)
-	prepared, err := s.prepareConstructionChoice(ctx, request.Project, request.ExplorerID, authorized.Clone(), identities, workspace, catalogSnapshot, commands)
+	prepared, err := s.PrepareConstructionChoice(ctx, request.ExplorerID, authorized.Clone(), identities, workspace, catalogSnapshot, commands)
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, err
 	}

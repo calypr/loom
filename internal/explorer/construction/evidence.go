@@ -190,12 +190,12 @@ func semanticHumanizeLabel(value string) string {
 }
 
 func semanticEntryMatchesFrame(entry semantic.Entry, frame ws.FrameDefinition) bool {
-	_, _, ok := semanticEntryForFrameFamily(entry, frame.Source)
+	_, ok := semanticEntryForFrameFamily(entry, frame.Source)
 	return ok
 }
 
 func semanticEntryMatchesFrameFamily(entry semantic.Entry, family capability.SemanticFrameFamily) bool {
-	_, _, ok := semanticEntryForFrameFamily(entry, family)
+	_, ok := semanticEntryForFrameFamily(entry, family)
 	return ok
 }
 
@@ -217,21 +217,21 @@ func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFr
 func semanticEntryForFrameFamily(
 	entry semantic.Entry,
 	family capability.SemanticFrameFamily,
-) (semantic.Entry, semanticauthoring.SemanticSelectionPlan, bool) {
+) (semantic.Entry, bool) {
 	observation := entry.Observation
 	if observation.RuleHint != semantic.RuleHintCodedValueV1 || !semanticEntrySourceMatchesFrameFamily(observation, family) || observation.Key.Version != "" {
-		return semantic.Entry{}, semanticauthoring.SemanticSelectionPlan{}, false
+		return semantic.Entry{}, false
 	}
 
 	currentRuleVersion := strconv.Itoa(semantic.SemanticObservationRuleVersion)
 	if observation.SchemaVersion != semantic.ObservationSchemaVersion || observation.RuleVersion != currentRuleVersion {
-		return semantic.Entry{}, semanticauthoring.SemanticSelectionPlan{}, false
+		return semantic.Entry{}, false
 	}
 	currentFamily := family.SchemaVersion == observation.SchemaVersion && family.RuleVersion == observation.RuleVersion && family.BindingID == entry.BindingID
 	priorFamily := isPriorPrimaryOnlySemanticFrameFamily(family) &&
 		family.BindingID == semantic.LegacySemanticBindingIDV1(observation)
 	if !currentFamily && !priorFamily {
-		return semantic.Entry{}, semanticauthoring.SemanticSelectionPlan{}, false
+		return semantic.Entry{}, false
 	}
 	if priorFamily {
 		observation.Value.FallbackSelectors = nil
@@ -242,15 +242,15 @@ func semanticEntryForFrameFamily(
 	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != ws.SourceCodedValue ||
 		plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
-		return semantic.Entry{}, semanticauthoring.SemanticSelectionPlan{}, false
+		return semantic.Entry{}, false
 	}
 	binding := plan.Source.Lookup.Binding
 	if binding.OwnerPath != family.OwningScope || binding.KeyPath != family.KeyPath || binding.ValuePath != family.ValuePath ||
 		!slices.Equal(binding.ValueFallback, family.ValueFallbacks) || binding.FallbackOnBlankString != family.FallbackOnBlankString ||
 		binding.LogicalType != family.LogicalType || !reflect.DeepEqual(binding.ChoiceArms, family.ChoiceArms) {
-		return semantic.Entry{}, semanticauthoring.SemanticSelectionPlan{}, false
+		return semantic.Entry{}, false
 	}
-	return entry, plan, true
+	return entry, true
 }
 
 func isPriorPrimaryOnlySemanticFrameFamily(family capability.SemanticFrameFamily) bool {

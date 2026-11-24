@@ -82,7 +82,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 			t.Fatalf("standalone Coding choice must not expose enclosing-owner records: %#v", choice.Options)
 		}
 	}
-	if _, _, ok := semanticEntryForFrameFamily(entry, capability.SemanticFrameFamily{}); ok {
+	if _, ok := semanticEntryForFrameFamily(entry, capability.SemanticFrameFamily{}); ok {
 		t.Fatal("standalone Coding was accepted as an owner-scoped paired code/value frame")
 	}
 

@@ -337,7 +337,7 @@ func validSHA256Digest(value string) bool {
 	return err == nil
 }
 
-func (s *Service) prepareConstructionChoice(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if len(commands) == 0 || len(commands) > 100 || len(commands) != len(identities) {
 		return nil, malformed("commands", "APPLY_CONSTRUCTION_CHOICE requires between 1 and 100 resolved choices", nil)
 	}
@@ -376,7 +376,7 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 			if !found {
 				return nil, invalidConstructionChoice("the semantic category is unavailable in its saved frame source")
 			}
-			projected, _, ok := semanticEntryForFrameFamily(entry, frame.Source)
+			projected, ok := semanticEntryForFrameFamily(entry, frame.Source)
 			if !ok {
 				return nil, invalidConstructionChoice("the semantic category no longer matches its saved frame source")
 			}

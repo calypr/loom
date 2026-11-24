@@ -132,7 +132,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 	} else if intents.constructionChoiceCommand {
 		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			return s.prepareConstructionChoice(ctx, project, explorerID, authorized, intents.constructionIdentities, workspace, catalog, commands)
+			return s.constructionService.PrepareConstructionChoice(ctx, explorerID, authorized, intents.constructionIdentities, workspace, catalog, commands)
 		}
 	} else if intents.populationRouteCommand {
 		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

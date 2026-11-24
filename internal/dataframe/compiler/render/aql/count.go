@@ -178,7 +178,7 @@ func terminalRelatedEligibilityCategoryScanOnly(plan ir.PhysicalPlan, sequence *
 		stage.Filter.Expression.Exists == nil || len(stage.DerivedLets) != 0 || stage.RowIdentityColumn != "_key" {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
-	if !hasStageIdentity(sequence.SourceColumns, "_key") || !hasStageIdentity(stage.InputColumns, "_key") || !hasStageIdentity(stage.OutputColumns, "_key") {
+	if !hasStageIdentity(sequence.SourceColumns) || !hasStageIdentity(stage.InputColumns) || !hasStageIdentity(stage.OutputColumns) {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
 	selectedColumn, selectedColumnOK := publicScalarCategoryStageColumn(sequence.FinalColumns, options.terminalProjectionColumn)
@@ -444,7 +444,7 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 		sequence.SourceRowIdentity != "_key" {
 		return false
 	}
-	if !hasStageIdentity(sequence.SourceColumns, "_key") || !hasStageIdentity(eligibility.InputColumns, "_key") || !hasStageIdentity(eligibility.OutputColumns, "_key") {
+	if !hasStageIdentity(sequence.SourceColumns) || !hasStageIdentity(eligibility.InputColumns) || !hasStageIdentity(eligibility.OutputColumns) {
 		return false
 	}
 	scopeAllowed, scopeAllowedOK := plan.BindVars["scope_allowed"].(bool)
@@ -464,7 +464,7 @@ func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.
 	return true
 }
 
-func hasStageIdentity(columns []ir.PhysicalStageColumn, name string) bool {
+func hasStageIdentity(columns []ir.PhysicalStageColumn) bool {
 	for _, column := range columns {
 		if column.Name == "_key" {
 			return column.Internal && column.Identity && column.Kind == "string" && column.Cardinality == "required_one"

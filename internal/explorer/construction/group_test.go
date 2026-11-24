@@ -115,7 +115,7 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 		},
 	}}}
 	service := &Service{}
-	_, err = service.resolveConstructionGroupFieldSources(context.Background(), base, "observations", candidate)
+	_, err = service.resolveConstructionGroupFieldSources(context.Background(), base, candidate)
 	if got := lifecycleErrorCode(err); got != "STALE_GROUP_FIELD_CHOICE" {
 		t.Fatalf("choice from old source shape error = %v (code %q), want stale-choice rejection", err, got)
 	}
@@ -347,7 +347,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			{ID: "row-count", Name: "row_count", Type: "integer"},
 		},
 	}}}
-	resolved, err := service.resolveConstructionGroupFieldSources(context.Background(), base, "patients", proposal)
+	resolved, err := service.resolveConstructionGroupFieldSources(context.Background(), base, proposal)
 	if err != nil {
 		t.Fatalf("resolve Patient.id and related Coding choices: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestConstructionGroupRowValueChoicesSkipCodingRowChoiceDiscovery(t *testing
 		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{}},
 	}}}}
 
-	choices, err := service.constructionGroupRowValueChoices(context.Background(), base, "observations", stage, "group")
+	choices, err := service.constructionGroupRowValueChoices(context.Background(), base, stage, "group")
 	if err != nil {
 		t.Fatalf("row-value choices: %v", err)
 	}
