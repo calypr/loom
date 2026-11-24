@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/calypr/loom/internal/explorer/authoringcore"
 
@@ -139,7 +138,7 @@ func (s constructionBaseLoader) validateConstructionBase(ctx context.Context, pr
 		APIVersion: ws.APIVersion, Kind: ws.StateKind,
 		Workspace: &workspace, Catalog: catalogSnapshot,
 	}).Validate(); err != nil {
-		return constructionBaseValidation{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
+		return constructionBaseValidation{}, unprocessable("intent", support.WorkspaceValidationCode(err), err.Error(), err)
 	}
 	return constructionBaseValidation{
 		project: project, explorerID: explorerID, snapshotToken: snapshotToken, outputID: outputID,
@@ -189,7 +188,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 			if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
 				return constructionBaseCompilation{}, err
 			}
-			if err := validateReceiptOutputContract(receipt, outputID); err != nil {
+			if err := support.ValidateReceiptOutputContract(receipt, outputID); err != nil {
 				return constructionBaseCompilation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 			}
 			return constructionBaseCompilation{receipt: receipt, stages: stages}, nil
@@ -213,7 +212,7 @@ func (s constructionBaseLoader) compileConstructionBase(ctx context.Context, val
 	if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
 		return constructionBaseCompilation{}, err
 	}
-	if err := validateReceiptOutputContract(receipt, outputID); err != nil {
+	if err := support.ValidateReceiptOutputContract(receipt, outputID); err != nil {
 		return constructionBaseCompilation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 	}
 	if len(receipt.ConstructionStages[outputID]) == 0 {
@@ -248,37 +247,6 @@ func (v constructionBaseValidation) base(receipt *receiptmodel.CompilationReceip
 type constructionBaseCompilation struct {
 	receipt *receiptmodel.CompilationReceipt
 	stages  []receiptmodel.ReceiptConstructionStage
-}
-
-func validateReceiptOutputContract(receipt *receiptmodel.CompilationReceipt, outputID string) error {
-	return support.ValidateReceiptOutputContract(receipt, outputID)
-}
-
-func receiptHasOutput(bundle recipe.Bundle, id string) bool {
-	return support.ReceiptHasOutput(bundle, id)
-}
-
-func workspaceValidationCode(err error) string {
-	message := err.Error()
-	for _, code := range []string{"DUPLICATE_OUTPUT_ID", "DUPLICATE_TAB_ID", "INVALID_TAB_OUTPUT_MAPPING", "INVALID_TAB_ORDER", "ROW_ROOT_NOT_ELIGIBLE", "UNSUPPORTED_FILTER", "UNSUPPORTED_CHART", "NO_VISIBLE_COLUMNS", "UNACKNOWLEDGED_RELATED_FIRST"} {
-		if strings.Contains(message, code) {
-			return code
-		}
-	}
-	switch {
-	case strings.Contains(message, "rootNodeId"):
-		return "INVALID_ROOT_NODE"
-	case strings.Contains(message, "route") || strings.Contains(message, "edge"):
-		return "INVALID_ROUTE"
-	case strings.Contains(message, "occurrence"):
-		return "INVALID_OCCURRENCE"
-	case strings.Contains(message, "projection mode"):
-		return "INVALID_PROJECTION_MODE"
-	case strings.Contains(message, "duplicate selection"):
-		return "DUPLICATE_SELECTION"
-	default:
-		return "INVALID_AUTHORING_INTENT"
-	}
 }
 
 func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (Base, error) {

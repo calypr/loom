@@ -57,7 +57,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 			return PublishResult{}, support.Conflict("publish", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains invalid authoring intent", nil, decodeErr)
 		}
 		if err := workspace.ValidateForPublication(); err != nil {
-			code := authoringcore.WorkspaceValidationCode(err)
+			code := support.WorkspaceValidationCode(err)
 			message := "select at least one visible output column for every visible table before publishing"
 			if code == "UNACKNOWLEDGED_RELATED_FIRST" {
 				message = "acknowledge the related-resource FIRST selection before publishing"

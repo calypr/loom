@@ -48,7 +48,7 @@ func (s *Core) CompileAuthorized(ctx context.Context, request CompileRequest, au
 	snapshot := authorized.Snapshot
 	workspace := request.Workspace.NormalizePresentationOrders()
 	if err := (ws.BuilderState{APIVersion: ws.APIVersion, Kind: ws.StateKind, Workspace: &workspace, Catalog: s.Catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
-		return nil, support.Unprocessable("intent", WorkspaceValidationCode(err), err.Error(), err)
+		return nil, support.Unprocessable("intent", support.WorkspaceValidationCode(err), err.Error(), err)
 	}
 	if authorized.Scope.Mode != "" {
 		if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {

@@ -433,7 +433,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 		}
 	}
 	if err := (ws.BuilderState{APIVersion: ws.APIVersion, Kind: ws.StateKind, Workspace: &workspace, Catalog: s.core.Catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
-		return ReconcileResult{}, support.Unprocessable("reconcile", authoringcore.WorkspaceValidationCode(err), err.Error(), err)
+		return ReconcileResult{}, support.Unprocessable("reconcile", support.WorkspaceValidationCode(err), err.Error(), err)
 	}
 	scoped, err := workspaceOutputClosure(workspace, request.OutputID)
 	if err != nil {
