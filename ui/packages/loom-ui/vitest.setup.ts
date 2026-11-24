@@ -1,4 +1,5 @@
 import { expect } from 'vitest';
+import { installUiTrace } from './testSupport/uiTrace';
 
 if (typeof window !== 'undefined' && !window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
@@ -96,3 +97,5 @@ expect.extend({
     };
   },
 });
+
+installUiTrace();
