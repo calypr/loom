@@ -107,14 +107,10 @@ func newColumnPopulationCache(ttl time.Duration, maxEntries int, now func() time
 }
 
 func (s *Service) GetConstructionColumnPopulation(ctx context.Context, request ConstructionColumnPopulationRequest) (ConstructionColumnPopulationResponse, error) {
-	return s.constructionScans().getConstructionColumnPopulation(ctx, request)
-}
-
-func (s constructionScanFlow) getConstructionColumnPopulation(ctx context.Context, request ConstructionColumnPopulationRequest) (ConstructionColumnPopulationResponse, error) {
 	if err := request.Validate(); err != nil {
 		return ConstructionColumnPopulationResponse{}, malformed("construction-column-population", err.Error(), err)
 	}
-	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return ConstructionColumnPopulationResponse{}, err
 	}
@@ -149,7 +145,7 @@ func (s constructionScanFlow) getConstructionColumnPopulation(ctx context.Contex
 			ReceiptID: base.Receipt.ID, OutputID: request.OutputID, StageID: request.StageID,
 			ColumnID: id, Scope: base.Snapshot.Identity.AuthorizationScopeDigest,
 		}
-		if status, ok := s.populationCache.Get(keys[index]); ok {
+		if status, ok := s.columnPopulationCache.Get(keys[index]); ok {
 			response.Columns[index] = ConstructionColumnPopulationSummary{ColumnID: id, Status: status}
 			continue
 		}
@@ -159,16 +155,16 @@ func (s constructionScanFlow) getConstructionColumnPopulation(ctx context.Contex
 	if len(misses) == 0 {
 		return response, nil
 	}
-	if s.scanPopulation == nil {
+	if s.config.ScanColumnPopulation == nil {
 		return ConstructionColumnPopulationResponse{}, unavailable("construction-column-population", "COLUMN_POPULATION_UNAVAILABLE", "compiler-owned column population scanning is not configured", nil)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(base.Catalog.Project), SelectionProject: base.Catalog.Project,
-		DatasetGeneration: base.Snapshot.Identity.Generation, SelectionMembersCollection: s.selectionMembersCollection,
+		DatasetGeneration: base.Snapshot.Identity.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		OutputNames: []string{request.OutputID},
 	}
 	applyAuthorizedScope(&bindings, base.Authorized, false)
-	result, err := s.scanPopulation(ctx, base.Receipt, bindings, dataframeexecution.ColumnPopulationRequest{
+	result, err := s.config.ScanColumnPopulation(ctx, base.Receipt, bindings, dataframeexecution.ColumnPopulationRequest{
 		Output: request.OutputID, StageID: request.StageID, ColumnIDs: misses,
 	})
 	if err != nil {
@@ -202,7 +198,7 @@ func (s constructionScanFlow) getConstructionColumnPopulation(ctx context.Contex
 	}
 	if ctx.Err() == nil {
 		for columnID, status := range cacheStatuses {
-			s.populationCache.Put(keys[missIndices[columnID]], status)
+			s.columnPopulationCache.Put(keys[missIndices[columnID]], status)
 		}
 	}
 	return response, nil

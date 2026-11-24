@@ -524,7 +524,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		},
 		func(ctx context.Context) error {
 			var err error
-			filterSourceInput, err = s.constructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
+			filterSourceInput, err = s.config.SourceLanes.ConstructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
 			if err != nil {
 				return fmt.Errorf("compile filter source choices: %w", err)
 			}
@@ -532,7 +532,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		},
 		func(ctx context.Context) error {
 			var err error
-			deriveSourceInput, err = s.constructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
+			deriveSourceInput, err = s.config.SourceLanes.ConstructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
 			if err != nil {
 				return fmt.Errorf("compile derive source choices: %w", err)
 			}
@@ -540,7 +540,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		},
 		func(ctx context.Context) error {
 			var err error
-			unpivotSourceInput, err = s.constructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+			unpivotSourceInput, err = s.config.SourceLanes.ConstructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
 			if err != nil {
 				return fmt.Errorf("compile unpivot source choices: %w", err)
 			}
@@ -548,7 +548,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		},
 		func(ctx context.Context) error {
 			var err error
-			expandSourceInput, err = s.constructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
+			expandSourceInput, err = s.config.SourceLanes.ConstructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
 			if err != nil {
 				return fmt.Errorf("compile expand source choices: %w", err)
 			}
@@ -612,19 +612,19 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateConstruction, err = s.constructionCandidateWithFilterSources(ctx, base, request, candidateConstruction)
+	candidateConstruction, err = s.config.SourceLanes.ConstructionCandidateWithFilterSources(ctx, base, request.RowSourceRequest(), candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateConstruction, err = s.constructionCandidateWithDeriveSources(ctx, base, request, candidateConstruction)
+	candidateConstruction, err = s.config.SourceLanes.ConstructionCandidateWithDeriveSources(ctx, base, request.RowSourceRequest(), candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateConstruction, err = s.constructionCandidateWithUnpivotSources(ctx, base, request, candidateConstruction)
+	candidateConstruction, err = s.config.SourceLanes.ConstructionCandidateWithUnpivotSources(ctx, base, request.RowSourceRequest(), candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateConstruction, err = s.constructionCandidateWithExpandSources(ctx, base, request, candidateConstruction)
+	candidateConstruction, err = s.config.SourceLanes.ConstructionCandidateWithExpandSources(ctx, base, request.RowSourceRequest(), candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
@@ -778,14 +778,14 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		BaseDocumentDigest: base.BaseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken, PreviewLimit: request.Limit,
 	}
-	candidateReceipt, err := s.compile(ctx, authoringcore.CompileRequest{
+	candidateReceipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-proposal-candidate", ConstructionProposal: binding,
 	})
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "construction-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, base.Snapshot, &candidateWorkspace); err != nil {
+	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "construction-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, base.Snapshot, &candidateWorkspace); err != nil {
 		return ConstructionProposalResponse{}, err
 	}
 	if len(candidateReceipt.ConstructionStages[request.OutputID]) == 0 {
@@ -800,12 +800,12 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	return baseResponse, nil
 }
 
-func (s *Service) prepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, *AcceptedConstruction, error) {
+func (s *Service) PrepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, *AcceptedConstruction, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		return nil, nil, nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
-	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID())
+	receipt, err := s.config.Core.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -836,7 +836,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	if baseDocumentDigest != binding.BaseDocumentDigest {
 		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the target table changed after the proposal was compiled", nil, nil)
 	}
-	candidate, err := s.verifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, nil)
+	candidate, err := s.config.Core.VerifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -867,7 +867,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 			Document: candidateDocument, Construction: *candidateDocument.Construction,
 			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
-		if reauthErr := s.reauthorizeConstructionFilterSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+		if reauthErr := s.config.SourceLanes.ReauthorizeConstructionFilterSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_FILTER_SOURCE_BINDING", "the filter source binding no longer matches the live authorized root scalar field", nil, reauthErr)
 		}
 	}
@@ -876,7 +876,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 			Document: candidateDocument, Construction: *candidateDocument.Construction,
 			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
-		if reauthErr := s.reauthorizeConstructionDeriveSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+		if reauthErr := s.config.SourceLanes.ReauthorizeConstructionDeriveSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_DERIVE_SOURCE_BINDING", "the derive source binding no longer matches the live authorized root scalar field", nil, reauthErr)
 		}
 	}
@@ -885,7 +885,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 			Document: candidateDocument, Construction: *candidateDocument.Construction,
 			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
-		if reauthErr := s.reauthorizeConstructionUnpivotSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+		if reauthErr := s.config.SourceLanes.ReauthorizeConstructionUnpivotSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_UNPIVOT_SOURCE_BINDING", "the unpivot source binding no longer matches the live authorized root scalar field", nil, reauthErr)
 		}
 	}
@@ -894,7 +894,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 			Document: candidateDocument, Construction: *candidateDocument.Construction,
 			Snapshot: snapshot.Clone(), Stages: receipt.ConstructionStages[command.OutputID],
 		}
-		if reauthErr := s.reauthorizeConstructionExpandSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+		if reauthErr := s.config.SourceLanes.ReauthorizeConstructionExpandSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
 			return nil, nil, nil, conflict("commands", "STALE_EXPAND_SOURCE_BINDING", "the expand source binding no longer matches the live authorized root array field", nil, reauthErr)
 		}
 	}
@@ -916,14 +916,14 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	if err != nil || expectedDigest != binding.CandidateWorkspaceDigest || expectedDigest != receipt.IntentDigest {
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate workspace digest does not match the exact proposal", nil, err)
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
+	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
 		return nil, nil, nil, err
 	}
 	if err := command.ResolveConstructionProposal(&candidateDocument); err != nil {
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction is invalid", nil, err)
 	}
 	captureAvailable := sinkFactory != nil
-	preview, err := s.Preview(ctx, authoringcore.PreviewRequest{
+	preview, err := s.config.Core.Preview(ctx, authoringcore.PreviewRequest{
 		Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID,
 		Limit: binding.PreviewLimit,
 		SinkFactory: func(previewReceipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
@@ -1012,7 +1012,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 		return ConstructionChoiceProposalResponse{}, malformed("construction-choice-proposal", err.Error(), err)
 	}
 
-	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.config.Core.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, err
 	}
@@ -1057,7 +1057,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, fmt.Errorf("digest construction choice candidate workspace: %w", err)
 	}
-	candidateReceipt, err := s.compile(ctx, authoringcore.CompileRequest{
+	candidateReceipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-choice-proposal-candidate",
 	})

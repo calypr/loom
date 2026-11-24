@@ -21,7 +21,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -106,18 +105,7 @@ const (
 	constructionCategoryDiscoveryNoValues           = "NO_VALUES"
 )
 
-type constructionScanFlow struct {
-	loadBase                   func(context.Context, string, string, string, int64, string, string) (Base, error)
-	compile                    func(context.Context, authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error)
-	verifyProposalReceipt      func(context.Context, string, *receiptmodel.CompilationReceipt, string, string, string, capability.Snapshot, *ws.Workspace) (ws.Workspace, error)
-	withPivotSources           func(context.Context, Base, ConstructionProposalRequest, ws.Construction) (ws.Construction, map[string]bool, error)
-	scanCategories             CategoryScanner
-	scanPopulation             ColumnPopulationScanner
-	selectionMembersCollection string
-	populationCache            *columnPopulationCache
-}
-
-func (s constructionScanFlow) compileConstructionCategoryCandidate(
+func (s *Service) compileConstructionCategoryCandidate(
 	ctx context.Context,
 	base Base,
 	request ConstructionCategoryDiscoveryRequest,
@@ -180,7 +168,7 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		ChangedStepID: request.PivotStepID, CandidateConstruction: candidate,
 		PivotSources: append([]ConstructionPivotSourceSelection(nil), request.PivotSources...),
 	}
-	candidate, _, err = s.withPivotSources(ctx, base, proposalRequest, candidate)
+	candidate, _, err = s.constructionSources().constructionCandidateWithPivotSources(ctx, base, proposalRequest, candidate)
 	if err != nil {
 		return Base{}, "", err
 	}
@@ -260,14 +248,14 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 		return Base{}, "", failureDetails(ports.ClassUnprocessable, "INVALID_CONSTRUCTION_CANDIDATE",
 			"the temporary category input construction is invalid", nil, err)
 	}
-	receipt, err := s.compile(ctx, authoringcore.CompileRequest{
+	receipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "construction-category-discovery-candidate",
 	})
 	if err != nil {
 		return Base{}, "", err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "construction-category-discovery", receipt, request.Project, request.ExplorerID, request.SnapshotToken, base.Snapshot, &workspace); err != nil {
+	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "construction-category-discovery", receipt, request.Project, request.ExplorerID, request.SnapshotToken, base.Snapshot, &workspace); err != nil {
 		return Base{}, "", err
 	}
 	stages := receipt.ConstructionStages[request.OutputID]
@@ -278,18 +266,18 @@ func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	return base, inputStageID, nil
 }
 
-func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
+func (s *Service) DiscoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
 	if err := request.Validate(); err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, malformed("construction-category-discovery", err.Error(), err)
 	}
-	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, err
 	}
 	if base.Receipt == nil {
 		return ConstructionCategoryDiscoveryResponse{}, conflict("construction-category-discovery", "STAGE_SCAN_UNAVAILABLE", "the exact compiled output is not available for category discovery", nil, nil)
 	}
-	if s.scanCategories == nil {
+	if s.config.ScanCategories == nil {
 		return ConstructionCategoryDiscoveryResponse{}, unavailable("construction-category-discovery", "CATEGORY_SCAN_UNAVAILABLE", "compiler-owned category discovery is not configured", nil)
 	}
 	responseStageID := request.StageID
@@ -337,11 +325,11 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(base.Catalog.Project), SelectionProject: base.Catalog.Project,
-		DatasetGeneration: base.Snapshot.Identity.Generation, SelectionMembersCollection: s.selectionMembersCollection,
+		DatasetGeneration: base.Snapshot.Identity.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		OutputNames: []string{request.OutputID},
 	}
 	applyAuthorizedScope(&bindings, base.Authorized, false)
-	scan, err := s.scanCategories(ctx, base.Receipt, bindings, dataframeexecution.CategoryScanRequest{
+	scan, err := s.config.ScanCategories(ctx, base.Receipt, bindings, dataframeexecution.CategoryScanRequest{
 		Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, MaxValues: facade.MaxCategoryScanValues, RequireValue: true,
 	})
@@ -803,17 +791,4 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 		}
 	}
 	return diagnostics, nil
-}
-
-func (s *Service) constructionScans() constructionScanFlow {
-	return constructionScanFlow{
-		loadBase: s.loadConstructionBase, compile: s.compile, verifyProposalReceipt: s.verifyProposalReceipt,
-		withPivotSources: s.constructionSources().constructionCandidateWithPivotSources, scanCategories: s.config.ScanCategories,
-		scanPopulation: s.config.ScanColumnPopulation, selectionMembersCollection: s.config.SelectionMembersCollection,
-		populationCache: s.columnPopulationCache,
-	}
-}
-
-func (s *Service) DiscoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
-	return s.constructionScans().discoverConstructionCategories(ctx, request)
 }

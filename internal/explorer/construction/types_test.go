@@ -51,7 +51,7 @@ func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 		t.Fatalf("pivot preparation failed to repair the partial pivot-two omission carried by the client: %#v", afterPivot.SourceProjections)
 	}
 
-	afterFilter, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, afterPivot)
+	afterFilter, err := service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), afterPivot)
 	if err != nil {
 		t.Fatalf("filter preparation for the sequence run: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestPivotSourceClearSurvivesFilterPreparation(t *testing.T) {
 	if len(cleared.SourceProjections) != 0 {
 		t.Fatalf("pivot preparation did not clear the edited Pivot-owned projections: %#v", cleared.SourceProjections)
 	}
-	afterFilter, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, cleared)
+	afterFilter, err := service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), cleared)
 	if err != nil {
 		t.Fatalf("filter preparation after the pivot clear: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestPivotSourceReplaceSurvivesFilterPreparation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pivot preparation for the replacement: %v", err)
 	}
-	afterFilter, err := service.constructionCandidateWithFilterSources(context.Background(), base, request, prepared)
+	afterFilter, err := service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), prepared)
 	if err != nil {
 		t.Fatalf("filter preparation after the replacement: %v", err)
 	}
@@ -395,7 +395,7 @@ func rs05RunBothPreparations(t *testing.T, service *Service, base constructionBa
 	if err != nil {
 		t.Fatalf("pivot preparation: %v", err)
 	}
-	prepared, err = service.constructionCandidateWithFilterSources(context.Background(), base, request, prepared)
+	prepared, err = service.config.SourceLanes.ConstructionCandidateWithFilterSources(context.Background(), base, request.RowSourceRequest(), prepared)
 	if err != nil {
 		t.Fatalf("filter preparation: %v", err)
 	}

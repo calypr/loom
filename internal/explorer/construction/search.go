@@ -40,19 +40,19 @@ func constructionSearchSourceKey(source ConstructionChoiceSearchSource) (string,
 	}
 }
 
-func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
+func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
 	result := ConstructionChoiceSearchResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []capability.ConstructionChoice{}}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || len(request.Cursor) > 4096 {
 		return result, malformed("construction-choices", "project, explorerId, snapshotToken, and outputId are required", nil)
 	}
-	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
 		return result, unavailable("construction-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
 	identityKey, err := constructionSearchSourceKey(request.Source)
 	if err != nil {
 		return result, err
 	}
-	authorized, err := s.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return result, conflict("construction-choices", "STALE_CATALOG_SNAPSHOT", "reload the catalog before searching routes", nil, err)
 	}
@@ -63,7 +63,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return result, conflict("construction-choices", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	workspace, err := s.currentWorkspace(ctx, request.Project, request.ExplorerID)
+	workspace, err := s.config.Core.CurrentWorkspace(ctx, "construction-choices", request.Project, request.ExplorerID)
 	if err != nil {
 		return result, err
 	}
@@ -175,12 +175,12 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 	return result, nil
 }
 
-func (s constructionRouteFlow) resolveConstructionSearchSemanticEntry(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semantic.Entry, string, error) {
-	if s.resolveInventory == nil {
+func (s *Service) resolveConstructionSearchSemanticEntry(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semantic.Entry, string, error) {
+	if s.config.ResolveSemanticInventorySelections == nil {
 		return semantic.Entry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	resolved, err := s.resolveInventory(ctx, semantic.ResolveOptions{
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
 		References: []semantic.Reference{{ConceptID: request.Source.ConceptID, BindingID: request.Source.BindingID}},
@@ -205,7 +205,7 @@ func (s constructionRouteFlow) resolveConstructionSearchSemanticEntry(ctx contex
 	return match, expectedBuild, nil
 }
 
-func (s constructionRouteFlow) resolveConstructionSearchSemanticFamily(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semantic.Family, string, error) {
+func (s *Service) resolveConstructionSearchSemanticFamily(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semantic.Family, string, error) {
 	var zero semantic.Family
 	identity, err := capability.DecodeConstructionChoiceID(request.Source.ChoiceID)
 	if err != nil || identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemantic ||
@@ -218,7 +218,7 @@ func (s constructionRouteFlow) resolveConstructionSearchSemanticFamily(ctx conte
 		(source.SourceKind != semantic.SourceFile && source.SourceKind != semantic.SourceRetained) {
 		return zero, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the signed source is not a supported coded category family", nil)
 	}
-	if s.resolveInventory == nil {
+	if s.config.ResolveSemanticInventorySelections == nil {
 		return zero, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
@@ -226,7 +226,7 @@ func (s constructionRouteFlow) resolveConstructionSearchSemanticFamily(ctx conte
 		FamilyID: source.ConceptID, BindingID: source.BindingID, SourceKind: source.SourceKind,
 		ResourceType: source.ResourceType, SourcePath: source.SourcePath, System: source.System, Version: source.Version,
 	}
-	resolved, err := s.resolveInventory(ctx, semantic.ResolveOptions{
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
 		FamilyReferences: []semantic.FamilyReference{reference},

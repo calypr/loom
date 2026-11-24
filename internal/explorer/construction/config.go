@@ -106,23 +106,3 @@ func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.Ca
 	}
 	return s.config.Capability.Catalog(snapshot, explorerID)
 }
-
-func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*explorer.Explorer, error) {
-	return s.config.Core.GetOwner(ctx, project, explorerID)
-}
-
-func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-	return s.config.Core.LookupReceipt(ctx, project, explorerID, receiptID)
-}
-
-func (s *Service) verifyProposalReceipt(ctx context.Context, stage string, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {
-	return s.config.Core.VerifyProposalReceipt(ctx, stage, receipt, project, explorerID, snapshotToken, snapshot, expected)
-}
-
-func (s *Service) compile(ctx context.Context, request authoringcore.CompileRequest) (*receiptmodel.CompilationReceipt, error) {
-	return s.config.Core.Compile(ctx, request)
-}
-
-func (s *Service) Preview(ctx context.Context, request authoringcore.PreviewRequest) (authoringcore.PreviewResult, error) {
-	return s.config.Core.Preview(ctx, request)
-}
