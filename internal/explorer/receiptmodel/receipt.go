@@ -973,18 +973,6 @@ func validateReceiptRawJSON(raw []byte) error {
 	return err
 }
 
-func ValidateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage, bundle recipe.Bundle) error {
-	return validateReceiptConstructionStages(stagesByOutput, bundle)
-}
-
-func ValidateReceiptCompiledOutputSchemas(schemas map[string][]ReceiptCompiledOutputColumn, bundle recipe.Bundle) error {
-	return validateReceiptCompiledOutputSchemas(schemas, bundle)
-}
-
-func ValidateReceiptRawJSON(raw []byte) error {
-	return validateReceiptRawJSON(raw)
-}
-
 func (receipt CompilationReceipt) CurrentWorkspace() (ws.Workspace, error) {
 	workspace, err := ws.DecodeCurrentWorkspace(receipt.NormalizedBundle)
 	if err != nil {

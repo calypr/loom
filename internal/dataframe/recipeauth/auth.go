@@ -40,27 +40,6 @@ func (a Authorization) AuthorizeRead(ctx context.Context, bindings recipe.Runtim
 	return bindings, nil
 }
 
-func (a Authorization) AuthorizeWrite(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
-	}
-	bindings.Project = strings.TrimSpace(bindings.Project)
-	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	bindings.SelectionMembersCollection = arangostore.SelectionMembersCollection
-	if a.resolver == nil {
-		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
-		return bindings, nil
-	}
-	principal, _ := authscope.PrincipalFromContext(ctx)
-	scope, err := a.resolver.ResolveWriteScopeForGeneration(ctx, principal, bindings.Project, bindings.DatasetGeneration, bindings.AuthResourcePaths)
-	if err != nil {
-		return recipe.RuntimeBindings{}, AuthorizationError(err)
-	}
-	bindings.AuthResourcePaths = append([]string(nil), scope.AuthResourcePaths...)
-	bindings.AuthScopeMode = scope.Mode
-	return bindings, nil
-}
-
 func AuthorizationError(err error) error {
 	classified := authpolicy.Classify(err, authpolicy.OperationRecipeAuthorization)
 	if _, ok := dataframeerrors.AsUserError(classified); ok {

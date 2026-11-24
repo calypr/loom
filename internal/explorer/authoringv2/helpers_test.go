@@ -109,7 +109,7 @@ func TestPopulatePivotRowsCarriesValuesThroughFollowingFilter(t *testing.T) {
 		t.Fatal("ONE policy was not saved")
 	}
 	for _, step := range document.Construction.Steps {
-		if _, exists := findStageColumnByID(step.Outputs, rowValue.OutputColumnID); !exists {
+		if _, exists := stageColumnByID(step.Outputs, rowValue.OutputColumnID); !exists {
 			t.Fatalf("step %s dropped the new column", step.ID)
 		}
 	}
@@ -177,7 +177,8 @@ func TestExplicitGroupsCreateAnchoredEffectiveConstructionStage(t *testing.T) {
 }
 
 func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
-	document := rowValueGroupedDocument()
+	document := workspaceDocument("patients")
+	document.Columns = []ws.Column{constructionSourceColumn("status", "status", "Status", "string")}
 	document.Columns[0].Source = ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}
 	document.Rows = ws.RowDefinition{Kind: ws.RowDefinitionGroups, Groups: &ws.GroupedRows{
 		Source: ws.GroupSource{Kind: ws.GroupSourceExplicit, Explicit: &ws.ExplicitGroupSource{
@@ -186,27 +187,33 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 		AfterStepID: "filter_status",
 		RowValues:   []ws.ExplicitGroupRowValue{{ColumnID: "status", Policy: ws.ConstructionRowValueAll}},
 	}}
-	document.Construction.Steps = []ws.ConstructionStep{
-		{
-			ID: "filter_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
-			Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
-		},
-		{
-			ID: "filter_cohorts", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
-			Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_label", Operator: ws.ConstructionFilterExists}},
-
-			Outputs: []ws.StageColumn{
-				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
-				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
-				{ID: "members", Name: "members", Label: "Members", Type: "array"},
-				{ID: "status", Name: "status", Label: "Status", Type: "array"},
-			},
+	filterSource := ws.ConstructionStep{
+		ID: "filter_status", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "status", Operator: ws.ConstructionFilterExists}},
+		Outputs:   []ws.StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
+	}
+	document.Construction = &ws.Construction{Version: ws.ConstructionVersion}
+	document.Construction.Steps = []ws.ConstructionStep{filterSource}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("valid source-stage group row setup: %v", err)
+	}
+	filterCohorts := ws.ConstructionStep{
+		ID: "filter_cohorts", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "group_rows"}},
+		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{ColumnID: "group_label", Operator: ws.ConstructionFilterExists}},
+		Outputs: []ws.StageColumn{
+			{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
+			{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
+			{ID: "members", Name: "members", Label: "Members", Type: "array"},
+			{ID: "status", Name: "status", Label: "Status", Type: "array"},
 		},
 	}
-
-	normalizeConstructionOutputOrder(&document)
-	outputs := document.Construction.Steps[1].Outputs
+	candidate := *document.Construction
+	candidate.Steps = append(append([]ws.ConstructionStep(nil), candidate.Steps...), filterCohorts)
+	normalized, _, err := document.AnalyzeConstructionCandidate(candidate, "filter_cohorts", nil)
+	if err != nil {
+		t.Fatalf("rebuild cohort filter through construction candidate API: %v", err)
+	}
+	outputs := normalized.Construction.Steps[1].Outputs
 	want := []string{"group_id", "group_label", "group_ordinal", "members", "status"}
 	if len(outputs) != len(want) {
 		t.Fatalf("normalized cohort filter outputs = %#v, want five virtual-stage columns", outputs)
@@ -216,7 +223,7 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 			t.Fatalf("normalized cohort filter output %d = %#v, want column %q", index, outputs[index], id)
 		}
 	}
-	if err := document.Validate(); err != nil {
+	if err := normalized.Validate(); err != nil {
 		t.Fatalf("anchored virtual cohort schema should remain valid after normalization: %v", err)
 	}
 }
@@ -303,38 +310,33 @@ const (
 	aggregateTemporalPolicySemanticsVersion = 9
 )
 
-func frameIdentityID(source capability.SemanticFrameFamily, route []capability.ConstructionRouteStep) string {
-	return workspace.FrameIdentityID(source, route)
+func stageColumnByID(columns []ws.StageColumn, id string) (ws.StageColumn, bool) {
+	for _, column := range columns {
+		if column.ID == id {
+			return column, true
+		}
+	}
+	return ws.StageColumn{}, false
 }
 
-func findStageColumnByID(columns []ws.StageColumn, id string) (ws.StageColumn, bool) {
-	return workspace.FindStageColumnByID(columns, id)
+func constructionStageIDs(columns []ws.StageColumn) []string {
+	ids := make([]string, len(columns))
+	for index, column := range columns {
+		ids[index] = column.ID
+	}
+	return ids
 }
 
-func normalizeConstructionOutputOrder(document *ws.Document) {
-	workspace.NormalizeConstructionOutputOrder(document)
-}
-
-func cloneDocumentForConstructionChange(document ws.Document) ws.Document {
-	return workspace.CloneDocumentForConstructionChange(document)
-}
-
-func orderedStageIDs(columns []ws.StageColumn) []string { return workspace.OrderedStageIDs(columns) }
-
-func rebuildStageColumns(step ws.ConstructionStep, input []ws.StageColumn, authoredSourceIDs map[string]struct{}) ([]ws.StageColumn, error) {
-	return workspace.RebuildStageColumns(step, input, authoredSourceIDs)
-}
-
-func validateConstructionLiteral(literal ws.ConstructionLiteral) error {
-	return workspace.ValidateConstructionLiteral(literal)
-}
-
-func migrateMissingRowsBeforeCurrent(workspaceValue ws.Workspace) ws.Workspace {
-	return workspace.MigrateMissingRowsBeforeCurrent(workspaceValue)
-}
-
-func constructionSourceColumnsWithChildrenAndProjections(columns []ws.Column, projections []ws.ConstructionSourceProjection, referencedIDs []string, declared []ws.StageColumn) ([]ws.StageColumn, error) {
-	return workspace.ConstructionSourceColumnsWithChildrenAndProjections(columns, projections, referencedIDs, declared)
+func cloneDocumentFixtureByJSON(document ws.Document) ws.Document {
+	raw, err := json.Marshal(document)
+	if err != nil {
+		panic(err)
+	}
+	var cloned ws.Document
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		panic(err)
+	}
+	return cloned
 }
 
 func testCatalog() ws.CatalogSnapshot {

@@ -42,6 +42,23 @@ func testReceipt() receiptmodel.CompilationReceipt {
 	return r
 }
 
+func refreshReceiptIdentity(t *testing.T, receipt *receiptmodel.CompilationReceipt) {
+	t.Helper()
+	var err error
+	receipt.ResolvedRecipeDigest, err = receipt.Bundle.ArchiveDigest()
+	if err != nil {
+		t.Fatalf("digest test recipe: %v", err)
+	}
+	receipt.CompilationKey, err = receiptmodel.CompilationKey(*receipt)
+	if err != nil {
+		t.Fatalf("calculate test compilation key: %v", err)
+	}
+	receipt.ID, err = receiptmodel.ReceiptID(*receipt)
+	if err != nil {
+		t.Fatalf("calculate test receipt ID: %v", err)
+	}
+}
+
 func TestCompilationReceiptIdentityExcludesMutableMetadata(t *testing.T) {
 	base := testReceipt()
 	id, err := receiptmodel.ReceiptID(base)
@@ -348,22 +365,24 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 	}
 }
 
-func TestReceiptCompiledOutputSchemaAllowsUnlabeledInternalIdentityColumn(t *testing.T) {
-	bundle := testReceipt().Bundle
-	schemas := map[string][]receiptmodel.ReceiptCompiledOutputColumn{"out": {
+func TestCompilationReceiptValidatesCompiledOutputSchemaForInternalIdentityColumn(t *testing.T) {
+	receipt := testReceipt()
+	receipt.CompiledOutputSchemas = map[string][]receiptmodel.ReceiptCompiledOutputColumn{"out": {
 		{Name: "construction_row_id", LogicalType: "string", Cardinality: "required_one", Internal: true, Identity: true},
 		{ID: "field", Name: "field", Label: "Field", LogicalType: "string", Cardinality: "optional_one"},
 	}}
-	if err := receiptmodel.ValidateReceiptCompiledOutputSchemas(schemas, bundle); err != nil {
+	refreshReceiptIdentity(t, &receipt)
+	if err := receipt.Validate(); err != nil {
 		t.Fatalf("validate internal unlabeled identity column: %v", err)
 	}
-	schemas["out"][0].Internal = false
-	if err := receiptmodel.ValidateReceiptCompiledOutputSchemas(schemas, bundle); err == nil {
+	receipt.CompiledOutputSchemas["out"][0].Internal = false
+	refreshReceiptIdentity(t, &receipt)
+	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted an unlabeled public compiled column")
 	}
 }
 
-func TestReceiptConstructionStagesAcceptsExactTerminalCombineRoot(t *testing.T) {
+func TestCompilationReceiptValidatesExactTerminalCombineRoot(t *testing.T) {
 	combine := recipe.ConstructionCombine{
 		Kind: recipe.ConstructionCombineAppend,
 		Projections: []recipe.ConstructionCombineProjection{
@@ -371,8 +390,8 @@ func TestReceiptConstructionStagesAcceptsExactTerminalCombineRoot(t *testing.T) 
 			{OutputColumnID: "combined_value", InputIndex: 1, InputColumnID: "right_value"},
 		},
 	}
-	bundle := testReceipt().Bundle
-	bundle.Outputs[0].Construction = &recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{{
+	receipt := testReceipt()
+	receipt.Bundle.Outputs[0].Construction = &recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{{
 		ID: "append_sources",
 		Inputs: []recipe.ConstructionInputRef{
 			{Kind: recipe.ConstructionTableRevisionInput, TableID: "source:1:left", RevisionID: "revision-left", OutputID: "left"},
@@ -385,34 +404,40 @@ func TestReceiptConstructionStagesAcceptsExactTerminalCombineRoot(t *testing.T) 
 		ID: "append_sources", Operation: "APPEND",
 		Columns: []receiptmodel.ReceiptConstructionStageColumn{{ID: "combined_value", Name: "value", Label: "Value", Type: "string"}},
 	}}}
-	if err := receiptmodel.ValidateReceiptConstructionStages(stages, bundle); err != nil {
+	receipt.ConstructionStages = stages
+	refreshReceiptIdentity(t, &receipt)
+	if err := receipt.Validate(); err != nil {
 		t.Fatalf("validate exact terminal Combine stage: %v", err)
 	}
 
-	stages["out"][0].ID = "other_step"
-	if err := receiptmodel.ValidateReceiptConstructionStages(stages, bundle); err == nil {
+	receipt.ConstructionStages["out"][0].ID = "other_step"
+	refreshReceiptIdentity(t, &receipt)
+	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted Combine root stage that does not match the exact recipe step ID")
 	}
-	badBundle := bundle
-	badBundle.Outputs = append([]recipe.Output(nil), bundle.Outputs...)
-	badConstruction := *bundle.Outputs[0].Construction
+	badBundle := receipt.Bundle
+	badBundle.Outputs = append([]recipe.Output(nil), receipt.Bundle.Outputs...)
+	badConstruction := *receipt.Bundle.Outputs[0].Construction
 	badConstruction.Steps = append([]recipe.ConstructionStep(nil), badConstruction.Steps...)
 	badConstruction.Steps[0].Inputs = append([]recipe.ConstructionInputRef(nil), badConstruction.Steps[0].Inputs...)
 	badConstruction.Steps[0].Inputs[1].RevisionID = " "
 	badBundle.Outputs[0].Construction = &badConstruction
-	stages["out"][0].ID = "append_sources"
-	if err := receiptmodel.ValidateReceiptConstructionStages(stages, badBundle); err == nil {
+	receipt.Bundle = badBundle
+	receipt.ConstructionStages["out"][0].ID = "append_sources"
+	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted an external Combine stage whose exact source revision is invalid")
 	}
 }
 
-func TestReceiptConstructionStagesRejectsMissingSourceProjectionForNonCombine(t *testing.T) {
-	bundle := testReceipt().Bundle
+func TestCompilationReceiptRejectsMissingSourceProjectionForNonCombine(t *testing.T) {
 	for _, stage := range []receiptmodel.ReceiptConstructionStage{
 		{ID: "filter_step", Operation: "FILTER"},
 		{ID: "append_step", Operation: "APPEND"},
 	} {
-		if err := receiptmodel.ValidateReceiptConstructionStages(map[string][]receiptmodel.ReceiptConstructionStage{"out": {stage}}, bundle); err == nil {
+		receipt := testReceipt()
+		receipt.ConstructionStages = map[string][]receiptmodel.ReceiptConstructionStage{"out": {stage}}
+		refreshReceiptIdentity(t, &receipt)
+		if err := receipt.Validate(); err == nil {
 			t.Fatalf("accepted unbound root operation %#v without its implicit source projection", stage)
 		}
 	}

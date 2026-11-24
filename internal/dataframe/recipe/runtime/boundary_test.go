@@ -19,19 +19,15 @@ import (
 func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ResourceAccess: fencedFaultClient{}})
 	authorizer := recipeauth.NewAuthorization(resolver)
-	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
-		"read":  authorizer.AuthorizeRead,
-		"write": authorizer.AuthorizeWrite,
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, emptyErr := authorize(context.Background(), recipe.RuntimeBindings{Project: ""})
-			emptyErrUser := recipefixtures.AssertTypedProjectRequired(t, emptyErr, name+" empty")
-			_, blankErr := authorize(context.Background(), recipe.RuntimeBindings{Project: "  "})
-			blankErrUser := recipefixtures.AssertTypedProjectRequired(t, blankErr, name+" whitespace")
-			if emptyErrUser.Code() != blankErrUser.Code() || emptyErrUser.Retryable() != blankErrUser.Retryable() {
-				t.Fatalf("whitespace leg diverges from empty leg: %s/%v vs %s/%v", blankErrUser.Code(), blankErrUser.Retryable(), emptyErrUser.Code(), emptyErrUser.Retryable())
-			}
-		})
+	_, emptyErr := authorizer.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: ""})
+	emptyErrUser := recipefixtures.AssertTypedProjectRequired(t, emptyErr, "read empty")
+	gotBlank, blankErr := authorizer.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "  "})
+	blankErrUser := recipefixtures.AssertTypedProjectRequired(t, blankErr, "read whitespace")
+	if gotBlank.Project != "" || gotBlank.SelectionProject != "" || gotBlank.AuthScopeMode != "" {
+		t.Fatalf("blank-project guard must clear bindings on rejection, got %#v", gotBlank)
+	}
+	if emptyErrUser.Code() != blankErrUser.Code() || emptyErrUser.Retryable() != blankErrUser.Retryable() {
+		t.Fatalf("whitespace leg diverges from empty leg: %s/%v vs %s/%v", blankErrUser.Code(), blankErrUser.Retryable(), emptyErrUser.Code(), emptyErrUser.Retryable())
 	}
 }
 
