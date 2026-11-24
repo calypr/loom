@@ -30,28 +30,31 @@ func TestManifestTransitions(t *testing.T) {
 	if loading.IdentityFormat != IdentityFormatCompact {
 		t.Fatalf("new identity format = %q, want %q", loading.IdentityFormat, IdentityFormatCompact)
 	}
-	terminalStates := make(map[State]Manifest, 2)
-	for _, next := range []State{StateReady, StateFailed} {
+	legacyReady := loading
+	legacyReady.State = StateReady
+	if !legacyReady.IsStaged() {
+		t.Fatal("legacy READY manifest is not activatable")
+	}
+	terminalStates := map[State]Manifest{StateReady: legacyReady}
+	for _, next := range []State{StateStaged, StateFailed} {
 		got, err := loading.Transition(next)
 		if err != nil || got.State != next {
 			t.Errorf("Transition(%s) = %#v, %v", next, got, err)
 		}
 		terminalStates[next] = got
 	}
-	if _, err := loading.Transition(StateLoading); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("LOADING -> LOADING = %v", err)
+	for _, next := range []State{StateLoading, StateReady} {
+		if _, err := loading.Transition(next); !errors.Is(err, ErrInvalidTransition) {
+			t.Errorf("LOADING -> %s = %v, want ErrInvalidTransition", next, err)
+		}
 	}
-	for _, state := range []State{StateFailed, StateReady} {
+	for _, state := range []State{StateStaged, StateFailed, StateReady} {
 		source := terminalStates[state]
 		for _, next := range []State{StateLoading, StateStaged, StateReady, StateFailed} {
 			if _, err := source.Transition(next); !errors.Is(err, ErrInvalidTransition) {
 				t.Errorf("Transition(%s -> %s) = %v, want ErrInvalidTransition", state, next, err)
 			}
 		}
-	}
-	staged, err := loading.Transition(StateStaged)
-	if err != nil || staged.State != StateStaged {
-		t.Fatalf("LOADING -> STAGED = %#v, %v (positive path for activation)", staged, err)
 	}
 }
 

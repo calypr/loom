@@ -17,10 +17,8 @@ func (r staticResolver) ResolveActiveManifest(context.Context, string) (Manifest
 }
 
 func TestResolveActiveValidatesBoundary(t *testing.T) {
-	ready, err := testManifest(t).Transition(StateReady)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ready := testManifest(t)
+	ready.State = StateReady
 	if got, err := ResolveActive(context.Background(), staticResolver{manifest: ready}, "project-a"); err != nil || !reflect.DeepEqual(got, ready) {
 		t.Fatalf("ResolveActive = %#v, %v", got, err)
 	}

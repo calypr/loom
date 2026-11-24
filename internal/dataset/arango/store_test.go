@@ -49,10 +49,13 @@ func TestCreateManifestCreatesActivePlaceholder(t *testing.T) {
 
 func TestTransitionAndResolveManifest(t *testing.T) {
 	loading := fixtureManifest(t, "project-a", "generation-a", publication.StateLoading)
-	ready, _ := loading.Transition(publication.StateReady)
-	fake := &fakeQueryClient{responses: [][]map[string]any{{testkit.JSONMap(t, ready)}, {testkit.JSONMap(t, ready)}}}
+	staged := loading
+	staged.State = publication.StateStaged
+	ready := loading
+	ready.State = publication.StateReady
+	fake := &fakeQueryClient{responses: [][]map[string]any{{testkit.JSONMap(t, staged)}, {testkit.JSONMap(t, ready)}}}
 	store := mustStore(t, fake)
-	if got, err := store.TransitionManifest(context.Background(), loading, publication.StateReady); err != nil || !reflect.DeepEqual(got, ready) {
+	if got, err := store.TransitionManifest(context.Background(), loading, publication.StateStaged); err != nil || !reflect.DeepEqual(got, staged) {
 		t.Fatalf("TransitionManifest = %#v, %v", got, err)
 	}
 	if got, err := store.ResolveActiveManifest(context.Background(), "project-a"); err != nil || !reflect.DeepEqual(got, ready) {
@@ -113,7 +116,8 @@ func TestActivateRejectsNonReadyMissingAndConflictingCandidates(t *testing.T) {
 	if err := store.Activate(context.Background(), loading); !errors.Is(err, publication.ErrGenerationNotReady) {
 		t.Fatalf("loading activation = %v", err)
 	}
-	ready, _ := loading.Transition(publication.StateReady)
+	ready := loading
+	ready.State = publication.StateReady
 	if err := store.Activate(context.Background(), ready); !errors.Is(err, ErrActivationConflict) {
 		t.Fatalf("missing candidate = %v", err)
 	}
@@ -129,6 +133,7 @@ func TestLegacyManifestStatesNormalizeAndMetadataIsIgnored(t *testing.T) {
 	for legacy, want := range map[string]publication.State{
 		"PREFLIGHT":  publication.StateLoading,
 		"ANALYZING":  publication.StateLoading,
+		"READY":      publication.StateReady,
 		"SUPERSEDED": publication.StateReady,
 	} {
 		row := cloneMap(base)
@@ -293,11 +298,9 @@ func fixtureManifest(t *testing.T, project, id string, state publication.State) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state != publication.StateLoading {
-		manifest, err = manifest.Transition(state)
-		if err != nil {
-			t.Fatal(err)
-		}
+	manifest.State = state
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
 	}
 	return manifest
 }

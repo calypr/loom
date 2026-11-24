@@ -49,7 +49,7 @@ type sourceLoadRecord struct {
 	Plan                 SourceLoadPlan               `json:"plan"`
 	PlanHash             string                       `json:"plan_hash"`
 	Generation           string                       `json:"generation"`
-	State                string                       `json:"state"`
+	State                SourceLoadState              `json:"state"`
 	BaseRevision         int64                        `json:"base_revision"`
 	SourceGeneration     string                       `json:"source_generation,omitempty"`
 	LegacySourceRevision int64                        `json:"legacy_source_revision"`

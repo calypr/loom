@@ -181,3 +181,38 @@ FOR manifest IN @@collection
 		t.Errorf("mismatched activation advanced active pointer: %v", err)
 	}
 }
+
+func TestLegacyReadyManifestRemainsActivatableAgainstArango(t *testing.T) {
+	ctx, client, lifecycle := openDatasetStore(t, 45*time.Second, gacDatabasePrefix)
+	const project, generation = "gac-legacy-project", "gac-legacy-generation"
+	staged := gacLoadStaged(t, ctx, lifecycle, project, generation, strings.Repeat("a", 64))
+
+	setStoredState := func(state string) {
+		t.Helper()
+		if err := client.ExecuteAQL(ctx, `UPDATE @key WITH {state: @state} IN @@collection`, map[string]any{
+			"@collection": LifecycleCollection, "key": manifestDocumentKey(staged.Dataset), "state": state,
+		}); err != nil {
+			t.Fatalf("write historical state %q: %v", state, err)
+		}
+	}
+	for _, raw := range []string{"READY", "SUPERSEDED"} {
+		setStoredState(raw)
+		decoded, err := lifecycle.ReadManifest(ctx, staged.Dataset)
+		if err != nil || decoded.State != publication.StateReady || !decoded.IsStaged() {
+			t.Fatalf("read %s manifest = %+v, %v", raw, decoded, err)
+		}
+	}
+
+	setStoredState("READY")
+	ready, err := lifecycle.ReadManifest(ctx, staged.Dataset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.Activate(ctx, ready); err != nil {
+		t.Fatalf("activate stored READY manifest: %v", err)
+	}
+	active, err := lifecycle.ResolveActiveManifest(ctx, project)
+	if err != nil || active.Dataset != ready.Dataset || active.State != publication.StateReady {
+		t.Fatalf("resolve active historical manifest = %+v, %v", active, err)
+	}
+}

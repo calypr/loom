@@ -294,10 +294,7 @@ func activationManifest(t *testing.T, project, generation string) publication.Ma
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = manifest.Transition(publication.StateReady)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manifest.State = publication.StateReady
 	return manifest
 }
 

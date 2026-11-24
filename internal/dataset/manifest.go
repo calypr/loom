@@ -52,7 +52,7 @@ func (m Manifest) Transition(next State) (Manifest, error) {
 	if err := m.Validate(); err != nil {
 		return Manifest{}, err
 	}
-	if m.State != StateLoading || (next != StateStaged && next != StateReady && next != StateFailed) {
+	if m.State != StateLoading || (next != StateStaged && next != StateFailed) {
 		return Manifest{}, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, m.State, next)
 	}
 	m.State = next

@@ -13,13 +13,19 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
+type SourceLoadState string
+
 const (
-	SourceLoadUploading      = "UPLOADING"
-	SourceLoadReady          = "READY"
-	SourceLoadPublishPending = "PUBLISH_PENDING"
-	SourceLoadPublished      = "PUBLISHED"
-	SourceLoadSuperseded     = "SUPERSEDED"
+	SourceLoadUploading      SourceLoadState = "UPLOADING"
+	SourceLoadReady          SourceLoadState = "READY"
+	SourceLoadPublishPending SourceLoadState = "PUBLISH_PENDING"
+	SourceLoadPublished      SourceLoadState = "PUBLISHED"
+	SourceLoadSuperseded     SourceLoadState = "SUPERSEDED"
 )
+
+type SourceFileReceiptState string
+
+const SourceFileReady SourceFileReceiptState = "READY"
 
 type SourceManifestFile struct {
 	Path   string `json:"path"`
@@ -35,17 +41,17 @@ type SourceLoadPlan struct {
 }
 
 type SourceFileReceipt struct {
-	Path         string `json:"path"`
-	ResourceType string `json:"resource_type"`
-	SHA256       string `json:"sha256"`
-	Rows         int64  `json:"rows"`
-	State        string `json:"state"`
+	Path         string                 `json:"path"`
+	ResourceType string                 `json:"resource_type"`
+	SHA256       string                 `json:"sha256"`
+	Rows         int64                  `json:"rows"`
+	State        SourceFileReceiptState `json:"state"`
 }
 
 type SourceLoadStatus struct {
 	OperationID      string              `json:"operation_id"`
 	Generation       string              `json:"generation"`
-	State            string              `json:"state"`
+	State            SourceLoadState     `json:"state"`
 	BaseRevision     int64               `json:"base_revision"`
 	Files            []SourceFileReceipt `json:"files"`
 	AuthResourcePath string              `json:"-"`

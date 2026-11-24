@@ -34,7 +34,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	manifest := SourceManifest{Repository: record.Plan.Repository, Commit: record.Plan.Commit}
 	for _, planned := range record.Plan.Files {
 		accepted, ok := record.Receipts[planned.Path]
-		if !ok || accepted.State != "READY" || accepted.Path != planned.Path {
+		if !ok || accepted.State != SourceFileReady || accepted.Path != planned.Path {
 			return SourcePublishReceipt{}, ErrSourceLoadIncomplete
 		}
 		manifest.Files = append(manifest.Files, SourceFile{Path: planned.Path, SHA256: accepted.SHA256})

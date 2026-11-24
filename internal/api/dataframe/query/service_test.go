@@ -450,10 +450,7 @@ func builderReadyManifest(t *testing.T, project, generationID string) publicatio
 	if err != nil {
 		t.Fatalf("NewManifest() error = %v", err)
 	}
-	manifest, err = manifest.Transition(publication.StateReady)
-	if err != nil {
-		t.Fatalf("Transition(READY) error = %v", err)
-	}
+	manifest.State = publication.StateReady
 	return manifest
 }
 

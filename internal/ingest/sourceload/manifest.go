@@ -57,12 +57,12 @@ func (e *SourcePublishLimitError) Error() string {
 }
 
 type SourcePublishReceipt struct {
-	OperationID    string `json:"operation_id"`
-	SourceRevision int64  `json:"source_revision"`
-	ManifestHash   string `json:"manifest_hash"`
-	ExecutionID    string `json:"execution_id"`
-	State          string `json:"state"`
-	Reused         bool   `json:"reused"`
+	OperationID    string          `json:"operation_id"`
+	SourceRevision int64           `json:"source_revision"`
+	ManifestHash   string          `json:"manifest_hash"`
+	ExecutionID    string          `json:"execution_id"`
+	State          SourceLoadState `json:"state"`
+	Reused         bool            `json:"reused"`
 }
 
 const maxSourceManifestBytes = 1 << 20
