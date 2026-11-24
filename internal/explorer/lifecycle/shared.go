@@ -1,8 +1,6 @@
 package lifecycle
 
 import (
-	"strings"
-
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -52,8 +50,4 @@ func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, col
 		}
 	}
 	return false
-}
-func constructionFHIRPathLabel(resourceType, path string) string {
-	path = strings.TrimPrefix(strings.TrimSpace(path), resourceType+".")
-	return resourceType + "." + path
 }
