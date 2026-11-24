@@ -158,7 +158,7 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 			choice, err = capability.NewFieldConstructionChoiceForRoute(snapshot.Token, resolvedRoute, provenCandidate)
 		} else {
 			if semanticFamily != nil {
-				choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, *semanticFamily, provenCandidate)
+				choice, err = semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, *semanticFamily, provenCandidate)
 			} else {
 				ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, semanticEntry.Observation, resolvedRoute)
 				choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, semanticEntry, provenCandidate, ownerRecords)

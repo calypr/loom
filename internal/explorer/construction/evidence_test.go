@@ -303,7 +303,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, family, candidate)
+	choice, err := semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, family, candidate)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -164,7 +164,7 @@ func (s *Service) ConstructionUnpivotSourceCapability(
 ) (ConstructionUnpivotSourceCapability, error) {
 	result, err := s.constructionSourceCapability(ctx, base, outputID, stageID, unpivotSourceReasons, "unpivot",
 		unpivotSourceLogicalTypeIsMeltEligible, constructionOwnedUnpivotSourceColumnID)
-	return result.unpivot(), err
+	return ConstructionUnpivotSourceCapability(result), err
 }
 
 func (s *Service) ResolveConstructionUnpivotSource(

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
-
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -102,7 +100,7 @@ func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.
 	if err != nil {
 		return err
 	}
-	document := support.ProposalDocument(workspace, "patients")
+	document := workspace.FindOutputDocument("patients")
 	if document == nil || document.Rows.Kind != ws.RowDefinitionGroups || document.Rows.Groups == nil ||
 		document.Rows.Groups.Source.Kind != ws.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil ||
 		document.Rows.Groups.Source.Explicit.RevisionID != proof.RevisionID {
@@ -126,7 +124,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview receipt has no patients output")
 		}
@@ -244,7 +242,7 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview receipt has no patients output")
 		}
@@ -270,7 +268,7 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := support.ProposalDocument(candidate, "patients")
+	document := candidate.FindOutputDocument("patients")
 	if document == nil || document.Construction == nil || len(document.Construction.Steps) != 1 ||
 		document.Construction.Steps[0].ID != "filter_source" || document.Rows.Groups == nil || document.Rows.Groups.AfterStepID != "filter_source" {
 		t.Fatalf("cohort proposal lost the authored source filter or persisted insertion anchor: %#v", document)
@@ -286,7 +284,7 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	addRowProposalSourceFilter(t, store, workspace)
 	resolver := &rowProposalExplicitGroupResolver{}
 	setup.Config.ExplicitGroupResolver = resolver
-	document := support.ProposalDocument(workspace, "patients")
+	document := workspace.FindOutputDocument("patients")
 	if document == nil || len(document.Columns) == 0 {
 		t.Fatal("row proposal fixture has no source columns")
 	}
@@ -502,7 +500,7 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 				if err != nil {
 					return dataframeexecution.PreviewSummary{}, err
 				}
-				document := support.ProposalDocument(workspace, "patients")
+				document := workspace.FindOutputDocument("patients")
 				if document == nil {
 					return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 				}
@@ -570,7 +568,7 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
@@ -610,7 +608,7 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
@@ -646,7 +644,7 @@ func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *test
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
@@ -683,7 +681,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}
@@ -918,7 +916,7 @@ func enableRowDefinitionPreview(config *Config) {
 		if err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		document := support.ProposalDocument(workspace, "patients")
+		document := workspace.FindOutputDocument("patients")
 		if document == nil {
 			return dataframeexecution.PreviewSummary{}, fmt.Errorf("row-definition preview receipt has no patients output")
 		}

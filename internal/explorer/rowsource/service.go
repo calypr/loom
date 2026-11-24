@@ -51,7 +51,7 @@ func (s *Service) ConstructionDeriveSourceCapability(
 ) (ConstructionDeriveSourceCapability, error) {
 	result, err := s.constructionSourceCapability(ctx, base, outputID, stageID, deriveSourceReasons, "derive",
 		deriveSourceLogicalTypeIsNumeric, constructionOwnedDeriveSourceColumnID)
-	return result.derive(), err
+	return ConstructionDeriveSourceCapability(result), err
 }
 
 func (s *Service) ResolveConstructionDeriveSource(

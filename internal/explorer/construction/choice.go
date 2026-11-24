@@ -138,7 +138,7 @@ func resolveSemanticConstructionChoice(request resolveSemanticConstructionChoice
 	ownerRecordsProved := selectedFamily == nil && proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, route)
 	var choice capability.ConstructionChoice
 	if selectedFamily != nil {
-		choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, route, *selectedFamily, provenCandidate)
+		choice, err = semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, route, *selectedFamily, provenCandidate)
 	} else {
 		choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, route, entry, provenCandidate, ownerRecordsProved)
 	}

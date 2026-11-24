@@ -3,8 +3,9 @@ package rowdef
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -85,7 +86,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
-	candidateDocument := support.ProposalDocument(verified, request.OutputID)
+	candidateDocument := verified.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
 	}

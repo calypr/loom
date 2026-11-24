@@ -2,9 +2,10 @@ package recipeplan
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"regexp"
 	"strings"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -446,7 +447,7 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			if !quantityOK || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
 				return nil, fmt.Errorf("%s.unitNormalization selector must be owned by a FHIR Quantity", path)
 			}
-			if selectorIterates(*semanticAggregate.Selector) || selectorIterates(system) || selectorIterates(code) {
+			if semanticAggregate.Selector.HasIteratedArray() || system.HasIteratedArray() || code.HasIteratedArray() {
 				return nil, fmt.Errorf("%s.unitNormalization does not support repeated Quantity paths; select one indexed Quantity first", path)
 			}
 			if system.CanonicalPath() != quantityPath+".system" || code.CanonicalPath() != quantityPath+".code" {
@@ -546,15 +547,6 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		out = append(out, semanticAggregate)
 	}
 	return out, nil
-}
-
-func selectorIterates(selector spec.Selector) bool {
-	for _, step := range selector.Steps {
-		if step.Iterate {
-			return true
-		}
-	}
-	return false
 }
 
 func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []recipe.RepresentativeSlice) ([]SemanticSlice, error) {

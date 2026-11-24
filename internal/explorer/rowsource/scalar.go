@@ -292,17 +292,3 @@ func constructionSourceSelectionIDs[T any](selections []T, columnID func(T) stri
 	}
 	return ids
 }
-
-func (result sourceCapability) derive() ConstructionDeriveSourceCapability {
-	return ConstructionDeriveSourceCapability{
-		Supported: result.Supported, StageID: result.StageID, ReasonCode: result.ReasonCode,
-		Reason: result.Reason, Choices: result.Choices,
-	}
-}
-
-func (result sourceCapability) unpivot() ConstructionUnpivotSourceCapability {
-	return ConstructionUnpivotSourceCapability{
-		Supported: result.Supported, StageID: result.StageID, ReasonCode: result.ReasonCode,
-		Reason: result.Reason, Choices: result.Choices,
-	}
-}

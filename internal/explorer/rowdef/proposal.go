@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -164,7 +165,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err != nil || baseDigest != owner.DraftDigest {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	baseDocument := support.ProposalDocument(workspace, request.OutputID)
+	baseDocument := workspace.FindOutputDocument(request.OutputID)
 	if baseDocument == nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
@@ -241,7 +242,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 		return RowDefinitionProposal{}, err
 	}
 
-	candidateDocument := support.ProposalDocument(verifiedCandidate, request.OutputID)
+	candidateDocument := verifiedCandidate.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -397,7 +398,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if currentDigest != binding.DraftDigest {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft no longer matches the proposal base", nil, nil)
 	}
-	baseDocument := support.ProposalDocument(current, command.OutputID)
+	baseDocument := current.FindOutputDocument(command.OutputID)
 	if baseDocument == nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the proposal output is missing from the saved draft", nil, nil)
 	}
@@ -412,7 +413,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if err != nil {
 		return nil, nil, err
 	}
-	candidateDocument := support.ProposalDocument(candidate, command.OutputID)
+	candidateDocument := candidate.FindOutputDocument(command.OutputID)
 	if candidateDocument == nil {
 		return nil, nil, support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt does not contain the requested output", nil, nil)
 	}

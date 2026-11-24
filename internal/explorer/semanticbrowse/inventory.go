@@ -14,8 +14,6 @@ import (
 	"strings"
 	"unicode"
 
-	loomtext "github.com/calypr/loom/internal/foundation/text"
-
 	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
@@ -122,7 +120,7 @@ func semanticInventoryChoicesForExactOccurrence(
 		var choice capability.ConstructionChoice
 		ownerRecordsProved := family == nil && proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, entry.Observation, route)
 		if family != nil {
-			choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, *family, proof.candidate)
+			choice, err = semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, *family, proof.candidate)
 		} else {
 			choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, proof.candidate, ownerRecordsProved)
 		}
@@ -332,7 +330,7 @@ func semanticInventoryChoicesForOutput(
 					var choice capability.ConstructionChoice
 					var choiceErr error
 					if routeCandidate.family != nil {
-						choice, choiceErr = semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, *routeCandidate.family, proof.candidate)
+						choice, choiceErr = semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, *routeCandidate.family, proof.candidate)
 					} else {
 						choice, choiceErr = capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, routeCandidate.entry, proof.candidate, ownerRecordsProved)
 					}
@@ -394,39 +392,6 @@ func semanticCandidateRouteProofCacheKey(candidate capability.Candidate, route [
 		Route     []capability.ConstructionRouteStep
 	}{Candidate: candidate, Route: route})
 	return string(identity)
-}
-
-func semanticCategoryConstructionChoiceForRoute(
-	snapshot capability.Snapshot,
-	contextToken, buildID string,
-	route []capability.ConstructionRouteStep,
-	family semantic.Family,
-	candidate capability.Candidate,
-) (capability.ConstructionChoice, error) {
-	entry := semantic.EntryForFamily(family)
-	observation := entry.Observation
-	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
-	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
-		return capability.ConstructionChoice{}, errors.New("coded category has no complete system-version compiler binding")
-	}
-	projectedCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, observation, candidate)
-	if !ok {
-		return capability.ConstructionChoice{}, errors.New("coded category fallback value selectors have no exact compiler-proved candidates")
-	}
-	source := capability.SemanticBindingChoiceSource{
-		ConceptID: family.FamilyID, BindingID: family.BindingID, SourceKind: family.SourceKind,
-		ResourceType: family.Source.Type, SourcePath: family.Source.Path,
-		SourceCanonical: family.Source.Canonical, SourceProfile: family.Source.Profile,
-		FieldPath: candidate.FieldPath, OwningScope: family.OwningScope,
-		KeySelector: family.KeySelector, System: family.System, Version: family.Version,
-		ValueSelector:         family.Value.Selector,
-		ValueFallbacks:        append([]string(nil), family.Value.FallbackSelectors...),
-		FallbackOnBlankString: family.Value.FallbackOnBlankString,
-		LogicalType:           loomtext.FirstTrimmed(family.LogicalType, family.Value.Type),
-		RuleHint:              semantic.RuleHintCodedCategoryV1, RuleVersion: family.RuleVersion,
-		SchemaVersion: family.SchemaVersion,
-	}
-	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, projectedCandidate)
 }
 
 func semanticCategoryLabel(family semantic.Family, candidate capability.Candidate) string {
@@ -850,7 +815,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 				var choice capability.ConstructionChoice
 				var choiceErr error
 				if isCategory {
-					choice, choiceErr = semanticCategoryConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, family, candidate)
+					choice, choiceErr = semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, family, candidate)
 				} else {
 					choice, choiceErr = capability.SemanticConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, entry, candidate, ownerRecordsProved)
 				}
@@ -1103,7 +1068,7 @@ func (b *Service) semanticFieldPresentationReplacement(
 	ownerRecordsProved := family == nil && proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, current.route)
 	var choice capability.ConstructionChoice
 	if family != nil {
-		choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, *family, proof.candidate)
+		choice, err = semanticauthoring.CategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, *family, proof.candidate)
 	} else {
 		choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, entry, proof.candidate, ownerRecordsProved)
 	}

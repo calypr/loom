@@ -148,7 +148,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, err
 	}
 
-	candidateDocument := support.ProposalDocument(verifiedCandidate, request.OutputID)
+	candidateDocument := verifiedCandidate.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return fail, support.Conflict("source-relationship-proposal", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -234,7 +234,7 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved draft changed after Preview", nil, err)
 	}
-	base := support.ProposalDocument(current, command.OutputID)
+	base := current.FindOutputDocument(command.OutputID)
 	if base == nil {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved output is missing", nil, nil)
 	}
@@ -246,7 +246,7 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil {
 		return nil, err
 	}
-	updated := support.ProposalDocument(candidate, command.OutputID)
+	updated := candidate.FindOutputDocument(command.OutputID)
 	if updated == nil {
 		return nil, support.Conflict("commands", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}

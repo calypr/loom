@@ -151,7 +151,7 @@ func (s *Service) constructionSemanticGroupChoices(
 			if !ok {
 				continue
 			}
-			choice, err := semanticCategoryConstructionChoiceForRoute(base.Snapshot, contextToken, page.Build.BuildID, nil, family, candidate)
+			choice, err := semanticauthoring.CategoryConstructionChoiceForRoute(base.Snapshot, contextToken, page.Build.BuildID, nil, family, candidate)
 			if err != nil {
 				continue
 			}
@@ -302,7 +302,7 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, nil)
 	}
 	entry := semantic.EntryForFamily(family)
-	expected, err := semanticCategoryConstructionChoiceForRoute(base.Snapshot, contextToken, buildID, nil, family, candidate)
+	expected, err := semanticauthoring.CategoryConstructionChoiceForRoute(base.Snapshot, contextToken, buildID, nil, family, candidate)
 	if err == nil {
 		semanticSource, sourceOK := expected.Source.(capability.SemanticBindingChoiceSource)
 		if sourceOK {

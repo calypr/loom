@@ -319,7 +319,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	if err != nil || digest != owner.DraftDigest {
 		return empty, support.Conflict("authoring-network", "DRAFT_CONFLICT", "saved source digest does not match", nil, err)
 	}
-	document := support.ProposalDocument(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil {
 		return empty, support.Unprocessable("authoring-network", "OUTPUT_NOT_FOUND", "saved output is unavailable", nil)
 	}

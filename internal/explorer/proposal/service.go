@@ -107,7 +107,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	candidateDocument := support.ProposalDocument(verified, request.OutputID)
+	candidateDocument := verified.FindOutputDocument(request.OutputID)
 	if candidateDocument == nil {
 		return fail, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -145,7 +145,7 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, support.Conflict(stage, "STALE_COLUMN_POLICY_PROPOSAL", "saved draft changed after Preview", nil, err)
 	}
-	base := support.ProposalDocument(current, command.OutputID)
+	base := current.FindOutputDocument(command.OutputID)
 	if base == nil || base.ImportedRecipe != nil {
 		return nil, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "ordinary source output is unavailable", nil, nil)
 	}
