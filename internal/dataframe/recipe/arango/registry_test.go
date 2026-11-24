@@ -18,8 +18,10 @@ import (
 )
 
 type legacyRegistryClient struct {
-	recipes    []map[string]any
-	executions []map[string]any
+	recipes         []map[string]any
+	executions      []map[string]any
+	queries         []string
+	afterUsageQuery func()
 }
 
 func (c *legacyRegistryClient) InsertBatchRaw(_ context.Context, collection string, data []json.RawMessage, _ bool, _ string) error {
@@ -46,6 +48,7 @@ func (c *legacyRegistryClient) InsertBatchRaw(_ context.Context, collection stri
 }
 
 func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int, vars map[string]interface{}, visit arangostore.RowVisitor) error {
+	c.queries = append(c.queries, query)
 	if strings.Contains(query, "RETURN {replaced: true}") {
 		for _, execution := range c.executions {
 			if matchesRecipeIdentity(execution, vars) {
@@ -83,6 +86,11 @@ func (c *legacyRegistryClient) QueryRows(_ context.Context, query string, _ int,
 			if err := visit(map[string]any{"replaced": true}); err != nil {
 				return err
 			}
+		}
+		if strings.Contains(query, "RETURN {used: true}") && c.afterUsageQuery != nil {
+			afterUsageQuery := c.afterUsageQuery
+			c.afterUsageQuery = nil
+			afterUsageQuery()
 		}
 		return nil
 	}
@@ -220,6 +228,58 @@ func TestRegistryReplaceRecipeVersionAndUsage(t *testing.T) {
 	}
 	if err := registry.ReplaceRecipeVersion(context.Background(), original); !errors.Is(err, recipe.ErrRecipeVersionImmutable) {
 		t.Fatalf("ReplaceRecipeVersion() error = %v, want ErrRecipeVersionImmutable", err)
+	}
+}
+
+func TestRecipeVersionUsageReadsBothStoredSpellings(t *testing.T) {
+	for name, execution := range map[string]map[string]any{
+		"current": {"name": "files", "translationVersion": "1"},
+		"legacy":  {"Name": "files", "TranslationVersion": "1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &legacyRegistryClient{executions: []map[string]any{execution}}
+			registry, err := New(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			used, err := registry.RecipeVersionUsed(context.Background(), "files", "1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !used {
+				t.Fatalf("RecipeVersionUsed() = false for %s spelling", name)
+			}
+			if len(client.queries) != 1 || !strings.Contains(client.queries[0], "doc.Name == @name") || !strings.Contains(client.queries[0], "doc.TranslationVersion == @translationVersion") {
+				t.Fatalf("publication usage query dropped a legacy spelling: %v", client.queries)
+			}
+		})
+	}
+}
+
+func TestRecipeVersionReplacementKeepsAtomicUsageGuard(t *testing.T) {
+	client := &legacyRegistryClient{}
+	registry, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := legacyEntry("1", "digest-1", "document_reference")
+	replacement := legacyEntry("1", "digest-2", "document_reference_changed")
+	if err := registry.SaveRecipe(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	client.afterUsageQuery = func() {
+		client.executions = append(client.executions, map[string]any{"Name": "files", "TranslationVersion": "1"})
+	}
+	_, err = (recipe.PersistentRegistry{Store: registry}).RegisterVersion(context.Background(), replacement.Bundle)
+	if !errors.Is(err, recipe.ErrRecipeVersionImmutable) {
+		t.Fatalf("RegisterVersion() error = %v, want ErrRecipeVersionImmutable", err)
+	}
+	loaded, err := registry.LoadRecipeVersion(context.Background(), "files", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Digest != original.Digest {
+		t.Fatalf("recipe changed after a concurrent execution appeared: digest = %q, want %q", loaded.Digest, original.Digest)
 	}
 }
 

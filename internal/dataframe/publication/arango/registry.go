@@ -98,6 +98,49 @@ func (r *Registry) FindExecutionByKey(ctx context.Context, key string) (publicat
 	return r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc.key == @key SORT doc.createdAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": key})
 }
 
+func (r *Registry) RecipeVersionUsed(ctx context.Context, name, translationVersion string) (bool, error) {
+	used := false
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection
+FILTER (doc.name == @name OR doc.Name == @name)
+  AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion)
+LIMIT 1
+RETURN {used: true}`, r.batchSize, map[string]interface{}{
+		"@collection":        BundleExecutionsCollection,
+		"name":               name,
+		"translationVersion": translationVersion,
+	}, func(map[string]any) error {
+		used = true
+		return nil
+	})
+	return used, err
+}
+
+func (r *Registry) ReplaceRecipeVersionIfUnused(
+	ctx context.Context,
+	recipeCollection, key, name, translationVersion string,
+	document map[string]interface{},
+) (bool, error) {
+	replaced := false
+	err := r.client.QueryRows(ctx, `LET used = FIRST(FOR execution IN @@executions
+  FILTER (execution.name == @name OR execution.Name == @name)
+    AND (execution.translationVersion == @translationVersion OR execution.TranslationVersion == @translationVersion)
+  LIMIT 1 RETURN true)
+FILTER used == null
+REPLACE {_key: @key} WITH @document IN @@recipes
+RETURN {replaced: true}`, r.batchSize, map[string]interface{}{
+		"@executions":        BundleExecutionsCollection,
+		"@recipes":           recipeCollection,
+		"name":               name,
+		"translationVersion": translationVersion,
+		"key":                key,
+		"document":           document,
+	}, func(map[string]any) error {
+		replaced = true
+		return nil
+	})
+	return replaced, err
+}
+
 func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out := []publication.BundleExecution{}
 	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.state IN @states AND doc.updatedAt < @before SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundleExecutionsCollection, "states": executionStates(state), "before": before}, func(row map[string]any) error {
