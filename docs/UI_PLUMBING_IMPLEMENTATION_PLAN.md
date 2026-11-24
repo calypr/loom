@@ -103,9 +103,10 @@ also need `make e2e` and `.codex/skills/verify` Builder acceptance. Each nontriv
      false diffs.
    - Write traces to the scratchpad or `.cache/`, never to Git.
    - The 19 workspace journey files (21.6k lines) are the main corpus.
-   - DOM diffs must be empty. Call-log diffs must be empty, or each one is explained as removing
-     a redundant request that was always aborted or discarded. Record every explained diff in
-     the phase's commit message.
+   - DOM diffs must be empty.
+   - Call-log diffs must be empty, or fall under the G3 rule: the diff only removes a request
+     that the base trace shows was aborted before it settled. Record every allowed diff in
+     `.cache/uiplumb/oracle_diffs.tsv` and in the commit message.
 2. **Graph audit.** Commit `docs/ui-graph-audit.draft.mjs` as
    `ui/packages/loom-ui/scripts/graph-audit.mjs` and delete the drafts. It reports:
    reachability, unused and test-only exports, cycles, directory edges, layer violations,
@@ -263,7 +264,7 @@ Exit:
 - Staleness comparisons outside `contracts/identity`, `data/requests`, and `model/` drop to 0
   (from 131).
 - `AbortController` appears only in `data/` and `client/`.
-- Full oracle diff is empty, or every diff is explained. `make e2e` and Builder acceptance pass.
+- Full oracle diff is empty, apart from diffs allowed under G3. `make e2e` and Builder acceptance pass.
 
 ### Phase 5: UI layout and honest effects (the rest of F4 and F6)
 
@@ -291,7 +292,7 @@ acceptance run passes on the final snapshot.
 
 ## Gates
 
-G1, G2, and G4 are resolved. G3 stays open for the whole run.
+G1, G2, and G4 are resolved. G3 is a mechanical rule applied during the run.
 
 - **G4, session-store direction: approved 2026-11-24.** Execution started on branch
   `ui-plumbing-refactor` from `main` at `f19a60057`.
@@ -314,8 +315,14 @@ G1, G2, and G4 are resolved. G3 stays open for the whole run.
 - **G2, `FeaturePolicyEditor` (Phase 1): resolved 2026-11-24.** It is referenced on none of the
   40 most recent IDP-Frontend branches and has no production importer in Loom, so it gets
   deleted. Git can restore it.
-- **G3, oracle diffs (Phases 2–5):** You approve any explained call-log diff before it is
-  committed. Any DOM diff is a defect, never a judgment call.
+- **G3, oracle diffs (Phases 2–5): a mechanical rule; you review the results at the end.**
+  - Any DOM diff is a defect.
+  - A call-log diff is allowed only if it removes a request that the base trace shows was
+    aborted before it settled.
+  - Any other call-log diff (a new request, different arguments, a request that settled being
+    removed, or a reorder across user-event steps) is a defect. Redesign the change so the diff
+    disappears.
+  - The final report lists every allowed diff for your review.
 
 ## Parallelism and cost
 
