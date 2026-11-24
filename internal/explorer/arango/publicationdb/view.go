@@ -259,7 +259,7 @@ func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation e
 			return err
 		}
 		if reactivate {
-			if err := updateActivationDocument(txCtx, tx, db.RevisionsCollection, publication.Revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
+			if err := updateRevisionActivation(txCtx, tx, publication.Revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
 				return fmt.Errorf("prepare superseded view revision %q for reactivation: %w", publication.Revision.ID, err)
 			}
 		}

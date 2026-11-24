@@ -189,13 +189,13 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 			return err
 		}
 		if priorKey != candidateKey {
-			if err := updateActivationDocument(ctx, tx, db.RevisionsCollection, priorKey, map[string]any{"status": explorer.RevisionSuperseded}); err != nil {
+			if err := updateRevisionActivation(ctx, tx, priorKey, map[string]any{"status": explorer.RevisionSuperseded}); err != nil {
 				return err
 			}
 		}
 	}
 	publication := activatedPublication(state.candidate, candidateKey, now)
-	if err := updateActivationDocument(ctx, tx, db.RevisionsCollection, candidateKey, map[string]any{
+	if err := updateRevisionActivation(ctx, tx, candidateKey, map[string]any{
 		"status":      explorer.RevisionActive,
 		"activatedAt": now,
 		"failedAt":    nil,
@@ -247,9 +247,9 @@ func updateActiveExplorerDocument(ctx context.Context, tx store.RowQueryer, owne
 	return nil
 }
 
-func updateActivationDocument(ctx context.Context, tx store.RowQueryer, collection, key string, patch map[string]any) error {
+func updateRevisionActivation(ctx context.Context, tx store.RowQueryer, key string, patch map[string]any) error {
 	var updated bool
-	err := tx.QueryRows(ctx, activationUpdateAQL, 1, map[string]any{"@c": collection, "key": key, "patch": patch}, func(map[string]any) error {
+	err := tx.QueryRows(ctx, activationUpdateAQL, 1, map[string]any{"@c": db.RevisionsCollection, "key": key, "patch": patch}, func(map[string]any) error {
 		if updated {
 			return fmt.Errorf("activation update returned more than one document")
 		}

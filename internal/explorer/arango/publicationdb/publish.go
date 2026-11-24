@@ -159,7 +159,7 @@ func prepareProjectConfigCommit(txCtx context.Context, tx store.RowQueryer, requ
 				return err
 			}
 			if plan.reactivate {
-				if err := updateActivationDocument(txCtx, tx, db.RevisionsCollection, revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
+				if err := updateRevisionActivation(txCtx, tx, revision.ID, map[string]any{"status": explorer.RevisionReady}); err != nil {
 					return fmt.Errorf("prepare superseded project config revision %q for reactivation: %w", revision.ID, err)
 				}
 			}
@@ -776,7 +776,7 @@ func retireProjectConfigOwner(ctx context.Context, tx store.RowQueryer, project,
 }
 
 func supersedeProjectConfigRevision(ctx context.Context, tx store.RowQueryer, id string) error {
-	return updateActivationDocument(ctx, tx, db.RevisionsCollection, id, map[string]any{"status": explorer.RevisionSuperseded})
+	return updateRevisionActivation(ctx, tx, id, map[string]any{"status": explorer.RevisionSuperseded})
 }
 
 func uniqueStrings(values []string) []string {
