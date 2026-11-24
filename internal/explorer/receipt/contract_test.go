@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -227,8 +228,9 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		t.Fatalf("validate typed construction workspace: %v", err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  recipetest.Registry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		GroupRowsCollections: explorerdb.GroupRowsCollections(),
+		Registry:             recipetest.Registry{},
+		QueryRows:            func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +287,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		t.Fatalf("filter stage descriptor = %#v", stages[1])
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: snapshot.Identity.Generation,
+		Project: "project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a", DatasetGeneration: snapshot.Identity.Generation,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: request.SelectionMembersCollection,
 	}
 	if _, err := CompileValidatedResolution(context.Background(), recipeEngine, receipt, bindings); err != nil {
@@ -1383,7 +1385,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 		}},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a",
+		Project: "project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a", DatasetGeneration: "generation-a",
 		AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	compiled, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, bindings)

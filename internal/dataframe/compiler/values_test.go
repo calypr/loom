@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -160,7 +161,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	insert("fhir_edge", edges...)
 
 	bindings := recipe.RuntimeBindings{
-		Project: resourceProject, SelectionProject: project, DatasetGeneration: generation,
+		Project: resourceProject, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	groupRows := func(after string) *recipe.GroupRows {
@@ -429,7 +430,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: recipe.ConstructionRowValueAll}, {ColumnID: "gender", Policy: recipe.ConstructionRowValueOne}, {ColumnID: "identifiers", Policy: recipe.ConstructionRowValueAll}}},
 		Fields: []recipe.Field{{Name: "ids", ColumnID: "ids", Expr: recipe.Expression{Select: "root.id"}}, {Name: "gender", ColumnID: "gender", Expr: recipe.Expression{Select: "root.gender"}}, {Name: "identifiers", ColumnID: "identifiers", Expr: recipe.Expression{Select: "root.identifier[].value"}}},
 	}
-	bindings := recipe.RuntimeBindings{Project: resourceProject, SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
+	bindings := recipe.RuntimeBindings{Project: resourceProject, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	compiled := lowerConstructionOutput(t, output, bindings)
 	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {

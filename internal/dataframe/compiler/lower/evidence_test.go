@@ -1,6 +1,7 @@
 package lower
 
 import (
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"testing"
 
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
@@ -30,7 +31,7 @@ func TestCompiledWholeRelationEvidenceCoversCompleteTypedSources(t *testing.T) {
 	for _, test := range outputs {
 		t.Run(test.name, func(t *testing.T) {
 			output := compileWholeRelationTestOutput(t, test.output, recipe.RuntimeBindings{
-				Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+				Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 				AuthScopeMode: authscope.ReadScopeUnrestricted,
 			})
 			if output.ScopeEvidence == nil || output.ScopeEvidenceIdentity == nil {
@@ -72,7 +73,7 @@ func TestCompiledWholeRelationEvidenceCoversCompleteTypedSources(t *testing.T) {
 
 func TestWholeRelationEvidenceRejectsUnscopedOrNarrowedGroupedPlans(t *testing.T) {
 	compiled := compileWholeRelationTestOutput(t, wholeRelationGroupOutput(), recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	})
 	if compiled.ScopeEvidence == nil || compiled.ScopeEvidenceIdentity == nil {
 		t.Fatal("compiled Group has no whole-relation scope evidence")
@@ -106,7 +107,7 @@ func TestWholeRelationEvidenceRejectsUnscopedOrNarrowedGroupedPlans(t *testing.T
 	}
 
 	cohort := compileWholeRelationTestOutput(t, wholeRelationCohortOutput(), recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	})
 	cohortPlan := ir.ClonePhysicalPlan(cohort.Plan)
 	var cohortRows *ir.PhysicalGroupRows
@@ -125,7 +126,7 @@ func TestWholeRelationEvidenceRejectsUnscopedOrNarrowedGroupedPlans(t *testing.T
 	}
 
 	coded := compileWholeRelationTestOutput(t, codedGroupOutput("Observation", "component[].code.coding[]", recipe.ConstructionGroupMissingKeyGroup), recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	})
 	codedPlan := ir.ClonePhysicalPlan(coded.Plan)
 	codedPlan.BindVars[codedPlan.StageSequence.Stages[0].CodedGroup.RootCollectionBindKey] = "Procedure"

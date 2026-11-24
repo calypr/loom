@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -140,7 +141,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)

@@ -288,6 +288,7 @@ func compileRecipeOutput(output recipeplan.OutputPlan, bindings recipe.RuntimeBi
 		AuthScopeMode:              bindings.AuthScopeMode,
 		SelectionProject:           bindings.SelectionProject,
 		SelectionMembersCollection: bindings.SelectionMembersCollection,
+		GroupRowsCollections:       bindings.GroupRowsCollections,
 	}
 	if err := validateSemanticOutputNames(output); err != nil {
 		return CompiledRecipeOutput{}, err

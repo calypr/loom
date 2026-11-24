@@ -1,6 +1,7 @@
 package lower
 
 import (
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"slices"
 	"strings"
@@ -19,7 +20,7 @@ func TestCompileExplicitGroupRowsUsesPinnedRevisionTerminal(t *testing.T) {
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "group rows", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"}}},
 	}, recipe.RuntimeBindings{
-		Project: "loom_dev_verify_example-project-1", SelectionProject: "loom_dev_verify_example/project-1", DatasetGeneration: "generation-1",
+		Project: "loom_dev_verify_example-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "loom_dev_verify_example/project-1", DatasetGeneration: "generation-1",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/loom_dev_verify_example/projects/allowed"},
 	})
 	if err != nil {
@@ -86,7 +87,7 @@ func TestCompileExplicitGroupRowsRejectsMismatchedProjectAliases(t *testing.T) {
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "reject mismatched cohort project", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"}}},
-	}, recipe.RuntimeBindings{Project: "fixture_other-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_other-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestCompileExplicitGroupRowsRecodeEachMemberBeforeReduction(t *testing.T) {
 				RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "gender-id", Policy: recipe.ConstructionRowValueOne}},
 			},
 		}},
-	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func TestSourceOnlyGroupRowsEmitsRootContributorsForRelatedAppend(t *testing.T) 
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "group rows related append", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"}}},
-	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +235,7 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 		},
 		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"},
 	}
-	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort related count", TranslationVersion: "test", Outputs: []recipe.Output{output}}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort related count", TranslationVersion: "test", Outputs: []recipe.Output{output}}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +420,7 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 		variantPlan, buildErr := recipeplan.BuildRecipePlan(recipe.Bundle{
 			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort related " + strings.ToLower(test.form+string(test.rowValuePolicy)), TranslationVersion: "test",
 			Outputs: []recipe.Output{variant},
-		}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+		}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 		if buildErr != nil {
 			t.Fatalf("build %s related cohort plan: %v", test.form+string(test.rowValuePolicy), buildErr)
 		}
@@ -501,7 +502,7 @@ func TestCohortMissingMembersFollowPreCohortFilterBoundary(t *testing.T) {
 		return cohort.PreserveMissingMembers, rendered.Query
 	}
 
-	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"}
+	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"}
 	base := recipe.Output{
 		Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups",
 		Fields:       []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
@@ -569,7 +570,7 @@ func TestCohortMissingMembersTrackPreAnchorDropStages(t *testing.T) {
 			GroupRows:    &recipe.GroupRows{RevisionID: "grouprev_boundary", UnassignedMemberPolicy: "EXCLUDE", AfterStepID: step.ID},
 			Construction: &recipe.Construction{Version: 1, SourceColumns: sourceColumns, Steps: []recipe.ConstructionStep{step}},
 		}
-		bindings := recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"}
+		bindings := recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"}
 		plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output},
 		}, bindings)
@@ -700,7 +701,7 @@ func TestExplicitGroupRowsMemberValuesRetainTypedStageCapabilities(t *testing.T)
 				RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "specimen_id", Policy: recipe.ConstructionRowValueAll}},
 			},
 		}},
-	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +765,7 @@ func TestCompileExplicitGroupRowsWithSourceOnlyConstructionMetadata(t *testing.T
 				RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "gender", Policy: recipe.ConstructionRowValueOne}},
 			},
 		}},
-	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatalf("source-only projection metadata should not block explicit groups: %v", err)
 	}
@@ -832,7 +833,7 @@ func TestCompileCohortAtPersistedConstructionBoundary(t *testing.T) {
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort composition", TranslationVersion: "test",
 		Outputs: []recipe.Output{output},
-	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +915,7 @@ func TestCohortAfterGroupUsesRetainedRootContributorSet(t *testing.T) {
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped cohort", TranslationVersion: "test",
 		Outputs: []recipe.Output{output},
-	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "fixture_program-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program-project-1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

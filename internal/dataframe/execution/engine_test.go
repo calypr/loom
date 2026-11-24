@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"reflect"
 	"strings"
@@ -49,7 +50,7 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bindings := recipe.RuntimeBindings{Project: "group-preview-project", SelectionProject: "group-preview-project", DatasetGeneration: "group-preview-generation"}
+	bindings := recipe.RuntimeBindings{Project: "group-preview-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "group-preview-project", DatasetGeneration: "group-preview-generation"}
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit_group_scope", TranslationVersion: "test",
 		Outputs: []recipe.Output{{
@@ -91,7 +92,7 @@ func TestCompiledArtifactScopeAcceptsAuthorizedProjectAliasesAndRejectsScopeDrif
 		t.Fatal(err)
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "loom_dev_verify_example-project-1", SelectionProject: "loom_dev_verify_example/project-1",
+		Project: "loom_dev_verify_example-project-1", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "loom_dev_verify_example/project-1",
 		DatasetGeneration: "generation-1", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	bundles := []recipe.Bundle{
@@ -222,7 +223,7 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 				t.Fatal(err)
 			}
 			bindings := recipe.RuntimeBindings{
-				Project: "cohort-preview-project", SelectionProject: "cohort-preview-project",
+				Project: "cohort-preview-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "cohort-preview-project",
 				DatasetGeneration: "cohort-preview-generation", PreviewLimit: 25, IncludeSourceIdentity: true,
 			}
 			resolved, err := engine.CompileResolvedBundle(context.Background(), testCohortCompositionBundle(), bindings)
@@ -1416,7 +1417,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 		t.Fatal(err)
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeSourceIdentity: true, PreviewLimit: 25,
 	}
 	resolved, err := engine.CompileResolvedBundle(ctx, bundle, bindings)

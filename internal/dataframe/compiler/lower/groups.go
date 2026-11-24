@@ -31,19 +31,17 @@ func buildGroupRowsPhysicalPlan(output recipeplan.OutputPlan, context recipeplan
 	if policy != "ERROR" && policy != "EXCLUDE" && policy != "GROUP_AS_UNASSIGNED" {
 		return ir.PhysicalPlan{}, fmt.Errorf("unsupported unassigned member policy %q", policy)
 	}
-	const (
-		revisionCollection   = "loom_explorer_explicit_group_revisions"
-		selectionCollection  = "loom_explorer_selections"
-		definitionCollection = "loom_explorer_explicit_group_definitions"
-		membershipCollection = "loom_explorer_explicit_group_memberships"
-		selectionMembers     = "loom_explorer_selection_members"
-	)
+	collections := context.GroupRowsCollections
+	if collections.Revisions == "" || collections.Selections == "" || collections.Definitions == "" ||
+		collections.Memberships == "" || collections.SelectionMembers == "" {
+		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires explicit-group collections")
+	}
 	binds := map[string]any{
-		"group_rows_revision_collection":          revisionCollection,
-		"group_rows_selection_collection":         selectionCollection,
-		"group_rows_definition_collection":        definitionCollection,
-		"group_rows_membership_collection":        membershipCollection,
-		"group_rows_selection_members_collection": selectionMembers,
+		"group_rows_revision_collection":          collections.Revisions,
+		"group_rows_selection_collection":         collections.Selections,
+		"group_rows_definition_collection":        collections.Definitions,
+		"group_rows_membership_collection":        collections.Memberships,
+		"group_rows_selection_members_collection": collections.SelectionMembers,
 		"group_rows_resource_collection":          output.RootResourceType,
 		"group_rows_revision_id":                  groups.RevisionID,
 		"project":                                 selectionProject,

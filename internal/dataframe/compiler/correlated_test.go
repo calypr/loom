@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"math"
 	"os"
 	"reflect"
@@ -270,7 +271,7 @@ func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]mo
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit groups", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "Grouped", RootResourceType: "Observation", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: revisionID, UnassignedMemberPolicy: policy}}},
-	}, recipe.RuntimeBindings{Project: project, SelectionProject: project, DatasetGeneration: generation})
+	}, recipe.RuntimeBindings{Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation})
 	if err != nil {
 		return nil, err
 	}

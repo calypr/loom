@@ -1,6 +1,9 @@
 package db
 
-import "github.com/calypr/loom/internal/explorer/selection"
+import (
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/selection"
+)
 
 const (
 	ExplorersCollection                = "loom_explorers"
@@ -20,3 +23,13 @@ const (
 )
 
 const WorkspaceProjectionsCollection = "loom_explorer_workspace_projections"
+
+func GroupRowsCollections() recipe.GroupRowsCollections {
+	return recipe.GroupRowsCollections{
+		Revisions:        ExplicitGroupRevisionsCollection,
+		Selections:       SelectionsCollection,
+		Definitions:      ExplicitGroupDefinitionsCollection,
+		Memberships:      ExplicitGroupMembershipsCollection,
+		SelectionMembers: SelectionMembersCollection,
+	}
+}

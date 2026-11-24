@@ -2,6 +2,7 @@ package compilerfixtures
 
 import (
 	"context"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -105,6 +106,7 @@ func (compile OutputCompiler) CompileReshapeOracle(output recipe.Output, project
 	output = BindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-table-reshape-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	bindings.GroupRowsCollections = explorerdb.GroupRowsCollections()
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, model.CompiledQuery{}, err

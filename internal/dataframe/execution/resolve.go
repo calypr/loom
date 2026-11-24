@@ -40,7 +40,8 @@ type Config struct {
 	ScopeDigest                func(recipe.RuntimeBindings) string
 	BatchSize                  int
 
-	RootPageRows int
+	RootPageRows         int
+	GroupRowsCollections recipe.GroupRowsCollections
 }
 
 type Engine struct {
@@ -58,6 +59,7 @@ type Engine struct {
 	privateClickHouseArtifacts *chartifact.Manager
 	scopeDigest                func(recipe.RuntimeBindings) string
 	batchSize                  int
+	groupRowsCollections       recipe.GroupRowsCollections
 }
 
 type Resolved struct {
@@ -105,6 +107,7 @@ func New(cfg Config) (*Engine, error) {
 		withExecutionReadPins:      cfg.WithExecutionReadPins,
 		privateClickHouseArtifacts: cfg.PrivateClickHouseArtifacts,
 		scopeDigest:                cfg.ScopeDigest,
+		groupRowsCollections:       cfg.GroupRowsCollections,
 		streamExecutor:             streamExecutor{queryRows: cfg.QueryRows, batchSize: batch, rootPageRows: cfg.RootPageRows},
 		groupPreviewPlanner: groupPreviewPlanner{
 			previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
@@ -213,6 +216,9 @@ func (e *Engine) compileResolvedBundle(bundle recipe.Bundle, bindings recipe.Run
 		if err != nil {
 			return Resolved{}, fmt.Errorf("digest resolved bundle: %w", err)
 		}
+	}
+	if e.groupRowsCollections != (recipe.GroupRowsCollections{}) {
+		bindings.GroupRowsCollections = e.groupRowsCollections
 	}
 	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {

@@ -4,6 +4,14 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 )
 
+type GroupRowsCollections struct {
+	Revisions        string
+	Selections       string
+	Definitions      string
+	Memberships      string
+	SelectionMembers string
+}
+
 type RuntimeBindings struct {
 	Project string
 
@@ -15,6 +23,7 @@ type RuntimeBindings struct {
 	SelectionProject string
 
 	SelectionMembersCollection string
+	GroupRowsCollections       GroupRowsCollections `json:"-"`
 	PreviewLimit               int
 
 	AllowSampledAggregatePreview bool

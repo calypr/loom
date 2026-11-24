@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"reflect"
 	"sort"
@@ -209,7 +210,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: project, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: project, DatasetGeneration: generation,
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		AuthScopeMode:              authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 		IncludeRowIdentity: true,
@@ -588,7 +589,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 		Route:        []recipe.PopulationRouteStep{{ResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND"}},
 	}, "cohort_revision", "filtered")
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		SelectionMembersCollection: "loom_explorer_selection_members", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{

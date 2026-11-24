@@ -1,6 +1,7 @@
 package lower
 
 import (
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"testing"
 
@@ -105,7 +106,7 @@ func TestComposeClickHouseCombineRejectsGroupPrefix(t *testing.T) {
 
 func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.T) {
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
 		IncludeAuthResourcePath: true, SelectionMembersCollection: "loom_explorer_selection_members",
 	}
@@ -170,7 +171,7 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 
 func TestCohortRootCandidateScanKeepsFullInputAfterAggregatePrefix(t *testing.T) {
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: "loom_explorer_selection_members",
 	}
 	output := recipe.Output{
@@ -265,7 +266,7 @@ func TestComposedCohortGroupRowsNamespacePerMemberRecodeBinds(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation",
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: "loom_explorer_selection_members",
 	}
 	compiled := compileCompositePrefixTestOutput(t, output, bindings)
@@ -391,7 +392,7 @@ func compositeAppendTestPlan(stageID string) ir.PhysicalClickHouseCombine {
 
 func TestWorkspaceCombineScopeEvidenceComposesExactOutputAndPublishedOperands(t *testing.T) {
 	source := compileWholeRelationTestOutput(t, wholeRelationGroupOutput(), recipe.RuntimeBindings{
-		Project: "project", SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
+		Project: "project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	})
 	if source.ScopeEvidence == nil || source.ScopeEvidenceIdentity == nil {
 		t.Fatal("source output has no compiler-issued scope evidence")

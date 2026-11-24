@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"log/slog"
 	"time"
 
@@ -126,6 +127,7 @@ func wireDataframe(ctx context.Context, serverConfig Config, logger *slog.Logger
 		QueryRows:                  queries.QueryRows(),
 		ScopeDigest:                reciperuntime.ScopeDigest,
 		RootPageRows:               serverConfig.Server.RecipeQueryPageRows,
+		GroupRowsCollections:       explorerdb.GroupRowsCollections(),
 	})
 	if err != nil {
 		return dataframeComponents{}, fmt.Errorf("create dataframe recipe engine: %w", err)

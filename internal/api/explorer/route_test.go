@@ -24,6 +24,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -893,7 +894,8 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	var basePreviewColumns []string
 	var candidatePreviewColumns []string
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
+		GroupRowsCollections: explorerdb.GroupRowsCollections(),
+		Registry:             compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
 		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			queryCalls++
 			if _, grouped := bindVars["group_rows_revision_id"]; grouped {

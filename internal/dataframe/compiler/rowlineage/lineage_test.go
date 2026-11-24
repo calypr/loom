@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -231,7 +232,7 @@ func expandedCodingGroupFixtureLineageOutputWithAggregate(t *testing.T, aggregat
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "row-lineage-project", SelectionProject: "row-lineage-project",
+		Project: "row-lineage-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "row-lineage-project",
 		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "row-lineage-generation",
 	}
 	source := lowerConstructionOutput(t, output, bindings)
@@ -287,7 +288,7 @@ func routedAncestorCodingRowLineageOutput(t *testing.T) lower.CompiledRecipeOutp
 		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "row-lineage-project", SelectionProject: "row-lineage-project",
+		Project: "row-lineage-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "row-lineage-project",
 		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "row-lineage-generation",
 	}
 	source := lowerConstructionOutput(t, output, bindings)
@@ -398,7 +399,7 @@ func TestCompileStandaloneExplicitGroupRowLineageUsesPinnedBoundedMembers(t *tes
 	output := lowerConstructionOutput(t, recipe.Output{
 		Name: "NamedCohort", RootResourceType: "Observation", RowGrain: "groups",
 		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_row_lineage", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
-	}, recipe.RuntimeBindings{Project: "row-lineage-project", SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation"})
+	}, recipe.RuntimeBindings{Project: "row-lineage-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation"})
 	if capability := rowlineage.RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("standalone explicit GROUP_ROWS lineage capability = %#v", capability)
 	}
@@ -478,7 +479,7 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "row-lineage-project", SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+		Project: "row-lineage-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
@@ -752,7 +753,7 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		MemberCount: 2, ResourceType: "Observation",
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "lineage-project", SelectionProject: "lineage-selection-project",
+		Project: "lineage-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "lineage-selection-project",
 		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "lineage-generation",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/lineage"},
 	}
@@ -859,7 +860,7 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 		MemberCount: 2, ResourceType: "Observation",
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "group-pivot-project", SelectionProject: "group-pivot-selection-project",
+		Project: "group-pivot-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "group-pivot-selection-project",
 		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "group-pivot-generation",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/group-pivot"},
 	}

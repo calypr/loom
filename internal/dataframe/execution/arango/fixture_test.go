@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"net/http"
 	"net/url"
 	"os"
@@ -245,7 +246,7 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 	}
 	execute := func(t *testing.T, output recipe.Output) []map[string]any {
 		t.Helper()
-		query := compileGraphRowsFixtureWithBindings(t, output, recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"})
+		query := compileGraphRowsFixtureWithBindings(t, output, recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "graph-fixture"})
 		if qualified {
 			for _, name := range append(append([]string{}, query.PublicColumns...), query.PivotFields...) {
 				if strings.Contains(name, "logical_key") {
@@ -734,7 +735,7 @@ func TestGraphRowsIndependentFixturePlansCompile(t *testing.T) {
 
 func compileGraphRowsFixture(t *testing.T, output recipe.Output) model.CompiledQuery {
 	t.Helper()
-	bindings := recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: "fixture-v1", AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"}
+	bindings := recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: "fixture-v1", AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "graph-fixture"}
 	return compileGraphRowsFixtureWithBindings(t, output, bindings)
 }
 func compileGraphRowsFixtureWithBindings(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) model.CompiledQuery {

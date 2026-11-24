@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"strings"
 	"testing"
@@ -245,7 +246,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		},
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped cell trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	bindings := recipe.RuntimeBindings{Project: "trace-project", SelectionProject: "trace-project", DatasetGeneration: "generation-a"}
+	bindings := recipe.RuntimeBindings{Project: "trace-project", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "trace-project", DatasetGeneration: "generation-a"}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +419,7 @@ func compileComposedCohortOutput(t *testing.T, appendPivot bool) lower.CompiledR
 	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort identity mismatch", TranslationVersion: "test",
 		Outputs: []recipe.Output{output},
-	}, recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a"})
+	}, recipe.RuntimeBindings{Project: "project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatal(err)
 	}

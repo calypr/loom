@@ -1,6 +1,7 @@
 package lower
 
 import (
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"slices"
 	"strings"
 	"testing"
@@ -301,7 +302,7 @@ func compilePopulationRecipe(t *testing.T, output recipe.Output) (aql.RenderedPh
 		Outputs:             []recipe.Output{output},
 	}
 	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{
-		Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
+		Project: "fixture_program-project-a", GroupRowsCollections: explorerdb.GroupRowsCollections(), SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
 	})
 	if err != nil {
 		t.Fatal(err)
