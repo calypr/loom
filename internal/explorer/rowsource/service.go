@@ -54,22 +54,6 @@ func (s *Service) ConstructionHasUnpivotSourceInput(construction ws.Construction
 	return ConstructionHasUnpivotSourceInput(construction)
 }
 
-func DeriveSourceLogicalTypeIsNumeric(logicalType string) bool {
-	return deriveSourceLogicalTypeIsNumeric(logicalType)
-}
-
-func UnpivotSourceLogicalTypeIsTableScalar(logicalType string) bool {
-	return unpivotSourceLogicalTypeIsTableScalar(logicalType)
-}
-
-func UnpivotSourceLogicalTypeIsMeltEligible(logicalType string) bool {
-	return unpivotSourceLogicalTypeIsMeltEligible(logicalType)
-}
-
-func UnpivotMeltKindsSatisfiable(kinds []string) bool {
-	return unpivotMeltKindsSatisfiable(kinds)
-}
-
 func (s *Service) ConstructionDeriveSourceCapability(
 	ctx context.Context,
 	base Base,

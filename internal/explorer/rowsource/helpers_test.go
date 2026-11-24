@@ -8,39 +8,39 @@ import (
 
 func TestDeriveSourceLogicalTypeIsNumericAdmitsOnlyArithmeticKinds(t *testing.T) {
 	for _, want := range []string{"integer", "decimal", " INTEGER", "Decimal "} {
-		if !DeriveSourceLogicalTypeIsNumeric(want) {
-			t.Fatalf("DeriveSourceLogicalTypeIsNumeric(%q) = false, want true", want)
+		if !deriveSourceLogicalTypeIsNumeric(want) {
+			t.Fatalf("deriveSourceLogicalTypeIsNumeric(%q) = false, want true", want)
 		}
 	}
 	for _, refuse := range []string{"", "number", "boolean", "string", "code", "date", "uuid", "object", "quantity"} {
-		if DeriveSourceLogicalTypeIsNumeric(refuse) {
-			t.Fatalf("DeriveSourceLogicalTypeIsNumeric(%q) = true, want false", refuse)
+		if deriveSourceLogicalTypeIsNumeric(refuse) {
+			t.Fatalf("deriveSourceLogicalTypeIsNumeric(%q) = true, want false", refuse)
 		}
 	}
 }
 
 func TestUnpivotSourceLogicalTypeIsTableScalarAdmitsOnlyCompilerKinds(t *testing.T) {
 	for _, want := range []string{"string", "integer", "decimal", "boolean", "date", "date_time", "code", "uuid", " STRING", "Decimal ", "BOOLEAN", " Date "} {
-		if !UnpivotSourceLogicalTypeIsTableScalar(want) {
-			t.Fatalf("UnpivotSourceLogicalTypeIsTableScalar(%q) = false, want true", want)
+		if !unpivotSourceLogicalTypeIsTableScalar(want) {
+			t.Fatalf("unpivotSourceLogicalTypeIsTableScalar(%q) = false, want true", want)
 		}
 	}
 	for _, refuse := range []string{"", "number", "object", "datetime", "date-time", "quantity", "url", "null"} {
-		if UnpivotSourceLogicalTypeIsTableScalar(refuse) {
-			t.Fatalf("UnpivotSourceLogicalTypeIsTableScalar(%q) = true, want false", refuse)
+		if unpivotSourceLogicalTypeIsTableScalar(refuse) {
+			t.Fatalf("unpivotSourceLogicalTypeIsTableScalar(%q) = true, want false", refuse)
 		}
 	}
 }
 
 func TestUnpivotSourceMeltEligibilityExcludesDateFamily(t *testing.T) {
 	for _, want := range []string{"string", "integer", "decimal", "boolean", "code", "uuid", " STRING", "Decimal ", "BOOLEAN"} {
-		if !UnpivotSourceLogicalTypeIsMeltEligible(want) {
-			t.Fatalf("UnpivotSourceLogicalTypeIsMeltEligible(%q) = false, want true", want)
+		if !unpivotSourceLogicalTypeIsMeltEligible(want) {
+			t.Fatalf("unpivotSourceLogicalTypeIsMeltEligible(%q) = false, want true", want)
 		}
 	}
 	for _, refuse := range []string{"date", "date_time", " Date ", " DATE_TIME ", "date_time ", "", "number", "object", "datetime", "date-time", "quantity", "url", "null"} {
-		if UnpivotSourceLogicalTypeIsMeltEligible(refuse) {
-			t.Fatalf("UnpivotSourceLogicalTypeIsMeltEligible(%q) = true, want false", refuse)
+		if unpivotSourceLogicalTypeIsMeltEligible(refuse) {
+			t.Fatalf("unpivotSourceLogicalTypeIsMeltEligible(%q) = true, want false", refuse)
 		}
 	}
 }
@@ -71,21 +71,21 @@ func TestUnpivotSourceWhitelistIsTheCompilerDecision(t *testing.T) {
 		if ok != want.admitted || (ok && class != want.class) {
 			t.Fatalf("facade.TableReshapeScalarKind(%q) = (%q,%v), want (%q,%v)", kind, class, ok, want.class, want.admitted)
 		}
-		if got := UnpivotSourceLogicalTypeIsTableScalar(kind); got != want.admitted {
-			t.Fatalf("UnpivotSourceLogicalTypeIsTableScalar(%q) = %v, want %v (channel drifted from the compiler decision)", kind, got, want.admitted)
+		if got := unpivotSourceLogicalTypeIsTableScalar(kind); got != want.admitted {
+			t.Fatalf("unpivotSourceLogicalTypeIsTableScalar(%q) = %v, want %v (channel drifted from the compiler decision)", kind, got, want.admitted)
 		}
 	}
 }
 
 func TestUnpivotMeltKindsSatisfiableFollowsCompilerRule(t *testing.T) {
 	for _, ok := range [][]string{nil, {}, {"integer"}, {"decimal"}, {"integer", "decimal"}, {"decimal", "integer"}, {" string "}, {"boolean"}, {"BOOLEAN", "boolean"}, {"code", "uuid", "string"}, {"Code", " STRING"}} {
-		if !UnpivotMeltKindsSatisfiable(ok) {
-			t.Fatalf("UnpivotMeltKindsSatisfiable(%v) = false, want true", ok)
+		if !unpivotMeltKindsSatisfiable(ok) {
+			t.Fatalf("unpivotMeltKindsSatisfiable(%v) = false, want true", ok)
 		}
 	}
 	for _, refuse := range [][]string{{"string", "integer"}, {"string", "decimal"}, {"boolean", "string"}, {"boolean", "decimal"}, {"integer", "boolean"}, {"integer", "date"}, {"decimal", "date_time"}, {"boolean", "code"}, {"string", "integer", "uuid"}, {"date"}, {"date_time"}, {"date", "code", "uuid", "date_time", "string"}, {" Date ", "STRING"}, {"date", "date_time"}, {"string", "date"}} {
-		if UnpivotMeltKindsSatisfiable(refuse) {
-			t.Fatalf("UnpivotMeltKindsSatisfiable(%v) = true, want false", refuse)
+		if unpivotMeltKindsSatisfiable(refuse) {
+			t.Fatalf("unpivotMeltKindsSatisfiable(%v) = true, want false", refuse)
 		}
 	}
 }

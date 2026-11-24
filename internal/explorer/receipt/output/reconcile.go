@@ -103,10 +103,6 @@ type ConstructedOutputQuality struct {
 
 const TableShapeMLReadinessUnassessed = "TABLE_SHAPE_ML_READINESS_UNASSESSED"
 
-func ReconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult, resolved dataframeexecution.Resolved) (explorercompilation.WorkspaceResult, error) {
-	return ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
-}
-
 func ReconcileFinalOutputMetadataWithCombineInputs(
 	translated explorercompilation.WorkspaceResult,
 	resolved dataframeexecution.Resolved,

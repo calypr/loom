@@ -27,7 +27,7 @@ import (
 
 func TestReconcileFinalOutputMetadataUsesCompilerSchemaTypes(t *testing.T) {
 	translated, resolved := reconciliationFixture()
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestReconcileFinalOutputMetadataPreservesAuthoredOrderWithoutChangingExecut
 		}
 	}
 
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestReconcileFinalOutputMetadataPreservesAuthoredOrderWithoutChangingExecut
 func TestReconcileFinalOutputMetadataRejectsMissingOutputIdentity(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	resolved.Compiled.Outputs[0].Name = ""
-	if _, err := ReconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "identity") {
+	if _, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{}); err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("missing compiler output identity error = %v", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestReconcileFinalOutputMetadataRejectsMissingConstructedDependency(t *test
 	translated, resolved := reconciliationFixture()
 	translated.Workspace.Documents[0].Construction.Steps[0].Operation.Derive.Left.ColumnID = "missing"
 	var missing *ConstructionInputMissingError
-	if _, err := ReconcileFinalOutputMetadata(translated, resolved); err == nil || !errors.As(err, &missing) || missing.ColumnID != "missing" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
+	if _, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{}); err == nil || !errors.As(err, &missing) || missing.ColumnID != "missing" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
 		t.Fatalf("missing constructed prior-stage input error = %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestReconcileFinalOutputMetadataRejectsConstructedDependencyCycle(t *testin
 	translated.Workspace.Documents[0].Construction.Steps[0].Operation.Derive.Left.ColumnID = "scaled_score"
 
 	var missing *ConstructionInputMissingError
-	if _, err := ReconcileFinalOutputMetadata(translated, resolved); err == nil || !errors.As(err, &missing) || missing.ColumnID != "scaled_score" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
+	if _, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{}); err == nil || !errors.As(err, &missing) || missing.ColumnID != "scaled_score" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
 		t.Fatalf("constructed self-dependency error = %v", err)
 	}
 }
@@ -147,7 +147,7 @@ func TestReconcileFinalOutputMetadataRejectsConstructedDependencyCycle(t *testin
 func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	translated.EmittedColumns[2].EmissionID = constructedEmissionID("scale_score", "scaled_score")
-	if _, err := ReconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "duplicates translated emission identity") {
+	if _, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{}); err == nil || !strings.Contains(err.Error(), "duplicates translated emission identity") {
 		t.Fatalf("constructed emission collision error = %v", err)
 	}
 }
@@ -158,7 +158,7 @@ func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testin
 	receipttest.AppendDeriveFixture(&document, "ordered_inputs", ws.StageColumn{ID: "ordered_result", Name: "ordered_result", Label: "Ordered result", Type: "decimal"}, ws.ConstructionDerivedSubtract, receipttest.ColumnOperand("score"), receipttest.ColumnOperand("patient_count"), ws.ConstructionMissingInputError)
 	workspace := receipttest.StageWorkspace(document)
 
-	_, columns, err := authoredOutputColumns(workspace)
+	_, columns, err := AuthoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 				}}},
 			}
 			authored := map[string]AuthoredOutputColumn{}
-			if err := authoredConstructionOutputs(document, authored); err != nil {
+			if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{}); err != nil {
 				t.Fatal(err)
 			}
 			profile, err := constructedOutputProfileFor(authored[columnName].Quality, facade.CompiledOutputColumn{
@@ -242,7 +242,7 @@ func TestCodedPivotOutputKeepsSourceProvenanceAndSelectedCategoryLoss(t *testing
 		}}},
 	}
 	authored := map[string]AuthoredOutputColumn{}
-	if err := authoredConstructionOutputs(document, authored); err != nil {
+	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	got := authored["specimen_type"]
@@ -269,7 +269,7 @@ func TestPivotPromotesPrivateRowKeyIntoAuthoredOutput(t *testing.T) {
 		}},
 	}}
 	authored := make(map[string]AuthoredOutputColumn)
-	if err := authoredConstructionOutputs(document, authored); err != nil {
+	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	key, found := authored["specimen_reference"]
@@ -288,7 +288,7 @@ func TestPivotPromotesPrivateRowKeyIntoAuthoredOutput(t *testing.T) {
 		Outputs: []ws.StageColumn{{ID: "specimen_ref", Name: "__pivot_source_reference", Label: "Observation.specimen.reference", Type: "string"}},
 	}}, document.Construction.Steps...)
 	authored = make(map[string]AuthoredOutputColumn)
-	if err := authoredConstructionOutputs(document, authored); err != nil {
+	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	key, found = authored["specimen_reference"]
@@ -350,7 +350,7 @@ func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T
 			},
 		}},
 	}
-	_, columns, err := authoredOutputColumns(ws.Workspace{Documents: []ws.Document{document}})
+	_, columns, err := AuthoredOutputColumnsWithCombineInputs(ws.Workspace{Documents: []ws.Document{document}}, nil, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestReconcileFinalOutputMetadataResolvesGroupedSameNameKeyLineage(t *testin
 		}}},
 	}
 
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatalf("reconcile a grouped key that retains its source name: %v", err)
 	}
@@ -503,7 +503,7 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 		}}},
 	}
 
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatalf("reconcile scalar source GROUP outputs: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughEx
 		}}}},
 	}
 
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatalf("reconcile Group key inherited from explicit groups through Expand: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 		}}},
 	}
 
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatalf("reconcile explicit group row outputs: %v", err)
 	}
@@ -732,7 +732,7 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 		memberResolved.Compiled.Outputs[0].OutputSchema = append(append([]facade.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), facade.CompiledOutputColumn{
 			Name: source.PublicColumn, Kind: source.LogicalType, Cardinality: source.Cardinality, Nullable: source.Nullable,
 		})
-		got, err := ReconcileFinalOutputMetadata(withMember, memberResolved)
+		got, err := ReconcileFinalOutputMetadataWithCombineInputs(withMember, memberResolved, nil, capability.Snapshot{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -749,7 +749,7 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 	})
 	resolvedWithUnknownGroupField := resolved
 	resolvedWithUnknownGroupField.Compiled.Outputs = []facade.CompiledRecipeOutput{compiledOutput}
-	if _, err := ReconcileFinalOutputMetadata(translated, resolvedWithUnknownGroupField); err == nil || !strings.Contains(err.Error(), "no translated emission or authored table-shape identity") {
+	if _, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolvedWithUnknownGroupField, nil, capability.Snapshot{}); err == nil || !strings.Contains(err.Error(), "no translated emission or authored table-shape identity") {
 		t.Fatalf("unmapped compiler group output error = %v", err)
 	}
 }
@@ -772,7 +772,7 @@ func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T
 			Outputs: []ws.StageColumn{patient, status},
 		}}},
 	}
-	_, columns, err := authoredOutputColumns(ws.Workspace{Documents: []ws.Document{document}})
+	_, columns, err := AuthoredOutputColumnsWithCombineInputs(ws.Workspace{Documents: []ws.Document{document}}, nil, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -830,7 +830,7 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 		{Name: "pivoted", OutputSchema: []facade.CompiledOutputColumn{{Name: "patient_id", Kind: "string", Cardinality: "required_one"}, {Name: "systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}, {Name: "adjusted_systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
 		{Name: "unpivoted", OutputSchema: []facade.CompiledOutputColumn{{Name: "measure_name", Kind: "string", Cardinality: "required_one"}, {Name: "measure_value", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
 	}}}
-	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
+	reconciled, err := ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}

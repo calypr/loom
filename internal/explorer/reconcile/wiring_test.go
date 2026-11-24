@@ -22,17 +22,6 @@ func (c *countingFSReconciler) Reconcile(context.Context, time.Time, int) (int, 
 	return 0, c.err
 }
 
-func TestRunPrivateArtifactReconcilerUntypedNilReturnsCleanly(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("untyped-nil manager must be a clean no-op, got panic: %v", r)
-		}
-	}()
-	ticks := make(chan time.Time, 1)
-	ticks <- time.Now()
-	runPrivateArtifactReconciler(context.Background(), nil, ticks, slog.New(slog.DiscardHandler))
-}
-
 func TestStartArtifactFSReconcilerUntypedNilReturnsClosedChannel(t *testing.T) {
 	done := StartArtifactFSReconciler(context.Background(), nil, slog.New(slog.DiscardHandler))
 	select {

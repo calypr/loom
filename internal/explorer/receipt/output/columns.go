@@ -125,10 +125,6 @@ func compiledUnpivotSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
-func authoredOutputColumns(workspace ws.Workspace) (map[string]ws.Document, map[string]map[string]AuthoredOutputColumn, error) {
-	return AuthoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
-}
-
 func AuthoredOutputColumnsWithCombineInputs(
 	workspace ws.Workspace,
 	compiledOutputs map[string]facade.CompiledRecipeOutput,
@@ -168,10 +164,6 @@ func AuthoredOutputColumnsWithCombineInputs(
 		}
 	}
 	return documents, columns, nil
-}
-
-func authoredConstructionOutputs(document ws.Document, authored map[string]AuthoredOutputColumn) error {
-	return AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{})
 }
 
 func AuthoredConstructionOutputsWithCombineInputs(

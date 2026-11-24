@@ -51,13 +51,3 @@ func startTickerReconciler(ctx context.Context, sweep func(context.Context) erro
 	}()
 	return done
 }
-
-func runPrivateArtifactReconciler(ctx context.Context, manager privateArtifactReconcileTarget, ticks <-chan time.Time, logger *slog.Logger) {
-	if manager == nil {
-		return
-	}
-	sweep := func(sweepCtx context.Context) error {
-		return manager.Reconcile(sweepCtx, time.Now().UTC(), privateArtifactReconcileLimit)
-	}
-	Loop(ctx, sweep, ticks, logger, "private ClickHouse artifact")
-}
