@@ -23,34 +23,48 @@ func ScopeDigest(bindings recipe.RuntimeBindings) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func PublishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, receiptID string, sourceRows map[string]*publication.SourceRowMetadata, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) (publication.BundleIdentity, error) {
-	streams, err := recipeEngine.Streams(ctx, full)
+type PublishRequest struct {
+	Engine                 *dataframeexecution.Engine
+	Target                 publication.Target
+	Name                   string
+	Bindings               recipe.RuntimeBindings
+	Resolved               dataframeexecution.Resolved
+	ReceiptID              string
+	SourceRows             map[string]*publication.SourceRowMetadata
+	BatchRows              int
+	BatchBytes             int
+	QualityMaxRows         int64
+	QualityMaxDistinctKeys int64
+}
+
+func PublishResolvedRecipe(ctx context.Context, request PublishRequest) (publication.BundleIdentity, error) {
+	streams, err := request.Engine.Streams(ctx, request.Resolved)
 	if err != nil {
 		return publication.BundleIdentity{}, err
 	}
 	identity := publication.BundleIdentity{
-		ReceiptID: receiptID,
-		Name:      name, TranslationVersion: full.Semantic.SemanticPlan.TranslationVersion,
-		OutputName: incrementalPublicationOutput(bindings, streams),
-		Project:    bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
-		RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest,
-		ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v2",
-		AuthScopeMode:     string(bindings.AuthScopeMode),
-		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		ReceiptID: request.ReceiptID,
+		Name:      request.Name, TranslationVersion: request.Resolved.Semantic.SemanticPlan.TranslationVersion,
+		OutputName: incrementalPublicationOutput(request.Bindings, streams),
+		Project:    request.Bindings.Project, DatasetGeneration: request.Bindings.DatasetGeneration,
+		RecipeDigest: request.Resolved.StoredRecipeDigest, SchemaDigest: request.Resolved.ResolvedSchemaDigest,
+		ScopeDigest: request.Resolved.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v2",
+		AuthScopeMode:     string(request.Bindings.AuthScopeMode),
+		AuthResourcePaths: append([]string(nil), request.Bindings.AuthResourcePaths...),
 	}
 	streamInputs := make([]publication.OutputStream, 0, len(streams))
 	for _, stream := range streams {
 		stream := stream
-		compiledOutput, ok := recipeCompiledOutput(full, stream.Name)
+		compiledOutput, ok := recipeCompiledOutput(request.Resolved, stream.Name)
 		if !ok {
 			return publication.BundleIdentity{}, fmt.Errorf("compiled recipe output %q is missing", stream.Name)
 		}
-		columns := PublicationColumns(full, stream.Name)
+		columns := PublicationColumns(request.Resolved, stream.Name)
 		rootResourceType := compiledOutput.RootResourceType
 		exactRootColumns := compiledOutput.RootColumnNaming == recipe.RootColumnNamingExact
 		streamInputs = append(streamInputs, publication.OutputStream{
 			Name: stream.Name, Columns: columns,
-			SourceRow: sourceRows[stream.Name],
+			SourceRow: request.SourceRows[stream.Name],
 			Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
 				_, err := stream.Stream(streamCtx, func(row map[string]any) error {
 					if err := canonicalizeGroupPublicationIdentity(compiledOutput, row); err != nil {
@@ -70,20 +84,20 @@ func PublishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution
 		})
 	}
 	publicationIdentity := publication.PublicationIdentity{
-		ReceiptID: receiptID,
+		ReceiptID: request.ReceiptID,
 		Name:      identity.Name, TranslationVersion: identity.TranslationVersion,
 		OutputName: identity.OutputName,
 		Project:    identity.Project, DatasetGeneration: identity.DatasetGeneration,
 		RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest,
 		ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
 		AuthScopeMode:     identity.AuthScopeMode,
-		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		AuthResourcePaths: append([]string(nil), request.Bindings.AuthResourcePaths...),
 	}
-	_, err = publication.Publish(ctx, target, publicationIdentity, streamInputs, publication.Limits{
-		BatchRows: batchRows, BatchBytes: batchBytes,
+	_, err = publication.Publish(ctx, request.Target, publicationIdentity, streamInputs, publication.Limits{
+		BatchRows: request.BatchRows, BatchBytes: request.BatchBytes,
 		Quality: publication.QualityPolicy{
-			Version: publication.DefaultQualityPolicyVersion, MaxRows: qualityMaxRows,
-			MaxDistinctKeys: qualityMaxDistinctKeys, RequireUniqueIdentity: true,
+			Version: publication.DefaultQualityPolicyVersion, MaxRows: request.QualityMaxRows,
+			MaxDistinctKeys: request.QualityMaxDistinctKeys, RequireUniqueIdentity: true,
 		},
 	})
 	return identity, err

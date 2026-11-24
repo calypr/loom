@@ -81,11 +81,12 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 	var identity publication.BundleIdentity
 	resolved, err := config.RecipeEngine.Materialize(ctx, config.RecipeName, bindings, func(publishCtx context.Context, full execution.Resolved) error {
 		var publishErr error
-		identity, publishErr = reciperuntime.PublishResolvedRecipe(
-			publishCtx, config.RecipeEngine, config.PublicationTarget, config.RecipeName, bindings, full,
-			operationID, nil, config.BatchRows, config.BatchBytes,
-			config.QualityMaxRows, config.QualityMaxDistinctKeys,
-		)
+		identity, publishErr = reciperuntime.PublishResolvedRecipe(publishCtx, reciperuntime.PublishRequest{
+			Engine: config.RecipeEngine, Target: config.PublicationTarget,
+			Name: config.RecipeName, Bindings: bindings, Resolved: full, ReceiptID: operationID,
+			BatchRows: config.BatchRows, BatchBytes: config.BatchBytes,
+			QualityMaxRows: config.QualityMaxRows, QualityMaxDistinctKeys: config.QualityMaxDistinctKeys,
+		})
 		return publishErr
 	})
 	if err != nil {

@@ -47,7 +47,12 @@ func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication
 				return validationErr
 			}
 			var publishErr error
-			identity, publishErr = reciperuntime.PublishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, receipt.ID, sourceRows, batchRows, batchBytes, qualityMaxRows, qualityMaxDistinctKeys)
+			identity, publishErr = reciperuntime.PublishResolvedRecipe(run, reciperuntime.PublishRequest{
+				Engine: recipeEngine, Target: target, Name: receipt.Bundle.Name,
+				Bindings: bindings, Resolved: full, ReceiptID: receipt.ID, SourceRows: sourceRows,
+				BatchRows: batchRows, BatchBytes: batchBytes,
+				QualityMaxRows: qualityMaxRows, QualityMaxDistinctKeys: qualityMaxDistinctKeys,
+			})
 			return publishErr
 		})
 		if err != nil {
