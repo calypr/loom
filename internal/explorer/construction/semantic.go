@@ -40,7 +40,7 @@ func semanticGroupFamilyReady(family semantic.Family) bool {
 		family.SchemaVersion <= 0 || family.Population <= 0 || family.Completeness != semantic.CompletenessComplete || family.Status != "SUPPORTED" {
 		return false
 	}
-	plan := semanticauthoring.ResolveSemanticSelectionPlan(semanticInventoryEntryForFamily(family).Observation)
+	plan := semanticauthoring.ResolveSemanticSelectionPlan(semantic.EntryForFamily(family).Observation)
 	return plan.Readiness.Addable() && plan.Source != nil && plan.Source.Lookup != nil && plan.Source.Lookup.Binding != nil && plan.Source.Lookup.Key != nil
 }
 
@@ -96,15 +96,6 @@ func constructionGroupSemanticBinding(family semantic.Family, codingPath string)
 	}
 }
 
-func findSemanticOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
-}
-
 func (s *Service) constructionSemanticGroupChoices(
 	ctx context.Context,
 	base Base,
@@ -155,8 +146,8 @@ func (s *Service) constructionSemanticGroupChoices(
 			if !ok || !semanticGroupFamilyReady(family) {
 				continue
 			}
-			entry := semanticInventoryEntryForFamily(family)
-			candidate, ok := semanticConstructionCandidate(base.Snapshot, entry.Observation)
+			entry := semantic.EntryForFamily(family)
+			candidate, ok := capability.SemanticConstructionCandidate(base.Snapshot, entry.Observation)
 			if !ok {
 				continue
 			}
@@ -298,7 +289,7 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 	if !ok || codingPath != strings.TrimPrefix(family.Source.Path, base.Document.RootResourceType+".") {
 		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected semantic family no longer maps to a generated root Coding path", nil, nil)
 	}
-	candidate, ok := semanticConstructionCandidate(base.Snapshot, semanticInventoryEntryForFamily(family).Observation)
+	candidate, ok := capability.SemanticConstructionCandidate(base.Snapshot, semantic.EntryForFamily(family).Observation)
 	if !ok || candidate.ID != source.CandidateID || candidate.NodeID != source.NodeID || candidate.FieldPath != source.FieldPath {
 		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the semantic family no longer has its exact compiler-proved field", nil, nil)
 	}
@@ -310,7 +301,7 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 	if identity.SemanticContextToken != contextToken || identity.BuildID != buildID {
 		return ws.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, nil)
 	}
-	entry := semanticInventoryEntryForFamily(family)
+	entry := semantic.EntryForFamily(family)
 	expected, err := semanticCategoryConstructionChoiceForRoute(base.Snapshot, contextToken, buildID, nil, family, candidate)
 	if err == nil {
 		semanticSource, sourceOK := expected.Source.(capability.SemanticBindingChoiceSource)

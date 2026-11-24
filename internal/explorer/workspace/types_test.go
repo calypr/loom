@@ -569,3 +569,18 @@ func TestMigrateStoredWorkspaceRecognizesMixedNilStepDigest(t *testing.T) {
 		t.Fatalf("original mixed-null canonical digest %s absent from accepted %v; nil lists=%d", want, migrated.AcceptedOriginalDigests, migrated.OriginalNilConstructionStepLists)
 	}
 }
+
+func TestFindOutputDocumentReturnsFirstMatchAndNilWhenMissing(t *testing.T) {
+	workspace := Workspace{Documents: []Document{
+		{Output: Output{ID: "patients", Title: "first"}},
+		{Output: Output{ID: "patients", Title: "second"}},
+	}}
+
+	if got := workspace.FindOutputDocument("missing"); got != nil {
+		t.Fatalf("missing output = %#v, want nil", got)
+	}
+	got := workspace.FindOutputDocument("patients")
+	if got == nil || got.Output.Title != "first" {
+		t.Fatalf("duplicate output lookup = %#v, want first matching document", got)
+	}
+}

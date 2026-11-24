@@ -8,7 +8,6 @@ import (
 	"errors"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -26,58 +25,6 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 )
 
-func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	observation := entry.Observation
-	if observation.RuleHint == semantic.RuleHintCodedConceptV1 {
-
-		ownerRecordsProved = false
-	}
-	logicalType := observation.LogicalType
-	if logicalType == "" {
-		logicalType = observation.Value.Type
-	}
-	source := capability.SemanticBindingChoiceSource{
-		ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
-		SourcePath: observation.Source.Path, SourceCanonical: observation.Source.Canonical,
-		SourceProfile: observation.Source.Profile, FieldPath: candidate.FieldPath,
-		OwningScope: observation.OwningScope, ExtensionURLPath: observation.ExtensionURLPath,
-		KeySelector: observation.Key.Selector, System: observation.Key.System, Version: observation.Key.Version,
-		Code: observation.Key.Code, ValueSelector: observation.Value.Selector,
-		ValueFallbacks:        append([]string(nil), observation.Value.FallbackSelectors...),
-		FallbackOnBlankString: observation.Value.FallbackOnBlankString, ChoiceArm: observation.ChoiceArm,
-		LogicalType: logicalType, RuleHint: observation.RuleHint, RuleVersion: observation.RuleVersion,
-		SchemaVersion: observation.SchemaVersion,
-	}
-	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, candidate)
-	if !ok {
-		return capability.ConstructionChoice{}, errors.New("semantic fallback value selectors have no exact compiler-proved candidates")
-	}
-	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, projectedCandidate, ownerRecordsProved)
-}
-
-func semanticInventoryEntryForFamily(family semantic.Family) semantic.Entry {
-	return semantic.Entry{
-		ConceptID: family.FamilyID, BindingID: family.BindingID,
-		Observation: semantic.Observation{
-			SchemaVersion: family.SchemaVersion,
-			Source:        family.Source,
-			Key: semantic.Key{
-				Selector: family.KeySelector, System: family.System, Version: family.Version,
-			},
-			Value:             family.Value,
-			OwningScope:       family.OwningScope,
-			LogicalType:       family.LogicalType,
-			Completeness:      family.Completeness,
-			Status:            family.Status,
-			Population:        family.Population,
-			Examples:          append([]string(nil), family.Examples...),
-			ExamplesTruncated: family.ExamplesTruncated,
-			RuleHint:          semantic.RuleHintCodedCategoryV1,
-			RuleVersion:       family.RuleVersion,
-		},
-	}
-}
-
 func semanticCategoryConstructionChoiceForRoute(
 	snapshot capability.Snapshot,
 	contextToken, buildID string,
@@ -85,13 +32,13 @@ func semanticCategoryConstructionChoiceForRoute(
 	family semantic.Family,
 	candidate capability.Candidate,
 ) (capability.ConstructionChoice, error) {
-	entry := semanticInventoryEntryForFamily(family)
+	entry := semantic.EntryForFamily(family)
 	observation := entry.Observation
 	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
 		return capability.ConstructionChoice{}, errors.New("coded category has no complete system-version compiler binding")
 	}
-	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, candidate)
+	projectedCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, observation, candidate)
 	if !ok {
 		return capability.ConstructionChoice{}, errors.New("coded category fallback value selectors have no exact compiler-proved candidates")
 	}
@@ -291,117 +238,6 @@ func proveOwnerRecordsForRoute(ctx context.Context, authorized ports.AuthorizedC
 		Key:              *plan.Source.Lookup.Key,
 	})
 	return err == nil
-}
-
-func semanticConstructionCandidate(snapshot capability.Snapshot, observation semantic.Observation) (capability.Candidate, bool) {
-	resourceType := strings.TrimSpace(observation.Source.Type)
-	valuePath := semanticObservationValuePath(observation)
-	if resourceType == "" || valuePath == "" {
-		return capability.Candidate{}, false
-	}
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ResourceType == resourceType && canonicalInventoryPath(candidate.FieldPath) == valuePath {
-			if found {
-				return capability.Candidate{}, false
-			}
-			match, found = candidate, true
-		}
-	}
-	return match, found
-}
-
-func semanticCandidateWithFallback(snapshot capability.Snapshot, observation semantic.Observation, primary capability.Candidate) (capability.Candidate, bool) {
-	if len(observation.Value.FallbackSelectors) == 0 {
-		return primary, !observation.Value.FallbackOnBlankString
-	}
-	if primary.LogicalType != observation.Value.Type {
-		return capability.Candidate{}, false
-	}
-	combined := primary
-	unknownCardinality := strings.EqualFold(strings.TrimSpace(primary.Cardinality), "unknown_observed_many")
-	repeatedCardinality := capability.IsRepeatedCardinality(primary.Cardinality)
-	projectionModes := make(map[capability.ProjectionMode]struct{}, len(primary.ProjectionModes))
-	for _, mode := range primary.ProjectionModes {
-		projectionModes[mode] = struct{}{}
-	}
-	boundaries := make(map[string]capability.RepeatedBoundary, len(primary.RepeatedBoundaries))
-	for _, boundary := range primary.RepeatedBoundaries {
-		boundaries[boundary.Path] = boundary
-	}
-	for _, selector := range observation.Value.FallbackSelectors {
-		path := canonicalInventoryPath(selector)
-		ownerPath := canonicalInventoryPath(observation.OwningScope)
-		if ownerPath != "" && path != ownerPath && !strings.HasPrefix(path, ownerPath+".") {
-			path = ownerPath + "." + path
-		}
-		var fallback capability.Candidate
-		found := false
-		for _, candidate := range snapshot.Candidates {
-			if candidate.ResourceType != observation.Source.Type || canonicalInventoryPath(candidate.FieldPath) != path {
-				continue
-			}
-			if found || candidate.NodeID != primary.NodeID || candidate.LogicalType != primary.LogicalType {
-				return capability.Candidate{}, false
-			}
-			fallback, found = candidate, true
-		}
-		if !found || len(fallback.ProjectionModes) == 0 {
-			return capability.Candidate{}, false
-		}
-		unknownCardinality = unknownCardinality || strings.EqualFold(strings.TrimSpace(fallback.Cardinality), "unknown_observed_many")
-		repeatedCardinality = repeatedCardinality || capability.IsRepeatedCardinality(fallback.Cardinality)
-		for _, boundary := range fallback.RepeatedBoundaries {
-			if existing, ok := boundaries[boundary.Path]; !ok || boundary.MaxItems > existing.MaxItems {
-				boundaries[boundary.Path] = boundary
-			}
-		}
-		for _, mode := range fallback.ProjectionModes {
-			projectionModes[mode] = struct{}{}
-		}
-	}
-	if unknownCardinality {
-		combined.Cardinality = "unknown_observed_many"
-	} else if repeatedCardinality {
-		combined.Cardinality = "many"
-	}
-	combined.RepeatedBoundaries = make([]capability.RepeatedBoundary, 0, len(boundaries))
-	for _, boundary := range boundaries {
-		combined.RepeatedBoundaries = append(combined.RepeatedBoundaries, boundary)
-	}
-	sort.Slice(combined.RepeatedBoundaries, func(i, j int) bool { return combined.RepeatedBoundaries[i].Path < combined.RepeatedBoundaries[j].Path })
-	combined.ProjectionModes = make([]capability.ProjectionMode, 0, len(projectionModes))
-	for _, mode := range []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray} {
-		if _, ok := projectionModes[mode]; ok {
-			combined.ProjectionModes = append(combined.ProjectionModes, mode)
-		}
-	}
-	return combined, true
-}
-
-func semanticObservationValuePath(observation semantic.Observation) string {
-	valuePath := canonicalInventoryPath(observation.Value.Selector)
-	ownerPath := canonicalInventoryPath(observation.OwningScope)
-	if valuePath == "" || ownerPath == "" || valuePath == ownerPath || strings.HasPrefix(valuePath, ownerPath+".") {
-		return valuePath
-	}
-	return ownerPath + "." + valuePath
-}
-
-func canonicalInventoryPath(raw string) string {
-	path := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "root."))
-	if path == "" {
-		return ""
-	}
-	segments := strings.Split(path, ".")
-	for index := range segments {
-		segments[index] = strings.TrimSpace(segments[index])
-		if segments[index] == "" {
-			return ""
-		}
-	}
-	return strings.Join(segments, ".")
 }
 
 func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string) (string, error) {

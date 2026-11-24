@@ -31,7 +31,7 @@ func (r *ColumnPolicyProposalRequest) UnmarshalJSON(raw []byte) error {
 		ProjectionMode       string `json:"projectionMode"`
 		Limit                *int   `json:"limit,omitempty"`
 	}
-	if err := decodeClosedSourceIntent(raw, &wire); err != nil {
+	if err := DecodeClosedSourceIntent(raw, &wire); err != nil {
 		return err
 	}
 	var supplied map[string]json.RawMessage

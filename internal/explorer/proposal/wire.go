@@ -24,7 +24,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 		IncludePreview       *bool                                   `json:"includePreview,omitempty"`
 		Limit                *int                                    `json:"limit,omitempty"`
 	}
-	if err := decodeClosedSourceIntent(raw, &wire); err != nil {
+	if err := DecodeClosedSourceIntent(raw, &wire); err != nil {
 		return err
 	}
 	var supplied map[string]json.RawMessage
@@ -74,7 +74,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 	return r.validateSourceSelection()
 }
 
-func decodeClosedSourceIntent(raw []byte, target any) error {
+func DecodeClosedSourceIntent(raw []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

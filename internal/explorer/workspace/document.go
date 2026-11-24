@@ -335,3 +335,12 @@ func (workspace Workspace) DocumentIndex(outputID string) int {
 	}
 	return index
 }
+
+func (workspace Workspace) FindOutputDocument(outputID string) *Document {
+	for index := range workspace.Documents {
+		if workspace.Documents[index].Output.ID == outputID {
+			return &workspace.Documents[index]
+		}
+	}
+	return nil
+}

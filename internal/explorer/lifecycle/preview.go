@@ -39,20 +39,6 @@ func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explo
 	return ws.NewWorkspace(owner.Title), nil
 }
 
-func verifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) error {
-	if receipt == nil {
-		return fmt.Errorf("compilation receipt is required")
-	}
-	digest, err := workspace.Digest()
-	if err != nil {
-		return err
-	}
-	if receipt.IntentDigest != digest {
-		return fmt.Errorf("receipt intent digest %q does not match workspace digest %q", receipt.IntentDigest, digest)
-	}
-	return nil
-}
-
 func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request interpretation.PreviewInterpretationCandidateRequest) (interpretation.PreviewInterpretationCandidateResult, error) {
 	if err := interpretation.ValidateCandidatePreviewRequest(request); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Malformed("interpretation-preview", err.Error(), err)
@@ -108,10 +94,10 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base workspace cannot be normalized for compilation", nil, err)
 	}
-	if err := verifyPreviewReceiptIntent(baseReceipt, baseForCompilation); err != nil {
+	if err := support.VerifyPreviewReceiptIntent(baseReceipt, baseForCompilation); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base receipt does not represent the current draft", nil, err)
 	}
-	if err := verifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {
+	if err := support.VerifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the proposed workspace", nil, err)
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)

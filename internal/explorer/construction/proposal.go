@@ -438,10 +438,6 @@ func previewWorkspace(ctx context.Context, store Store, owner *explorer.Explorer
 	return support.PreviewWorkspace(ctx, store, owner)
 }
 
-func verifyPreviewReceiptIntent(receipt *receiptmodel.CompilationReceipt, workspace ws.Workspace) error {
-	return support.VerifyPreviewReceiptIntent(receipt, workspace)
-}
-
 func (s *Service) GetConstructionCapabilities(ctx context.Context, request ConstructionCapabilitiesRequest) (ConstructionCapabilitiesResponse, error) {
 	if err := request.Validate(); err != nil {
 		return ConstructionCapabilitiesResponse{}, malformed("construction-capabilities", err.Error(), err)
@@ -1068,7 +1064,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, err
 	}
-	if err := verifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {
+	if err := support.VerifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {
 		return ConstructionChoiceProposalResponse{}, conflict("construction-choice-proposal", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the proposed workspace", nil, err)
 	}
 

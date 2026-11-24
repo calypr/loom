@@ -241,7 +241,7 @@ func reauthorizeConstructionRelatedField(
 		choiceSource.LogicalType != related.Source.LogicalType {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field source differs from its stage-bound server choice", nil)
 	}
-	candidate, found := uniqueCapabilityCandidate(base.Snapshot, related.Source.CandidateID)
+	candidate, found := capability.UniqueCapabilityCandidate(base.Snapshot, related.Source.CandidateID)
 	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
 		candidate.FieldPath != related.Source.Path || (candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
 		len(candidate.RepeatedBoundaries) != 0 || !relatedFieldPathExecutable(candidate.FieldPath) ||
@@ -553,7 +553,7 @@ func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootRes
 	}
 	form := capability.ConstructionChoiceValue
 	if capability.IsRepeatedCardinality(source.Cardinality) {
-		candidate, found := uniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
+		candidate, found := capability.UniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
 		if !found {
 			return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact related expansion contributor is no longer available", nil, nil)
 		}

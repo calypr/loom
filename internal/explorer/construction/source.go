@@ -520,7 +520,7 @@ func hasNewRootPivotSource(sources []resolvedConstructionPivotSource) bool {
 }
 
 func sourceCandidate(snapshot capability.Snapshot, source ws.ConstructionRelatedFieldSource) capability.Candidate {
-	candidate, _ := uniqueCapabilityCandidate(snapshot, source.CandidateID)
+	candidate, _ := capability.UniqueCapabilityCandidate(snapshot, source.CandidateID)
 	return candidate
 }
 

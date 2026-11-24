@@ -193,7 +193,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			if err != nil {
 				return nil, err
 			}
-			if err := verifyPreviewReceiptIntent(rowChangeReplacementCandidate, receiptWorkspace); err != nil {
+			if err := support.VerifyPreviewReceiptIntent(rowChangeReplacementCandidate, receiptWorkspace); err != nil {
 				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the requested row replacement", nil, err)
 			}
 			if !support.ReceiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || support.ValidateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
@@ -314,7 +314,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, explorerID stri
 		return nil, support.Malformed("commands", "ADD_SEMANTIC_SELECTIONS must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
-	document := findSemanticOutput(workspace, command.OutputID)
+	document := workspace.FindOutputDocument(command.OutputID)
 	if document == nil || strings.TrimSpace(document.RootResourceType) == "" || document.Route.ResourceType != document.RootResourceType {
 		return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -379,15 +379,6 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, explorerID stri
 		selection.ResolvedObservation = &entry
 	}
 	return commands, nil
-}
-
-func findSemanticOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
 }
 
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*receiptmodel.CompilationReceipt, error) {

@@ -22,45 +22,45 @@ func (s *Service) ReauthorizeFrameSourceChoice(
 	project, explorerID, rowRoot, outputID, choiceID string,
 	authorized ports.AuthorizedCapability,
 	identity capability.ConstructionChoiceIdentity,
-) (FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
+) (ports.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error) {
 	if identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
-		return FrameSourceFamilyCandidate{}, nil, support.Conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "the coded source belongs to a different authorized snapshot", nil, nil)
+		return ports.FrameSourceFamilyCandidate{}, nil, support.Conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "the coded source belongs to a different authorized snapshot", nil, nil)
 	}
 	source, ok := identity.Source.(capability.SemanticFrameChoiceSource)
 	if !ok || strings.TrimSpace(outputID) == "" {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source does not identify a correlated code/value family")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source does not identify a correlated code/value family")
 	}
 	if len(identity.Route) != 0 || source.Family.ResourceType != rowRoot {
-		return FrameSourceFamilyCandidate{}, nil, support.Unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
+		return ports.FrameSourceFamilyCandidate{}, nil, support.Unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
 	}
 	entry, err := s.ResolveFrameSourceAnchor(ctx, project, explorerID, rowRoot, authorized, identity, source)
 	if err != nil {
-		return FrameSourceFamilyCandidate{}, nil, err
+		return ports.FrameSourceFamilyCandidate{}, nil, err
 	}
 	families := frameSourceFamilies(authorized.Snapshot, []semantic.Entry{entry})
 	if len(families) != 1 {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source is no longer a complete coded value family")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source is no longer a complete coded value family")
 	}
 	family := families[0]
 	if !reflect.DeepEqual(family.Family, source.Family) || family.Candidate.ID != source.CandidateID ||
 		family.Candidate.NodeID != source.NodeID || family.Candidate.FieldPath != source.FieldPath {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source metadata or compiler candidate changed")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source metadata or compiler candidate changed")
 	}
 	route, err := support.ReauthorizeConstructionRoute(authorized.Snapshot, rowRoot, family.Candidate.NodeID, identity.Route)
 	if err != nil || len(route) != 0 {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source route is no longer an authorized direct-root route")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source route is no longer an authorized direct-root route")
 	}
 	proven, err := proveConstructionCandidate(ctx, authorized, rowRoot, family.Candidate, route)
 	if err != nil {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source candidate no longer compiles")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source candidate no longer compiles")
 	}
-	proven, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, proven)
+	proven, ok = capability.SemanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, proven)
 	if !ok {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source fallback selectors no longer have exact compiler-proved candidates")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source fallback selectors no longer have exact compiler-proved candidates")
 	}
 	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, rowRoot, identity.BuildID)
 	if err != nil {
-		return FrameSourceFamilyCandidate{}, nil, err
+		return ports.FrameSourceFamilyCandidate{}, nil, err
 	}
 	expected, err := capability.NewSemanticFrameConstructionChoice(
 		authorized.Snapshot.Token, contextToken, identity.BuildID,
@@ -69,9 +69,9 @@ func (s *Service) ReauthorizeFrameSourceChoice(
 			Family: family.Family, CandidateID: proven.ID, NodeID: proven.NodeID, FieldPath: proven.FieldPath,
 		}, route, proven,
 	)
-	if err != nil || !constructionChoiceIdentityMatches(expected, choiceID, identity) ||
+	if err != nil || !capability.ConstructionChoiceIdentityMatches(expected, choiceID, identity) ||
 		!reflect.DeepEqual(expected.Source, source) || !reflect.DeepEqual(expected.Route, identity.Route) {
-		return FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source token does not match current semantic and compiler evidence")
+		return ports.FrameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source token does not match current semantic and compiler evidence")
 	}
 	family.Candidate = proven
 	return family, route, nil
@@ -114,8 +114,8 @@ func (s *Service) ResolveFrameSourceAnchor(
 	return resolved.Entries[0], nil
 }
 
-func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []FrameSourceFamilyCandidate {
-	byFamily := make(map[string]FrameSourceFamilyCandidate)
+func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry) []ports.FrameSourceFamilyCandidate {
+	byFamily := make(map[string]ports.FrameSourceFamilyCandidate)
 	for _, entry := range entries {
 		observation := entry.Observation
 		if observation.RuleHint != semantic.RuleHintCodedValueV1 {
@@ -127,7 +127,7 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry)
 			continue
 		}
 		binding := plan.Source.Lookup.Binding
-		candidate, ok := semanticConstructionCandidate(snapshot, observation)
+		candidate, ok := capability.SemanticConstructionCandidate(snapshot, observation)
 		if !ok || candidate.ResourceType != observation.Source.Type || canonicalFramePath(candidate.FieldPath) != semanticFrameValuePath(observation) {
 			continue
 		}
@@ -145,10 +145,10 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []semantic.Entry)
 		current, found := byFamily[key]
 		if !found || observation.Population > current.Entry.Observation.Population ||
 			observation.Population == current.Entry.Observation.Population && entry.ConceptID < current.Entry.ConceptID {
-			byFamily[key] = FrameSourceFamilyCandidate{Family: family, Entry: entry, Candidate: candidate}
+			byFamily[key] = ports.FrameSourceFamilyCandidate{Family: family, Entry: entry, Candidate: candidate}
 		}
 	}
-	families := make([]FrameSourceFamilyCandidate, 0, len(byFamily))
+	families := make([]ports.FrameSourceFamilyCandidate, 0, len(byFamily))
 	for _, family := range byFamily {
 		families = append(families, family)
 	}

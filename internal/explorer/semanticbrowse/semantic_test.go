@@ -37,7 +37,7 @@ func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizati
 		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionArray, capability.ProjectionFirst},
 	}
 	snapshot := capability.Snapshot{Candidates: []capability.Candidate{primary, fallback}}
-	combined, ok := semanticCandidateWithFallback(snapshot, observation, primary)
+	combined, ok := capability.SemanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok || combined.Cardinality != "many" || !capability.IsRepeatedCardinality(combined.Cardinality) ||
 		!reflect.DeepEqual(combined.RepeatedBoundaries, fallback.RepeatedBoundaries) ||
 		!slices.Contains(combined.ProjectionModes, capability.ProjectionScalar) || !slices.Contains(combined.ProjectionModes, capability.ProjectionArray) {
@@ -45,7 +45,7 @@ func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizati
 	}
 	fallback.Cardinality = "unknown_observed_many"
 	snapshot.Candidates[1] = fallback
-	combined, ok = semanticCandidateWithFallback(snapshot, observation, primary)
+	combined, ok = capability.SemanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok || combined.Cardinality != "unknown_observed_many" {
 		t.Fatalf("unknown fallback cardinality was downgraded: %#v, ok=%v", combined, ok)
 	}

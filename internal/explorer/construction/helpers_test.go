@@ -167,7 +167,7 @@ func lifecycleTestStringScalar(value string) ws.TableScalar {
 }
 
 func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	return semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
+	return capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
 }
 
 func filterSourceIdentityColumns() []ws.StageColumn {

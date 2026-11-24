@@ -26,7 +26,7 @@ func (s *Service) prepareFrameSourceCommand(
 	if command.Type != authoringv2.CommandSetFrameSource && command.Type != authoringv2.CommandReplaceFrameSource {
 		return nil, support.Malformed("commands", "unsupported frame source command", nil)
 	}
-	document := findSemanticOutput(workspace, command.OutputID)
+	document := workspace.FindOutputDocument(command.OutputID)
 	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -61,7 +61,7 @@ func (s *Service) prepareFrameSourceCommand(
 	if err != nil {
 		return nil, invalidFrameSource("the frame source route and value no longer compile")
 	}
-	provenCandidate, ok = semanticbrowse.SemanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
+	provenCandidate, ok = capability.SemanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
 	if !ok {
 		return nil, invalidFrameSource("the frame source fallback selectors no longer match compiler-proved candidates")
 	}

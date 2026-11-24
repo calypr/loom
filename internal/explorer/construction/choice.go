@@ -2,10 +2,6 @@ package construction
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -15,7 +11,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/semanticauthoring"
 
 	"github.com/calypr/loom/internal/authscope"
-	dataframecompiler "github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -59,7 +54,38 @@ func frameDefinitionForID(document *ws.Document, frameID string) (ws.FrameDefini
 	return ws.FrameDefinition{}, false
 }
 
-func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot ws.CatalogSnapshot, explorerID, rootResourceType, semanticContextToken, tokenBuildID, buildID string, entries map[string]semantic.Entry, families map[string]semantic.Family, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.SemanticBindingChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
+type resolveSemanticConstructionChoiceRequest struct {
+	ctx                  context.Context
+	authorized           ports.AuthorizedCapability
+	snapshot             capability.Snapshot
+	catalogSnapshot      ws.CatalogSnapshot
+	explorerID           string
+	rootResourceType     string
+	semanticContextToken string
+	tokenBuildID         string
+	buildID              string
+	entries              map[string]semantic.Entry
+	families             map[string]semantic.Family
+	selection            authoringv2.ConstructionChoiceSelection
+	choiceIdentity       capability.ConstructionChoiceIdentity
+	identity             capability.SemanticBindingChoiceSource
+}
+
+func resolveSemanticConstructionChoice(request resolveSemanticConstructionChoiceRequest) (authoringv2.ResolvedConstructionChoice, string, error) {
+	ctx := request.ctx
+	authorized := request.authorized
+	snapshot := request.snapshot
+	catalogSnapshot := request.catalogSnapshot
+	explorerID := request.explorerID
+	rootResourceType := request.rootResourceType
+	semanticContextToken := request.semanticContextToken
+	tokenBuildID := request.tokenBuildID
+	buildID := request.buildID
+	entries := request.entries
+	families := request.families
+	selection := request.selection
+	choiceIdentity := request.choiceIdentity
+	identity := request.identity
 	if strings.TrimSpace(buildID) == "" || tokenBuildID != buildID {
 		return authoringv2.ResolvedConstructionChoice{}, "", conflict("commands", "STALE_SEMANTIC_CONTEXT", "the semantic choice belongs to a different inventory build", nil, nil)
 	}
@@ -81,7 +107,7 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.Aut
 			return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("coded category is unavailable in the current authorized inventory")
 		}
 		selectedFamily = &family
-		entry = semanticInventoryEntryForFamily(family)
+		entry = semantic.EntryForFamily(family)
 	} else {
 		var found bool
 		entry, found = entries[key]
@@ -90,7 +116,7 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.Aut
 		}
 	}
 	observation := entry.Observation
-	candidate, found := semanticConstructionCandidate(snapshot, observation)
+	candidate, found := capability.SemanticConstructionCandidate(snapshot, observation)
 	if !found || candidate.ResourceType != observation.Source.Type {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic value path has no unique compiler candidate at the current source resource")
 	}
@@ -114,9 +140,9 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.Aut
 	if selectedFamily != nil {
 		choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, route, *selectedFamily, provenCandidate)
 	} else {
-		choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, route, entry, provenCandidate, ownerRecordsProved)
+		choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, route, entry, provenCandidate, ownerRecordsProved)
 	}
-	if err != nil || !constructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
+	if err != nil || !capability.ConstructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice identity does not match the current observation and compiler candidate")
 	}
 	catalogCandidate, found := uniqueCatalogCandidate(catalogSnapshot, provenCandidate.ID)
@@ -129,12 +155,12 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.Aut
 			return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice options do not match the current compiler candidate")
 		}
 	}
-	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, provenCandidate)
+	projectedCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, observation, provenCandidate)
 	if !ok {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic compiler candidate has no current supported options")
 	}
 	fieldChoice, choiceErr := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, projectedCandidate)
-	if choiceErr != nil || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) {
+	if choiceErr != nil || !capability.ConstructionChoiceFieldOptionsMatch(choice, fieldChoice) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice options do not match the current compiler candidate")
 	}
 	if !constructionChoiceSupports(choice, selection.Form) {
@@ -166,16 +192,6 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.Aut
 	return authoringv2.ResolvedConstructionChoice{CandidateID: provenCandidate.ID, Source: source, LogicalType: logicalType, Route: route}, label, nil
 }
 
-func semanticChoiceFieldOptionsMatch(semanticChoice, fieldChoice capability.ConstructionChoice) bool {
-	fieldOptions := make([]capability.ConstructionChoiceOption, 0, len(semanticChoice.Options))
-	for _, option := range semanticChoice.Options {
-		if option.Form != capability.ConstructionChoiceOwnerRecords {
-			fieldOptions = append(fieldOptions, option)
-		}
-	}
-	return reflect.DeepEqual(fieldOptions, fieldChoice.Options)
-}
-
 func semanticChoiceKey(conceptID, bindingID string) string {
 	return bindingID + "\x00" + conceptID
 }
@@ -193,7 +209,7 @@ func constructionChoicesMatchSnapshot(identities []capability.ConstructionChoice
 }
 
 func resolveFieldConstructionChoice(ctx context.Context, authorized ports.AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot ws.CatalogSnapshot, rootResourceType string, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.FieldChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
-	candidate, found := uniqueCapabilityCandidate(snapshot, identity.CandidateID)
+	candidate, found := capability.UniqueCapabilityCandidate(snapshot, identity.CandidateID)
 	if !found || !fieldCandidateMatchesIdentity(candidate, identity) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field candidate identity is unavailable or changed")
 	}
@@ -222,7 +238,7 @@ func resolveFieldConstructionChoiceFromProvenCandidate(catalogSnapshot ws.Catalo
 		provenCandidate.ID != candidate.ID || provenCandidate.NodeID != candidate.NodeID || provenCandidate.ResourceType != candidate.ResourceType || provenCandidate.FieldPath != candidate.FieldPath {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field candidate identity is unavailable or changed")
 	}
-	if !reflect.DeepEqual(choice.Route, route) || !constructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
+	if !reflect.DeepEqual(choice.Route, route) || !capability.ConstructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field choice identity does not match the current candidate")
 	}
 	_, found := uniqueCatalogCandidate(catalogSnapshot, candidate.ID)
@@ -245,24 +261,6 @@ func fieldCandidateMatchesIdentity(candidate capability.Candidate, identity capa
 	return candidate.ID == identity.CandidateID && candidate.NodeID == identity.NodeID && candidate.ResourceType == identity.ResourceType &&
 		candidate.FieldPath == identity.Path && candidate.Cardinality == identity.Cardinality &&
 		reflect.DeepEqual(candidate.RepeatedBoundaries, identity.RepeatedBoundaries)
-}
-
-func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ID != candidateID {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		match, found = candidate, true
-	}
-	if found {
-		return match, true
-	}
-	return resolveSchemaFieldCandidate(snapshot, candidateID)
 }
 
 func uniqueCatalogCandidate(snapshot ws.CatalogSnapshot, candidateID string) (ws.CatalogCandidate, bool) {
@@ -293,50 +291,6 @@ func invalidConstructionChoice(message string) error {
 	return unprocessable("commands", "INVALID_CONSTRUCTION_CHOICE", message, fmt.Errorf("%s", message))
 }
 
-func schemaFieldCandidateID(snapshotToken, nodeID, path string) string {
-	identity, _ := json.Marshal([3]string{snapshotToken, nodeID, path})
-	return "schema_field." + base64.RawURLEncoding.EncodeToString(identity)
-}
-
-func resolveSchemaFieldCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	const prefix = "schema_field."
-	if !strings.HasPrefix(candidateID, prefix) || len(candidateID) > 4096 {
-		return capability.Candidate{}, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(candidateID, prefix))
-	if err != nil {
-		return capability.Candidate{}, false
-	}
-	var identity [3]string
-	if json.Unmarshal(payload, &identity) != nil || identity[0] != snapshot.Token ||
-		candidateID != schemaFieldCandidateID(identity[0], identity[1], identity[2]) {
-		return capability.Candidate{}, false
-	}
-	node, ok := snapshot.Node(identity[1])
-	if !ok || !node.Populated || !validSHA256Digest(snapshot.Identity.SchemaDigest) {
-		return capability.Candidate{}, false
-	}
-	for _, field := range dataframecompiler.SchemaFieldDescriptors(node.ResourceType) {
-		if field.Path != identity[2] {
-			continue
-		}
-		return capability.Candidate{
-			ID: candidateID, NodeID: node.ID, ResourceType: node.ResourceType,
-			FieldPath: field.Path, Label: node.ResourceType + "." + field.Path,
-			LogicalType: field.PrimitiveType, Cardinality: field.Cardinality,
-		}, true
-	}
-	return capability.Candidate{}, false
-}
-
-func validSHA256Digest(value string) bool {
-	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
-}
-
 func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if len(commands) == 0 || len(commands) > 100 || len(commands) != len(identities) {
 		return nil, malformed("commands", "APPLY_CONSTRUCTION_CHOICE requires between 1 and 100 resolved choices", nil)
@@ -354,7 +308,7 @@ func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID stri
 		if command.Type != authoringv2.CommandApplyConstructionChoice || command.ConstructionChoice() == nil {
 			return nil, malformed("commands", "construction choice requests cannot include unrelated commands", nil)
 		}
-		document := findSemanticOutput(workspace, command.OutputID)
+		document := workspace.FindOutputDocument(command.OutputID)
 		if document == nil || strings.TrimSpace(document.RootResourceType) == "" ||
 			document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 			return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
@@ -388,7 +342,13 @@ func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID stri
 		case capability.FieldChoiceSource:
 			resolution, title, err = resolveFieldConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, document.RootResourceType, *command.ConstructionChoice(), identity, source)
 		case capability.SemanticBindingChoiceSource:
-			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, identity.SemanticContextToken, identity.BuildID, buildID, choiceEntries, choiceFamilies, *command.ConstructionChoice(), identity, source)
+			resolution, title, err = resolveSemanticConstructionChoice(resolveSemanticConstructionChoiceRequest{
+				ctx: ctx, authorized: authorized, snapshot: snapshot, catalogSnapshot: catalogSnapshot,
+				explorerID: explorerID, rootResourceType: document.RootResourceType,
+				semanticContextToken: identity.SemanticContextToken, tokenBuildID: identity.BuildID,
+				buildID: buildID, entries: choiceEntries, families: choiceFamilies,
+				selection: *command.ConstructionChoice(), choiceIdentity: identity, identity: source,
+			})
 		default:
 			return nil, unprocessable("commands", "INVALID_CONSTRUCTION_CHOICE", "construction choice source kind is unsupported", nil)
 		}

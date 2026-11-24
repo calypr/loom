@@ -69,7 +69,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
+	choice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Condition", contextToken, buildID, buildID,
 		map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -223,7 +223,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	if err != nil {
 		t.Fatal(err)
 	}
-	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
+	choice, err := capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, displayCandidate, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		tc.explorerID, tc.resourceType, contextToken, buildID, buildID,
 		map[string]semantic.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
@@ -269,7 +269,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 
 func semanticCandidateWithFallbackMust(t *testing.T, snapshot capability.Snapshot, observation semantic.Observation, primary capability.Candidate) capability.Candidate {
 	t.Helper()
-	candidate, ok := semanticCandidateWithFallback(snapshot, observation, primary)
+	candidate, ok := capability.SemanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok {
 		t.Fatal("standalone Coding display/code fallback did not resolve to compiler candidates")
 	}
@@ -333,7 +333,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 		t.Fatalf("all-caps system-tail label = %q", label)
 	}
 
-	fieldCandidate, ok := semanticCandidateWithFallback(snapshot, semanticInventoryEntryForFamily(family).Observation, candidate)
+	fieldCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, semantic.EntryForFamily(family).Observation, candidate)
 	if !ok {
 		t.Fatal("category display/code fallback candidate was not compiler-proved")
 	}
@@ -348,7 +348,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 			Cardinality: candidate.Cardinality, ConstructionChoice: &fieldChoice,
 		}},
 	}
-	resolved, _, err := resolveSemanticConstructionChoice(
+	resolved, _, err := resolveSemanticConstructionChoiceForTest(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Medication", contextToken, buildID, buildID,
 		map[string]semantic.Entry{}, map[string]semantic.Family{semanticChoiceKey(family.FamilyID, family.BindingID): family},

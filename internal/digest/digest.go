@@ -16,3 +16,14 @@ func Digest(parts ...string) string {
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }
+
+func IsSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != sha256.Size {
+		return false
+	}
+	return hex.EncodeToString(decoded) == value
+}

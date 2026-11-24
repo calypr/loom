@@ -218,7 +218,7 @@ func (b *Service) ColumnSource(ctx context.Context, request ColumnSourceRequest)
 	if err != nil {
 		return result, err
 	}
-	document := findSemanticBrowseOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil {
 		return result, support.NotFound("column-source", "COLUMN_NOT_FOUND", "the requested table does not exist", nil)
 	}

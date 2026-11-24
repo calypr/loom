@@ -414,7 +414,7 @@ func (s constructionRowSources) resolveConstructionPivotSource(
 		*acceptedStage.ActiveRelatedRecord != *anchorStage.ActiveRelatedRecord {
 		return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_CHOICE", "the active related record is not preserved at the rebuilt Pivot input", nil, nil)
 	}
-	candidate, found := uniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
+	candidate, found := capability.UniqueCapabilityCandidate(base.Snapshot, source.CandidateID)
 	active := anchorStage.ActiveRelatedRecord
 	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
 		candidate.FieldPath != source.Path || candidate.LogicalType != source.LogicalType || !candidate.Populated ||

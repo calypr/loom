@@ -1,10 +1,9 @@
-package capability
+package spec
 
 import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -37,9 +36,9 @@ func SchemaFieldDescriptors(resourceType string) []SchemaFieldDescriptor {
 			continue
 		}
 		seen[path] = struct{}{}
-		cardinality := string(spec.CardinalityOptionalOne)
+		cardinality := string(CardinalityOptionalOne)
 		if metadata.Repeated {
-			cardinality = string(spec.CardinalityMany)
+			cardinality = string(CardinalityMany)
 		}
 		out = append(out, SchemaFieldDescriptor{
 			ResourceType: canonical, Path: path, PrimitiveType: string(metadata.Primitive),

@@ -10,6 +10,7 @@ import (
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
 	"github.com/calypr/loom/internal/dataframe/compiler/scan"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type CategoryScanProof = scan.CategoryScanProof
@@ -89,9 +90,9 @@ var ProbeRoot = capability.ProbeRoot
 var ProbeTraversal = capability.ProbeTraversal
 
 type RootRequest = capability.RootRequest
-type SchemaFieldDescriptor = capability.SchemaFieldDescriptor
+type SchemaFieldDescriptor = spec.SchemaFieldDescriptor
 
-var SchemaFieldDescriptors = capability.SchemaFieldDescriptors
+var SchemaFieldDescriptors = spec.SchemaFieldDescriptors
 
 type Scope = capability.Scope
 type Traversal = capability.Traversal

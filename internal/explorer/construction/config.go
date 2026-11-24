@@ -39,12 +39,6 @@ const (
 	RowChoiceExpanded   = ports.RowChoiceExpanded
 )
 
-type FrameSourceFamilyCandidate struct {
-	Family    capability.SemanticFrameFamily
-	Entry     semantic.Entry
-	Candidate capability.Candidate
-}
-
 type Store interface {
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
 	RevisionWorkspace(context.Context, explorer.Revision) (ws.Workspace, error)

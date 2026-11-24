@@ -3,8 +3,9 @@ package population
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/construction"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/construction"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -42,15 +43,6 @@ type PopulationRoutesResponse struct {
 	Truncated           bool                    `json:"truncated"`
 	NextCursor          string                  `json:"nextCursor,omitempty"`
 	Choices             []PopulationRouteChoice `json:"choices"`
-}
-
-func findPopulationOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
 }
 
 func populationRoutePresentation(rootResourceType, terminalResourceType string, route []capability.ConstructionRouteStep) capability.ConstructionChoicePresentation {
@@ -106,7 +98,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 	if err != nil {
 		return result, err
 	}
-	document := findPopulationOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, support.Malformed("population-routes", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -224,7 +216,7 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 		if identity.SnapshotToken != snapshot.Token || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID() {
 			return nil, support.Conflict("commands", "STALE_POPULATION_ROUTE", "the population route belongs to another table, selection, or catalog snapshot", nil, nil)
 		}
-		document := findPopulationOutput(workspace, command.OutputID)
+		document := workspace.FindOutputDocument(command.OutputID)
 		if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 			return nil, support.Malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 		}

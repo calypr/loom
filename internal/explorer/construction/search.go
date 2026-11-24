@@ -67,7 +67,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 	if err != nil {
 		return result, err
 	}
-	document := findSemanticOutput(workspace, request.OutputID)
+	document := workspace.FindOutputDocument(request.OutputID)
 	if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, malformed("construction-choices", "outputId does not identify a valid row-rooted table", nil)
 	}
@@ -82,7 +82,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 			family, buildID, err = s.resolveConstructionSearchSemanticFamily(ctx, authorized, request)
 			if err == nil {
 				semanticFamily = &family
-				semanticEntry = semanticInventoryEntryForFamily(family)
+				semanticEntry = semantic.EntryForFamily(family)
 			}
 		} else {
 			semanticEntry, buildID, err = s.resolveConstructionSearchSemanticEntry(ctx, authorized, request)
@@ -95,7 +95,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 			return result, conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "reload the semantic choice for the current table root and inventory build", nil, err)
 		}
 		var found bool
-		candidate, found = semanticConstructionCandidate(snapshot, semanticEntry.Observation)
+		candidate, found = capability.SemanticConstructionCandidate(snapshot, semanticEntry.Observation)
 		if !found || semanticEntry.Observation.Source.Type != candidate.ResourceType {
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "semantic binding and candidate resource do not match", nil)
 		}
@@ -105,7 +105,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 		}
 	} else {
 		var found bool
-		candidate, found = uniqueCapabilityCandidate(snapshot, request.Source.CandidateID)
+		candidate, found = capability.UniqueCapabilityCandidate(snapshot, request.Source.CandidateID)
 		if !found {
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact field candidate is unavailable in this authorized snapshot", nil)
 		}
@@ -161,7 +161,7 @@ func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, re
 				choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, *semanticFamily, provenCandidate)
 			} else {
 				ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, semanticEntry.Observation, resolvedRoute)
-				choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, semanticEntry, provenCandidate, ownerRecords)
+				choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, semanticEntry, provenCandidate, ownerRecords)
 			}
 		}
 		if err != nil {

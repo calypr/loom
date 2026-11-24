@@ -128,6 +128,27 @@ type Family struct {
 	ExamplesTruncated bool         `json:"examples_truncated"`
 }
 
+func EntryForFamily(family Family) Entry {
+	return Entry{
+		ConceptID: family.FamilyID, BindingID: family.BindingID,
+		Observation: Observation{
+			SchemaVersion:     family.SchemaVersion,
+			Source:            family.Source,
+			Key:               Key{Selector: family.KeySelector, System: family.System, Version: family.Version},
+			Value:             family.Value,
+			OwningScope:       family.OwningScope,
+			LogicalType:       family.LogicalType,
+			Completeness:      family.Completeness,
+			Status:            family.Status,
+			Population:        family.Population,
+			Examples:          append([]string(nil), family.Examples...),
+			ExamplesTruncated: family.ExamplesTruncated,
+			RuleHint:          RuleHintCodedCategoryV1,
+			RuleVersion:       family.RuleVersion,
+		},
+	}
+}
+
 func FamilyID(reference FamilyReference) string {
 	return digest.Digest("semantic-inventory-family/v1", reference.BindingID,
 		reference.SourceKind, reference.ResourceType, reference.SourcePath, reference.System, reference.Version)

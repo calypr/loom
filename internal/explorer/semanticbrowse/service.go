@@ -17,7 +17,7 @@ type Config struct {
 	SemanticCoverage                   func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error)
 	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 	ProvePopulationRoute               func(context.Context, ports.AuthorizedCapability, string, string, []capability.ConstructionRouteStep) bool
-	ReauthorizeFrameSourceChoice       func(context.Context, string, string, string, string, string, ports.AuthorizedCapability, capability.ConstructionChoiceIdentity) (FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error)
+	ReauthorizeFrameSourceChoice       func(context.Context, string, string, string, string, string, ports.AuthorizedCapability, capability.ConstructionChoiceIdentity) (ports.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error)
 }
 
 func NewService(config Config) *Service {

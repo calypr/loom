@@ -17,5 +17,5 @@ type Service struct {
 	semanticCoverage             func(context.Context, semanticarango.SemanticCoverageLookupOptions) (semanticarango.SemanticCoverageLookupResult, error)
 	resolveSelections            func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 	provePopulationRoute         func(context.Context, ports.AuthorizedCapability, string, string, []capability.ConstructionRouteStep) bool
-	reauthorizeFrameSourceChoice func(context.Context, string, string, string, string, string, ports.AuthorizedCapability, capability.ConstructionChoiceIdentity) (FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error)
+	reauthorizeFrameSourceChoice func(context.Context, string, string, string, string, string, ports.AuthorizedCapability, capability.ConstructionChoiceIdentity) (ports.FrameSourceFamilyCandidate, []capability.ConstructionRouteStep, error)
 }

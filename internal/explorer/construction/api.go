@@ -25,7 +25,7 @@ func ConstructionCapabilitiesWorkspace(workspace ws.Workspace, targetOutputID st
 }
 
 func ConstructionChoiceIdentityMatches(choice capability.ConstructionChoice, submittedID string, identity capability.ConstructionChoiceIdentity) bool {
-	return constructionChoiceIdentityMatches(choice, submittedID, identity)
+	return capability.ConstructionChoiceIdentityMatches(choice, submittedID, identity)
 }
 
 func ConstructionChoiceSupports(choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) bool {

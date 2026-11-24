@@ -74,7 +74,7 @@ type semanticBrowseCursor struct {
 
 type semanticBrowseSourceSelection struct {
 	frame         *ws.FrameDefinition
-	codedFamily   *FrameSourceFamilyCandidate
+	codedFamily   *ports.FrameSourceFamilyCandidate
 	codedRoute    []capability.ConstructionRouteStep
 	bindingFilter string
 	resourceType  string
@@ -104,7 +104,7 @@ func semanticInventoryChoicesForExactOccurrence(
 		if !semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation).Readiness.Addable() {
 			return nil
 		}
-		candidate, found := semanticConstructionCandidate(snapshot, entry.Observation)
+		candidate, found := capability.SemanticConstructionCandidate(snapshot, entry.Observation)
 		if !found || candidate.NodeID != sourceNodeID || !candidate.Populated {
 			return nil
 		}
@@ -124,9 +124,9 @@ func semanticInventoryChoicesForExactOccurrence(
 		if family != nil {
 			choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, *family, proof.candidate)
 		} else {
-			choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, proof.candidate, ownerRecordsProved)
+			choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, proof.candidate, ownerRecordsProved)
 		}
-		if err == nil && len(choice.Options) > 0 && semanticChoiceFieldOptionsMatch(choice, fieldChoice) {
+		if err == nil && len(choice.Options) > 0 && capability.ConstructionChoiceFieldOptionsMatch(choice, fieldChoice) {
 			choices[semanticChoiceKey(entry.ConceptID, entry.BindingID)] = choice
 		}
 		return nil
@@ -138,7 +138,7 @@ func semanticInventoryChoicesForExactOccurrence(
 	}
 	for index := range families {
 		family := families[index]
-		if err := add(semanticInventoryEntryForFamily(family), &family); err != nil {
+		if err := add(semantic.EntryForFamily(family), &family); err != nil {
 			return nil, err
 		}
 	}
@@ -231,7 +231,7 @@ func semanticInventoryChoicesForOutput(
 		if !semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation).Readiness.Addable() {
 			continue
 		}
-		candidate, ok := semanticConstructionCandidate(snapshot, entry.Observation)
+		candidate, ok := capability.SemanticConstructionCandidate(snapshot, entry.Observation)
 		if !ok || candidate.NodeID == "" {
 			continue
 		}
@@ -241,11 +241,11 @@ func semanticInventoryChoicesForOutput(
 	}
 	for index := range families {
 		family := families[index]
-		entry := semanticInventoryEntryForFamily(family)
+		entry := semantic.EntryForFamily(family)
 		if !semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation).Readiness.Addable() {
 			continue
 		}
-		candidate, ok := semanticConstructionCandidate(snapshot, entry.Observation)
+		candidate, ok := capability.SemanticConstructionCandidate(snapshot, entry.Observation)
 		if !ok || candidate.NodeID == "" {
 			continue
 		}
@@ -334,7 +334,7 @@ func semanticInventoryChoicesForOutput(
 					if routeCandidate.family != nil {
 						choice, choiceErr = semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, *routeCandidate.family, proof.candidate)
 					} else {
-						choice, choiceErr = semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, routeCandidate.entry, proof.candidate, ownerRecordsProved)
+						choice, choiceErr = capability.SemanticConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, routeCandidate.entry, proof.candidate, ownerRecordsProved)
 					}
 					if choiceErr == nil {
 						choices[routeCandidate.key] = choice
@@ -396,58 +396,6 @@ func semanticCandidateRouteProofCacheKey(candidate capability.Candidate, route [
 	return string(identity)
 }
 
-func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	observation := entry.Observation
-	if observation.RuleHint == semantic.RuleHintCodedConceptV1 {
-
-		ownerRecordsProved = false
-	}
-	logicalType := observation.LogicalType
-	if logicalType == "" {
-		logicalType = observation.Value.Type
-	}
-	source := capability.SemanticBindingChoiceSource{
-		ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
-		SourcePath: observation.Source.Path, SourceCanonical: observation.Source.Canonical,
-		SourceProfile: observation.Source.Profile, FieldPath: candidate.FieldPath,
-		OwningScope: observation.OwningScope, ExtensionURLPath: observation.ExtensionURLPath,
-		KeySelector: observation.Key.Selector, System: observation.Key.System, Version: observation.Key.Version,
-		Code: observation.Key.Code, ValueSelector: observation.Value.Selector,
-		ValueFallbacks:        append([]string(nil), observation.Value.FallbackSelectors...),
-		FallbackOnBlankString: observation.Value.FallbackOnBlankString, ChoiceArm: observation.ChoiceArm,
-		LogicalType: logicalType, RuleHint: observation.RuleHint, RuleVersion: observation.RuleVersion,
-		SchemaVersion: observation.SchemaVersion,
-	}
-	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, candidate)
-	if !ok {
-		return capability.ConstructionChoice{}, errors.New("semantic fallback value selectors have no exact compiler-proved candidates")
-	}
-	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, projectedCandidate, ownerRecordsProved)
-}
-
-func semanticInventoryEntryForFamily(family semantic.Family) semantic.Entry {
-	return semantic.Entry{
-		ConceptID: family.FamilyID, BindingID: family.BindingID,
-		Observation: semantic.Observation{
-			SchemaVersion: family.SchemaVersion,
-			Source:        family.Source,
-			Key: semantic.Key{
-				Selector: family.KeySelector, System: family.System, Version: family.Version,
-			},
-			Value:             family.Value,
-			OwningScope:       family.OwningScope,
-			LogicalType:       family.LogicalType,
-			Completeness:      family.Completeness,
-			Status:            family.Status,
-			Population:        family.Population,
-			Examples:          append([]string(nil), family.Examples...),
-			ExamplesTruncated: family.ExamplesTruncated,
-			RuleHint:          semantic.RuleHintCodedCategoryV1,
-			RuleVersion:       family.RuleVersion,
-		},
-	}
-}
-
 func semanticCategoryConstructionChoiceForRoute(
 	snapshot capability.Snapshot,
 	contextToken, buildID string,
@@ -455,13 +403,13 @@ func semanticCategoryConstructionChoiceForRoute(
 	family semantic.Family,
 	candidate capability.Candidate,
 ) (capability.ConstructionChoice, error) {
-	entry := semanticInventoryEntryForFamily(family)
+	entry := semantic.EntryForFamily(family)
 	observation := entry.Observation
 	plan := semanticauthoring.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
 		return capability.ConstructionChoice{}, errors.New("coded category has no complete system-version compiler binding")
 	}
-	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, candidate)
+	projectedCandidate, ok := capability.SemanticCandidateWithFallback(snapshot, observation, candidate)
 	if !ok {
 		return capability.ConstructionChoice{}, errors.New("coded category fallback value selectors have no exact compiler-proved candidates")
 	}
@@ -655,117 +603,6 @@ func proveOwnerRecordsForRoute(ctx context.Context, authorized ports.AuthorizedC
 	return err == nil
 }
 
-func semanticConstructionCandidate(snapshot capability.Snapshot, observation semantic.Observation) (capability.Candidate, bool) {
-	resourceType := strings.TrimSpace(observation.Source.Type)
-	valuePath := semanticObservationValuePath(observation)
-	if resourceType == "" || valuePath == "" {
-		return capability.Candidate{}, false
-	}
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ResourceType == resourceType && canonicalInventoryPath(candidate.FieldPath) == valuePath {
-			if found {
-				return capability.Candidate{}, false
-			}
-			match, found = candidate, true
-		}
-	}
-	return match, found
-}
-
-func semanticCandidateWithFallback(snapshot capability.Snapshot, observation semantic.Observation, primary capability.Candidate) (capability.Candidate, bool) {
-	if len(observation.Value.FallbackSelectors) == 0 {
-		return primary, !observation.Value.FallbackOnBlankString
-	}
-	if primary.LogicalType != observation.Value.Type {
-		return capability.Candidate{}, false
-	}
-	combined := primary
-	unknownCardinality := strings.EqualFold(strings.TrimSpace(primary.Cardinality), "unknown_observed_many")
-	repeatedCardinality := capability.IsRepeatedCardinality(primary.Cardinality)
-	projectionModes := make(map[capability.ProjectionMode]struct{}, len(primary.ProjectionModes))
-	for _, mode := range primary.ProjectionModes {
-		projectionModes[mode] = struct{}{}
-	}
-	boundaries := make(map[string]capability.RepeatedBoundary, len(primary.RepeatedBoundaries))
-	for _, boundary := range primary.RepeatedBoundaries {
-		boundaries[boundary.Path] = boundary
-	}
-	for _, selector := range observation.Value.FallbackSelectors {
-		path := canonicalInventoryPath(selector)
-		ownerPath := canonicalInventoryPath(observation.OwningScope)
-		if ownerPath != "" && path != ownerPath && !strings.HasPrefix(path, ownerPath+".") {
-			path = ownerPath + "." + path
-		}
-		var fallback capability.Candidate
-		found := false
-		for _, candidate := range snapshot.Candidates {
-			if candidate.ResourceType != observation.Source.Type || canonicalInventoryPath(candidate.FieldPath) != path {
-				continue
-			}
-			if found || candidate.NodeID != primary.NodeID || candidate.LogicalType != primary.LogicalType {
-				return capability.Candidate{}, false
-			}
-			fallback, found = candidate, true
-		}
-		if !found || len(fallback.ProjectionModes) == 0 {
-			return capability.Candidate{}, false
-		}
-		unknownCardinality = unknownCardinality || strings.EqualFold(strings.TrimSpace(fallback.Cardinality), "unknown_observed_many")
-		repeatedCardinality = repeatedCardinality || capability.IsRepeatedCardinality(fallback.Cardinality)
-		for _, boundary := range fallback.RepeatedBoundaries {
-			if existing, ok := boundaries[boundary.Path]; !ok || boundary.MaxItems > existing.MaxItems {
-				boundaries[boundary.Path] = boundary
-			}
-		}
-		for _, mode := range fallback.ProjectionModes {
-			projectionModes[mode] = struct{}{}
-		}
-	}
-	if unknownCardinality {
-		combined.Cardinality = "unknown_observed_many"
-	} else if repeatedCardinality {
-		combined.Cardinality = "many"
-	}
-	combined.RepeatedBoundaries = make([]capability.RepeatedBoundary, 0, len(boundaries))
-	for _, boundary := range boundaries {
-		combined.RepeatedBoundaries = append(combined.RepeatedBoundaries, boundary)
-	}
-	sort.Slice(combined.RepeatedBoundaries, func(i, j int) bool { return combined.RepeatedBoundaries[i].Path < combined.RepeatedBoundaries[j].Path })
-	combined.ProjectionModes = make([]capability.ProjectionMode, 0, len(projectionModes))
-	for _, mode := range []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray} {
-		if _, ok := projectionModes[mode]; ok {
-			combined.ProjectionModes = append(combined.ProjectionModes, mode)
-		}
-	}
-	return combined, true
-}
-
-func semanticObservationValuePath(observation semantic.Observation) string {
-	valuePath := canonicalInventoryPath(observation.Value.Selector)
-	ownerPath := canonicalInventoryPath(observation.OwningScope)
-	if valuePath == "" || ownerPath == "" || valuePath == ownerPath || strings.HasPrefix(valuePath, ownerPath+".") {
-		return valuePath
-	}
-	return ownerPath + "." + valuePath
-}
-
-func canonicalInventoryPath(raw string) string {
-	path := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "root."))
-	if path == "" {
-		return ""
-	}
-	segments := strings.Split(path, ".")
-	for index := range segments {
-		segments[index] = strings.TrimSpace(segments[index])
-		if segments[index] == "" {
-			return ""
-		}
-	}
-	return strings.Join(segments, ".")
-}
-
 func compilerProofUnavailable() semanticauthoring.SemanticSelectionReadiness {
 	return semanticauthoring.SemanticSelectionReadiness{
 		Status: semanticauthoring.SemanticReadinessUnsupported, Code: "COMPILER_PROOF_UNAVAILABLE",
@@ -869,7 +706,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			if workspaceErr != nil {
 				return result, workspaceErr
 			}
-			document := findSemanticBrowseOutput(workspace, req.OutputID)
+			document := workspace.FindOutputDocument(req.OutputID)
 			if document == nil || document.RootResourceType != req.RowRoot {
 				return result, support.NotFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
 			}
@@ -911,7 +748,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	categoryEntries := make([]semantic.Entry, 0, len(page.Families))
 	familyByChoice := make(map[string]semantic.Family, len(page.Families))
 	for _, family := range page.Families {
-		entry := semanticInventoryEntryForFamily(family)
+		entry := semantic.EntryForFamily(family)
 		key := semanticChoiceKey(entry.ConceptID, entry.BindingID)
 		categoryEntries = append(categoryEntries, entry)
 		familyByChoice[key] = family
@@ -923,8 +760,12 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if outputDocument != nil {
 		if presentationCurrent != nil {
 			outputChoices, result.FieldPresentation, err = s.semanticInventoryPresentationForOutput(
-				ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken,
-				page.Build, page.Entries, page.Families, *presentationCurrent, *req.FieldPresentation,
+				semanticInventoryPresentationRequest{
+					ctx: ctx, authorized: authorized, snapshot: snapshot, document: *outputDocument,
+					outputID: req.OutputID, contextToken: result.ContextToken, build: page.Build,
+					entries: page.Entries, families: page.Families, current: *presentationCurrent,
+					request: *req.FieldPresentation,
+				},
 			)
 		} else {
 			outputChoices, err = semanticInventoryChoicesForOutput(ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken, result.BuildID, page.Entries, page.Families)
@@ -964,7 +805,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			item.FamilyID = family.FamilyID
 			item.Display = semanticCategoryLabel(family, capability.Candidate{})
 			item.Code = ""
-			candidate, ok := semanticConstructionCandidate(snapshot, observation)
+			candidate, ok := capability.SemanticConstructionCandidate(snapshot, observation)
 			if !ok {
 				item.Readiness = compilerProofUnavailable()
 			} else {
@@ -985,7 +826,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			continue
 		}
 		if plan.Readiness.Addable() {
-			if candidate, ok := semanticConstructionCandidate(snapshot, observation); ok {
+			if candidate, ok := capability.SemanticConstructionCandidate(snapshot, observation); ok {
 				if codedFamily != nil && (candidate.ID != codedFamily.Candidate.ID || candidate.NodeID != codedFamily.Candidate.NodeID || candidate.FieldPath != codedFamily.Candidate.FieldPath) {
 					continue
 				}
@@ -1011,7 +852,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 				if isCategory {
 					choice, choiceErr = semanticCategoryConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, family, candidate)
 				} else {
-					choice, choiceErr = semanticInventoryConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, entry, candidate, ownerRecordsProved)
+					choice, choiceErr = capability.SemanticConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, entry, candidate, ownerRecordsProved)
 				}
 				if choiceErr == nil {
 					if frame != nil && !constructionChoiceSupports(choice, frame.Form) {
@@ -1047,7 +888,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 
 func (s *Service) resolveSemanticBrowseSource(ctx context.Context, req BrowseSemanticInventoryRequest, authorized ports.AuthorizedCapability, snapshot capability.Snapshot) (semanticBrowseSourceSelection, error) {
 	var frame *ws.FrameDefinition
-	var codedFamily *FrameSourceFamilyCandidate
+	var codedFamily *ports.FrameSourceFamilyCandidate
 	var codedRoute []capability.ConstructionRouteStep
 	bindingFilter := ""
 	if req.FrameID != "" {
@@ -1097,7 +938,7 @@ func (s *Service) resolveSemanticBrowseSource(ctx context.Context, req BrowseSem
 		if workspaceErr != nil {
 			return semanticBrowseSourceSelection{}, workspaceErr
 		}
-		document := findSemanticBrowseOutput(workspace, req.OutputID)
+		document := workspace.FindOutputDocument(req.OutputID)
 		if document == nil || document.Route.OccurrenceID != ws.RootOccurrenceID || document.RootResourceType != req.RowRoot {
 			return semanticBrowseSourceSelection{}, support.NotFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
 		}
@@ -1206,7 +1047,7 @@ func (b *Service) resolveFieldPresentationReplacements(
 			}
 			copy := matches[0]
 			family = &copy
-			entry = semanticInventoryEntryForFamily(copy)
+			entry = semantic.EntryForFamily(copy)
 		} else {
 			continue
 		}
@@ -1244,7 +1085,7 @@ func (b *Service) semanticFieldPresentationReplacement(
 	if !semanticauthoring.ResolveSemanticSelectionPlan(observation).Readiness.Addable() {
 		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
 	}
-	candidate, found := semanticConstructionCandidate(snapshot, observation)
+	candidate, found := capability.SemanticConstructionCandidate(snapshot, observation)
 	if !found || candidate.NodeID != current.sourceNodeID || !candidate.Populated {
 		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
 	}
@@ -1264,15 +1105,11 @@ func (b *Service) semanticFieldPresentationReplacement(
 	if family != nil {
 		choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, *family, proof.candidate)
 	} else {
-		choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, entry, proof.candidate, ownerRecordsProved)
+		choice, err = capability.SemanticConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, entry, proof.candidate, ownerRecordsProved)
 	}
-	if err != nil || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) || len(choice.Options) == 0 {
+	if err != nil || !capability.ConstructionChoiceFieldOptionsMatch(choice, fieldChoice) || len(choice.Options) == 0 {
 		return SemanticInventoryItem{}, false, FieldPresentationSourceFieldsInaccessible, nil
 	}
 	item := semanticInventoryItemForPresentation(entry, family, proof.candidate, choice)
 	return item, true, "", nil
-}
-
-func SemanticCandidateWithFallback(snapshot capability.Snapshot, observation semantic.Observation, primary capability.Candidate) (capability.Candidate, bool) {
-	return semanticCandidateWithFallback(snapshot, observation, primary)
 }

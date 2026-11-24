@@ -3,7 +3,6 @@ package semanticbrowse
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -24,43 +23,6 @@ func semanticChoiceKey(conceptID, bindingID string) string {
 	return bindingID + "\x00" + conceptID
 }
 
-func semanticChoiceFieldOptionsMatch(semanticChoice, fieldChoice capability.ConstructionChoice) bool {
-	fieldOptions := make([]capability.ConstructionChoiceOption, 0, len(semanticChoice.Options))
-	for _, option := range semanticChoice.Options {
-		if option.Form != capability.ConstructionChoiceOwnerRecords {
-			fieldOptions = append(fieldOptions, option)
-		}
-	}
-	return reflect.DeepEqual(fieldOptions, fieldChoice.Options)
-}
-
-func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ID != candidateID {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		match, found = candidate, true
-	}
-	if found {
-		return match, true
-	}
-	return resolveSchemaFieldCandidate(snapshot, candidateID)
-}
-
-func findSemanticBrowseOutput(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
-}
-
 func constructionChoiceSupports(choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) bool {
 	for _, option := range choice.Options {
 		if option.Form == form {
@@ -68,13 +30,6 @@ func constructionChoiceSupports(choice capability.ConstructionChoice, form capab
 		}
 	}
 	return false
-}
-
-func constructionChoiceIdentityMatches(choice capability.ConstructionChoice, submittedID string, identity capability.ConstructionChoiceIdentity) bool {
-	if choice.ChoiceID == submittedID {
-		return true
-	}
-	return identity.Version == "construction-choice/v1" && len(identity.Route) == 0 && reflect.DeepEqual(choice.Source, identity.Source)
 }
 
 func constructionCompilerScope(authorized ports.AuthorizedCapability) facade.Scope {
