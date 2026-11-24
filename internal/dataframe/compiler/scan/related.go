@@ -1,0 +1,487 @@
+package scan
+
+import (
+	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/expression"
+)
+
+type relatedCategoryHop struct {
+	traversal ir.PhysicalTraversal
+	route     ir.PhysicalStageRelatedRouteStep
+}
+
+type relatedCategoryPlan struct {
+	root        *ir.PhysicalRootScan
+	rootVar     string
+	rootType    string
+	expands     []ir.PhysicalConstructionStage
+	hopsByStage [][]relatedCategoryHop
+	fieldByID   map[string]ir.PhysicalConstructionStage
+	category    ir.PhysicalStageRelatedField
+	value       ir.PhysicalStageRelatedField
+	index       *model.PreviewCoveringIndexSpec
+}
+
+func compileRelatedCategoryScan(
+	plan ir.PhysicalPlan,
+	stageID, categoryColumnID, valueColumnID string,
+	category, value lower.CompiledOutputColumn,
+	maxValues int,
+) (string, map[string]any, *model.PreviewCoveringIndexSpec, bool, error) {
+	shape, eligible := relatedCategoryScanShape(plan, stageID, categoryColumnID, valueColumnID, category, value)
+	if !eligible {
+		return "", nil, nil, false, nil
+	}
+	streaming := relatedCategoryStreamingPathEligible(shape)
+	descriptor := ir.PhysicalRelatedCategoryScan{
+		Root: *shape.root, Category: shape.category, Streaming: streaming,
+		Hops: make([][]ir.PhysicalRelatedCategoryHop, len(shape.hopsByStage)),
+	}
+	for stageIndex, stageHops := range shape.hopsByStage {
+		descriptor.Hops[stageIndex] = make([]ir.PhysicalRelatedCategoryHop, len(stageHops))
+		for hopIndex, hop := range stageHops {
+			descriptor.Hops[stageIndex][hopIndex] = ir.PhysicalRelatedCategoryHop{Traversal: hop.traversal, Route: hop.route}
+		}
+	}
+	if !streaming && shape.index != nil {
+		descriptor.IndexName = shape.index.Name
+	}
+	rendered, err := aql.RenderRelatedCategoryScan(plan, descriptor, maxValues)
+	if err != nil {
+		return "", nil, nil, true, err
+	}
+	if streaming {
+		return rendered.Query, rendered.BindVars, nil, true, nil
+	}
+	return rendered.Query, rendered.BindVars, shape.index, true, nil
+}
+
+func relatedCategoryStreamingPathEligible(shape relatedCategoryPlan) bool {
+	if len(shape.expands) != 2 || len(shape.hopsByStage) != 2 {
+		return false
+	}
+	for index, stage := range shape.expands {
+		if stage.RelatedExpand == nil ||
+			stage.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent ||
+			len(stage.RelatedExpand.Route) != 1 || len(shape.hopsByStage[index]) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func relatedCategoryScanShape(
+	plan ir.PhysicalPlan,
+	stageID, categoryColumnID, valueColumnID string,
+	category, value lower.CompiledOutputColumn,
+) (relatedCategoryPlan, bool) {
+	sequence := plan.StageSequence
+	if sequence == nil || stageID == "" || sequence.FinalStageID != stageID ||
+		len(sequence.Stages) < 2 || sequence.SourceRowIdentity != "_key" ||
+		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
+		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
+		sequence.OutputAuthResourcePathBindKey != "" || categoryColumnID == "" || valueColumnID == "" ||
+		category.ID != categoryColumnID || value.ID != valueColumnID || category.ID == value.ID ||
+		!categoryScanDirectScalarColumn(category) || !categoryScanDirectScalarColumn(value) {
+		return relatedCategoryPlan{}, false
+	}
+	if scopeAllowed, ok := plan.BindVars["scope_allowed"].(bool); !ok || !scopeAllowed {
+		return relatedCategoryPlan{}, false
+	}
+	if _, ok := plan.BindVars["auth_resource_paths_unrestricted"].(bool); !ok {
+		return relatedCategoryPlan{}, false
+	}
+	if _, ok := plan.BindVars["auth_resource_paths"].([]string); !ok {
+		return relatedCategoryPlan{}, false
+	}
+
+	root, rootVar, rootType, ok := relatedCategorySource(plan)
+	if !ok || root.Population != nil || root.CohortSource != nil {
+		return relatedCategoryPlan{}, false
+	}
+	shape := relatedCategoryPlan{
+		root: root, rootVar: rootVar, rootType: rootType,
+		fieldByID: make(map[string]ir.PhysicalConstructionStage),
+	}
+	priorStageID := sequence.SourceStageID
+	var previousExpand *ir.PhysicalStageRelatedExpand
+	inFieldHelpers := false
+	for _, stage := range sequence.Stages {
+		if stage.ID == "" || stage.InputStageID != priorStageID || stage.Filter != nil ||
+			len(stage.DerivedLets) != 0 {
+			return relatedCategoryPlan{}, false
+		}
+		switch stage.Kind {
+		case ir.PhysicalStageRelatedExpandOp:
+			if inFieldHelpers || stage.RelatedExpand == nil ||
+				stage.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+				return relatedCategoryPlan{}, false
+			}
+			expand := stage.RelatedExpand
+			if len(expand.Route) == 0 || expand.AnchorKind == "" ||
+				expand.RelatedRecordsVariable == "" || expand.TerminalIdentityColumn == "" ||
+				expand.TargetNodeID == "" || expand.TargetResourceType == "" {
+				return relatedCategoryPlan{}, false
+			}
+			if previousExpand == nil {
+				if expand.AnchorKind != "root" || expand.AnchorColumnID != "_key" ||
+					expand.AnchorResourceType != rootType {
+					return relatedCategoryPlan{}, false
+				}
+			} else if expand.AnchorKind != "activeRelatedRecord" ||
+				expand.AnchorColumnID != previousExpand.TerminalIdentityColumn ||
+				expand.AnchorNodeID != previousExpand.TargetNodeID ||
+				expand.AnchorResourceType != previousExpand.TargetResourceType {
+				return relatedCategoryPlan{}, false
+			}
+			hops, ok := categoryRelatedStageHops(plan, stage)
+			if !ok {
+				return relatedCategoryPlan{}, false
+			}
+			shape.expands = append(shape.expands, stage)
+			shape.hopsByStage = append(shape.hopsByStage, hops)
+			previousExpand = expand
+		case ir.PhysicalStageRelatedFieldOp:
+			inFieldHelpers = true
+			field := stage.RelatedField
+			if field == nil || previousExpand == nil ||
+				field.ActiveRecordColumn != previousExpand.TerminalIdentityColumn ||
+				field.TargetNodeID != previousExpand.TargetNodeID ||
+				field.TargetResourceType != previousExpand.TargetResourceType ||
+				field.OutputColumnID == "" || field.LogicalType == "" ||
+				!field.Nullable || len(field.Path) < 2 || field.Path[0] != "payload" ||
+				!model.ValidPreviewIndexPath(field.Path) {
+				return relatedCategoryPlan{}, false
+			}
+			if _, duplicate := shape.fieldByID[field.OutputColumnID]; duplicate {
+				return relatedCategoryPlan{}, false
+			}
+			if !categoryRelatedFieldProjection(stage, *field) {
+				return relatedCategoryPlan{}, false
+			}
+			shape.fieldByID[field.OutputColumnID] = stage
+		default:
+			return relatedCategoryPlan{}, false
+		}
+		priorStageID = stage.ID
+	}
+	if len(shape.expands) == 0 || len(shape.fieldByID) == 0 {
+		return relatedCategoryPlan{}, false
+	}
+	categoryStage, categoryFound := shape.fieldByID[categoryColumnID]
+	valueStage, valueFound := shape.fieldByID[valueColumnID]
+	if !categoryFound || !valueFound ||
+		categoryStage.RelatedField == nil || valueStage.RelatedField == nil ||
+		categoryStage.RelatedField.ActiveRecordColumn != valueStage.RelatedField.ActiveRecordColumn ||
+		categoryStage.RelatedField.TargetNodeID != valueStage.RelatedField.TargetNodeID ||
+		categoryStage.RelatedField.TargetResourceType != valueStage.RelatedField.TargetResourceType ||
+		categoryStage.RelatedField.OutputColumnID != category.ID ||
+		valueStage.RelatedField.OutputColumnID != value.ID ||
+		category.Name == "" || value.Name == "" ||
+		category.Kind != categoryStage.RelatedField.LogicalType ||
+		value.Kind != valueStage.RelatedField.LogicalType ||
+		category.Cardinality != string(expression.OptionalOne) ||
+		value.Cardinality != string(expression.OptionalOne) ||
+		!category.Nullable || !value.Nullable {
+		return relatedCategoryPlan{}, false
+	}
+	finalExpand := shape.expands[len(shape.expands)-1].RelatedExpand
+	if categoryStage.RelatedField.ActiveRecordColumn != finalExpand.TerminalIdentityColumn {
+		return relatedCategoryPlan{}, false
+	}
+	lastHop := shape.hopsByStage[len(shape.hopsByStage)-1]
+	if len(lastHop) == 0 || lastHop[len(lastHop)-1].route.ToResourceType != categoryStage.RelatedField.TargetResourceType ||
+		lastHop[len(lastHop)-1].route.ToNodeID != categoryStage.RelatedField.TargetNodeID {
+		return relatedCategoryPlan{}, false
+	}
+	shape.category = *categoryStage.RelatedField
+	shape.value = *valueStage.RelatedField
+	collection := categoryStage.RelatedField.TargetResourceType
+	path := strings.Join(categoryStage.RelatedField.Path, ".")
+	fields := []string{"project", "dataset_generation", path}
+	storedValues := []string{"auth_resource_path", "resourceType"}
+	shape.index = &model.PreviewCoveringIndexSpec{
+		Collection:   collection,
+		Name:         model.PreviewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
+		Fields:       fields,
+		StoredValues: storedValues,
+	}
+	return shape, true
+}
+
+func relatedCategorySource(plan ir.PhysicalPlan) (*ir.PhysicalRootScan, string, string, bool) {
+	operations := plan.Operations
+	if len(operations) != 6 || operations[0].Kind != ir.PhysicalRootScanOp ||
+		operations[0].RootScan == nil || operations[0].RootScan.Variable == "" ||
+		operations[0].RootScan.CollectionBindKey == "" || operations[0].Source.ResourceType == "" ||
+		operations[0].Source.ResourceType != plan.Source.ResourceType ||
+		plan.BindVars[operations[0].RootScan.CollectionBindKey] != plan.Source.ResourceType ||
+		!categoryRelatedSingleAuthScope(operations[1:5], operations[0].RootScan.Variable) ||
+		operations[5].Kind != ir.PhysicalReturnOp || operations[5].Return == nil {
+		return nil, "", "", false
+	}
+	if _, ok := plan.BindVars["project"].(string); !ok {
+		return nil, "", "", false
+	}
+	return operations[0].RootScan, operations[0].RootScan.Variable, plan.Source.ResourceType, true
+}
+
+func categoryRelatedStageHops(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage) ([]relatedCategoryHop, bool) {
+	expand := stage.RelatedExpand
+	subplan := expand.RelatedRecords
+	if len(subplan.Captures) != 1 || subplan.Captures[0] != stage.InputRowVariable ||
+		!subplan.Unique || subplan.Sort == nil || subplan.Sort.Variable == "" ||
+		len(subplan.Operations) == 0 || subplan.Return.Kind != ir.PhysicalObjectExpression ||
+		subplan.Return.Object == nil || len(subplan.Return.Object.Fields) != 2 {
+		return nil, false
+	}
+	first := subplan.Operations[0]
+	position := 0
+	anchorVariable := ""
+	switch expand.AnchorKind {
+	case "root":
+		if first.Kind != ir.PhysicalCollectionScanOp || first.CollectionScan == nil ||
+			first.CollectionScan.CollectionBindKey != "root_collection" ||
+			plan.BindVars[first.CollectionScan.CollectionBindKey] != expand.AnchorResourceType ||
+			first.Source.ResourceType != expand.AnchorResourceType ||
+			len(subplan.Operations) < 6 ||
+			!categoryRelatedPhysicalFilterEquals(subplan.Operations[1],
+				ir.PhysicalValue{Variable: first.CollectionScan.Variable, Path: []string{"_key"}},
+				ir.PhysicalValue{Variable: stage.InputRowVariable, Path: []string{expand.AnchorColumnID}}) {
+			return nil, false
+		}
+		anchorVariable = first.CollectionScan.Variable
+		position = 2
+	case "activeRelatedRecord":
+		if first.Kind != ir.PhysicalDocumentLookupOp || first.DocumentLookup == nil ||
+			first.DocumentLookup.Variable == "" ||
+			first.DocumentLookup.CollectionBindKey == "" ||
+			plan.BindVars[first.DocumentLookup.CollectionBindKey] != expand.AnchorResourceType ||
+			first.DocumentLookup.ExactID.Variable != stage.InputRowVariable ||
+			!categoryRelatedExactPath(first.DocumentLookup.ExactID.Path, expand.AnchorColumnID) ||
+			first.Source.ResourceType != expand.AnchorResourceType || len(subplan.Operations) < 5 {
+			return nil, false
+		}
+		anchorVariable = first.DocumentLookup.Variable
+		position = 1
+	default:
+		return nil, false
+	}
+	if anchorVariable == "" || !categoryRelatedSingleAuthScope(subplan.Operations[position:position+4], anchorVariable) {
+		return nil, false
+	}
+	position += 4
+	currentVariable := anchorVariable
+	hops := make([]relatedCategoryHop, 0, len(expand.Route))
+	for index, route := range expand.Route {
+		if position+7 > len(subplan.Operations) ||
+			route.EdgeID == "" || route.FromNodeID == "" || route.ToNodeID == "" ||
+			route.FromResourceType == "" || route.ToResourceType == "" ||
+			route.Relationship == "" ||
+			(route.StorageDirection != "OUTBOUND" && route.StorageDirection != "INBOUND") ||
+			(route.MatchMode != "OPTIONAL" && route.MatchMode != "REQUIRED") ||
+			index > 0 && (expand.Route[index-1].ToNodeID != route.FromNodeID ||
+				expand.Route[index-1].ToResourceType != route.FromResourceType) {
+			return nil, false
+		}
+		operation := subplan.Operations[position]
+		if operation.Kind != ir.PhysicalTraversalOp || operation.Traversal == nil {
+			return nil, false
+		}
+		traversal := *operation.Traversal
+		direction := ir.PhysicalInbound
+		if route.StorageDirection == "OUTBOUND" {
+			direction = ir.PhysicalOutbound
+		}
+		sourceType, sourceTypeOK := plan.BindVars[traversal.SourceTypeBindKey].(string)
+		targetType, targetTypeOK := plan.BindVars[traversal.TargetTypeBindKey].(string)
+		label, labelOK := plan.BindVars[traversal.EdgeLabelBindKey].(string)
+		edgeCollection, collectionOK := plan.BindVars[traversal.EdgeCollectionBindKey].(string)
+		if !sourceTypeOK || !targetTypeOK || !labelOK || !collectionOK ||
+			traversal.SourceVariable != currentVariable || traversal.Direction != direction ||
+			sourceType != route.FromResourceType || targetType != route.ToResourceType ||
+			label != route.Relationship || edgeCollection != "fhir_edge" ||
+			operation.Source.SemanticNode != route.ToNodeID ||
+			operation.Source.ResourceType != route.ToResourceType ||
+			operation.Source.Relationship != route.Relationship ||
+			traversal.EdgeVariable == "" || traversal.TargetVariable == "" ||
+			traversal.EdgeTargetTypeField != categoryRelatedTargetTypeField(direction) ||
+			!categoryRelatedTraversalScope(subplan.Operations[position+1:position+7], traversal) {
+			return nil, false
+		}
+		hops = append(hops, relatedCategoryHop{traversal: traversal, route: route})
+		currentVariable = traversal.TargetVariable
+		position += 7
+	}
+	if len(hops) != len(expand.Route) || position != len(subplan.Operations) ||
+		subplan.Return.Object.Fields[0].Name != "terminal_id" ||
+		!categoryRelatedExpressionValue(subplan.Return.Object.Fields[0].Expression, currentVariable, "_id") ||
+		subplan.Return.Object.Fields[1].Name != "resource_id" ||
+		!categoryRelatedExpressionValue(subplan.Return.Object.Fields[1].Expression, currentVariable, "id") ||
+		expand.Route[0].FromNodeID != expand.AnchorNodeID ||
+		expand.Route[0].FromResourceType != expand.AnchorResourceType ||
+		expand.Route[len(expand.Route)-1].ToNodeID != expand.TargetNodeID ||
+		expand.Route[len(expand.Route)-1].ToResourceType != expand.TargetResourceType ||
+		subplan.Sort.Variable != currentVariable || !categoryRelatedExactPath(subplan.Sort.Path, "_id") {
+		return nil, false
+	}
+	return hops, true
+}
+
+func categoryRelatedFieldProjection(stage ir.PhysicalConstructionStage, field ir.PhysicalStageRelatedField) bool {
+	outputName := ""
+	for _, column := range stage.OutputColumns {
+		if column.ID != field.OutputColumnID {
+			continue
+		}
+		if outputName != "" || column.Name == "" || column.Internal {
+			return false
+		}
+		outputName = column.Name
+	}
+	if outputName == "" {
+		return false
+	}
+	found := false
+	for _, projection := range stage.OutputProjections {
+		if projection.Name != outputName {
+			continue
+		}
+		if found || projection.Expression == nil ||
+			projection.Expression.Kind != ir.PhysicalRelatedFieldExpression ||
+			projection.Expression.RelatedField == nil {
+			return false
+		}
+		related := projection.Expression.RelatedField
+		if !categoryRelatedValueIsPath(related.DocumentID, stage.InputRowVariable, field.ActiveRecordColumn) ||
+			related.ResourceType != field.TargetResourceType ||
+			!categoryRelatedSameStringSlice(related.Path, field.Path) ||
+			projection.Expression.Cardinality != ir.PhysicalScalarCardinality ||
+			projection.Expression.NullBehavior != ir.PhysicalPreserveNull {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func categoryRelatedSingleAuthScope(operations []ir.PhysicalOperation, variable string) bool {
+	if len(operations) != 4 ||
+		!categoryRelatedPhysicalFilterEquals(operations[0],
+			ir.PhysicalValue{Variable: variable, Path: []string{"project"}},
+			ir.PhysicalValue{BindKey: "project"}) ||
+		!categoryRelatedPhysicalFilterEquals(operations[1],
+			ir.PhysicalValue{Variable: variable, Path: []string{"dataset_generation"}},
+			ir.PhysicalValue{BindKey: "dataset_generation"}) {
+		return false
+	}
+	let := operations[2].DerivedLet
+	if operations[2].Kind != ir.PhysicalDerivedLetOp || let == nil ||
+		!strings.EqualFold(strings.TrimSpace(let.Operator), "AUTH_RESOURCE_PATH_ALLOWED") ||
+		len(let.Inputs) != 3 ||
+		!categoryRelatedValueIsPath(let.Inputs[0], variable, "auth_resource_path") ||
+		!categoryRelatedValueIsBind(let.Inputs[1], "auth_resource_paths") ||
+		!categoryRelatedValueIsBind(let.Inputs[2], "auth_resource_paths_unrestricted") {
+		return false
+	}
+	return categoryRelatedPhysicalFilterEquals(operations[3],
+		ir.PhysicalValue{Variable: let.Variable},
+		ir.PhysicalValue{BindKey: "scope_allowed"})
+}
+
+func categoryRelatedTraversalScope(operations []ir.PhysicalOperation, traversal ir.PhysicalTraversal) bool {
+	if len(operations) != 6 ||
+		!categoryRelatedPhysicalFilterEquals(operations[0],
+			ir.PhysicalValue{Variable: traversal.EdgeVariable, Path: []string{"project"}},
+			ir.PhysicalValue{BindKey: "project"}) ||
+		!categoryRelatedPhysicalFilterEquals(operations[1],
+			ir.PhysicalValue{Variable: traversal.TargetVariable, Path: []string{"project"}},
+			ir.PhysicalValue{BindKey: "project"}) ||
+		!categoryRelatedPhysicalFilterEquals(operations[2],
+			ir.PhysicalValue{Variable: traversal.EdgeVariable, Path: []string{"dataset_generation"}},
+			ir.PhysicalValue{BindKey: "dataset_generation"}) ||
+		!categoryRelatedPhysicalFilterEquals(operations[3],
+			ir.PhysicalValue{Variable: traversal.TargetVariable, Path: []string{"dataset_generation"}},
+			ir.PhysicalValue{BindKey: "dataset_generation"}) {
+		return false
+	}
+	let := operations[4].DerivedLet
+	if operations[4].Kind != ir.PhysicalDerivedLetOp || let == nil ||
+		!strings.EqualFold(strings.TrimSpace(let.Operator), "AUTH_RESOURCE_PATH_ALLOWED") ||
+		len(let.Inputs) != 4 ||
+		!categoryRelatedValueIsPath(let.Inputs[0], traversal.EdgeVariable, "auth_resource_path") ||
+		!categoryRelatedValueIsPath(let.Inputs[1], traversal.TargetVariable, "auth_resource_path") ||
+		!categoryRelatedValueIsBind(let.Inputs[2], "auth_resource_paths") ||
+		!categoryRelatedValueIsBind(let.Inputs[3], "auth_resource_paths_unrestricted") {
+		return false
+	}
+	return categoryRelatedPhysicalFilterEquals(operations[5],
+		ir.PhysicalValue{Variable: let.Variable},
+		ir.PhysicalValue{BindKey: "scope_allowed"})
+}
+
+func categoryRelatedPhysicalFilterEquals(operation ir.PhysicalOperation, left, right ir.PhysicalValue) bool {
+	if operation.Kind != ir.PhysicalFilterOp || operation.Filter == nil ||
+		operation.Filter.Expression != nil {
+		return false
+	}
+	predicate := operation.Filter.Predicate
+	return predicate.LeftExpression == nil && predicate.Correlation == nil && predicate.Quantifier == "" &&
+		strings.EqualFold(strings.TrimSpace(predicate.Operator), "EQUALS") &&
+		predicate.Right != nil && categoryRelatedSamePhysicalValue(predicate.Left, left) &&
+		categoryRelatedSamePhysicalValue(*predicate.Right, right)
+}
+
+func categoryRelatedSamePhysicalValue(got, want ir.PhysicalValue) bool {
+	return got.Variable == want.Variable && got.BindKey == want.BindKey && categoryRelatedSameStringSlice(got.Path, want.Path)
+}
+
+func categoryRelatedValueIsPath(value ir.PhysicalValue, variable string, path ...string) bool {
+	return value.Variable == variable && value.BindKey == "" && categoryRelatedExactPath(value.Path, path...)
+}
+
+func categoryRelatedValueIsBind(value ir.PhysicalValue, bindKey string) bool {
+	return value.Variable == "" && value.BindKey == bindKey && value.Path == nil
+}
+
+func categoryRelatedExactPath(got []string, want ...string) bool {
+	if got == nil || len(got) != len(want) {
+		return false
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func categoryRelatedSameStringSlice(got, want []string) bool {
+	if (got == nil) != (want == nil) || len(got) != len(want) {
+		return false
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func categoryRelatedTargetTypeField(direction ir.PhysicalTraversalDirection) string {
+	if direction == ir.PhysicalInbound {
+		return "from_type"
+	}
+	return "to_type"
+}
+
+func categoryRelatedExpressionValue(expression ir.PhysicalExpression, variable, path string) bool {
+	return expression.Kind == ir.PhysicalValueExpression && expression.Value != nil &&
+		expression.Value.Variable == variable && expression.Value.BindKey == "" &&
+		categoryRelatedExactPath(expression.Value.Path, path)
+}

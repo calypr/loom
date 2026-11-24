@@ -27,41 +27,26 @@ type routes struct {
 
 var _ loomapi.StrictServerInterface = (*routes)(nil)
 
-func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerapi.Handlers, optional ...any) error {
+type routeDependencies struct {
+	sourceLoader loadapi.SourceLoader
+	sourceLimits loadapi.SourceLoadLimits
+	releases     publication.BundleCatalog
+	scopes       *authscope.ScopeResolver
+	dataframes   dataframeReadRoutes
+}
+
+func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerapi.Handlers, deps routeDependencies) error {
 	if explorerHandlers == nil {
 		return fmt.Errorf("create Explorer HTTP routes: Explorer handlers are required")
 	}
-	var sourceLoader loadapi.SourceLoader
-	var sourceLimits loadapi.SourceLoadLimits
-	for _, value := range optional {
-		switch typed := value.(type) {
-		case loadapi.SourceLoader:
-			sourceLoader = typed
-		case loadapi.SourceLoadLimits:
-			sourceLimits = typed
-		}
-	}
-	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: generationService, Authorizer: authorizer, SourceLoader: sourceLoader, SourceLoadLimits: sourceLimits})
+	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: generationService, Authorizer: authorizer, SourceLoader: deps.sourceLoader, SourceLoadLimits: deps.sourceLimits})
 	if err != nil {
 		return fmt.Errorf("create generation load handler: %w", err)
-	}
-	var releases publication.BundleCatalog
-	var scopes *authscope.ScopeResolver
-	var dataframes dataframeReadRoutes
-	for _, value := range optional {
-		switch typed := value.(type) {
-		case dataframeReadRoutes:
-			dataframes = typed
-		case publication.BundleCatalog:
-			releases = typed
-		case *authscope.ScopeResolver:
-			scopes = typed
-		}
 	}
 	handlers := &routes{
 		HealthHandlers:   api.NewHealthHandlers(server),
 		StrictHandlers:   loadapi.NewStrictHandlers(loadHandler),
-		Handlers:         dataframeapi.NewHandlers(dataframes.published, dataframes.query, dataframeapi.NewRecipeExecutionReader(releases, scopes, nil)),
+		Handlers:         dataframeapi.NewHandlers(deps.dataframes.published, deps.dataframes.query, dataframeapi.NewRecipeExecutionReader(deps.releases, deps.scopes, nil)),
 		explorerHandlers: explorerHandlers,
 	}
 	handler := loomapi.NewStrictHandler(handlers, nil)

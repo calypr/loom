@@ -72,7 +72,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 		return PublishResult{}, support.Unavailable("publish", "RELEASE_GENERATION_UNAVAILABLE", "the receipt generation could not be verified", err)
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection}
-	authoringcore.ApplyAuthorizedScope(&bindings, authorized, true)
+	support.ApplyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
 		var typed *ports.Error

@@ -116,15 +116,15 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
-		return interpretation.PreviewInterpretationCandidateResult{}, authoringcore.ReceiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
+		return interpretation.PreviewInterpretationCandidateResult{}, support.ReceiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
 	}
 	if authorized.Snapshot.Token != request.SnapshotToken || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation != snapshot.Identity.Generation || authorized.Snapshot.Identity.ShapeDigest != snapshot.Identity.ShapeDigest {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
-	if err := authoringcore.ValidateAuthorizedReceiptExecution(baseReceipt, authorized); err != nil {
+	if err := support.ValidateAuthorizedReceiptExecution(baseReceipt, authorized); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the base receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if err := authoringcore.ValidateAuthorizedReceiptExecution(candidateReceipt, authorized); err != nil {
+	if err := support.ValidateAuthorizedReceiptExecution(candidateReceipt, authorized); err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
 
@@ -138,7 +138,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 		DatasetGeneration: snapshot.Identity.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		PreviewLimit: limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
 	}
-	authoringcore.ApplyAuthorizedScope(&bindings, authorized, false)
+	support.ApplyAuthorizedScope(&bindings, authorized, false)
 	baseRows, baseSummary, err := s.previewInterpretationReceipt(ctx, baseReceipt, bindings)
 	if err != nil {
 		return interpretation.PreviewInterpretationCandidateResult{}, err

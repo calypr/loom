@@ -1,16 +1,11 @@
 package compiler
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
@@ -18,8 +13,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	store "github.com/calypr/loom/internal/store/arango"
-	"github.com/google/uuid"
 )
 
 func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
@@ -132,7 +125,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 			t.Fatal(err)
 		}
 	}
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +135,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 		t.Fatalf("MISSING-presence plan unexpectedly has a field-only pre-override index proof: %+v", legacyIndex)
 	}
 	wantFields := []string{"project", "dataset_generation", "_key", "payload.id", "payload.status", "payload.subject.reference"}
-	wantStoredValues := previewQuantityCategoryStoredValues()
+	wantStoredValues := model.PreviewQuantityCategoryStoredValues()
 	if !reflect.DeepEqual(query.PreviewCoveringIndex.Fields, wantFields) || !reflect.DeepEqual(query.PreviewCoveringIndex.StoredValues, wantStoredValues) {
 		t.Fatalf("stored-values index = %+v, want fields=%v storedValues=%v", query.PreviewCoveringIndex, wantFields, wantStoredValues)
 	}
@@ -154,12 +147,12 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 		t.Fatalf("stored-parent access wrapper leaked into unhinted rendering:\n%s", unhinted.Query)
 	}
 	genericFields := []string{"project", "dataset_generation", "_key"}
-	if previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
-		previewCoveringIndexNameWithStoredValues("Observation", genericFields, wantStoredValues) {
+	if model.PreviewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
+		model.PreviewCoveringIndexNameWithStoredValues("Observation", genericFields, wantStoredValues) {
 		t.Fatal("scalar key fields did not participate in deterministic index identity")
 	}
-	if previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
-		previewCoveringIndexNameWithStoredValues("Observation", wantFields, []string{"payload.valueQuantity.code"}) {
+	if model.PreviewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
+		model.PreviewCoveringIndexNameWithStoredValues("Observation", wantFields, []string{"payload.valueQuantity.code"}) {
 		t.Fatal("different stored-value definition reused the same index identity")
 	}
 	for _, field := range query.PreviewCoveringIndex.Fields {
@@ -355,45 +348,15 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 	if !preview.PartialValidation {
 		t.Fatal("terminal Pivot preview window was not marked as partial validation")
 	}
-	selectedStart := strings.Index(preview.Query, "LET __loom_physical_construction_reshape_preview_selected_group_keys = (")
-	if selectedStart < 0 {
-		t.Fatalf("terminal Pivot preview has no first-pass group selection:\n%s", preview.Query)
-	}
-	selectedLimit := strings.Index(preview.Query[selectedStart:], "LIMIT @limit") + selectedStart
-	sourceStart := strings.Index(preview.Query, "LET __loom_construction_source_projection = (")
-	filterAt := strings.Index(preview.Query, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
 	stageStart := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
-	if selectedLimit <= selectedStart || sourceStart <= selectedLimit || filterAt <= sourceStart || stageStart <= filterAt {
-		t.Fatalf("preview must select complete group tuples, filter the direct source scan before its wide projection, then run the Pivot stage:\n%s", preview.Query)
-	}
-	keySource := preview.Query[selectedStart:sourceStart]
-	if strings.Contains(keySource, "root.payload.multipleBirthInteger") || strings.Contains(keySource, "root.payload.category") ||
-		strings.Count(keySource, "RETURN {") != 1 {
-		t.Fatalf("first pass materialized non-key source projections:\n%s", keySource)
-	}
-	sourceQuery := preview.Query[sourceStart:stageStart]
-	groupFilterAt := strings.Index(sourceQuery, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
-	projectionAt := strings.Index(sourceQuery, "RETURN ")
-	if !strings.Contains(sourceQuery, "root.payload.multipleBirthInteger") || groupFilterAt < 0 || projectionAt <= groupFilterAt {
-		t.Fatalf("second pass must filter raw source keys before materializing the full Pivot contributor projection:\n%s", sourceQuery)
-	}
-	for _, scope := range []string{
-		"root.project == @project",
-		"root.dataset_generation == @dataset_generation",
-		"root.auth_resource_path IN @auth_resource_paths",
-	} {
-		if strings.Count(preview.Query, scope) != 2 {
-			t.Fatalf("source scope %q appears %d times, want both scans:\n%s", scope, strings.Count(preview.Query, scope), preview.Query)
-		}
+	if stageStart < 0 {
+		t.Fatalf("terminal Pivot stage missing:\n%s", preview.Query)
 	}
 	stage := preview.Query[stageStart:]
 	collectAt := strings.Index(stage, "COLLECT ")
 	cellValidationAt := strings.Index(stage, "TABLE_PIVOT_CELL_CARDINALITY")
 	if collectAt < 0 || cellValidationAt <= collectAt {
 		t.Fatalf("preview must collect selected groups completely before computing cells:\n%s", stage)
-	}
-	if strings.Count(stage, "LIMIT @limit") != 1 || strings.Count(preview.Query, "LIMIT @limit") != 2 {
-		t.Fatalf("expected first-pass group and final output limits:\n%s", preview.Query)
 	}
 	if got := preview.BindVars["limit"]; got != 3 {
 		t.Fatalf("preview limit bind = %#v, want 3", got)
@@ -402,22 +365,6 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 	full := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 0)
 	if full.PartialValidation || strings.Contains(full.Query, "LIMIT @limit") || strings.Contains(full.Query, "reshape_preview_identity") {
 		t.Fatalf("full execution received the preview-only group window:\n%s", full.Query)
-	}
-}
-
-func TestConstructionPreviewTwoScanUsesSeparateProjectionBindNamespaces(t *testing.T) {
-	output := constructionPreviewPivotOutput("root.gender", false)
-	output.Fields[0], output.Fields[1] = output.Fields[1], output.Fields[0]
-	query := compileConstructionPivotPreview(t, output, 3)
-	if got := query.BindVars["__loom_physical_preview_key_projection_0_name"]; got != "resource_id" {
-		t.Fatalf("first-pass projection-name bind = %#v, want resource_id", got)
-	}
-	if got := query.BindVars["__loom_physical_projection_0_name"]; got != "_key" {
-		t.Fatalf("second-pass projection-name bind = %#v, want _key", got)
-	}
-	if _, ok := query.BindVars["__loom_physical_reshape_preview_source_group_column"]; ok ||
-		!strings.Contains(query.Query, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys") {
-		t.Fatalf("second-pass filter did not use the compiler-proven direct group source path:\n%s", query.Query)
 	}
 }
 
@@ -433,8 +380,8 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 	if index.Collection != "Patient" {
 		t.Fatalf("index collection = %q, want Patient", index.Collection)
 	}
-	if !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) {
-		t.Fatalf("index name = %q, want prefix %q", index.Name, previewCoveringIndexNamePrefix)
+	if !strings.HasPrefix(index.Name, model.PreviewCoveringIndexNamePrefix) {
+		t.Fatalf("index name = %q, want prefix %q", index.Name, model.PreviewCoveringIndexNamePrefix)
 	}
 	wantFields := []string{"project", "dataset_generation", "_key", "payload.gender", "payload.multipleBirthInteger"}
 	wantStoredValues := []string{"auth_resource_path"}
@@ -445,11 +392,11 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 		t.Fatalf("index stored values = %#v, want %#v", index.StoredValues, wantStoredValues)
 	}
 	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
-	if strings.Count(query.Query, wantHint) != 2 {
-		t.Fatalf("both source scans must use the same non-forcing index hint %q:\n%s", wantHint, query.Query)
+	if strings.Count(query.Query, wantHint) != 1 {
+		t.Fatalf("the source scan must use the non-forcing index hint %q:\n%s", wantHint, query.Query)
 	}
-	if strings.Count(query.Query, "FOR root IN @@root_collection "+wantHint) != 2 {
-		t.Fatalf("index hint was not placed on both root source scans:\n%s", query.Query)
+	if strings.Count(query.Query, "FOR root IN @@root_collection "+wantHint) != 1 {
+		t.Fatalf("index hint was not placed on the root source scan:\n%s", query.Query)
 	}
 
 	repeated := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)
@@ -648,326 +595,6 @@ func constructionPreviewPivotOutput(groupSelector string, priorFilter bool) reci
 	}
 }
 
-func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing.T) {
-	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
-	if url == "" || database == "" {
-		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	client, err := store.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
-		t.Fatal(err)
-	}
-
-	project, generation := "loom_category_presence_"+uuid.NewString(), "generation-category-presence"
-	defer func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if err := client.ExecuteAQL(cleanupCtx,
-			"FOR document IN Patient FILTER document.project == @project REMOVE document IN Patient",
-			map[string]any{"project": project},
-		); err != nil {
-			t.Errorf("remove category presence fixtures: %v", err)
-		}
-	}()
-
-	fixtures := []struct {
-		id      string
-		active  any
-		include bool
-	}{
-		{id: "missing_category", active: true, include: true},
-		{id: "null_category", active: true, include: true},
-		{id: "filtered_out", include: false},
-	}
-	documents := make([]json.RawMessage, 0, len(fixtures))
-	for _, fixture := range fixtures {
-		payload := map[string]any{"resourceType": "Patient", "id": fixture.id}
-		if fixture.include {
-			payload["active"] = fixture.active
-		}
-		if fixture.id == "null_category" {
-			payload["birthDate"] = nil
-		}
-		if fixture.id == "filtered_out" {
-			payload["birthDate"] = "1990-01-01"
-		}
-		document, err := json.Marshal(map[string]any{
-			"_key": project + "_" + fixture.id, "id": fixture.id, "project": project,
-			"project_id": project, "dataset_generation": generation,
-			"resourceType": "Patient", "payload": payload,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		documents = append(documents, document)
-	}
-	if err := client.InsertBatchRaw(ctx, "Patient", documents, false, "document"); err != nil {
-		t.Fatalf("insert category presence fixtures: %v", err)
-	}
-
-	columns := []recipe.StageColumn{
-		{ID: "patient_id", Name: "patient_id"},
-		{ID: "active_id", Name: "active"},
-		{ID: "birth_date_id", Name: "birth_date"},
-	}
-	makeOutput := func(name, stageID string, operator recipe.FilterOperator) recipe.Output {
-		filter := &recipe.ConstructionFilter{ColumnID: "active_id", Operator: operator}
-		if operator == recipe.FilterEquals {
-			active := true
-			filter.Values = []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}}
-		}
-		return recipe.Output{
-			Name: name, RootResourceType: "Patient", RowGrain: "patient",
-			RootColumnNaming: recipe.RootColumnNamingExact,
-			Fields: []recipe.Field{
-				{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
-				{Name: "active", ColumnID: "active_id", Expr: recipe.Expression{Select: "root.active"}},
-				{Name: "birth_date", ColumnID: "birth_date_id", Expr: recipe.Expression{Select: "root.birthDate"}},
-			},
-			Construction: &recipe.Construction{
-				Version: 1, SourceColumns: columns,
-				Steps: []recipe.ConstructionStep{{
-					ID: stageID, Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: filter},
-					Outputs:   columns,
-				}},
-			},
-		}
-	}
-	compileScan := func(output recipe.Output, stageID string, requireValue bool) CompiledCategoryScanQuery {
-		t.Helper()
-		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-		plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
-		if err != nil {
-			t.Fatal(err)
-		}
-		compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
-		if err != nil {
-			t.Fatal(err)
-		}
-		var categoryScan CompiledCategoryScanQuery
-		if requireValue {
-			categoryScan, err = CompileCategoryScanStageRequiringValue(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
-		} else {
-			categoryScan, err = CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		return categoryScan
-	}
-
-	assertMissingAndNull := func(categoryScan CompiledCategoryScanQuery) {
-		t.Helper()
-		rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
-		if len(rows) != 2 {
-			t.Fatalf("category scan returned %d categories, want distinct MISSING and NULL: %#v", len(rows), rows)
-		}
-		seen := map[bool]int{}
-		for _, row := range rows {
-			present, ok := row[categoryScan.PresentColumn].(bool)
-			if !ok {
-				t.Fatalf("category presence = %#v, want bool", row[categoryScan.PresentColumn])
-			}
-			if value, exists := row[categoryScan.ValueColumn]; !exists || value != nil {
-				t.Fatalf("category value = %#v (present=%t), want explicit null payload", value, present)
-			}
-			seen[present]++
-		}
-		if seen[false] != 1 || seen[true] != 1 {
-			t.Fatalf("category presence groups = %#v, want one MISSING and one NULL", seen)
-		}
-	}
-
-	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality", false)
-	rootFilter := "FILTER root.payload.active == @construction_filter_value"
-	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
-	if !strings.Contains(equalityScan.Query, rootFilter) || !strings.Contains(equalityScan.Query, stageFilter) {
-		t.Fatalf("eligible equality should be copied to the root and retained on its stage:\n%s", equalityScan.Query)
-	}
-	if strings.Contains(equalityScan.Query, "MERGE(") || !strings.Contains(equalityScan.Query, "__loom_category_scan_presence") {
-		t.Fatalf("category scan should carry presence in a scalar marker instead of merging row objects:\n%s", equalityScan.Query)
-	}
-	assertMissingAndNull(equalityScan)
-
-	valueScan := compileScan(makeOutput("construction_category_presence_value", "keep_active_value", recipe.FilterEquals), "keep_active_value", true)
-	if !valueScan.Proof.PresenceTracked || !valueScan.Proof.ValuePresenceRequired {
-		t.Fatalf("value-aware category scan proof = %+v, want tracked presence and required value policy", valueScan.Proof)
-	}
-	if !strings.Contains(valueScan.Query, "HAS(") || !strings.Contains(valueScan.Query, "@__loom_category_value_column") {
-		t.Fatalf("value-aware category scan did not carry source presence and filter the selected value:\n%s", valueScan.Query)
-	}
-
-	assertMissingAndNull(valueScan)
-
-	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists", false)
-	if strings.Contains(existsScan.Query, "FILTER root.payload.active") || !strings.Contains(existsScan.Query, "FILTER __loom_construction_input_1.active != null") {
-		t.Fatalf("ineligible EXISTS scan must keep its original staged filter without source pushdown:\n%s", existsScan.Query)
-	}
-	assertMissingAndNull(existsScan)
-}
-
-func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testing.T) {
-	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
-	if url == "" || database == "" {
-		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	client, err := store.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
-		t.Fatal(err)
-	}
-
-	project, generation := "loom_category_root_type_"+uuid.NewString(), "generation-root-type"
-	const allowedPath = "/category/allowed"
-	defer func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if err := client.ExecuteAQL(cleanupCtx,
-			"FOR document IN Observation FILTER STARTS_WITH(document._key, @keyPrefix) REMOVE document IN Observation",
-			map[string]any{"keyPrefix": project + "_"},
-		); err != nil {
-			t.Errorf("remove typed root category fixtures: %v", err)
-		}
-	}()
-
-	type fixture struct {
-		id, resourceType, authPath string
-		quantity                   any
-		includeQuantity            bool
-		project, generation        string
-	}
-	fixtures := []fixture{
-		{id: "missing", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation},
-		{id: "null", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": nil}},
-		{id: "string", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "d"}},
-		{id: "string-duplicate", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "d"}},
-		{id: "other-project", resourceType: "Observation", authPath: allowedPath, project: project + "_foreign", generation: generation, includeQuantity: true, quantity: map[string]any{"code": "foreign-project"}},
-		{id: "other-generation", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation + "_foreign", includeQuantity: true, quantity: map[string]any{"code": "foreign-generation"}},
-		{id: "denied-scope", resourceType: "Observation", authPath: "/category/denied", project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "denied"}},
-
-		{id: "wrong-type", resourceType: "Patient", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "wrong-type"}},
-	}
-	documents := make([]json.RawMessage, 0, len(fixtures))
-	for _, fixture := range fixtures {
-		payload := map[string]any{"resourceType": fixture.resourceType, "id": fixture.id}
-		if fixture.includeQuantity {
-			payload["valueQuantity"] = fixture.quantity
-		}
-		document, err := json.Marshal(map[string]any{
-			"_key": project + "_" + fixture.id, "id": fixture.id, "project": fixture.project,
-			"project_id": fixture.project, "dataset_generation": fixture.generation,
-			"resourceType": fixture.resourceType, "auth_resource_path": fixture.authPath, "payload": payload,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		documents = append(documents, document)
-	}
-	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
-		t.Fatalf("insert typed root category fixtures: %v", err)
-	}
-
-	columns := []recipe.StageColumn{
-		{ID: "observation_id", Name: "observation_id"},
-		{ID: "category_id", Name: "category"},
-		{ID: "value_id", Name: "value"},
-	}
-	output := recipe.Output{
-		Name: "root_category_shared_index", RootResourceType: "Observation", RowGrain: "observation",
-		RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields: []recipe.Field{
-			{Name: "observation_id", ColumnID: "observation_id", Expr: recipe.Expression{Select: "root.id"}},
-			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.valueQuantity.code"}},
-			{Name: "value", ColumnID: "value_id", Expr: recipe.Expression{Select: "root.valueQuantity.value"}},
-		},
-		Construction: &recipe.Construction{Version: 1, SourceColumns: columns},
-	}
-	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
-		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{allowedPath},
-	}
-	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatal(err)
-	}
-	scan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantIndexFields := previewQuantityCategoryFields()
-	wantStoredValues := previewQuantityCategoryStoredValues()
-	if scan.CategoryIndex == nil || scan.CategoryIndex.Name != previewCoveringIndexNameWithStoredValues("Observation", wantIndexFields, wantStoredValues) ||
-		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) {
-		t.Fatalf("root quantity category index definition: %+v", scan.CategoryIndex)
-	}
-	if !strings.Contains(scan.Query, "root.resourceType == @__loom_category_resource_type") ||
-		scan.BindVars["__loom_category_resource_type"] != "Observation" {
-		t.Fatalf("root category query omitted exact resource type guard: %s\n%#v", scan.Query, scan.BindVars)
-	}
-	if strings.Contains(scan.Query, "UNION_DISTINCT") || !strings.Contains(scan.Query, "COLLECT ") ||
-		!strings.Contains(scan.Query, "IS_OBJECT(__loom_category_parent)") || !strings.Contains(scan.Query, "HAS(__loom_category_parent") {
-		t.Fatalf("stored-parent category scan did not use one object-presence grouping query:\n%s", scan.Query)
-	}
-	if scan.PreviewCoveringIndex != nil {
-		t.Fatalf("stored-parent category index should suppress the older field-only prewarm: %+v", scan.PreviewCoveringIndex)
-	}
-
-	rows := executeReshapeOracleQuery(t, ctx, client, model.CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
-	seen := map[string]bool{}
-	for _, row := range rows {
-		present, ok := row[scan.PresentColumn].(bool)
-		if !ok {
-			t.Fatalf("category presence = %#v, want bool", row[scan.PresentColumn])
-		}
-		value, exists := row[scan.ValueColumn]
-		if !exists {
-			t.Fatalf("category row omitted value column: %#v", row)
-		}
-		key := "missing"
-		if present {
-			if value == nil {
-				key = "null"
-			} else if value == "d" {
-				key = "string:d"
-			} else {
-				t.Fatalf("unexpected scoped category: present=%t value=%#v", present, value)
-			}
-		} else if value != nil {
-			t.Fatalf("missing category has value %#v, want null placeholder", value)
-		}
-		seen[key] = true
-	}
-	if len(rows) != 3 || !seen["missing"] || !seen["null"] || !seen["string:d"] {
-		t.Fatalf("typed source categories = %#v, want exactly MISSING, NULL, and string d", rows)
-	}
-}
-
 func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "loom_dev_cda_fhir", DatasetGeneration: "cda-fhir-v1"}
 	output := streamingMissingCategoryPivotTestOutput()
@@ -1000,7 +627,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1014,9 +641,9 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatal(err)
 	}
 	index := query.PreviewCoveringIndex
-	wantFields := previewQuantityCategoryFields()
-	wantStoredValues := previewQuantityCategoryStoredValues()
-	if index == nil || index.Name != previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
+	wantFields := model.PreviewQuantityCategoryFields()
+	wantStoredValues := model.PreviewQuantityCategoryStoredValues()
+	if index == nil || index.Name != model.PreviewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
 		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) {
 		t.Fatalf("streaming missing-category Pivot index = %+v, want fields=%v storedValues=%v", index, wantFields, wantStoredValues)
 	}
@@ -1243,7 +870,7 @@ func TestStreamingMissingCategoryPivotIndexFallsBackWithoutScalarKeyProof(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -97,12 +97,6 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 			Reshape: traceReshapeLineage(physical, projection, value, rootVariable(physical)),
 		},
 	}
-	if err := physical.Validate(); err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("validate cell trace physical plan: %w", err)
-	}
-	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("verify cell trace physical scope: %w", err)
-	}
 	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)

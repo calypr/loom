@@ -259,12 +259,6 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		ResourceType: output.RootResourceType, ResourceIDColumn: RowLineageResourceID,
 		OccurrenceKeyColumn: occurrenceKeyColumn,
 	}
-	if err := physical.Validate(); err != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("validate row lineage physical plan: %w", err)
-	}
-	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("verify row lineage physical scope: %w", err)
-	}
 	rendered, err := aql.Render(physical, aql.Options{})
 	if err != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("render row lineage physical plan: %w", err)

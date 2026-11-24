@@ -72,7 +72,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 			return CompiledOutputPage{}, fmt.Errorf("add preview source identity to selected-root page: %w", err)
 		}
 	}
-	rowsPlan, err = WithGenericPhysicalExecutionWindow(rowsPlan, 0)
+	rowsPlan, err = withGenericPhysicalExecutionWindow(rowsPlan, 0)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("apply selected-root execution window: %w", err)
 	}
@@ -118,7 +118,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	return CompiledOutputPage{
 		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
 		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsPartitions: partitions,
-		RowsDiagnostics: PhysicalPlanDiagnostics(rowsPlan), RowsPlanDigest: rowsPlanDigest,
+		RowsDiagnostics: ir.PhysicalPlanDiagnostics(rowsPlan), RowsPlanDigest: rowsPlanDigest,
 	}, nil
 }
 
@@ -421,7 +421,7 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 	if candidateSeed != nil {
 		out.Operations[0].RootScan.PageCandidateSeed = candidateSeed
 	}
-	insertAt := rootPageInsertionIndex(out.Operations)
+	insertAt := ir.RootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageAfterKeyBind] = ""
 	out.BindVars[RootPageSizeBind] = pageSize
 	source := ir.PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType, SemanticField: "_key"}
@@ -869,7 +869,7 @@ func selectedRootsPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {
 	}
 	out := ir.ClonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
-	insertAt := rootPageInsertionIndex(out.Operations)
+	insertAt := ir.RootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageKeysBind] = []string{}
 	if rootPageKeyLookupSafe(out) {
 		return out, true, nil
@@ -941,21 +941,4 @@ func rootPageKeyLookupSafe(plan ir.PhysicalPlan) bool {
 		}
 	}
 	return true
-}
-
-func rootPageInsertionIndex(operations []ir.PhysicalOperation) int {
-	index := 5
-	for index < len(operations) {
-		operation := operations[index]
-		if operation.Kind == ir.PhysicalExpressionLetOp {
-
-			if index+1 >= len(operations) || operations[index+1].Kind != ir.PhysicalFilterOp {
-				break
-			}
-		} else if operation.Kind != ir.PhysicalFilterOp {
-			break
-		}
-		index++
-	}
-	return index
 }

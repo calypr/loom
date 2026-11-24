@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/scan"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
@@ -63,7 +63,7 @@ func TestRelatedEligibilityCategoryScanUsesScopedReverseFrontier(t *testing.T) {
 			Inputs: []ir.PhysicalValue{{Variable: "root", Path: []string{"payload", "name"}}},
 		},
 	}
-	query, err := compiler.CompileCategoryScanStageWithPolicy(categoryOutput, "eligible_patients", "active", "patient_id", compiler.MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := scan.Compile(categoryOutput, scan.StageColumn{StageID: "eligible_patients", ColumnID: "active", ValueColumnID: "patient_id"}, scan.MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

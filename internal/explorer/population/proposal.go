@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/construction"
-	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -73,7 +72,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if baseDocument.Population == nil || baseDocument.Population.SelectionRevisionID != request.BaseSelectionID {
 		return PopulationMemberRemovalProposalResponse{}, support.Conflict("population-member-proposal", "STALE_POPULATION_SELECTION", "the requested immutable selection is not attached to this table", nil, nil)
 	}
-	baseDocumentDigest, err := proposal.DocumentDigest(baseDocument)
+	baseDocumentDigest, err := support.DocumentDigest(baseDocument)
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, fmt.Errorf("digest population proposal base document: %w", err)
 	}
@@ -264,7 +263,7 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}
 	baseDocument := current.Documents[baseIndex]
-	baseDocumentSHA, err := proposal.DocumentDigest(baseDocument)
+	baseDocumentSHA, err := support.DocumentDigest(baseDocument)
 	if err != nil || baseDocumentSHA != binding.BaseDocumentDigest || baseDocument.Population == nil || baseDocument.Population.SelectionRevisionID != binding.BaseSelectionRevisionID {
 		return nil, nil, support.Conflict("commands", "STALE_POPULATION_MEMBER_PROPOSAL", "the target table or attached selection changed after proposal creation", nil, err)
 	}

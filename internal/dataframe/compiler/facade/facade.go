@@ -9,23 +9,27 @@ import (
 	lowerphysical "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/compiler/rowlineage"
+	"github.com/calypr/loom/internal/dataframe/compiler/scan"
 )
 
-type CategoryScanProof = compilerpkg.CategoryScanProof
-type CategoryScanRefusal = compilerpkg.CategoryScanRefusal
+type CategoryScanProof = scan.CategoryScanProof
+type CategoryScanRefusal = scan.CategoryScanRefusal
 
-var CategoryScanRefusalCodeOf = compilerpkg.CategoryScanRefusalCodeOf
+var CategoryScanRefusalCodeOf = scan.CategoryScanRefusalCodeOf
 
-const CategoryScanStageUnknown = compilerpkg.CategoryScanStageUnknown
+const CategoryScanStageUnknown = scan.CategoryScanStageUnknown
 
-var CompileCategoryScanStageRequiringValue = compilerpkg.CompileCategoryScanStageRequiringValue
+var CompileCategoryScan = scan.Compile
+
+type StageCategoryScanTarget = scan.StageColumn
+
 var CompileRecipeOutputPageWithPolicy = compilerpkg.CompileRecipeOutputPageWithPolicy
 var CompileRecipeOutputWithPolicy = compilerpkg.CompileRecipeOutputWithPolicy
 
 const DefaultRowLineageLimit = rowlineage.DefaultRowLineageLimit
-const MaxCategoryScanValues = compilerpkg.MaxCategoryScanValues
+const MaxCategoryScanValues = scan.MaxCategoryScanValues
 const MaxCellTraceContributions = celltrace.MaxCellTraceContributions
-const MaxColumnPopulationBatch = compilerpkg.MaxColumnPopulationBatch
+const MaxColumnPopulationBatch = scan.MaxColumnPopulationBatch
 const MaxRowLineageContributors = rowlineage.MaxRowLineageContributors
 const RootPageAfterKeyBind = compilerpkg.RootPageAfterKeyBind
 const RootPageKeysBind = compilerpkg.RootPageKeysBind

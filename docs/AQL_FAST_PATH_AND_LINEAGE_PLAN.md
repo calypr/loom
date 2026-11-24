@@ -1,6 +1,6 @@
 # AQL fast-path audit and lineage agreement plan
 
-Status: Track A paused after inventory and the isolated CDA load. Harness, timing, and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Track A resumed. A1 and A2 are complete. A3 recorded the CDA comparisons. A4 removed Dynamic Pivot and the covering-index two-scan Pivot path. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
 
 Precondition: `docs/AQL_RENDER_REFACTOR_PLAN.md` Phases 1 to 4 and
 `docs/EXECUTION_REFACTOR_PLAN.md` are merged. This plan assumes:
@@ -151,6 +151,26 @@ threshold is borderline and goes to the operator.
 - Commit the harness and the toggle script. Any new fast path must add a harness workload in
   the same change.
 
+Use `go run ./cmd/preview-audit -input workload.json -render-only` to check
+the AQL pair before opening a database. For caller-selected paths, the JSON
+contains `plan`, `mode`, and, when applicable, `rootIndex` and
+`groupKeySourcePaths`. For renderer-selected paths it contains `fast` and
+`generic` query/bind objects emitted from the same input before and after
+using `scripts/aql_audit/toggle_generic_renderer.py` in a throwaway worktree.
+Both forms require `fastContains` and `genericExcludes` AQL witnesses.
+Set `ordered` only for a total result order.
+
+For execution add `-arango`, `-database`, and `-dataset` for the owned
+loopback service. Set the same preview memory and time limits on both
+queries. The report includes the first observed pair, then interleaved
+warm samples with AQL digests, complete result digests, scan counts, memory,
+and Arango's node profiles and indexes. `-generic-first` reverses the
+starting order. The first pair measures the first request in that process.
+It does not clear the server's storage caches. The audit fails on a partial
+cursor, a query error, or any result difference. If the generic path fails
+under the preview budget, use a separate raised-budget pair to check
+result equivalence before applying the decision rule.
+
 #### A2: workloads
 
 - For each path, write at least one Builder preview request that triggers it on the CDA dataset
@@ -158,6 +178,37 @@ threshold is borderline and goes to the operator.
 - Load data into an isolated owned project, following `docs/REAL_DATA_ACCEPTANCE.md`. Never
   touch the canonical `loom-demo` volumes.
 - Record the requests and the dataset identity in this plan.
+
+The first request set was rendered with the preview limit and the same
+project, generation and auth binds on both sides. The isolated CDA Arango
+volume uses database `loom_dev`, project `loom_dev_cda_fhir`, and generation
+`cda-fhir-v1`. The loader reported 2,055,978 records. The earlier 2,055,968
+figure counts newline separators in the 11 source files. These requests
+use an unrestricted read scope on the owned generation.
+
+| Path | Fixture producer | CDA request |
+| --- | --- | --- |
+| 1. Streaming Pivot | `TestStreamingMissingCategoryPivotDirectScalarsPreserveValueSemanticsAgainstArango` | Observation grouped by subject reference and status, sum quantity value by quantity code with missing-category handling. |
+| 2. Two-scan Pivot | `TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstArango` | Observation grouped by subject reference, sum quantity value into the observed quantity-code category. Use the compiler's exact covering-index spec and group-key paths. |
+| 3. Dynamic Pivot | `TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstArango` | Observation grouped by subject reference, with quantity code and value on the same choice arm. Restrict to existing quantities. |
+| 4. Semantic Group | `TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs` | Specimen `type.coding[]` and the CDA system rule. Verify the selected factorization AQL and covering index independently. |
+| 5. Root index | `TestConstructionPreviewCoveringIndexMetadataAndRootHint` | The same Specimen Group with hinted and disabled index choices compared separately to default. |
+| 6. Related Group | `TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango` | Specimen to Patient and Observation via subject edges, group by Patient and append related count. |
+| 7. Group row values | `TestConstructionGroupAllRowValuesUsesStreamingTypedAggregates` | Observation Group with count and all `valueCodeableConcept.coding[].code` values. CDA status yields a single group, so also compare a subject-reference request to exercise the preview window. |
+| 8. Source Group | `TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango` | Specimen subject group over Observation coding expansion through the `specimen_Specimen` route. |
+| 9. Related eligibility count | `TestRelatedEligibilityCountRowsReverseMatchesForwardOnArango` | Patient eligibility via Observation and Specimen, then keyless count. |
+
+Caller-selected captures and their Builder recipe inputs are in
+`/private/tmp/loom-aql-phase0/a2-captures`. The temporary capture source is
+`/private/tmp/loom-aql-phase0/a2_capture_test.go`. Renderer-selected capture
+source is in the throwaway worktree
+`/private/tmp/loom-aql-detector-capture/internal/dataframe/compiler/render/aql/audit_capture_test.go`.
+The normalized per-path query inputs are in
+`/private/tmp/compiler-root-evidence/workloads`. They establish AQL selection.
+Result parity and workload representativeness are separate checks. A1 decodes
+the serialized preview limit back into the integer type expected by the
+renderer. The Two-scan request uses compiler-supplied nested source paths.
+The Dynamic Pivot request uses default index options.
 
 #### A3: measure and decide
 
@@ -168,6 +219,53 @@ threshold is borderline and goes to the operator.
 - Write a results table into this plan: per path, both timings, memory, digest match and the
   verdict (keep, delete or borderline).
 - Commit the table. Borderline paths wait for operator review. Clear keeps and deletes go ahead.
+
+The audit used ArangoDB 3.12.13, a 1.4 CPU and 3 GiB container, and a
+10-logical-CPU, 64 GiB host. The original CDA volume was mounted read-only
+while copying it. The three audit indexes were prepared on the disposable
+copy only. Automatic approval review declined index creation on the original
+volume. Both query arms received the same 256 MiB memory and 30 s diagnostic
+time limits unless noted. Ordinary Builder preview has a 10 s deadline.
+Times include the profiled cursor request and response read. They exclude
+client-side digest calculation and Builder request overhead. Each timed case
+used five warm pairs with alternating order and one first observed pair.
+
+| Path | Fast p50 / p95 (range), seconds | Generic p50 / p95 (range), seconds | Peak fast / generic, MiB | Rows matched | Verdict |
+| --- | ---: | ---: | ---: | --- | --- |
+| 1. Streaming Pivot | 4.082 (one warm control) | 7.430 (one warm control) | 33.00 / 308.59 | 25, two pairs at 768 MiB | Keep. Generic exceeded 256 MiB and fast completed. The control used existing indexes on the original owned volume. |
+| 2. Two-scan Pivot | 0.370 / 0.377 (0.367–0.377) | 0.280 / 0.287 (0.278–0.287) | 4.31 / 19.16 | 25, six pairs | Delete. Both arms used the same covering index in this control. Default generic also completed. |
+| 3. Dynamic Pivot, 12 categories | 4.457 / 4.677 (4.356–4.677) | 4.461 / 4.866 (4.382–4.866) | 4.09 / 4.41 | 25, six pairs | Delete. The subject-group single-category case also missed both thresholds. |
+| 4. Semantic Group factorization | 3.065 / 3.184 (3.007–3.184) | 12.448 / 14.136 (12.240–14.136) | 0.44 / 2.81 | 5, six pairs | Keep. |
+| 5a. Root index hinted | 11.065 / 11.368 (10.333–11.368) | 12.039 / 12.617 (11.888–12.617) | 3.03 / 2.81 | 5, six pairs | Keep the root-index choice per operator decision. |
+| 5b. Root index disabled | 9.576 / 10.193 (9.345–10.193) | 12.389 / 12.653 (12.053–12.653) | 3.03 / 2.81 | 5, six pairs | Borderline at the Builder deadline. Operator chose to keep the choice. |
+| 6. Related Group | Completed | Timed out at 30 s and 90 s | — | Unverified on CDA | Retain pending parity. |
+| 7. Group row-value window | 1.667 / 1.896 (1.518–1.896) | 5.945 / 7.366 (5.619–7.366) | 208.47 / 37.12 | 25, six pairs | Keep on the subject-reference workload. Fast used more memory. |
+| 8. Source Group | Completed | Timed out at 30 s and 90 s | — | Unverified on CDA | Retain pending parity. |
+| 9. Related eligibility count | Timed out at 30 s | Timed out at 30 s | — | Unverified on CDA | Retain. Both arms also timed out at 90 s. |
+
+The Pivot profiles confirm real source work. Both two-scan arms used the
+same covering index in the control. Two-scan read 1,630,522 index entries
+versus 815,261 for generic. Calculation nodes were the largest profile group.
+The one-category dynamic case read the same number of entries in each arm.
+The 12-category case used the same index in both arms and preserved all
+results without a qualifying latency or memory benefit. Both semantic Group
+arms scanned 742,505 index entries. Factorization changed the dominant work
+after the scan. The row-value window retained the source scan and reduced
+post-scan work on the many-group fixture. The one-group CDA status probe
+showed the opposite tradeoff, so it did not determine the verdict.
+
+The initial two-scan request failed in both arms with
+`TABLE_PIVOT_UNLISTED_CATEGORY`. The successful request explicitly filters
+for existing quantity codes. The first Specimen index setup request returned
+HTTP 400. Retrying the exact fixture index definition without an empty
+`storedValues` property succeeded. The raised-budget runs are correctness
+probes only. They use `-runs 0` to collect one pair without warm timings.
+
+Raw profiles and inputs are retained under
+`/private/tmp/compiler-root-evidence/a3` and
+`/private/tmp/compiler-root-evidence/workloads`. All successful digest
+comparisons agreed. The pre-deletion snapshot at `ebffc5cd2` contains
+8,308 records and matches the Phase 4 snapshot byte for byte.
 
 #### A4: delete the losers
 
@@ -182,6 +280,22 @@ threshold is borderline and goes to the operator.
     digest the audit recorded;
   - `make test-go`, `make test-integration`;
   - run `python3 scripts/package_audit_verify.py` if a package loses all of its code.
+
+Dynamic Pivot was removed first. The two-scan removal then deleted the shared
+dynamic category renderer. The Arango test kept its SUM, MIN, MAX, null
+category, and full-result assertions. The AQL marker assertion was removed
+with operator approval. Build, full Go suite, comment lint, and integration
+passed. The 8,308-record snapshot was unchanged. Production replay matched
+the audited generic AQL, binds, and all 25 CDA rows. The retired comparison
+hit its deadline during that replay. The generic result matched the earlier
+successful digest exactly.
+
+The two-scan path now uses the generic Pivot query with the same covering
+index hint. CDA replay matched the audited query, binds, and 25-row result
+digest. Of 8,308 original snapshot records, 8,298 were byte-identical.
+Nine two-scan records became generic hinted renders for the same plans.
+One render belonged to the deleted test for the two-scan binding namespaces.
+The remaining Arango tests kept their row and error assertions.
 
 ### Correctness
 

@@ -58,7 +58,7 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	if err := authoringcore.ValidateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, record, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
-	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return nil, record, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	revision, err := s.store.GetRevision(ctx, record.RevisionID)

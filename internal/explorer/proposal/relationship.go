@@ -107,11 +107,11 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err != nil || digest != owner.DraftDigest {
 		return fail, support.Conflict("source-relationship-proposal", "DRAFT_CONFLICT", "saved workspace digest does not match", nil, err)
 	}
-	document := ProposalDocument(workspace, request.OutputID)
+	document := support.ProposalDocument(workspace, request.OutputID)
 	if document == nil || document.ImportedRecipe == nil {
 		return fail, support.Unprocessable("source-relationship-proposal", "IMPORTED_SOURCE_REQUIRED", "choose an imported output", nil)
 	}
-	baseDocumentDigest, err := DocumentDigest(*document)
+	baseDocumentDigest, err := support.DocumentDigest(*document)
 	if err != nil {
 		return fail, err
 	}
@@ -161,7 +161,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, err
 	}
 
-	candidateDocument := ProposalDocument(verifiedCandidate, request.OutputID)
+	candidateDocument := support.ProposalDocument(verifiedCandidate, request.OutputID)
 	if candidateDocument == nil {
 		return fail, support.Conflict("source-relationship-proposal", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -176,7 +176,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if candidateNetwork.OutputID != request.OutputID {
 		return fail, support.Unprocessable("source-relationship-proposal", "INVALID_AUTHORING_NETWORK", "candidate network belongs to another output", nil)
 	}
-	candidateRowIdentity := RowIdentityForNetwork(*candidateDocument, candidateNetwork)
+	candidateRowIdentity := support.RowIdentityForNetwork(*candidateDocument, candidateNetwork)
 	sinkFactory := request.PreviewSinkFactory
 	if sinkFactory == nil {
 		sinkFactory = func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
@@ -247,11 +247,11 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved draft changed after Preview", nil, err)
 	}
-	base := ProposalDocument(current, command.OutputID)
+	base := support.ProposalDocument(current, command.OutputID)
 	if base == nil {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved output is missing", nil, nil)
 	}
-	baseDigest, err := DocumentDigest(*base)
+	baseDigest, err := support.DocumentDigest(*base)
 	if err != nil || baseDigest != binding.BaseDocumentDigest {
 		return nil, support.Conflict("commands", "STALE_SOURCE_RELATIONSHIP_PROPOSAL", "saved output changed after Preview", nil, err)
 	}
@@ -259,7 +259,7 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if err != nil {
 		return nil, err
 	}
-	updated := ProposalDocument(candidate, command.OutputID)
+	updated := support.ProposalDocument(candidate, command.OutputID)
 	if updated == nil {
 		return nil, support.Conflict("commands", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}

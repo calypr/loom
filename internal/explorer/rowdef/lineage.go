@@ -8,10 +8,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
-	"github.com/calypr/loom/internal/projectid"
 )
 
 func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (RowLineageResult, error) {
@@ -30,34 +28,17 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 	if s.config.Capability.ForExecution == nil || s.config.RowLineage == nil {
 		return RowLineageResult{}, support.Unavailable("rowLineage", "ROW_LINEAGE_UNAVAILABLE", "row lineage is not configured", nil)
 	}
-	receipt, err := s.config.Core.LookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
+	prepared, err := support.PrepareReceiptOutput(ctx, s.config.Core, s.config.Capability.ForExecution, support.ReceiptOutputRequest{
+		Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: request.ReceiptID, OutputID: request.OutputID, Stage: "rowLineage",
+	})
 	if err != nil {
 		return RowLineageResult{}, err
 	}
-	if err := s.config.Core.ValidateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
-		return RowLineageResult{}, err
-	}
-	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil {
-		return RowLineageResult{}, support.ReceiptCapabilityFailure("rowLineage", "the receipt's capability snapshot is no longer authorized or retained", err)
-	}
-	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return RowLineageResult{}, support.Conflict("rowLineage", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
-	}
-	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-		return RowLineageResult{}, support.Conflict("rowLineage", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
-	}
-	if !support.ReceiptHasOutput(receipt.Bundle, request.OutputID) || support.ValidateReceiptOutputContract(receipt, request.OutputID) != nil {
-		return RowLineageResult{}, support.Unprocessable("rowLineage", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
-	}
-	bindings := recipe.RuntimeBindings{
-		Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project),
-		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
-		OutputNames: []string{request.OutputID},
-	}
-	support.ApplyAuthorizedScope(&bindings, authorized, false)
+	receipt := prepared.Receipt
+	bindings := prepared.Bindings(s.config.SelectionMembersCollection)
+	bindings.OutputNames = []string{prepared.OutputID}
 	page, err := s.config.RowLineage(ctx, receipt, bindings, dataframeexecution.RowLineageRequest{
-		Output: request.OutputID, RowID: strings.TrimSpace(request.RowID), Offset: request.Offset, Limit: request.Limit,
+		Output: prepared.OutputID, RowID: strings.TrimSpace(request.RowID), Offset: request.Offset, Limit: request.Limit,
 	})
 	if err != nil {
 		if errors.Is(err, dataframeexecution.ErrRowLineageRowNotFound) {
@@ -78,7 +59,7 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 		return RowLineageResult{}, err
 	}
 	result := RowLineageResult{
-		ReceiptID: receipt.ID, OutputID: request.OutputID, RowID: strings.TrimSpace(request.RowID),
+		ReceiptID: receipt.ID, OutputID: prepared.OutputID, RowID: strings.TrimSpace(request.RowID),
 		Status: "COMPLETE", Contributors: page.Contributors, HasMore: page.HasMore,
 	}
 	if result.Contributors == nil {

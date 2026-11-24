@@ -83,14 +83,14 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil || digest != owner.DraftDigest {
 		return fail, support.Conflict(stage, "DRAFT_CONFLICT", "saved source digest does not match", nil, err)
 	}
-	document := ProposalDocument(workspace, request.OutputID)
+	document := support.ProposalDocument(workspace, request.OutputID)
 	if document == nil {
 		return fail, support.Unprocessable(stage, "OUTPUT_NOT_FOUND", "saved output is unavailable", nil)
 	}
 	if document.ImportedRecipe != nil {
 		return fail, support.Unprocessable(stage, "COLUMN_POLICY_IMPORTED_SOURCE_REQUIRED", "edit this policy through its exact imported source step; the recipe pin cannot be rewritten", nil)
 	}
-	baseDigest, err := DocumentDigest(*document)
+	baseDigest, err := support.DocumentDigest(*document)
 	if err != nil {
 		return fail, err
 	}
@@ -120,7 +120,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	candidateDocument := ProposalDocument(verified, request.OutputID)
+	candidateDocument := support.ProposalDocument(verified, request.OutputID)
 	if candidateDocument == nil {
 		return fail, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -134,7 +134,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: RowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
+	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: support.RowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
 }
 
 func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
@@ -158,11 +158,11 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 	if err != nil || currentDigest != binding.DraftDigest {
 		return nil, support.Conflict(stage, "STALE_COLUMN_POLICY_PROPOSAL", "saved draft changed after Preview", nil, err)
 	}
-	base := ProposalDocument(current, command.OutputID)
+	base := support.ProposalDocument(current, command.OutputID)
 	if base == nil || base.ImportedRecipe != nil {
 		return nil, support.Conflict(stage, "INVALID_COLUMN_POLICY_PROPOSAL", "ordinary source output is unavailable", nil, nil)
 	}
-	baseDigest, err := DocumentDigest(*base)
+	baseDigest, err := support.DocumentDigest(*base)
 	if err != nil || baseDigest != binding.BaseDocumentDigest {
 		return nil, support.Conflict(stage, "STALE_COLUMN_POLICY_PROPOSAL", "saved source changed after Preview", nil, err)
 	}

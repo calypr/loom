@@ -196,7 +196,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			if err := verifyPreviewReceiptIntent(rowChangeReplacementCandidate, receiptWorkspace); err != nil {
 				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the requested row replacement", nil, err)
 			}
-			if !authoringcore.ReceiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || authoringcore.ValidateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
+			if !support.ReceiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || support.ValidateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
 				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row replacement candidate receipt does not contain the requested output", nil, nil)
 			}
 			return commands, nil
@@ -292,7 +292,7 @@ func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, exp
 }
 
 func checkRowChangeReplacementResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt, outputID string) error {
-	if receipt == nil || !authoringcore.ReceiptHasOutput(receipt.Bundle, outputID) || authoringcore.ValidateReceiptOutputContract(receipt, outputID) != nil {
+	if receipt == nil || !support.ReceiptHasOutput(receipt.Bundle, outputID) || support.ValidateReceiptOutputContract(receipt, outputID) != nil {
 		return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement does not match its candidate receipt", nil, nil)
 	}
 	for _, document := range workspace.Documents {

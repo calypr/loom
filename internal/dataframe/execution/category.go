@@ -9,8 +9,8 @@ import (
 
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/scan"
 )
 
 type CategoryScanRequest struct {
@@ -34,7 +34,7 @@ type CategoryScanResult struct {
 	Complete          bool
 	Overflow          bool
 	ConclusiveMissing bool
-	Proof             compiler.CategoryScanProof
+	Proof             scan.CategoryScanProof
 }
 
 type ColumnPopulationRequest struct {
@@ -75,19 +75,16 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 		if output.Name != request.Output {
 			continue
 		}
-		var compiled compiler.CompiledCategoryScanQuery
-		var err error
-		if request.StageID != "" {
-			if request.RequireValue {
-				compiled, err = compiler.CompileCategoryScanStageRequiringValue(output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
-			} else {
-				compiled, err = compiler.CompileCategoryScanStageWithPolicy(output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
-			}
-		} else if request.RequireValue {
-			compiled, err = compiler.CompileCategoryScanOutputRequiringValue(output, request.Column, request.ValueColumn, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
-		} else {
-			compiled, err = compiler.CompileCategoryScanOutputWithPolicy(output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		var target scan.Target = scan.OutputColumn{
+			Column: request.Column, ValueColumn: request.ValueColumn, RequireValue: request.RequireValue,
 		}
+		if request.StageID != "" {
+			target = scan.StageColumn{
+				StageID: request.StageID, ColumnID: request.ColumnID,
+				ValueColumnID: request.ValueColumnID, RequireValue: request.RequireValue,
+			}
+		}
+		compiled, err := scan.Compile(output, target, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			return CategoryScanResult{}, err
 		}
@@ -103,14 +100,14 @@ func (e *Engine) ScanColumnPopulation(ctx context.Context, resolved Resolved, re
 	if strings.TrimSpace(request.Output) == "" || strings.TrimSpace(request.StageID) == "" {
 		return ColumnPopulationResult{}, fmt.Errorf("column population output and stage are required")
 	}
-	if len(request.ColumnIDs) == 0 || len(request.ColumnIDs) > compiler.MaxColumnPopulationBatch {
-		return ColumnPopulationResult{}, fmt.Errorf("column population requires 1..%d columns", compiler.MaxColumnPopulationBatch)
+	if len(request.ColumnIDs) == 0 || len(request.ColumnIDs) > scan.MaxColumnPopulationBatch {
+		return ColumnPopulationResult{}, fmt.Errorf("column population requires 1..%d columns", scan.MaxColumnPopulationBatch)
 	}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != request.Output {
 			continue
 		}
-		compiled, err := compiler.CompileColumnPopulationScan(output, request.StageID, request.ColumnIDs, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, err := scan.CompileColumnPopulationScan(output, request.StageID, request.ColumnIDs, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			return ColumnPopulationResult{}, err
 		}
@@ -119,11 +116,11 @@ func (e *Engine) ScanColumnPopulation(ctx context.Context, resolved Resolved, re
 	return ColumnPopulationResult{}, fmt.Errorf("column population output %q was not found", request.Output)
 }
 
-func (e *Engine) ScanColumnPopulationCompiled(ctx context.Context, compiled compiler.CompiledColumnPopulationScan) (ColumnPopulationResult, error) {
+func (e *Engine) ScanColumnPopulationCompiled(ctx context.Context, compiled scan.CompiledColumnPopulationScan) (ColumnPopulationResult, error) {
 	if e == nil || e.queryRows == nil {
 		return ColumnPopulationResult{}, fmt.Errorf("column population query executor is required")
 	}
-	if len(compiled.ColumnIDs) == 0 || len(compiled.ColumnIDs) > compiler.MaxColumnPopulationBatch {
+	if len(compiled.ColumnIDs) == 0 || len(compiled.ColumnIDs) > scan.MaxColumnPopulationBatch {
 		return ColumnPopulationResult{}, fmt.Errorf("column population query is missing typed result metadata")
 	}
 	if err := ctx.Err(); err != nil {
@@ -169,7 +166,7 @@ func (e *Engine) ScanColumnPopulationCompiled(ctx context.Context, compiled comp
 	return result, nil
 }
 
-func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
+func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled scan.CompiledCategoryScanQuery) (CategoryScanResult, error) {
 	if e == nil || e.queryRows == nil {
 		return CategoryScanResult{}, fmt.Errorf("category scan query executor is required")
 	}

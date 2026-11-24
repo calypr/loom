@@ -12,23 +12,23 @@ import (
 
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/scan"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func compiledCategoryScan(max int) compiler.CompiledCategoryScanQuery {
-	return compiler.CompiledCategoryScanQuery{
+func compiledCategoryScan(max int) scan.CompiledCategoryScanQuery {
+	return scan.CompiledCategoryScanQuery{
 		Query: "scan", BindVars: map[string]any{"column": "category"}, PresentColumn: "present", ValueColumn: "value",
-		Proof: compiler.CategoryScanProof{Version: 1, Output: "output", Column: "category", MaxValues: max, Fingerprint: "proof"},
+		Proof: scan.CategoryScanProof{Version: 1, Output: "output", Column: "category", MaxValues: max, Fingerprint: "proof"},
 	}
 }
 
 func TestScanColumnPopulationCompiledReturnsOnlyExactStatuses(t *testing.T) {
-	compiled := compiler.CompiledColumnPopulationScan{
+	compiled := scan.CompiledColumnPopulationScan{
 		Query: "population", BindVars: map[string]any{"scope": "authorized"}, ColumnIDs: []string{"zero", "false", "empty", "missing"},
 	}
 	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
@@ -70,7 +70,7 @@ func TestScanColumnPopulationCompiledRequiresCompleteSingleStatusRow(t *testing.
 			engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 				return test.run(visit)
 			}}
-			_, err := engine.ScanColumnPopulationCompiled(context.Background(), compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
+			_, err := engine.ScanColumnPopulationCompiled(context.Background(), scan.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
 			if err == nil {
 				t.Fatal("accepted incomplete or malformed population scan")
 			}
@@ -92,13 +92,13 @@ func TestScanColumnPopulationCompiledUsesPreviewExecutorAndHonorsCancellation(t 
 			},
 		},
 	}
-	_, err := engine.ScanColumnPopulationCompiled(context.Background(), compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
+	_, err := engine.ScanColumnPopulationCompiled(context.Background(), scan.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
 	if err != nil || normalCalls.Load() != 0 || previewCalls.Load() != 1 {
 		t.Fatalf("preview execution err=%v normal=%d preview=%d", err, normalCalls.Load(), previewCalls.Load())
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := engine.ScanColumnPopulationCompiled(ctx, compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}}); !errors.Is(err, context.Canceled) {
+	if _, err := engine.ScanColumnPopulationCompiled(ctx, scan.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled scan error = %v", err)
 	}
 }
@@ -145,7 +145,7 @@ func TestScanCategoriesCompiledUsesExactOverflowWitnessBeforeFullScan(t *testing
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			compiled := compiledCategoryScan(2)
-			compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness", BindVars: map[string]any{"scope": "same"}}
+			compiled.OverflowWitness = &scan.CategoryOverflowWitness{Query: "witness", BindVars: map[string]any{"scope": "same"}}
 			fullScan := false
 			engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
 				if query == "witness" {
@@ -213,7 +213,7 @@ func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *tes
 func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked(t *testing.T) {
 	compiled := compiledCategoryScan(4)
 	compiled.Proof.PresenceTracked = true
-	compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness"}
+	compiled.OverflowWitness = &scan.CategoryOverflowWitness{Query: "witness"}
 	mainScanned := false
 	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		switch query {
@@ -346,8 +346,8 @@ func TestScanCategoriesReturnsTypedCompilerRefusalForUnsupportedColumn(t *testin
 		}},
 	}}}}
 	_, err := (&Engine{}).ScanCategories(context.Background(), resolved, CategoryScanRequest{Output: "output", Column: "structured", MaxValues: 256})
-	code, ok := compiler.CategoryScanRefusalCodeOf(err)
-	if !ok || code != compiler.CategoryScanColumnUnsupported {
+	code, ok := scan.CategoryScanRefusalCodeOf(err)
+	if !ok || code != scan.CategoryScanColumnUnsupported {
 		t.Fatalf("refusal = %q/%t, error = %v", code, ok, err)
 	}
 }

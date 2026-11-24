@@ -118,53 +118,14 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			return RenderedPhysicalPlan{}, fmt.Errorf("render terminal source Group preview frontier: %w", err)
 		}
 	}
-	selectedGroupKeysVariable := ""
-	groupKeySourceVariable := ""
-	groupIdentityVariable := ""
-	groupKeyVariables := []string(nil)
-	var groupKeyQuery RenderedPhysicalPlan
-	if options.twoScanPivot() {
-		pivot, ok := terminalPreviewPivot(sequence)
-		if !ok {
-			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires one simple terminal Pivot")
-		}
-		allocator := physicalPlanRenderer{renderContext: renderContext{
-			bindVars:       runtimePhysicalBindVars(plan.BindVars, collectionKeys),
-			collectionKeys: collectionKeys,
-			reservedVars:   reservedVars,
-			internalPrefix: "construction_",
-		}}
-		selectedGroupKeysVariable = allocator.newInternalVariable("reshape_preview_selected_group_keys")
-		groupKeySourceVariable = allocator.newInternalVariable("reshape_preview_key_row")
-		groupIdentityVariable = allocator.newInternalVariable("reshape_preview_identity")
-		groupKeyVariables = make([]string, len(pivot.GroupKeys))
-		for index := range groupKeyVariables {
-			groupKeyVariables[index] = allocator.newInternalVariable(fmt.Sprintf("reshape_preview_group_key_%d", index+1))
-		}
-		keyPlan, keyErr := terminalPivotGroupKeySourcePlan(sourcePlan, pivot)
-		if keyErr != nil {
-			return RenderedPhysicalPlan{}, keyErr
-		}
-		groupKeyQuery, err = renderPhysicalPlanWithOptions(keyPlan, physicalRenderOptions{
-			rootIndex:      options.rootIndex,
-			internalPrefix: "preview_key_",
-		})
-		if err != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render terminal Pivot group-key scan: %w", err)
-		}
-		options.pivotGroupTupleFilter = &pivotGroupTupleFilter{
-			SelectedGroupKeysVariable: selectedGroupKeysVariable,
-			SourcePaths:               options.mode.(TwoScanPivotPreview).GroupKeySourcePaths,
-		}
-	}
 	sourceOptions := physicalRenderOptions{
 		internalPrefix: options.internalPrefix,
 		rootIndex:      options.rootIndex,
 
-		previewRootKeyWindowVariable:    options.previewRootKeyWindowVariable,
-		storedPresenceOutputName:        storedPresenceOutputName,
-		storedPresenceParentPath:        storedPresenceParentPath,
-		pivotGroupTupleFilter:           options.pivotGroupTupleFilter,
+		previewRootKeyWindowVariable: options.previewRootKeyWindowVariable,
+		storedPresenceOutputName:     storedPresenceOutputName,
+		storedPresenceParentPath:     storedPresenceParentPath,
+
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 	}
@@ -204,7 +165,6 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		)
 	}
 	bindVars, err := mergeStageBindVars(
-		groupKeyQuery.BindVars,
 		source.BindVars,
 		mappingSource.BindVars,
 		groupPreviewWindow.BindVars,
@@ -235,7 +195,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}}
 	relatedExpandPreviewStageIndex, hasRelatedExpandPreviewStage := terminalRelatedExpandPreviewStage(sequence)
 	if options.omitTerminalRowSort || options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
-		options.twoScanPivot() || options.dynamicPivot() || options.streamingMissingCategoryPivot() {
+		options.streamingMissingCategoryPivot() {
 		hasRelatedExpandPreviewStage = false
 	}
 	relatedExpandPreviewLimitBindKey := ""
@@ -257,18 +217,6 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		lines = append(lines, strings.Split(strings.TrimSuffix(groupRowValueFrontier.query, "\n"), "\n")...)
 	} else if hasSourceGroupWindow {
 		lines = append(lines, strings.Split(strings.TrimSuffix(sourceGroupFrontier.query, "\n"), "\n")...)
-	}
-	if options.twoScanPivot() {
-		pivot, _ := terminalPreviewPivot(sequence)
-		groupLines, groupErr := renderTerminalPivotGroupIdentitySelection(
-			groupKeyQuery.Query, *pivot, selectedGroupKeysVariable,
-			groupKeySourceVariable, groupKeyVariables, groupIdentityVariable, renderer.bindVars,
-			collectionKeys, sequence.PreviewLimitBindKey,
-		)
-		if groupErr != nil {
-			return RenderedPhysicalPlan{}, groupErr
-		}
-		lines = append(lines, groupLines...)
 	}
 	priorRows := constructionSourceVariable
 	if sequence.PopulationMappingReturn != nil && inlineSourceIntoFirstStage {
@@ -346,102 +294,6 @@ func appendIndented(target, rendered []string) []string {
 		target = append(target, "  "+line)
 	}
 	return target
-}
-
-func terminalPreviewPivot(sequence *ir.PhysicalStageSequence) (*ir.PhysicalGroupedPivot, bool) {
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
-		return nil, false
-	}
-	stage := sequence.Stages[0]
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
-		stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
-		return nil, false
-	}
-	return stage.GroupedPivot, true
-}
-
-func terminalPivotGroupKeySourcePlan(sourcePlan ir.PhysicalPlan, pivot *ir.PhysicalGroupedPivot) (ir.PhysicalPlan, error) {
-	if pivot == nil {
-		return ir.PhysicalPlan{}, fmt.Errorf("terminal Pivot group-key scan is missing its Pivot")
-	}
-	sourcePlan = ir.ClonePhysicalPlan(sourcePlan)
-	keyColumns := make(map[string]bool, len(pivot.GroupKeys))
-	for _, key := range pivot.GroupKeys {
-		keyColumns[key.Column] = false
-	}
-	found := false
-	for index := range sourcePlan.Operations {
-		operation := &sourcePlan.Operations[index]
-		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
-			continue
-		}
-		found = true
-		projections := make([]ir.PhysicalProjection, 0, len(keyColumns))
-		for _, projection := range operation.Return.Projections {
-			if _, required := keyColumns[projection.Name]; required {
-				projections = append(projections, projection)
-				keyColumns[projection.Name] = true
-			}
-		}
-		missing := make([]string, 0, len(keyColumns))
-		for _, key := range pivot.GroupKeys {
-			if !keyColumns[key.Column] {
-				missing = append(missing, key.Column)
-			}
-		}
-		if len(missing) != 0 {
-			return ir.PhysicalPlan{}, fmt.Errorf("terminal Pivot group-key scan is missing source projections %v", missing)
-		}
-		operation.Return.Projections = projections
-		break
-	}
-	if !found {
-		return ir.PhysicalPlan{}, fmt.Errorf("terminal Pivot group-key scan has no source RETURN")
-	}
-	return sourcePlan, nil
-}
-
-func renderTerminalPivotGroupIdentitySelection(sourceQuery string, pivot ir.PhysicalGroupedPivot, selectedGroupKeysVariable, sourceVariable string, groupKeyVariables []string, identityVariable string, bindVars map[string]any, collectionKeys map[string]struct{}, limitBindKey string) ([]string, error) {
-	if len(groupKeyVariables) != len(pivot.GroupKeys) {
-		return nil, fmt.Errorf("terminal Pivot group-key variables = %d, want %d", len(groupKeyVariables), len(pivot.GroupKeys))
-	}
-	groupKeyValues := make([]string, 0, len(pivot.GroupKeys))
-	collectKeys := make([]string, 0, len(pivot.GroupKeys))
-	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: bindVars, collectionKeys: collectionKeys, internalPrefix: "construction_"}}
-	for index, key := range pivot.GroupKeys {
-		groupKeyValues = append(groupKeyValues, groupKeyVariables[index])
-		columnBind := renderer.newInternalBindKey("reshape_preview_group_column")
-		renderer.bindVars[columnBind] = key.Column
-		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s[@%s]", groupKeyVariables[index], sourceVariable, columnBind))
-	}
-	identity, err := renderer.renderGroupedPivotIdentity(pivot, groupKeyValues)
-	if err != nil {
-		return nil, fmt.Errorf("render terminal Pivot group identity selection: %w", err)
-	}
-	groupTuple := groupKeyValues[0]
-	if len(groupKeyValues) > 1 {
-		groupTuple = "[" + strings.Join(groupKeyValues, ", ") + "]"
-	}
-	lines := []string{
-		fmt.Sprintf("LET %s = (", selectedGroupKeysVariable),
-		fmt.Sprintf("  FOR %s IN (", sourceVariable),
-	}
-	for _, line := range strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n") {
-		lines = append(lines, "    "+line)
-	}
-	lines = append(lines,
-		"  )",
-		"  COLLECT "+strings.Join(collectKeys, ", "),
-		"  LET "+identityVariable+" = "+identity,
-		"  SORT "+identityVariable+" ASC",
-		"  LIMIT @"+limitBindKey,
-		"  RETURN "+groupTuple,
-		")",
-	)
-	return lines, nil
 }
 
 func mergeRenderedBindVars(target, source map[string]any) error {

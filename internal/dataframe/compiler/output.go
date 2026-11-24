@@ -18,10 +18,6 @@ func publicOutputColumns(schema []lower.CompiledOutputColumn) []string {
 	return columns
 }
 
-func PublicOutputColumns(schema []lower.CompiledOutputColumn) []string {
-	return publicOutputColumns(schema)
-}
-
 const genericPhysicalExecutionLimitBind = "limit"
 
 func physicalProjectionMetadata(plan ir.PhysicalPlan) ([]string, []string) {
@@ -58,7 +54,7 @@ func physicalTraversalCount(plan ir.PhysicalPlan) int {
 	return count
 }
 
-func WithGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
+func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
 	if plan.StageSequence != nil {
 		out := ir.ClonePhysicalPlan(plan)
 		if limit > 0 {
@@ -131,7 +127,7 @@ func WithGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return out, nil
 	}
 
-	insertAt := physicalScopeWindowEnd(plan.Operations, 1)
+	insertAt := ir.PhysicalScopeWindowEnd(plan.Operations, 1)
 	unnestIndex := -1
 	for index, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {

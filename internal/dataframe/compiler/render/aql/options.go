@@ -42,16 +42,14 @@ type RootPageKeysPreview struct {
 	BindKey            string
 	RelatedExpandLimit int
 }
-type DynamicCategoryPivotPreview struct{}
 type StreamingMissingCategoryPivotPreview struct{}
-type TwoScanPivotPreview struct{ GroupKeySourcePaths [][]string }
 type SemanticGroupProjectionFactorizationPreview struct{}
 type SemanticGroupProjectionAssessmentPreview struct{}
 
 func Render(plan ir.PhysicalPlan, options Options) (RenderedPhysicalPlan, error) {
 	switch preview := options.Preview.(type) {
-	case RelatedExpandPreview, RootPageKeysPreview, DynamicCategoryPivotPreview,
-		StreamingMissingCategoryPivotPreview, TwoScanPivotPreview,
+	case RelatedExpandPreview, RootPageKeysPreview,
+		StreamingMissingCategoryPivotPreview,
 		SemanticGroupProjectionFactorizationPreview, SemanticGroupProjectionAssessmentPreview:
 		return preview.render(plan, options.RootIndex)
 	case nil:
@@ -79,20 +77,6 @@ func (SemanticGroupProjectionAssessmentPreview) render(plan ir.PhysicalPlan, ind
 }
 
 type renderPreview struct{ mode Preview }
-
-func (p renderPreview) twoScanPivot() bool {
-	_, ok := p.mode.(TwoScanPivotPreview)
-	return ok
-}
-
-func (p renderPreview) dynamicPivot() bool {
-	switch p.mode.(type) {
-	case DynamicCategoryPivotPreview, TwoScanPivotPreview:
-		return true
-	default:
-		return false
-	}
-}
 
 func (p renderPreview) streamingMissingCategoryPivot() bool {
 	_, ok := p.mode.(StreamingMissingCategoryPivotPreview)
@@ -146,24 +130,6 @@ func (p RootPageKeysPreview) render(plan ir.PhysicalPlan, index RootIndex) (Rend
 	})
 }
 
-func (p DynamicCategoryPivotPreview) render(plan ir.PhysicalPlan, index RootIndex) (RenderedPhysicalPlan, error) {
-	if index.kind != 0 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview does not support a root index override")
-	}
-	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a terminal Pivot preview")
-	}
-	stage := sequence.Stages[0]
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a nonunique terminal Pivot")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{renderPreview: renderPreview{p}})
-}
-
 func (p StreamingMissingCategoryPivotPreview) render(plan ir.PhysicalPlan, index RootIndex) (RenderedPhysicalPlan, error) {
 	if index.kind == rootIndexOff {
 		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category preview does not support a disabled root index")
@@ -185,47 +151,6 @@ func (p StreamingMissingCategoryPivotPreview) render(plan ir.PhysicalPlan, index
 		pivot.RootContributorInputColumn != "" || pivot.RootContributorOutputColumn != "" || len(pivot.Categories) == 0 ||
 		!pivot.CategoryPresenceFromInput || pivot.CategoryPresence != nil || pivot.CategoryPresenceColumn == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category preview requires a simple presence-aware Pivot")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
-		rootIndex: index, renderPreview: renderPreview{p},
-	})
-}
-
-func (p TwoScanPivotPreview) render(plan ir.PhysicalPlan, index RootIndex) (RenderedPhysicalPlan, error) {
-	if index.kind != rootIndexHinted {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a root index hint")
-	}
-	if err := index.validateHint(); err != nil {
-		return RenderedPhysicalPlan{}, err
-	}
-	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a terminal Pivot preview")
-	}
-	stage := sequence.Stages[0]
-	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
-		stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a simple nonunique terminal Pivot")
-	}
-	if len(p.GroupKeySourcePaths) != len(stage.GroupedPivot.GroupKeys) {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview has %d group-key source paths for %d Pivot keys", len(p.GroupKeySourcePaths), len(stage.GroupedPivot.GroupKeys))
-	}
-	for index, path := range p.GroupKeySourcePaths {
-		if len(path) == 0 {
-			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview group-key source path %d is empty", index)
-		}
-		for _, segment := range path {
-			if segment == "" {
-				return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview group-key source path %d has an empty segment", index)
-			}
-		}
-	}
-	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil ||
-		plan.Operations[0].RootScan.Population != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a direct root source scan")
 	}
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
 		rootIndex: index, renderPreview: renderPreview{p},

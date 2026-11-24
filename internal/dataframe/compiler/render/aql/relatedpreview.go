@@ -43,8 +43,7 @@ func relatedGroupPreviewShapeFor(plan ir.PhysicalPlan, sequence *ir.PhysicalStag
 		sequence.RowLineageReturn != nil || sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) < 2 ||
 		options.rootIndex.hint != "" || (options.rootIndex.kind == rootIndexOff) || options.omitTerminalRowSort || options.omitTerminalReturn ||
 		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
-		options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
-		options.twoScanPivot() || options.dynamicPivot() || options.pivotGroupTupleFilter != nil {
+		options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 {
 		return relatedGroupPreviewShape{}, false
 	}
 	if limit, ok := plan.BindVars[sequence.PreviewLimitBindKey].(int); !ok || limit <= 0 {

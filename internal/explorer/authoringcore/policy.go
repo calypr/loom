@@ -2,15 +2,11 @@ package authoringcore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -125,70 +121,6 @@ func CompilationErrorCode(code string) string {
 		return code
 	}
 }
-func ValidateAuthorizedReceiptExecution(receipt *receiptmodel.CompilationReceipt, authorized ports.AuthorizedCapability) error {
-	if receipt == nil {
-		return fmt.Errorf("receipt is required")
-	}
-	snapshot := authorized.Snapshot
-	if strings.TrimSpace(receipt.SnapshotToken) == "" || snapshot.Token != receipt.SnapshotToken {
-		return fmt.Errorf("capability token does not exactly match receipt token")
-	}
-	if err := snapshot.ValidateToken(receipt.SnapshotToken); err != nil {
-		return fmt.Errorf("capability token is invalid: %v", err)
-	}
-	if snapshot.Identity.Project != receipt.Project {
-		return fmt.Errorf("capability project changed")
-	}
-	if snapshot.Identity.Generation != receipt.SourceGeneration {
-		return fmt.Errorf("capability generation changed")
-	}
-	if snapshot.Identity.SchemaDigest != receipt.CapabilitySchemaDigest {
-		return fmt.Errorf("capability schema changed")
-	}
-	if snapshot.Identity.AuthorizationScopeDigest != receipt.AuthorizationScopeDigest {
-		return fmt.Errorf("capability scope digest changed")
-	}
-	return support.ValidateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest)
-}
-
-func ValidateReceiptOutputContract(receipt *receiptmodel.CompilationReceipt, outputID string) error {
-	if receipt == nil {
-		return fmt.Errorf("receipt is required")
-	}
-	outputID = strings.TrimSpace(outputID)
-	if outputID == "" {
-		return fmt.Errorf("output is required")
-	}
-	contract, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)
-	if err != nil {
-		return fmt.Errorf("public output contract is invalid: %v", err)
-	}
-	if _, ok := contract.Output(outputID); !ok {
-		return fmt.Errorf("requested output %q is not in the receipt public contract", outputID)
-	}
-	if !ReceiptHasOutput(receipt.Bundle, outputID) {
-		return fmt.Errorf("requested output %q is not in the receipt recipe", outputID)
-	}
-	return nil
-}
-
-func ApplyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized ports.AuthorizedCapability, includeAuthResourcePath bool) {
-	if bindings == nil {
-		return
-	}
-	bindings.AuthResourcePaths = append([]string(nil), authorized.Scope.AuthResourcePaths...)
-	bindings.AuthScopeMode = authorized.Scope.Mode
-	bindings.IncludeAuthResourcePath = includeAuthResourcePath
-}
-
-func ReceiptHasOutput(bundle recipe.Bundle, id string) bool {
-	for _, output := range bundle.Outputs {
-		if output.Name == id {
-			return true
-		}
-	}
-	return false
-}
 
 func EmittedColumnsForOutput(receipt *receiptmodel.CompilationReceipt, outputID string) []viewer.EmittedColumn {
 	columns := make([]viewer.EmittedColumn, 0)
@@ -204,21 +136,7 @@ func EmittedColumnsForOutput(receipt *receiptmodel.CompilationReceipt, outputID 
 }
 
 func CapabilityResolutionFailure(stage, message string, err error) error {
-	return CapabilityFailure(stage, "STALE_CATALOG_SNAPSHOT", message, err)
-}
-
-func ReceiptCapabilityFailure(stage, message string, err error) error {
-	return CapabilityFailure(stage, "RECEIPT_STALE", message, err)
-}
-func CapabilityFailure(stage, code, message string, err error) error {
-	switch {
-	case errors.Is(err, capability.ErrStaleSnapshot), errors.Is(err, capability.ErrSnapshotUnavailable), errors.Is(err, capability.ErrNotFound):
-		return support.Conflict(stage, code, message, nil, err)
-	case errors.Is(err, authscope.ErrUnauthenticated), errors.Is(err, authscope.ErrForbidden):
-		return support.Forbidden(stage, message, err)
-	default:
-		return support.Unavailable(stage, "CAPABILITY_UNAVAILABLE", message, err)
-	}
+	return support.CapabilityFailure(stage, "STALE_CATALOG_SNAPSHOT", message, err)
 }
 
 func (s *Core) VerifyProposalReceipt(_ context.Context, stage string, receipt *receiptmodel.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *ws.Workspace) (ws.Workspace, error) {

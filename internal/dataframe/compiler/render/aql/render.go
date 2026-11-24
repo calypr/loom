@@ -135,40 +135,11 @@ type physicalRenderOptions struct {
 	preserveProjectionPresenceNames map[string]struct{}
 	projectionPresenceMarkerColumn  string
 	renderPreview
-	storedPresenceOutputName     string
-	storedPresenceParentPath     []string
-	pivotGroupTupleFilter        *pivotGroupTupleFilter
+	storedPresenceOutputName string
+	storedPresenceParentPath []string
+
 	previewRootKeyWindowVariable string
 	previewGroupIdentityFilter   *previewGroupIdentityFilter
-}
-
-type pivotGroupTupleFilter struct {
-	SelectedGroupKeysVariable string
-	SourcePaths               [][]string
-}
-
-func (r *physicalPlanRenderer) renderPivotGroupTupleFilter(filter *pivotGroupTupleFilter, rootVariable string) (string, error) {
-	if filter == nil || filter.SelectedGroupKeysVariable == "" || rootVariable == "" || len(filter.SourcePaths) == 0 {
-		return "", fmt.Errorf("selected Pivot group tuple filter is incomplete")
-	}
-	keyValues := make([]string, 0, len(filter.SourcePaths))
-	for pathIndex, path := range filter.SourcePaths {
-		if len(path) == 0 {
-			return "", fmt.Errorf("selected Pivot group tuple source path %d is empty", pathIndex)
-		}
-		segments := make([]string, 0, len(path))
-		for _, segment := range path {
-			if !previewSourcePathSegmentPattern.MatchString(segment) {
-				return "", fmt.Errorf("selected Pivot group tuple source path %d has an unsafe segment %q", pathIndex, segment)
-			}
-			segments = append(segments, segment)
-		}
-		keyValues = append(keyValues, rootVariable+"."+strings.Join(segments, "."))
-	}
-	if len(keyValues) == 1 {
-		return "FILTER " + keyValues[0] + " IN " + filter.SelectedGroupKeysVariable, nil
-	}
-	return "FILTER POSITION(" + filter.SelectedGroupKeysVariable + ", [" + strings.Join(keyValues, ", ") + "])", nil
 }
 
 func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderOptions) (RenderedPhysicalPlan, error) {
@@ -333,12 +304,6 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		}
 		if options.terminalReturnVariable != "" {
 			lines = append(lines, fmt.Sprintf("LET %s = %s", options.terminalReturnVariable, returnExpression))
-		} else if options.pivotGroupTupleFilter != nil {
-			filter, filterErr := renderer.renderPivotGroupTupleFilter(options.pivotGroupTupleFilter, layout.root.Variable)
-			if filterErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render selected Pivot group tuple filter: %w", filterErr)
-			}
-			lines = append(lines, filter)
 		}
 		if options.terminalReturnVariable == "" {
 			lines = append(lines, "RETURN "+returnExpression)

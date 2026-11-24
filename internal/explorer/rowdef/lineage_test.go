@@ -76,6 +76,57 @@ func TestRowLineageMapsUnsupportedConstructionCapability(t *testing.T) {
 	}
 }
 
+func TestRowLineageRejectsUnpreparedReceipts(t *testing.T) {
+	snapshot := rowLineageSnapshot("project-a", "generation-a", "token")
+	for _, test := range []struct {
+		name       string
+		resolveErr error
+		generation string
+		outputID   string
+		wantClass  ports.ErrorClass
+		wantCode   string
+	}{
+		{name: "denied scope", resolveErr: authscope.ErrForbidden, wantClass: ports.ClassForbidden, wantCode: "FORBIDDEN"},
+		{name: "unretained snapshot", resolveErr: capability.ErrStaleSnapshot, wantClass: ports.ClassConflict, wantCode: "RECEIPT_STALE"},
+		{name: "different generation", generation: "generation-b", wantClass: ports.ClassConflict, wantCode: "RECEIPT_STALE"},
+		{name: "unknown output", outputID: "unknown", wantClass: ports.ClassUnprocessable, wantCode: "UNKNOWN_AUTHORING_OUTPUT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			receipt := rowLineageReceipt(snapshot)
+			service := rowLineageService(t, snapshot, receipt)
+			outputID := "patients"
+			if test.outputID != "" {
+				outputID = test.outputID
+			}
+			resolutions := 0
+			service.config.Capability.ForExecution = func(_ context.Context, project, token string) (ports.AuthorizedCapability, error) {
+				resolutions++
+				if project != receipt.Project || token != receipt.SnapshotToken {
+					t.Fatalf("authorization coordinates = %q, %q", project, token)
+				}
+				resolved := snapshot
+				if test.generation != "" {
+					resolved.Identity.Generation = test.generation
+				}
+				return ports.AuthorizedCapability{
+					Snapshot: resolved, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted},
+				}, test.resolveErr
+			}
+			service.config.RowLineage = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
+				t.Fatal("lineage executed after receipt preparation failed")
+				return dataframeexecution.RowLineageResult{}, nil
+			}
+			_, err := service.RowLineage(context.Background(), RowLineageRequest{
+				Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: outputID, RowID: "row-7",
+			})
+			var got *ports.Error
+			if !errors.As(err, &got) || got.Class != test.wantClass || got.Stage != "rowLineage" || got.Code != test.wantCode || !errors.Is(got.Cause, test.resolveErr) || resolutions != 1 {
+				t.Fatalf("failure = %#v, err = %v, resolutions = %d", got, err, resolutions)
+			}
+		})
+	}
+}
+
 func rowLineageSnapshot(project, generation, token string) capability.Snapshot {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	paths := append([]string(nil), scope.AuthResourcePaths...)

@@ -212,7 +212,7 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	if err := s.core.ValidateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
-	if err := authoringcore.ValidateReceiptOutputContract(receipt, request.OutputID); err != nil {
+	if err := support.ValidateReceiptOutputContract(receipt, request.OutputID); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Unprocessable("artifact", "OUTPUT_NOT_PUBLISHED", "requested output is not part of the immutable receipt", err)
 	}
 	if receipt.ID != revision.CompilationReceiptID || receipt.SourceGeneration != revision.SourceGeneration || receipt.SourceGeneration == "" {
@@ -225,7 +225,7 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	if err := authoringcore.ValidateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
-	if err := authoringcore.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+	if err := support.ValidateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, support.Forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	if err := validateArtifactRevisionReceipt(*revision, *receipt); err != nil {

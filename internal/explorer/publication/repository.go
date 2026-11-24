@@ -103,7 +103,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		}
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
-	authoringcore.ApplyAuthorizedScope(&bindings, authorized, true)
+	support.ApplyAuthorizedScope(&bindings, authorized, true)
 	if s.config.MaterializeReceipt == nil {
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "MATERIALIZATION_UNAVAILABLE", "repository V2 materialization is not configured", nil)
 	}

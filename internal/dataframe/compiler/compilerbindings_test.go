@@ -1,0 +1,113 @@
+package compiler
+
+import (
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+)
+
+var compileCurrentConstructionOracle = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).CompileCurrentConstructionOracle
+
+var currentOracleDerivedPivotOutput = compilerfixtures.CurrentOracleDerivedPivotOutput
+
+var currentOraclePivotOutput = compilerfixtures.CurrentOraclePivotOutput
+
+var currentOracleUnpivotOutput = compilerfixtures.CurrentOracleUnpivotOutput
+
+var executeReshapeOracleQuery = compilerfixtures.ExecuteReshapeOracleQuery
+
+var insertReshapeAgreementFixture = compilerfixtures.InsertReshapeAgreementFixture
+
+type reshapeOracleSourceRow = compilerfixtures.ReshapeOracleSourceRow
+
+var reshapeOracleSourceRows = compilerfixtures.ReshapeOracleSourceRows
+
+var compilePopulationMappingOutput = compilerfixtures.CompilePopulationMappingOutput
+
+var constructionCountRowsGroupPivotLineageOutput = compilerfixtures.ConstructionCountRowsGroupPivotLineageOutput
+
+var constructionOracleOutput = compilerfixtures.ConstructionOracleOutput
+
+var lowerConstructionOutput = compilerfixtures.LowerConstructionOutput
+
+var openConstructionReshapeArango = compilerfixtures.OpenConstructionReshapeArango
+
+var relatedCountEdge = compilerfixtures.RelatedCountEdge
+
+var executeConstructionOutput = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).ExecuteConstructionOutput
+
+var extensionStringPointer = compilerfixtures.ExtensionStringPointer
+
+var insertConstructionReshapeRows = compilerfixtures.InsertConstructionReshapeRows
+
+var testSemanticField = compilerfixtures.TestSemanticField
+
+var relatedExpandOracleOutput = compilerfixtures.RelatedExpandOracleOutput
+
+var compileConstructionOutputQuery = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).CompileConstructionOutputQuery
+
+var compileReshapeOracle = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).CompileReshapeOracle
+
+type oraclePivot = compilerfixtures.OraclePivot
+
+type oraclePivotCategory = compilerfixtures.OraclePivotCategory
+
+type oracleReshape = compilerfixtures.OracleReshape
+
+const oracleReshapePivot = compilerfixtures.OracleReshapePivot
+
+var reshapeOracleOutput = compilerfixtures.ReshapeOracleOutput
+
+var reshapeOracleString = compilerfixtures.ReshapeOracleString
+
+var reshapeOracleUnpivotOutput = compilerfixtures.ReshapeOracleUnpivotOutput
+
+var bindOracleCurrentConstruction = compilerfixtures.BindOracleCurrentConstruction
+
+const oracleReshapeUnpivot = compilerfixtures.OracleReshapeUnpivot
+
+type oracleUnpivot = compilerfixtures.OracleUnpivot
+
+type oracleUnpivotInput = compilerfixtures.OracleUnpivotInput
+
+var constructionNumericEqual = compilerfixtures.ConstructionNumericEqual
+
+var constructionSummaryOutput = compilerfixtures.ConstructionSummaryOutput
+
+var constructionCountRowsOnlyOutput = compilerfixtures.ConstructionCountRowsOnlyOutput
+
+var compileConstructionOutputQueryWithBindings = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).CompileConstructionOutputQueryWithBindings
+
+var constructionMissingKeyPolicyOutput = compilerfixtures.ConstructionMissingKeyPolicyOutput
+
+var executeConstructionOutputError = compilerfixtures.OutputCompiler(CompileRecipeOutputWithPolicy).ExecuteConstructionOutputError
+
+var populationMappingTestBindings = compilerfixtures.PopulationMappingTestBindings
+
+var directRelatedExpandOutput = compilerfixtures.DirectRelatedExpandOutput
+
+var constructionCodedGroupTestOutput = compilerfixtures.ConstructionCodedGroupTestOutput
+
+var codedGroupComponent = compilerfixtures.CodedGroupComponent
+
+var buildGenericPhysicalPlan = compilerfixtures.BuildGenericPhysicalPlan
+
+var constructionRelatedSourceCellTraceRecipeOutput = compilerfixtures.ConstructionRelatedSourceCellTraceRecipeOutput
+
+var stringPtr = compilerfixtures.StringPtr
+
+var reshapeOracleFloat = compilerfixtures.ReshapeOracleFloat
+
+var bindOracleCurrentDerived = compilerfixtures.BindOracleCurrentDerived
+
+var reshapeOracleInteger = compilerfixtures.ReshapeOracleInteger
+
+var groupedRelatedSummaryOutput = compilerfixtures.GroupedRelatedSummaryOutput
+
+var constructionExpandOutput = compilerfixtures.ConstructionExpandOutput
+
+var constructionExpandGroupOutput = compilerfixtures.ConstructionExpandGroupOutput
+
+var constructionGroupRowValuesOutput = compilerfixtures.ConstructionGroupRowValuesOutput
+
+var constructionPreviewMultiKeyPivotOutput = compilerfixtures.ConstructionPreviewMultiKeyPivotOutput
+
+var reshapeOracleStringFilter = compilerfixtures.ReshapeOracleStringFilter

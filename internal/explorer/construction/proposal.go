@@ -845,7 +845,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}
 	baseDocument := current.Documents[baseIndex]
-	baseDocumentDigest, err := documentDigest(baseDocument)
+	baseDocumentDigest, err := support.DocumentDigest(baseDocument)
 	if err != nil {
 		return nil, nil, nil, err
 	}

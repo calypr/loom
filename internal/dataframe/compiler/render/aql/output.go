@@ -102,7 +102,7 @@ func (render stageSequenceRendering) renderStages(lines []string, priorRows stri
 			}
 
 			previewLimitBindKey := ""
-			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 && !options.twoScanPivot() {
+			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 {
 				previewLimitBindKey = sequence.PreviewLimitBindKey
 			}
 			if inlineCodedPivotStage && stage.GroupedPivot.CodedSourceVariable != inlineCodedPivotRoot {

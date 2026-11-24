@@ -35,9 +35,8 @@ func terminalGroupRowValuePreviewWindowFor(
 		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
 		(options.rootIndex.kind == rootIndexOff) ||
 		options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
-		options.twoScanPivot() || options.dynamicPivot() || options.streamingMissingCategoryPivot() ||
-		(options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted) || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
-		options.pivotGroupTupleFilter != nil {
+		options.streamingMissingCategoryPivot() ||
+		(options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted) || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
 	limit, ok := plan.BindVars[sequence.PreviewLimitBindKey].(int)

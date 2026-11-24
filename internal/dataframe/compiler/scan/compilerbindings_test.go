@@ -1,0 +1,32 @@
+package scan
+
+import (
+	compiler "github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
+)
+
+var executeReshapeOracleQuery = compilerfixtures.ExecuteReshapeOracleQuery
+
+var compilePopulationMappingOutput = compilerfixtures.CompilePopulationMappingOutput
+
+var constructionCountRowsGroupPivotLineageOutput = compilerfixtures.ConstructionCountRowsGroupPivotLineageOutput
+
+var constructionOracleOutput = compilerfixtures.ConstructionOracleOutput
+
+var openConstructionReshapeArango = compilerfixtures.OpenConstructionReshapeArango
+
+var constructionNumericEqual = compilerfixtures.ConstructionNumericEqual
+
+var constructionExpandOutput = compilerfixtures.ConstructionExpandOutput
+
+var constructionExpandGroupOutput = compilerfixtures.ConstructionExpandGroupOutput
+
+var constructionGroupRowValuesOutput = compilerfixtures.ConstructionGroupRowValuesOutput
+
+var constructionPreviewMultiKeyPivotOutput = compilerfixtures.ConstructionPreviewMultiKeyPivotOutput
+
+var reshapeOracleStringFilter = compilerfixtures.ReshapeOracleStringFilter
+
+var stringPointer = compilerfixtures.StringPtr
+var containsBindValue = relatedCategoryHasBindValue
+var CompileRecipeOutputWithPolicy = compiler.CompileRecipeOutputWithPolicy
