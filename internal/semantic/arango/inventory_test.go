@@ -211,7 +211,17 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	assertCodePopulation(t, replayed, "shared-000", 2)
 }
 
-func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *testing.T) {
+func TestSemanticInventoryMaterializationMatchesPreaggregatedLegacyRowsAgainstArango(t *testing.T) {
+	fixtures := []semantic.Contribution{
+		inventoryAggregationFixture("a", 1, false),
+		inventoryAggregationFixture("a", 2, true),
+		inventoryAggregationFixture("a", 1, false),
+		inventoryAggregationFixture("Z", 1, false),
+	}
+	fixtureAggregates := preaggregatedLegacyInventoryFixtures(fixtures)
+	if len(fixtureAggregates) != 2 || fixtureAggregates[0].Observation.Population != 4 || !fixtureAggregates[0].Observation.ExamplesTruncated {
+		t.Fatalf("preaggregated legacy fixtures = %#v, want display a population 4 with truncation plus separate Z", fixtureAggregates)
+	}
 	owned := arangotest.Owned(t, "loom_semantic_aggregation_")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -227,12 +237,6 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 		t.Fatal(err)
 	}
 	project := "aggregation-" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	fixtures := []semantic.Contribution{
-		inventoryAggregationFixture("a", 1, false),
-		inventoryAggregationFixture("a", 2, true),
-		inventoryAggregationFixture("a", 1, false),
-		inventoryAggregationFixture("Z", 1, false),
-	}
 	var rowLevel, aggregated []semantic.Entry
 	var rawPopulation int64
 	for _, fixture := range fixtures {
@@ -243,8 +247,7 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 		if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 			t.Fatal(err)
 		}
-		contributions := make([]semantic.Contribution, 0, len(fixtures))
-		aggregator := semantic.NewAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
+		rowContributions := make([]semantic.Contribution, 0, len(fixtures))
 		for ordinal, fixture := range fixtures {
 			fixture.Project = project
 			fixture.DatasetGeneration = generation
@@ -255,18 +258,17 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 			fixture.Ordinal = ordinal
 			fixture.Key = fmt.Sprintf("row-%d-%s", ordinal, generation)
 			fixture.Observation.SchemaVersion = build.ObservationSchema
-			if index == 0 {
-				contributions = append(contributions, fixture)
-			} else if err := aggregator.Add(fixture); err != nil {
-				t.Fatal(err)
-			}
+			rowContributions = append(rowContributions, fixture)
 		}
+		contributions := rowContributions
 		if index == 1 {
-			contributions = aggregator.Documents()
+			contributions = preaggregatedLegacyInventoryFixtures(rowContributions)
 			if len(contributions) != 2 {
 				t.Fatalf("aggregated rows = %d, want two distinct ICU reducer inputs", len(contributions))
 			}
 			for ordinal, contribution := range contributions {
+				contribution.Ordinal = ordinal
+				contribution.SourceID = "META/Observation.ndjson"
 				contribution.Key = fmt.Sprintf("aggregate-%d-%s", ordinal, generation)
 				contributions[ordinal] = contribution
 			}
@@ -320,6 +322,22 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 	if aggregated[0].Observation.Population != rawPopulation {
 		t.Fatalf("aggregated population=%d, want %d", aggregated[0].Observation.Population, rawPopulation)
 	}
+}
+
+func preaggregatedLegacyInventoryFixtures(rows []semantic.Contribution) []semantic.Contribution {
+	byDisplay := make(map[string]semantic.Contribution)
+	for _, row := range rows {
+		display := row.Observation.Key.Display
+		current, exists := byDisplay[display]
+		if !exists {
+			byDisplay[display] = row
+			continue
+		}
+		current.Observation.Population += row.Observation.Population
+		current.Observation.ExamplesTruncated = current.Observation.ExamplesTruncated || row.Observation.ExamplesTruncated
+		byDisplay[display] = current
+	}
+	return []semantic.Contribution{byDisplay["a"], byDisplay["Z"]}
 }
 
 func inventoryAggregationFixture(display string, population int64, truncated bool) semantic.Contribution {

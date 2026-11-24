@@ -504,6 +504,24 @@ func TestRunGenerationFilesFailFastCancelsSiblings(t *testing.T) {
 	}
 }
 
+func TestFileScheduleCancellationDoesNotStartQueuedLoad(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "source.ndjson")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	started := 0
+	err := (FileSchedule{FileConcurrency: 1}).Run(ctx, []string{file, file}, func(context.Context, FileBudget, int, string) error {
+		started++
+		cancel()
+		return nil
+	})
+	if started != 1 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("started %d loads, error %v; want one load and cancellation", started, err)
+	}
+}
+
 func TestConcurrentGenerationMatchesSerialAgainstArango(t *testing.T) {
 	endpoint := failLegEndpoint(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)

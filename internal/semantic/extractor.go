@@ -80,11 +80,6 @@ func (e *Extractor) Extract(index *schema.Index, resourceType string, payload ma
 	return run.observeSchemaSemanticsFromFacts(payload, facts)
 }
 
-func ExtractFacts(resourceType, profile string, payload map[string]any, facts []MemberFact, record func(Record)) error {
-	run := semanticObservationRun{resourceType: resourceType, profile: profile, scratch: &semanticWalkScratch{}, record: record}
-	return run.observeSchemaSemanticsFromFacts(payload, facts)
-}
-
 func (enumerator semanticFactEnumerator) collectFacts(
 	index *schema.Index,
 	payload map[string]any,

@@ -4,64 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
-	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/semantic"
 )
-
-func TestSemanticInventoryRunMergeIsWorkerIndependent(t *testing.T) {
-	project := "project"
-	generation := "generation"
-	buildID := semantic.BuildID(project, generation)
-	makeAggregator := func() *semantic.Aggregator {
-		return semantic.NewAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
-	}
-	first := makeAggregator()
-	second := makeAggregator()
-	if err := first.Add(semanticInventoryRunFixture(project, generation, buildID, "a", 2)); err != nil {
-		t.Fatal(err)
-	}
-	if err := second.Add(semanticInventoryRunFixture(project, generation, buildID, "a", 3)); err != nil {
-		t.Fatal(err)
-	}
-	if err := second.Add(semanticInventoryRunFixture(project, generation, buildID, "Z", 1)); err != nil {
-		t.Fatal(err)
-	}
-	firstPath, err := writeSemanticInventoryRun(first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondPath, err := writeSemanticInventoryRun(second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		os.Remove(firstPath)
-		os.Remove(secondPath)
-	})
-	var merged []semantic.Contribution
-	if err := mergeSemanticInventoryRuns(t.Context(), []string{secondPath, firstPath}, func(value semantic.Contribution) error {
-		merged = append(merged, value)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(merged) != 2 || merged[0].Observation.Population != 1 || merged[1].Observation.Population != 5 {
-		t.Fatalf("merged spill values = %+v", merged)
-	}
-	encoded, err := encodeSemanticInventoryBatch(merged, project, generation, "scope", "Observation", buildID, "META/Observation.ndjson", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	retry, err := encodeSemanticInventoryBatch(merged, project, generation, "scope", "Observation", buildID, "META/Observation.ndjson", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(encoded, retry) {
-		t.Fatal("spill merge changed retry keys")
-	}
-}
 
 func TestSemanticInventoryEntryRunsMergeRepeatedEntryGroups(t *testing.T) {
 	project, generation, auth, resource := "project", "generation", "scope", "Observation"
@@ -162,97 +108,35 @@ func assertInventoryRunFilesRemoved(t *testing.T, paths []string) {
 	}
 }
 
-func TestSemanticInventoryRunDecodeClearsOmittedFields(t *testing.T) {
-	project := "project"
-	generation := "generation"
+func TestSemanticInventoryEntryRunDecodeClearsOmittedFields(t *testing.T) {
+	project, generation, auth, resource := "project", "generation", "scope", "Observation"
 	buildID := semantic.BuildID(project, generation)
-	aggregator := semantic.NewAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
-	withStatus := semanticInventoryRunFixture(project, generation, buildID, "a", 1)
-	withStatus.Observation.Status = "active"
-	withoutStatus := semanticInventoryRunFixture(project, generation, buildID, "b", 1)
-	for _, contribution := range []semantic.Contribution{withStatus, withoutStatus} {
-		if err := aggregator.Add(contribution); err != nil {
-			t.Fatal(err)
+	withStatus := semantic.EntryPartial{Contribution: semantic.Contribution{
+		Project: project, DatasetGeneration: generation, AuthResourcePath: auth, ResourceType: resource,
+		BuildID: buildID, SourceKind: semantic.SourceFile, BindingID: "binding", ConceptID: "a",
+		Observation: semantic.Observation{Status: "active"},
+	}}
+	withoutStatus := semantic.EntryPartial{Contribution: semantic.Contribution{
+		Project: project, DatasetGeneration: generation, AuthResourcePath: auth, ResourceType: resource,
+		BuildID: buildID, SourceKind: semantic.SourceFile, BindingID: "binding", ConceptID: "b",
+	}}
+	path, err := createSemanticInventoryEntryRun(func(emit func(semantic.EntryPartial) error) error {
+		if err := emit(withStatus); err != nil {
+			return err
 		}
-	}
-	path, err := writeSemanticInventoryRun(aggregator)
+		return emit(withoutStatus)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Remove(path) })
-	var values []semantic.Contribution
-	if err := mergeSemanticInventoryRuns(t.Context(), []string{path}, func(value semantic.Contribution) error {
+	var values []semantic.EntryPartial
+	if err := mergeSemanticInventoryEntryRuns(t.Context(), []string{path}, func(value semantic.EntryPartial) error {
 		values = append(values, value)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(values) != 2 || values[0].Observation.Status != "active" || values[1].Observation.Status != "" {
+	if len(values) != 2 || values[0].Contribution.Observation.Status != "active" || values[1].Contribution.Observation.Status != "" {
 		t.Fatalf("decoded run statuses = %+v, want active then empty", values)
-	}
-}
-
-func semanticInventoryRunFixture(project, generation, buildID, display string, population int64) semantic.Contribution {
-	return semantic.Contribution{
-		Project: project, DatasetGeneration: generation, AuthResourcePath: "scope", ResourceType: "Observation",
-		BuildID: buildID, SourceKind: semantic.SourceFile, SourceID: "META/Observation.ndjson#1",
-		ConceptID: "concept", BindingID: "binding", Example: display,
-		Observation: semantic.Observation{
-			SchemaVersion: 4,
-			Source:        semantic.Source{Type: "Observation", Path: "path"},
-			Key:           semantic.Key{Code: "code", Display: display},
-			Value:         semantic.Value{Type: "string"},
-			Completeness:  semantic.CompletenessComplete, Population: population, Examples: []string{display},
-		},
-	}
-}
-
-func TestSemanticInventoryRunMergeAcrossBoundedGroups(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
-	runCount := semanticInventoryRunFanIn*semanticInventoryRunFanIn + 1
-	paths := make([]string, 0, runCount)
-	for range runCount {
-		path, err := createSemanticInventoryRun(func(emit func(semantic.Contribution) error) error {
-			return emit(semanticInventoryRunFixture("project", "generation", "build", "same", 1))
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		paths = append(paths, path)
-	}
-	var merged []semantic.Contribution
-	err := mergeSemanticInventoryRuns(t.Context(), paths, func(value semantic.Contribution) error {
-		merged = append(merged, value)
-		return nil
-	})
-	if err != nil || len(merged) != 1 || merged[0].Observation.Population != int64(runCount) {
-		t.Fatalf("bounded merge = %+v, err = %v, want one row with population %d", merged, err, runCount)
-	}
-	files, err := os.ReadDir(os.TempDir())
-	if err != nil || len(files) != runCount {
-		t.Fatalf("spill recovery retained %d files, want %d original runs, err = %v", len(files), runCount, err)
-	}
-}
-
-func TestSemanticInventoryRunPreservesOmittedSliceIdentity(t *testing.T) {
-	before := semanticInventoryRunFixture("project", "generation", "build", "same", 1)
-	before.Observation.Value.FallbackSelectors = []string{}
-	before.Observation.ObservedUnits = []string{}
-	before.Observation.ExtensionURLPath = []string{}
-	path, err := createSemanticInventoryRun(func(emit func(semantic.Contribution) error) error {
-		return emit(before)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Remove(path) })
-	err = mergeSemanticInventoryRuns(t.Context(), []string{path}, func(after semantic.Contribution) error {
-		if semantic.ContributionOrderKey(before) != semantic.ContributionOrderKey(after) {
-			t.Fatal("spill round trip changed the ordering key for omitted slices")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }

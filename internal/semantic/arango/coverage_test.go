@@ -1,11 +1,12 @@
 package arango
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -14,6 +15,85 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 	store "github.com/calypr/loom/internal/store/arango"
 )
+
+func legacySourceEnvelopeFixture(t *testing.T, name string) []json.RawMessage {
+	t.Helper()
+	data, err := os.ReadFile("testdata/legacy_source_envelopes/" + name)
+	if err != nil {
+		t.Fatalf("read legacy source envelope fixture %q: %v", name, err)
+	}
+	var documents []json.RawMessage
+	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		if !json.Valid(line) {
+			t.Fatalf("legacy source envelope fixture %q contains invalid JSON: %s", name, line)
+		}
+		documents = append(documents, append(json.RawMessage(nil), line...))
+	}
+	if len(documents) == 0 {
+		t.Fatalf("legacy source envelope fixture %q is empty", name)
+	}
+	return documents
+}
+
+func seedLegacySourceEnvelopeFixture(t *testing.T, client interface {
+	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
+}, name string) {
+	t.Helper()
+	if err := client.InsertBatchRaw(context.Background(), SemanticCoverageCollection, legacySourceEnvelopeFixture(t, name), true, ""); err != nil {
+		t.Fatalf("seed legacy source envelope fixture %q: %v", name, err)
+	}
+}
+
+func TestLegacySourceEnvelopeFixturesPreservePhysicalKeys(t *testing.T) {
+	want := map[string][]struct{ sourceID, authPath, key string }{
+		"arango-partial-initial.jsonl": {
+			{"retained:Specimen/physical-a/logical-shared", "Patient/scope-a", "scv1_bc2c209d2e52ddeab0ca791e7d1e00c3d03c858733cf6c17506ebcb2b7f1ad3b"},
+			{"retained:Specimen/physical-b/logical-shared", "Patient/scope-b", "scv1_815870dbba2c8a4e212ff62dbc80c6cb6af3927610aa15b7fc2ebd71beb621a7"},
+		},
+		"arango-partial-replay.jsonl": {
+			{"retained:Specimen/physical-a/logical-shared", "Patient/scope-c", "scv1_bc2c209d2e52ddeab0ca791e7d1e00c3d03c858733cf6c17506ebcb2b7f1ad3b"},
+			{"retained:Specimen/physical-b/logical-shared", "Patient/scope-b", "scv1_815870dbba2c8a4e212ff62dbc80c6cb6af3927610aa15b7fc2ebd71beb621a7"},
+		},
+		"arango-mismatch.jsonl": {
+			{"retained:Specimen/source-a", "Patient/scope-a", "scv1_ccab36e3113a0f9c04b21e83265d5e55af9890e2dc86289e1da2f69196c1fa9c"},
+		},
+	}
+	for name, records := range want {
+		documents := legacySourceEnvelopeFixture(t, name)
+		if len(documents) != len(records) {
+			t.Fatalf("fixture %s rows=%d want %d", name, len(documents), len(records))
+		}
+		for i, raw := range documents {
+			var stored struct {
+				Key               string `json:"_key"`
+				Project           string `json:"project"`
+				DatasetGeneration string `json:"dataset_generation"`
+				BuildID           string `json:"build_id"`
+				SchemaIdentity    string `json:"schema_identity"`
+				SourceKind        string `json:"source_kind"`
+				ResourceType      string `json:"resource_type"`
+				SourceID          string `json:"source_id"`
+				AuthResourcePath  string `json:"auth_resource_path"`
+			}
+			if err := json.Unmarshal(raw, &stored); err != nil {
+				t.Fatal(err)
+			}
+			if stored.Key != records[i].key || stored.SourceID != records[i].sourceID || stored.AuthResourcePath != records[i].authPath {
+				t.Fatalf("fixture %s record %d identity=(%s,%s,%s), want (%s,%s,%s)", name, i, stored.Key, stored.SourceID, stored.AuthResourcePath, records[i].key, records[i].sourceID, records[i].authPath)
+			}
+			identity := fieldprofile.SemanticCoverageSourceIdentity{Project: stored.Project, DatasetGeneration: stored.DatasetGeneration, SchemaIdentity: stored.SchemaIdentity, SourceKind: stored.SourceKind, ResourceType: stored.ResourceType, SourceID: stored.SourceID, AuthResourcePath: stored.AuthResourcePath}
+			if got := semanticCoverageSourceEnvelopeKey(identity, stored.BuildID); got != stored.Key {
+				t.Fatalf("legacy stored key %q does not match current stable key %q", stored.Key, got)
+			}
+		}
+	}
+	if want["arango-partial-initial.jsonl"][0].key != want["arango-partial-replay.jsonl"][0].key {
+		t.Fatal("auth-path replay changed the historical physical envelope key")
+	}
+}
 
 func TestSemanticCoverageCollectionHasEnvelopeAndCertificateIndexes(t *testing.T) {
 	spec := SemanticCoverageCollectionSpec()
@@ -140,349 +220,6 @@ func TestWriteSemanticCoverageDocumentsValidatesBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestEncodeSemanticCoverageSourceEnvelopeCreatesOneNestedEnvelope(t *testing.T) {
-	contribution := semanticCoverageFixtureContribution()
-	contribution.DiagnosticLocatorsTruncated = true
-	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
-	if err != nil {
-		t.Fatalf("encode semantic coverage: %v", err)
-	}
-
-	var source semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(encoded, &source); err != nil {
-		t.Fatal(err)
-	}
-	if source.RecordKind != semanticCoverageEnvelopeRecordKind || source.CoverageStorageFormatVersion != fieldprofile.SemanticCoverageStorageFormatVersion || source.SourceRecordCount != 1 || source.BuildID != contribution.BuildID || source.SourceID != contribution.Identity.SourceID {
-		t.Fatalf("source envelope = %#v", source)
-	}
-	if source.Counts["codeable_concept_owners"] != 2 || source.Counts["coding_occurrences"] != 3 || !source.DiagnosticLocatorsTruncated {
-		t.Fatalf("source counters/truncation = %#v", source)
-	}
-	if len(source.Paths) != 1 || source.Paths[0].CanonicalPath != "component[].code" || !source.Paths[0].Groupable {
-		t.Fatalf("nested path aggregate = %#v, want complete semantic grouping despite diagnostic-only truncation", source.Paths)
-	}
-	if source.Paths[0].Path == nil || len(source.Paths[0].Path.References) != 2 || source.Paths[0].Path.References[0].Kind != string(fieldprofile.SemanticCoverageExactReference) || source.Paths[0].Path.References[0].BindingID != "binding-1" {
-		t.Fatalf("path references = %#v", source.Paths[0].Path)
-	}
-	if got := source.Paths[0].Path.References[1].Family; got == nil || got.Version != "v2" || got.System != "urn:family" || got.BindingID != "binding-family" {
-		t.Fatalf("family reference = %#v, want full exact-version identity", got)
-	}
-	if len(source.Paths[0].Path.Facets) != 2 || source.Paths[0].Path.Facets[0].Path != "coding[].code" {
-		t.Fatalf("nested facet aggregates = %#v", source.Paths[0].Path.Facets)
-	}
-	serialized := string(encoded)
-	for _, forbidden := range []string{"clinical-value", "secret-code-value"} {
-		if strings.Contains(serialized, forbidden) {
-			t.Fatalf("coverage persistence retained raw value %q: %s", forbidden, serialized)
-		}
-	}
-	if strings.Contains(serialized, "owner_path_witnesses") || strings.Contains(serialized, "explanation") {
-		t.Fatalf("coverage envelope retained diagnostic witnesses or explanations: %s", serialized)
-	}
-}
-
-func TestEncodeSemanticCoverageSourceEnvelopeBlocksGroupingForProofTruncation(t *testing.T) {
-	for name, mutate := range map[string]func(*fieldprofile.SemanticCoverageSourceContribution){
-		"source counts": func(contribution *fieldprofile.SemanticCoverageSourceContribution) {
-			contribution.CountsTruncated = true
-		},
-		"source facets": func(contribution *fieldprofile.SemanticCoverageSourceContribution) {
-			contribution.FacetsTruncated = true
-		},
-		"source references": func(contribution *fieldprofile.SemanticCoverageSourceContribution) {
-			contribution.ReferencesTruncated = true
-		},
-		"path counts": func(contribution *fieldprofile.SemanticCoverageSourceContribution) {
-			contribution.Paths[0].CountsTruncated = true
-		},
-		"path facets": func(contribution *fieldprofile.SemanticCoverageSourceContribution) {
-			contribution.Paths[0].FacetsTruncated = true
-		},
-		"path references": func(contribution *fieldprofile.SemanticCoverageSourceContribution) {
-			contribution.Paths[0].ReferencesTruncated = true
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			contribution := semanticCoverageFixtureContribution()
-			mutate(&contribution)
-			encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
-			if err != nil {
-				t.Fatalf("encode semantic coverage: %v", err)
-			}
-			var envelope semanticCoverageSourceEnvelope
-			if err := json.Unmarshal(encoded, &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if len(envelope.Paths) != 1 || envelope.Paths[0].Groupable {
-				t.Fatal("truncated path proof still allowed grouping")
-			}
-		})
-	}
-}
-
-func TestEncodeSemanticCoverageSourceEnvelopeRequiresExactBuildAndSourceIdentity(t *testing.T) {
-	contribution := semanticCoverageFixtureContribution()
-	if _, err := EncodeSemanticCoverageSourceEnvelope("other-build", contribution); err == nil {
-		t.Fatal("contribution from another build was accepted")
-	}
-	contribution.SourceRecordCount = 0
-	if _, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution); err == nil {
-		t.Fatal("source contribution without one source record was accepted")
-	}
-}
-
-func TestEmptySchemaIdentityPersistsIncompleteSourceWithoutGrouping(t *testing.T) {
-	contribution := semanticCoverageFixtureContribution()
-	contribution.Identity.SchemaIdentity = ""
-	contribution.Complete = false
-	contribution.IncompleteGaps = []fieldprofile.SemanticCoverageCensusGap{fieldprofile.SemanticCoverageGapSchemaIdentity}
-	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
-	if err != nil {
-		t.Fatalf("encode incomplete empty-schema contribution: %v", err)
-	}
-	var source semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(encoded, &source); err != nil {
-		t.Fatal(err)
-	}
-	if source.SchemaIdentity != "" || source.Complete || len(source.Paths) != 1 || source.Paths[0].Groupable {
-		t.Fatalf("empty-schema source envelope = %+v, want persisted incomplete/unusable source", source)
-	}
-}
-
-func TestEncodeSemanticCoverageSourceEnvelopeKeepsZeroObservationSource(t *testing.T) {
-	contribution := semanticCoverageFixtureContribution()
-	contribution.Paths = nil
-	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
-	if err != nil {
-		t.Fatalf("encode empty semantic coverage source: %v", err)
-	}
-	var source semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(encoded, &source); err != nil {
-		t.Fatal(err)
-	}
-	if source.RecordKind != semanticCoverageEnvelopeRecordKind || source.SourceRecordCount != 1 || source.SourceID != contribution.Identity.SourceID || len(source.Paths) != 0 {
-		t.Fatalf("zero-observation sentinel = %#v", source)
-	}
-}
-
-func TestWriteSemanticCoverageContributionsWritesStableReplaceRows(t *testing.T) {
-	client := &semanticCoverageTestClient{}
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contribution := semanticCoverageFixtureContribution()
-	first, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 1)
-	if err != nil {
-		t.Fatalf("write coverage contribution: %v", err)
-	}
-	if first.Rows != 1 || len(client.insertCalls) != 1 {
-		t.Fatalf("first write stats=%#v batches=%d, want one source envelope", first, len(client.insertCalls))
-	}
-	if first.SourceSetsReplaced != 1 || len(client.executeCalls) != 0 {
-		t.Fatalf("source replacement calls=%d stats=%#v, want one atomic envelope replacement without cleanup", len(client.executeCalls), first)
-	}
-	firstKeys := make([]string, 0, 1)
-	for _, call := range client.insertCalls {
-		var document semanticCoverageStoredDocument
-		if err := json.Unmarshal(call.documents[0], &document); err != nil {
-			t.Fatal(err)
-		}
-		firstKeys = append(firstKeys, document.Key)
-	}
-	client.insertCalls = nil
-	second, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 1)
-	if err != nil {
-		t.Fatalf("replay coverage contribution: %v", err)
-	}
-	if second.Rows != first.Rows || second.SerializedBytes != first.SerializedBytes || len(client.insertCalls) != 1 {
-		t.Fatalf("replay stats=%#v batches=%d, want deterministic one-document replacement", second, len(client.insertCalls))
-	}
-	for index, call := range client.insertCalls {
-		var document semanticCoverageStoredDocument
-		if err := json.Unmarshal(call.documents[0], &document); err != nil {
-			t.Fatal(err)
-		}
-		if document.Key != firstKeys[index] || !call.overwrite {
-			t.Fatalf("replay row %d = %#v overwrite=%v, want same key and replace", index, document, call.overwrite)
-		}
-	}
-}
-
-func TestWriteSemanticCoverageBatchesAtomicSourceEnvelopes(t *testing.T) {
-	client := newSemanticCoverageMemoryClient()
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first := semanticCoverageFixtureContribution()
-	first.Identity.SourceID = "retained:Observation/key-a"
-	second := semanticCoverageFixtureContribution()
-	second.Identity.SourceID = "retained:Observation/key-b"
-	second.Identity.AuthResourcePath = "Patient/other"
-
-	stats, err := adapter.WriteSemanticCoverageContributions(context.Background(), first.BuildID, []fieldprofile.SemanticCoverageSourceContribution{first, second}, 10)
-	if err != nil {
-		t.Fatalf("write two-source batch: %v", err)
-	}
-	wantEvents := []string{semanticCoverageEnvelopeRecordKind, semanticCoverageEnvelopeRecordKind}
-	if !reflect.DeepEqual(client.events, wantEvents) {
-		t.Fatalf("batched write rows = %v, want one envelope per physical source", client.events)
-	}
-	if stats.SourceSetsReplaced != 2 || stats.Rows != 2 || client.insertAttempts != 1 {
-		t.Fatalf("batched write stats = %+v insert batches=%d, want two envelopes in one batch", stats, client.insertAttempts)
-	}
-
-	interrupted := newSemanticCoverageMemoryClient()
-	interrupted.failInsertAt = 2
-	interruptedAdapter, err := New(interrupted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stats, err = interruptedAdapter.WriteSemanticCoverageContributions(context.Background(), first.BuildID, []fieldprofile.SemanticCoverageSourceContribution{first, second}, 1)
-	if err == nil || !strings.Contains(err.Error(), "replace semantic coverage source envelopes") || stats.Rows != 1 {
-		t.Fatalf("interrupted bounded envelope batch stats=%+v err=%v, want one committed envelope before failure", stats, err)
-	}
-	if len(interrupted.documents) != 1 {
-		t.Fatalf("partial envelope batch stored %d docs, want the first source only", len(interrupted.documents))
-	}
-	expectation := semanticCoverageTestResourceExpectation(t, "Observation", first, second)
-	if err := interruptedAdapter.CompleteSemanticCoverageResource(context.Background(), SemanticCoverageBuildIdentity{
-		Project: first.Identity.Project, DatasetGeneration: first.Identity.DatasetGeneration,
-		BuildID: first.BuildID, SchemaIdentity: first.Identity.SchemaIdentity, SourceKind: first.Identity.SourceKind,
-	}, expectation, 10); err == nil {
-		t.Fatal("resource certification accepted a partial envelope batch")
-	}
-	for _, document := range interrupted.documents {
-		if document.RecordKind == "resource" && document.ResourceState == SemanticCoverageBuildComplete {
-			t.Fatalf("partial envelope batch published COMPLETE resource marker: %+v", document)
-		}
-	}
-}
-
-func TestWriteSemanticCoverageReplacesChangedSourcePathSetAndAuthorization(t *testing.T) {
-	client := newSemanticCoverageMemoryClient()
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := semanticCoverageFixtureContribution()
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), old.BuildID, []fieldprofile.SemanticCoverageSourceContribution{old}, 10); err != nil {
-		t.Fatalf("write original source: %v", err)
-	}
-	if len(client.documents) != 1 {
-		t.Fatalf("original source rows = %d, want one source envelope", len(client.documents))
-	}
-	if got := client.events; !reflect.DeepEqual(got, []string{semanticCoverageEnvelopeRecordKind}) {
-		t.Fatalf("original source write rows = %v", got)
-	}
-
-	updated := semanticCoverageFixtureContribution()
-	updated.Identity.AuthResourcePath = "Patient/new-authorized"
-	updated.Paths[0].CanonicalPath = "valueCodeableConcept"
-	updated.Paths[0].Facets[0].Path = "valueCodeableConcept.coding[].code"
-	updated.Paths[0].Facets[1].Path = "valueCodeableConcept.coding[].userSelected"
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), updated.BuildID, []fieldprofile.SemanticCoverageSourceContribution{updated}, 10); err != nil {
-		t.Fatalf("replace changed source shape/scope: %v", err)
-	}
-	if len(client.documents) != 1 {
-		t.Fatalf("replacement source rows = %d, want one atomic envelope", len(client.documents))
-	}
-	for _, document := range client.documents {
-		if document.AuthResourcePath != updated.Identity.AuthResourcePath {
-			t.Fatalf("replacement did not update authorization partition: %#v", document)
-		}
-		if len(document.Paths) != 1 || document.Paths[0].CanonicalPath != "valueCodeableConcept" || len(document.Paths[0].Path.Facets) != 2 {
-			t.Fatalf("stale nested path/facet survived replay: %#v", document.Paths)
-		}
-		for _, facet := range document.Paths[0].Path.Facets {
-			if !strings.HasPrefix(facet.Path, "valueCodeableConcept.") {
-				t.Fatalf("stale facet path survived replay: %#v", document.Paths[0].Path.Facets)
-			}
-		}
-	}
-	if got := client.events; !reflect.DeepEqual(got, []string{semanticCoverageEnvelopeRecordKind, semanticCoverageEnvelopeRecordKind}) {
-		t.Fatalf("replacement source rows = %v, want direct atomic upserts", got)
-	}
-}
-
-func TestWriteSemanticCoverageKeepsDistinctRetainedKeysWithSameLogicalFHIRIDSeparate(t *testing.T) {
-	client := newSemanticCoverageMemoryClient()
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first := semanticCoverageFixtureContribution()
-	first.Identity.AuthResourcePath = "Patient/scope-a"
-	first.Identity.SourceID = "retained:Observation/arango-key-a"
-	second := semanticCoverageFixtureContribution()
-	second.Identity.AuthResourcePath = "Patient/scope-b"
-	second.Identity.SourceID = "retained:Observation/arango-key-b"
-
-	sharedLogicalFHIRID := "observation-duplicate"
-	if sharedLogicalFHIRID == "" {
-		t.Fatal("fixture requires a shared logical FHIR id")
-	}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), first.BuildID, []fieldprofile.SemanticCoverageSourceContribution{first, second}, 10); err != nil {
-		t.Fatalf("write distinct retained sources: %v", err)
-	}
-	if len(client.documents) != 2 {
-		t.Fatalf("rows for two retained keys = %d, want two source envelopes", len(client.documents))
-	}
-
-	first.Paths[0].CanonicalPath = "valueCodeableConcept"
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), first.BuildID, []fieldprofile.SemanticCoverageSourceContribution{first}, 10); err != nil {
-		t.Fatalf("replace first retained source: %v", err)
-	}
-	if len(client.documents) != 2 {
-		t.Fatalf("rows after one source replacement = %d, want both source sets preserved", len(client.documents))
-	}
-	foundOther := false
-	for _, document := range client.documents {
-		if document.SourceID == second.Identity.SourceID && document.AuthResourcePath == second.Identity.AuthResourcePath {
-			foundOther = true
-		}
-		if document.SourceID == first.Identity.SourceID && (len(document.Paths) != 1 || document.Paths[0].CanonicalPath != "valueCodeableConcept") {
-			t.Fatalf("stale path survived replacement: %#v", document.Paths)
-		}
-	}
-	if !foundOther {
-		t.Fatal("replacing one same-id retained row removed the other auth partition")
-	}
-}
-
-func TestWriteSemanticCoverageReplaceFailurePreservesPriorEnvelope(t *testing.T) {
-	client := newSemanticCoverageMemoryClient()
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contribution := semanticCoverageFixtureContribution()
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatalf("write initial source: %v", err)
-	}
-	before := make(map[string]semanticCoverageStoredDocument, len(client.documents))
-	for key, document := range client.documents {
-		before[key] = document
-	}
-	client.events = nil
-	client.insertAttempts = 0
-	client.failInsertAt = 1
-	contribution.Paths[0].CanonicalPath = "changedPath"
-	stats, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10)
-	if err == nil || !strings.Contains(err.Error(), "replace semantic coverage source envelopes") || stats.Rows != 0 {
-		t.Fatalf("replace failure stats=%#v err=%v, want no acknowledged writes", stats, err)
-	}
-	if client.insertAttempts != 1 || len(client.documents) != len(before) {
-		t.Fatalf("replace failure attempted calls=%d rows=%d, want failed atomic write and prior row preserved", client.insertAttempts, len(client.documents))
-	}
-	for key, document := range before {
-		if !reflect.DeepEqual(client.documents[key], document) {
-			t.Fatalf("prior source row %q changed after failed cleanup: got %#v want %#v", key, client.documents[key], document)
-		}
-	}
-}
-
 func TestSemanticCoverageBuildMaterializesExactAuthAndBuildSummaries(t *testing.T) {
 	client := newSemanticCoverageMemoryClient()
 	adapter, err := New(client)
@@ -500,9 +237,7 @@ func TestSemanticCoverageBuildMaterializesExactAuthAndBuildSummaries(t *testing.
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
 	contribution.DiagnosticLocatorsTruncated = true
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatalf("write source coverage: %v", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "build-complete.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 	marker := client.documents[semanticCoverageBuildKey(identity)]
 	if marker.BuildState != SemanticCoverageBuildComplete || marker.MaterializedSourceCount != 1 || marker.SummaryCount != 4 {
@@ -576,21 +311,13 @@ func TestSemanticCoverageIncompleteReplayCannotReuseCompletedMarkerOrSummary(t *
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "build-complete.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatalf("begin replay: %v", err)
 	}
 	client.events = nil
-	client.insertAttempts = 0
-	client.failInsertAt = 1
-	contribution.Paths[0].CanonicalPath = "changedPath"
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err == nil {
-		t.Fatal("interrupted source-set replay returned nil")
-	}
 	marker := client.documents[semanticCoverageBuildKey(identity)]
 	if marker.BuildState != SemanticCoverageBuildBuilding {
 		t.Fatalf("marker after interrupted replay = %q, want BUILDING", marker.BuildState)
@@ -638,9 +365,7 @@ func TestSemanticCoverageMaterializationKeepsUnauthorizedPartitionSeparate(t *te
 		unauthorized.Paths[0].Facets[index].Reason = fieldprofile.SemanticCoverageReasonUnrepresentedMetadata
 		unauthorized.Paths[0].Facets[index].References = nil
 	}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{allowed, unauthorized}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "auth-partitions.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, allowed, unauthorized)
 	candidate := SemanticCoverageCandidatePath{ResourceType: "Observation", CanonicalPath: "coding[].code"}
 	restricted, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
@@ -674,9 +399,7 @@ func TestFacetProofTruncationKeepsExactCandidateRaw(t *testing.T) {
 	contribution.BuildID = buildID
 	contribution.Identity.SchemaIdentity = identity.SchemaIdentity
 	contribution.Paths[0].Facets[0].ReferencesTruncated = true
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatalf("write truncated facet source: %v", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "facet-truncated.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
@@ -708,9 +431,7 @@ func TestSemanticCoverageExactFacetIgnoresRawSiblingAndOwnerDisposition(t *testi
 	display.Path = "coding[].display"
 	display.Kind = "string"
 	contribution.Paths[0].Facets = append(contribution.Paths[0].Facets, display)
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "raw-sibling.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 
 	lookup := func(path string) SemanticCoverageCandidateResult {
@@ -763,9 +484,7 @@ func TestIncompletePathlessPartitionCannotBorrowProofFromAnotherAuthorizedPartit
 	incomplete.Paths = nil
 	incomplete.Complete = false
 	incomplete.IncompleteGaps = []fieldprofile.SemanticCoverageCensusGap{fieldprofile.SemanticCoverageGapRawAvailability}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{complete, incomplete}, 10); err != nil {
-		t.Fatalf("write source partitions: %v", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "complete-and-pathless.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, complete, incomplete)
 	candidate := SemanticCoverageCandidatePath{ResourceType: complete.Identity.ResourceType, CanonicalPath: "coding[].code"}
 	restricted, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
@@ -800,9 +519,7 @@ func TestEmptySchemaCoverageBuildAndLookupRemainUnavailable(t *testing.T) {
 	contribution.Identity.SchemaIdentity = ""
 	contribution.Complete = false
 	contribution.IncompleteGaps = []fieldprofile.SemanticCoverageCensusGap{fieldprofile.SemanticCoverageGapSchemaIdentity}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatalf("persist empty-schema source: %v", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "empty-schema.jsonl")
 	if err := adapter.FinalizeSemanticCoverageBuild(context.Background(), identity, []string{"Observation"}); err != nil {
 		t.Fatalf("finalize empty-schema build: %v", err)
 	}
@@ -845,9 +562,7 @@ func TestSemanticCoverageCandidateLookupConsidersEveryBoundarySignature(t *testi
 	for index := range subtype.Paths[0].Facets {
 		subtype.Paths[0].Facets[index].ResourceBoundarySignature = subtype.Paths[0].ResourceBoundarySignature
 	}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{ordinary, subtype}, 10); err != nil {
-		t.Fatalf("write boundary-specific source sets: %v", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "boundary-signatures.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, ordinary, subtype)
 	var matchingFacetSummaries []semanticCoverageStoredDocument
 	for _, document := range client.documents {
@@ -893,9 +608,7 @@ func TestSemanticCoverageMaterializerCountsOverlappingFacetsOncePerSource(t *tes
 	duplicate.Kind = "primitive-code-alias"
 	duplicate.OccurrenceCount = 2
 	contribution.Paths[0].Facets = append(contribution.Paths[0].Facets, duplicate)
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "overlapping-facets.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 
 	var facetSummary *semanticCoverageStoredDocument
@@ -930,9 +643,7 @@ func TestSemanticCoverageLookupRejectsStorageFormatMismatch(t *testing.T) {
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "format-mismatch.jsonl")
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 	marker := client.documents[semanticCoverageBuildKey(identity)]
 	marker.CoverageStorageFormatVersion++
@@ -963,9 +674,7 @@ func TestSemanticCoverageReadFailureCannotPublishComplete(t *testing.T) {
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
 	contribution.Identity.SchemaIdentity = identity.SchemaIdentity
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "read-failure.jsonl")
 	client.queryErr = errors.New("injected coverage source read failure")
 	expectation := semanticCoverageTestResourceExpectation(t, "Observation", contribution)
 	if err := adapter.CompleteSemanticCoverageResource(context.Background(), identity, expectation, 10); err == nil || !strings.Contains(err.Error(), "injected coverage source read failure") {
@@ -1000,9 +709,7 @@ func TestSemanticCoverageSummaryWriteFailureCannotPublishComplete(t *testing.T) 
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
 	contribution.Identity.SchemaIdentity = identity.SchemaIdentity
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "summary-write-failure.jsonl")
 	client.insertAttempts = 0
 	client.failInsertAt = 2
 	expectation := semanticCoverageTestResourceExpectation(t, "Observation", contribution)
@@ -1044,9 +751,7 @@ func TestCompleteRetainedSemanticCoverageResourceReturnsCertificationSourceRows(
 	contribution.BuildID = buildID
 	contribution.Identity.SchemaIdentity = identity.SchemaIdentity
 	contribution.Identity.SourceID = "retained:Observation/source-1"
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatalf("write retained source envelope: %v", err)
-	}
+	seedLegacySourceEnvelopeFixture(t, client, "retained-source.jsonl")
 	certificationRows, err := adapter.CompleteRetainedSemanticCoverageResource(context.Background(), identity, "Observation", 10, 10)
 	if err != nil || certificationRows != 1 {
 		t.Fatalf("retained certification rows=%d err=%v, want one enumerated source row", certificationRows, err)
@@ -1110,49 +815,6 @@ func TestSemanticCoverageUnrestrictedLookupBindsAnEmptyAuthArray(t *testing.T) {
 	paths, ok := client.queryVars["auth_resource_paths"].([]string)
 	if !ok || paths == nil || len(paths) != 0 {
 		t.Fatalf("unrestricted auth bind = %#v, want non-nil empty string array", client.queryVars["auth_resource_paths"])
-	}
-}
-
-func TestWriteSemanticCoverageFailureKeepsBuildUnavailableAfterReplayStarts(t *testing.T) {
-	client := newSemanticCoverageMemoryClient()
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contribution := semanticCoverageFixtureContribution()
-	contribution.BuildID = semantic.BuildID(contribution.Identity.Project, contribution.Identity.DatasetGeneration)
-	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
-		t.Fatalf("write initial source: %v", err)
-	}
-	identity := SemanticCoverageBuildIdentity{
-		Project: contribution.Identity.Project, DatasetGeneration: contribution.Identity.DatasetGeneration,
-		BuildID: contribution.BuildID, SchemaIdentity: contribution.Identity.SchemaIdentity,
-		SourceKind: contribution.Identity.SourceKind,
-	}
-	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
-	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
-		t.Fatalf("begin source replay: %v", err)
-	}
-
-	client.events = nil
-	client.insertAttempts = 0
-	client.failInsertAt = 1
-	contribution.Paths[0].CanonicalPath = "changedPath"
-	stats, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10)
-	if err == nil || !strings.Contains(err.Error(), "replace semantic coverage source envelopes") || stats.Rows != 0 {
-		t.Fatalf("failed source replacement stats=%#v err=%v, want atomic envelope failure", stats, err)
-	}
-	if marker := client.documents[semanticCoverageBuildKey(identity)]; marker.BuildState != SemanticCoverageBuildBuilding {
-		t.Fatalf("build marker after failed replay = %+v, want BUILDING", marker)
-	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
-		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: identity.BuildID,
-		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
-		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-		Candidates:        []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
-	})
-	if err != nil || lookup.State != SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
-		t.Fatalf("lookup after failed replay = %+v err=%v, want BUILDING and no refs", lookup, err)
 	}
 }
 
@@ -1733,70 +1395,4 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func (s *SemanticCoverageStore) WriteSemanticCoverageContributions(ctx context.Context, buildID string, contributions []fieldprofile.SemanticCoverageSourceContribution, batchSize int) (SemanticCoverageWriteStats, error) {
-	if len(contributions) == 0 {
-		return SemanticCoverageWriteStats{}, nil
-	}
-	batchSize = semanticCoverageBatchSize(batchSize)
-	stats := SemanticCoverageWriteStats{}
-	for start := 0; start < len(contributions); start += batchSize {
-		end := min(start+batchSize, len(contributions))
-		chunk := contributions[start:end]
-		seenSourceIDs := make(map[semanticCoverageLocatorKey]string, len(chunk))
-		for index, contribution := range chunk {
-			if contribution.Identity.Project != chunk[0].Identity.Project ||
-				contribution.Identity.DatasetGeneration != chunk[0].Identity.DatasetGeneration ||
-				contribution.Identity.SourceKind != chunk[0].Identity.SourceKind ||
-				contribution.Identity.SchemaIdentity != chunk[0].Identity.SchemaIdentity {
-				return stats, fmt.Errorf("semantic coverage source %d has a mixed build partition", start+index)
-			}
-			sourceKey := semanticCoverageLocatorKey{sourceID: contribution.Identity.SourceID, resourceType: contribution.Identity.ResourceType}
-			if previousAuthPath, exists := seenSourceIDs[sourceKey]; exists {
-				if previousAuthPath != contribution.Identity.AuthResourcePath {
-					return stats, fmt.Errorf("semantic coverage source ID %q is ambiguous across authorization paths", contribution.Identity.SourceID)
-				}
-				return stats, fmt.Errorf("duplicate semantic coverage source ID %q in one write batch", contribution.Identity.SourceID)
-			}
-			seenSourceIDs[sourceKey] = contribution.Identity.AuthResourcePath
-		}
-		batch := make([]json.RawMessage, 0, min(batchSize, semanticCoverageMaximumEnvelopeReadRows))
-		batchBytes := 0
-		flush := func() error {
-			if len(batch) == 0 {
-				return nil
-			}
-			written, err := s.writeSemanticCoverageDocuments(ctx, batch, batchSize)
-			stats.Rows += written.Rows
-			stats.SourceSetsReplaced += written.Rows
-			stats.SerializedBytes += written.SerializedBytes
-			batch = batch[:0]
-			batchBytes = 0
-			return err
-		}
-		for index, contribution := range chunk {
-			encoded, err := EncodeSemanticCoverageSourceEnvelope(buildID, contribution)
-			if err != nil {
-				return stats, fmt.Errorf("encode semantic coverage source %d: %w", start+index, err)
-			}
-			document := encoded
-			if len(batch) > 0 && (len(batch) >= batchSize || batchBytes+len(document) > semanticCoverageMaximumWriteBatchBytes) {
-				if err := flush(); err != nil {
-					return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
-				}
-			}
-			batch = append(batch, document)
-			batchBytes += len(document)
-			if len(batch) >= batchSize || batchBytes >= semanticCoverageMaximumWriteBatchBytes {
-				if err := flush(); err != nil {
-					return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
-				}
-			}
-		}
-		if err := flush(); err != nil {
-			return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
-		}
-	}
-	return stats, nil
 }

@@ -88,16 +88,7 @@ type Contribution struct {
 	Observation       Observation `json:"observation"`
 }
 
-func fileContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID string, ordinal int) string {
-	return digest.Digest("semantic-inventory-contribution/v1", project, datasetGeneration,
-		authResourcePath, resourceType, buildID, sourceID, strconv.Itoa(ordinal))
-}
-
 // Essential: spilled inventory runs need the original source-file and ordinal key contract.
-func ContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID string, ordinal int) string {
-	return fileContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID, ordinal)
-}
-
 type Entry struct {
 	ConceptID   string      `json:"concept_id"`
 	BindingID   string      `json:"binding_id"`
