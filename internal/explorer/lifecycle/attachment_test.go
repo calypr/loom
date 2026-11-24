@@ -197,7 +197,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		t.Fatal(err)
 	}
 	before := attachmentHead(t, store.created)
-	choices, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-current"})
+	choices, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-current"})
 	if err != nil {
 		t.Fatalf("valid attachment search failed: %v", err)
 	}

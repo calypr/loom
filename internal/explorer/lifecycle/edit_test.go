@@ -46,7 +46,7 @@ func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) 
 			}
 			before := append([]byte(nil), store.created.DraftConfig...)
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), request)
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 			if semanticChange {
 				if lifecycleErrorCode(err) != "PIVOT_CATEGORY_HAS_NO_VALUES" || proposal.ProposalID != "" {
 					t.Fatalf("semantic edit must reject: %#v %v", proposal, err)

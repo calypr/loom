@@ -144,7 +144,7 @@ func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T)
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestListRowDefinitionChoicesReturnsServerExplicitGroupRevisions(t *testing.
 	setup.Config.ExplicitGroupResolver = resolver
 
 	service := newTestServiceFromSetup(t, setup)
-	response, err := service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
+	response, err := service.OwnerServices().RowDefinition.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
 		SnapshotToken: snapshot.Token, OutputID: "patients",
 	})
@@ -213,7 +213,7 @@ func TestListRowDefinitionChoicesReturnsExplicitGroupsForAuthoredConstruction(t 
 	setup.Config.ExplicitGroupResolver = resolver
 
 	service := newTestServiceFromSetup(t, setup)
-	response, err := service.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
+	response, err := service.OwnerServices().RowDefinition.ListRowDefinitionChoices(context.Background(), rowdef.RowDefinitionChoicesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
 		SnapshotToken: snapshot.Token, OutputID: "patients",
 	})
@@ -259,7 +259,7 @@ func TestProposeExplicitGroupPreservesAuthoredConstruction(t *testing.T) {
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestProposeFieldGroupRejectsUnsupportedSelection(t *testing.T) {
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionFieldGroup, FieldGroup: &rowdef.FieldGroupSelection{
 		RowChoiceID: "opaque-choice-1", MissingKeyPolicy: ws.MissingKeyError,
 	}}
-	_, err := service.ProposeRowDefinition(context.Background(), request)
+	_, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if lifecycleErrorCode(err) != "FIELD_GROUP_UNSUPPORTED" {
 		t.Fatalf("field-group proposal error = %v, want FIELD_GROUP_UNSUPPORTED", err)
 	}
@@ -383,7 +383,7 @@ func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberError,
 	}}
 	service := newTestServiceFromSetup(t, setup)
-	if _, err := service.ProposeRowDefinition(context.Background(), request); err == nil {
+	if _, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request); err == nil {
 		t.Fatal("accepted explicit group revision from a stale source generation")
 	}
 	if store.saveDraftCalls != 0 {
@@ -404,7 +404,7 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 		return compile(ctx, request)
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +452,7 @@ func TestProposeRowDefinitionRequiresPreviewConfiguration(t *testing.T) {
 			before := append([]byte(nil), store.created.DraftConfig...)
 			version, digest := store.created.DraftVersion, store.created.DraftDigest
 			service := newTestServiceFromSetup(t, setup)
-			_, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+			_, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 			if lifecycleErrorCode(err) != "PREVIEW_UNAVAILABLE" {
 				t.Fatalf("missing preview configuration error = %v, want PREVIEW_UNAVAILABLE", err)
 			}
@@ -532,7 +532,7 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 			before := append([]byte(nil), store.created.DraftConfig...)
 			version, digest := store.created.DraftVersion, store.created.DraftDigest
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+			proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 			if lifecycleErrorCode(err) != test.wantCode {
 				t.Fatalf("preview failure error = %v, want %s", err, test.wantCode)
 			}
@@ -588,7 +588,7 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection.Expanded.EmptyCollectionPolicy = ws.EmptyCollectionError
 	service := newTestServiceFromSetup(t, setup)
-	_, err := service.ProposeRowDefinition(context.Background(), request)
+	_, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	if lifecycleErrorCode(err) != "EMPTY_COLLECTION_ERROR" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || !errors.Is(err, emptyCollection) || !errors.Is(err, driverDiagnostic) {
 		t.Fatalf("ERROR expansion failure = %v, want a caused EMPTY_COLLECTION_ERROR validation failure", err)
@@ -627,7 +627,7 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	if proposal.ProposalID != "" || lifecycleErrorCode(err) != "CANDIDATE_PREVIEW_FAILED" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || !errors.Is(err, backendFailure) {
 		t.Fatalf("generic backend error = proposal %#v, error %v; want caused internal preview failure", proposal, err)
@@ -661,7 +661,7 @@ func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *test
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	var lifecycleErr *ports.Error
 	if proposal.ProposalID != "" || lifecycleErrorCode(err) != string(dataframeerrors.CodeConstructionRowValueMultipleValues) || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Message != dataframeerrors.PublicMessage(featureFailure) || !errors.Is(err, featureFailure) {
 		t.Fatalf("candidate feature error = proposal %#v, error %v; want caused unprocessable feature error", proposal, err)
@@ -703,7 +703,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	service := newTestServiceFromSetup(t, setup)
-	_, err := service.ProposeRowDefinition(context.Background(), request)
+	_, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	var lifecycleErr *ports.Error
 	wantMessage := "Some records do not belong to a group. Choose \"Leave out records without a group\" or \"Put records without a group in their own group\", or assign them to a group."
 	if lifecycleErrorCode(err) != "EXPLICIT_GROUP_UNASSIGNED_MEMBER" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || !errors.Is(err, unassigned) || !errors.Is(err, driverDiagnostic) || lifecycleErr.Message != wantMessage {
@@ -737,7 +737,7 @@ func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
 	store.created.DraftConfig = draft
 	store.created.DraftDigest = digest
 
-	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatalf("row-definition proposal rejected the command's metadata normalization: %v", err)
 	}
@@ -774,7 +774,7 @@ func TestApplyRowDefinitionProposalAllowsCanonicalSourceMetadata(t *testing.T) {
 	store.created.DraftDigest = digest
 
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatalf("row-definition proposal rejected canonical source metadata: %v", err)
 	}
@@ -796,7 +796,7 @@ func TestApplyRowDefinitionProposalSavesOnceAndReplaysIdempotently(t *testing.T)
 	store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 	enableRowDefinitionPreview(setup.Config)
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestApplyRowDefinitionProposalRejectsTamperingAndNewCASReplay(t *testing.T)
 			store, snapshot, workspace := setup.Store, setup.Snapshot, setup.Workspace
 			enableRowDefinitionPreview(setup.Config)
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+			proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -893,7 +893,7 @@ func TestApplyRowDefinitionProposalLeavesDraftUntouchedOnCASConflict(t *testing.
 	store, snapshot := setup.Store, setup.Snapshot
 	enableRowDefinitionPreview(setup.Config)
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1098,7 +1098,7 @@ func TestColumnPolicyProposalRejectsAuthorizationChangedBeforeCompile(t *testing
 	}
 
 	service := newTestServiceFromSetup(t, setup)
-	_, err := service.ProposeColumnPolicy(context.Background(), columnPolicyRequest(setup.Store, setup.Snapshot))
+	_, err := service.OwnerServices().Proposal.ProposeColumnPolicy(context.Background(), columnPolicyRequest(setup.Store, setup.Snapshot))
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassForbidden ||
 		lifecycleErr.Stage != "capability" || lifecycleErr.Code != "FORBIDDEN" || !errors.Is(lifecycleErr.Cause, authscope.ErrForbidden) {
@@ -1119,7 +1119,7 @@ func TestColumnPolicyProposalPreviewCancelApplyReloadAndStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeColumnPolicy(context.Background(), columnPolicyRequest(store, snapshot))
+	proposal, err := service.OwnerServices().Proposal.ProposeColumnPolicy(context.Background(), columnPolicyRequest(store, snapshot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1211,7 +1211,7 @@ func TestColumnPolicyProposalRejectsCompilePreviewAndCatalogFailuresWithoutSavin
 			}
 			before := append([]byte(nil), store.created.DraftConfig...)
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeColumnPolicy(context.Background(), request)
+			proposal, err := service.OwnerServices().Proposal.ProposeColumnPolicy(context.Background(), request)
 			if err == nil || proposal.ProposalID != "" {
 				t.Fatal("invalid candidate was made applicable")
 			}
@@ -1243,7 +1243,7 @@ func TestColumnPolicyApplyRejectsRuntimeFailureAndReceiptTampering(t *testing.T)
 				return preview(ctx, receipt, bindings, visit)
 			}
 			service := newTestServiceFromSetup(t, setup)
-			_, err := service.ProposeColumnPolicy(context.Background(), columnPolicyRequest(store, snapshot))
+			_, err := service.OwnerServices().Proposal.ProposeColumnPolicy(context.Background(), columnPolicyRequest(store, snapshot))
 			if err != nil {
 				t.Fatal(err)
 			}

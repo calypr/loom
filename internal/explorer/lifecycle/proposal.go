@@ -29,14 +29,6 @@ func (s *Service) proposalConfig() proposal.Config {
 	}
 }
 
-func (s *Service) ProposeSourceRelationship(ctx context.Context, request proposal.SourceRelationshipProposalRequest) (proposal.SourceRelationshipProposal, error) {
-	return s.proposalService.ProposeSourceRelationship(ctx, request)
-}
-
-func (s *Service) ProposeColumnPolicy(ctx context.Context, request proposal.ColumnPolicyProposalRequest) (proposal.ColumnPolicyProposal, error) {
-	return s.proposalService.ProposeColumnPolicy(ctx, request)
-}
-
 func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	return s.proposalService.PrepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
@@ -46,7 +38,7 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 }
 
 func (s *Service) ProposeConstructionAndPreview(ctx context.Context, request construction.ConstructionProposalRequest, options proposal.ProposalPreviewOptions, prepare func(construction.ConstructionProposalResponse) error) (proposal.ProposalPreview, error) {
-	draft, err := s.ProposeConstruction(ctx, request)
+	draft, err := s.constructionService.ProposeConstruction(ctx, request)
 	if err != nil {
 		return proposal.ProposalPreview{}, err
 	}
@@ -60,7 +52,7 @@ func (s *Service) ProposeConstructionAndPreview(ctx context.Context, request con
 }
 
 func (s *Service) ProposeConstructionChoiceAndPreview(ctx context.Context, request construction.ConstructionChoiceProposalRequest, options proposal.ProposalPreviewOptions, prepare func(construction.ConstructionChoiceProposalResponse) error) (proposal.ProposalPreview, error) {
-	draft, err := s.ProposeConstructionChoice(ctx, request)
+	draft, err := s.constructionService.ProposeConstructionChoice(ctx, request)
 	if err != nil {
 		return proposal.ProposalPreview{}, err
 	}
@@ -71,7 +63,7 @@ func (s *Service) ProposeConstructionChoiceAndPreview(ctx context.Context, reque
 }
 
 func (s *Service) ProposePopulationMemberRemovalAndPreview(ctx context.Context, request population.PopulationMemberRemovalProposalRequest, options proposal.ProposalPreviewOptions, prepare func(population.PopulationMemberRemovalProposalResponse) error) (proposal.ProposalPreview, error) {
-	draft, err := s.ProposePopulationMemberRemoval(ctx, request)
+	draft, err := s.populationService.ProposePopulationMemberRemoval(ctx, request)
 	if err != nil {
 		return proposal.ProposalPreview{}, err
 	}
@@ -99,7 +91,7 @@ func (s *Service) previewProposal(ctx context.Context, project, explorerID, rece
 	}
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	preview, err := s.Preview(previewCtx, authoringcore.PreviewRequest{
+	preview, err := s.core.Preview(previewCtx, authoringcore.PreviewRequest{
 		Project: project, ExplorerID: explorerID, ReceiptID: receiptID, OutputID: outputID,
 		Limit: limit, AllowSampledAggregatePreview: options.AllowSampledAggregate, SinkFactory: options.Sink,
 	})

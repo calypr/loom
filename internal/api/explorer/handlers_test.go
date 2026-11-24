@@ -1427,3 +1427,13 @@ func TestConstructionInputsDirectHandlerChecksProjectReadBeforeCatalog(t *testin
 		t.Fatalf("project read denial = %v, want 403 authoring error", err)
 	}
 }
+
+func TestUnconfiguredHandlersReturnExistingUnavailableError(t *testing.T) {
+	handlers := NewHandlers(Config{})
+	_, err := handlers.createExplorer(context.Background(), "program/project", "", nil)
+	var failure *explorerLegacyOperationError
+	if !errors.As(err, &failure) || failure.status != http.StatusInternalServerError ||
+		failure.code != "INTERNAL_ERROR" || failure.message != "Explorer lifecycle is not configured" {
+		t.Fatalf("unconfigured create error = %v, want existing unavailable response", err)
+	}
+}

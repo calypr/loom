@@ -138,7 +138,7 @@ func (r *Handlers) AssessExplorerRowChange(ctx context.Context, request loomapi.
 			}
 			routeRebase = converted
 		}
-		value, err := h.application.AssessRowChange(ctx, rowdef.AssessRowChangeRequest{
+		value, err := h.owners.RowDefinition.AssessRowChange(ctx, rowdef.AssessRowChangeRequest{
 			Project: project, ExplorerID: explorerID, Mode: optionalEnumString(body.Mode), SnapshotToken: body.SnapshotToken,
 			DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: body.OutputId,
 			RootNodeID: body.RootNodeId, RootOccurrenceID: rootOccurrenceID, RouteRebase: routeRebase,
@@ -191,7 +191,7 @@ func (r *Handlers) CheckExplorerPopulationMapping(ctx context.Context, request l
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.PopulationMapping(ctx, request)
+		value, err := h.owners.Population.PopulationMapping(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -364,7 +364,7 @@ func (r *Handlers) SearchExplorerSchemaFields(ctx context.Context, request looma
 		if body.Cursor != nil {
 			request.Cursor = *body.Cursor
 		}
-		value, err := h.application.SearchSchemaFields(ctx, request)
+		value, err := h.owners.SemanticBrowse.SearchSchemaFields(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -471,7 +471,7 @@ func (r *Handlers) TraceExplorerRowLineage(ctx context.Context, request loomapi.
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.RowLineage(ctx, request)
+		value, err := h.owners.RowDefinition.RowLineage(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -547,7 +547,7 @@ func (r *Handlers) ProposeExplorerColumnPolicy(ctx context.Context, request loom
 			return empty, explorer.MalformedRouteError("proposeExplorerColumnPolicy", err)
 		}
 		input.Project, input.ExplorerID = project, explorerID
-		value, err := h.application.ProposeColumnPolicy(ctx, input)
+		value, err := h.owners.Proposal.ProposeColumnPolicy(ctx, input)
 		if err != nil {
 			return empty, err
 		}
@@ -589,7 +589,7 @@ func (r *Handlers) SearchExplorerConstructionChoices(ctx context.Context, reques
 		if body.Cursor != nil {
 			request.Cursor = *body.Cursor
 		}
-		value, err := h.application.SearchConstructionChoices(ctx, request)
+		value, err := h.owners.Construction.SearchConstructionChoices(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -625,7 +625,7 @@ func (r *Handlers) SearchExplorerRelatedExpandChoices(ctx context.Context, reque
 		if body.SavedGraphOnly != nil {
 			request.SavedGraphOnly = *body.SavedGraphOnly
 		}
-		value, err := h.application.SearchRelatedExpandChoices(ctx, request)
+		value, err := h.owners.Construction.SearchRelatedExpandChoices(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -661,7 +661,7 @@ func (r *Handlers) SearchExplorerRelatedFieldChoices(ctx context.Context, reques
 		if body.Cursor != nil {
 			request.Cursor = *body.Cursor
 		}
-		value, err := h.application.SearchRelatedFieldChoices(ctx, request)
+		value, err := h.owners.Construction.SearchRelatedFieldChoices(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -697,7 +697,7 @@ func (r *Handlers) SearchExplorerRelatedExpandContributors(ctx context.Context, 
 		if body.Cursor != nil {
 			request.Cursor = *body.Cursor
 		}
-		value, err := h.application.SearchRelatedExpandContributorChoices(ctx, request)
+		value, err := h.owners.Construction.SearchRelatedExpandContributorChoices(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -729,7 +729,7 @@ func (r *Handlers) SearchExplorerPopulationRoutes(ctx context.Context, request l
 		if body.Cursor != nil {
 			request.Cursor = *body.Cursor
 		}
-		value, err := h.application.SearchPopulationRoutes(ctx, request)
+		value, err := h.owners.Population.SearchPopulationRoutes(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -751,7 +751,7 @@ func (r *Handlers) GetExplorerColumnSource(ctx context.Context, request loomapi.
 		if body == nil {
 			return result, explorer.MalformedRouteError("column-source", errors.New("request body is required"))
 		}
-		value, err := h.application.ColumnSource(ctx, semanticbrowse.ColumnSourceRequest{
+		value, err := h.owners.SemanticBrowse.ColumnSource(ctx, semanticbrowse.ColumnSourceRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 			OutputID: body.OutputId, Column: body.Column,
 		})
@@ -876,7 +876,7 @@ func (r *Handlers) GetExplorerConstructionCapabilities(ctx context.Context, requ
 		if body.GroupStepId != nil {
 			groupStepID = *body.GroupStepId
 		}
-		value, err := h.application.GetConstructionCapabilities(ctx, construction.ConstructionCapabilitiesRequest{
+		value, err := h.owners.Construction.GetConstructionCapabilities(ctx, construction.ConstructionCapabilitiesRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 			ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
 			OutputID: body.OutputId, StageID: body.StageId, GroupStepID: groupStepID,
@@ -908,7 +908,7 @@ func (r *Handlers) DiscoverExplorerConstructionCategories(ctx context.Context, r
 			return result, explorer.MalformedRouteError("construction-category-discovery", err)
 		}
 		request.Project, request.ExplorerID = project, explorerID
-		value, err := h.application.DiscoverConstructionCategories(ctx, request)
+		value, err := h.owners.Construction.DiscoverConstructionCategories(ctx, request)
 		if err != nil {
 			return result, err
 		}
@@ -934,7 +934,7 @@ func (r *Handlers) GetExplorerConstructionColumnPopulation(ctx context.Context, 
 		if body == nil {
 			return result, explorer.MalformedRouteError("construction-column-population", nil)
 		}
-		value, err := h.application.GetConstructionColumnPopulation(ctx, construction.ConstructionColumnPopulationRequest{
+		value, err := h.owners.Construction.GetConstructionColumnPopulation(ctx, construction.ConstructionColumnPopulationRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 			ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
 			OutputID: body.OutputId, StageID: body.StageId, ColumnIDs: body.ColumnIds,
@@ -1075,7 +1075,7 @@ func (r *Handlers) ListExplorerRowDefinitionChoices(ctx context.Context, request
 		if err := h.authorizeAuthoringRead(ctx, project); err != nil {
 			return result, err
 		}
-		value, err := h.application.ListRowDefinitionChoices(ctx, rowdef.RowDefinitionChoicesRequest{
+		value, err := h.owners.RowDefinition.ListRowDefinitionChoices(ctx, rowdef.RowDefinitionChoicesRequest{
 			Project: project, ExplorerID: explorerID, OutputID: params.OutputId, SnapshotToken: params.SnapshotToken,
 		})
 		if err != nil {
@@ -1114,7 +1114,7 @@ func (r *Handlers) ProposeExplorerRowDefinition(ctx context.Context, request loo
 		if err := json.Unmarshal(raw, &input); err != nil {
 			return result, explorer.MalformedRouteError("row-definition-proposal", err)
 		}
-		value, err := h.application.ProposeRowDefinition(ctx, rowdef.RowDefinitionProposalRequest{
+		value, err := h.owners.RowDefinition.ProposeRowDefinition(ctx, rowdef.RowDefinitionProposalRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: input.SnapshotToken,
 			ExpectedDraftVersion: input.ExpectedDraftVersion, ExpectedDraftDigest: input.ExpectedDraftDigest,
 			OutputID: input.OutputID, Selection: input.Selection, Limit: input.Limit,

@@ -90,7 +90,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 				}
 			}
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 				OutputID: "patients", RemoveStepIDs: []string{test.removeStepID}, CandidateConstruction: candidate,
@@ -174,7 +174,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	candidate.Steps[0].Operation.Group.Keys = nil
 	candidate.Steps[0].Outputs = []ws.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionpkg.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "group-records", CandidateConstruction: candidate,
@@ -344,7 +344,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	}
 	service := newPopulationMemberProposalService(t, domain, config)
 	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
-	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
+	proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)
 	}

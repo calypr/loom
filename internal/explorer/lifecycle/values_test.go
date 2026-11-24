@@ -118,7 +118,7 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 			}
 			request := constructionProposalPivotRequest(store.created, snapshot, test.categories)
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), request)
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 			if test.wantCode != "" {
 				if got := lifecycleErrorCode(err); got != test.wantCode {
 					t.Fatalf("proposal error code = %q, want %q; error = %v", got, test.wantCode, err)
@@ -218,7 +218,7 @@ func TestProposeConstructionReportsUnchangedPivotProbeDiagnostics(t *testing.T) 
 			request.CandidateConstruction.Steps = append(request.CandidateConstruction.Steps, constructionPivotFilterStep())
 			request.ChangedStepID = "keep_positive"
 			service := newTestServiceFromSetup(t, setup)
-			proposal, err := service.ProposeConstruction(context.Background(), request)
+			proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 			if err != nil {
 				t.Fatalf("unrelated saved Pivot must not reject the proposal: %v", err)
 			}
@@ -245,7 +245,7 @@ func TestProposeConstructionChangedPivotProbeErrorStillRejects(t *testing.T) {
 	}
 	request := constructionProposalPivotRequest(store.created, snapshot, []ws.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err == nil {
 		t.Fatalf("changed Pivot probe error must reject the proposal, got %#v", proposal)
 	}

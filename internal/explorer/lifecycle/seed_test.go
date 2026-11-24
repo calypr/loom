@@ -58,7 +58,7 @@ func TestBuilderFullUIRegisteredGroupFilterDeriveFixtureCompiles(t *testing.T) {
 	if fixture.CapabilityRequest == nil {
 		t.Fatal("registered fixture capability request is missing")
 	}
-	capabilities, err := harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.Service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 		ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: harness.Store.created.DraftDigest,
 		OutputID: fixture.OutputID, StageID: fixture.CapabilityRequest.StageID, GroupStepID: fixture.CapabilityRequest.GroupStepID,
@@ -299,7 +299,7 @@ func prepareBuilderFullUISeed(source builderFullUIInventoryRow, manifestEntry bu
 	}
 	var capabilities construction.ConstructionCapabilitiesResponse
 	if capRequest != nil {
-		capabilities, err = harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+		capabilities, err = harness.Service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 			ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: harness.Store.created.DraftDigest,
 			OutputID: fixture.OutputID, StageID: capRequest.StageID, GroupStepID: capRequest.GroupStepID,
@@ -805,7 +805,7 @@ func newBuilderFullUIHarnessFromPrepared(prepared builderFullUISeed) (*builderFu
 	}
 	if fixture.CapabilityRequest != nil {
 		capRequest := fixture.CapabilityRequest
-		capabilities, capabilityErr := harness.Service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+		capabilities, capabilityErr := harness.Service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 			ExpectedDraftVersion: fixture.AcceptedVersion, ExpectedDraftDigest: prepared.AcceptedDigest,
 			OutputID: fixture.OutputID, StageID: capRequest.StageID, GroupStepID: capRequest.GroupStepID,

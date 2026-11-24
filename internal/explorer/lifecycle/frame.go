@@ -101,10 +101,6 @@ func (s *Service) prepareFrameSourceCommand(
 	return commands, nil
 }
 
-func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request semanticbrowse.BrowseFrameSourceOptionsRequest) (semanticbrowse.BrowseFrameSourceOptionsResponse, error) {
-	return s.browseService().BrowseFrameSourceOptions(ctx, request)
-}
-
 func invalidFrameSource(message string) error {
 	return support.Unprocessable("frame-source", "INVALID_FRAME_SOURCE", message, nil)
 }

@@ -377,7 +377,7 @@ func TestProposeConstructionFilterEditDoesNotRestoreClearedPivotSourceInput(t *t
 			rs05ProposePivotStep(filterSourceIdentity),
 		},
 	}
-	proposal, err := service.ProposeConstruction(context.Background(),
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05FilterID, cleared))
 	if err != nil {
 		t.Fatalf("propose filter edit with cleared Pivot source input: %v", err)
@@ -417,7 +417,7 @@ func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05FilterID, cleared)
 	request.FilterSources = []rowsource.ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose filter source SET with cleared Pivot source input: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T
 	}
 	request := rs05ProposeRequest(store.created, snapshot, rs05PivotID, cleared)
 	request.PivotSources = []construction.ConstructionPivotSourceSelection{}
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose pivot [] clear with a foreign filter source: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T)
 		},
 	}
 	rs05ProposeSaveDraft(t, store, clearedDurable)
-	proposal, err := service.ProposeConstruction(context.Background(),
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05FilterID, rs05CloneConstruction(clearedDurable)))
 	if err != nil {
 		t.Fatalf("propose filter edit against cleared durable: %v", err)
@@ -614,7 +614,7 @@ func TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput(t *t
 		},
 	}
 	cleared.Steps[2].Inputs = []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: rs05DeriveID}}
-	proposal, err := service.ProposeConstruction(context.Background(),
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(),
 		rs05ProposeRequest(store.created, snapshot, rs05DeriveID, cleared))
 	if err != nil {
 		t.Fatalf("propose derive edit with cleared Pivot source input: %v", err)
@@ -1097,7 +1097,7 @@ func TestFS1FullProposeRefusesSignedStepInsertedBeforeCommittedPivot(t *testing.
 	candidate.Steps = append([]ws.ConstructionStep{fs1r6SignedFilterStep()}, durable.Steps...)
 	selection := fs1r6SignedSlotRequest()
 	selection.ChoiceID = harness.choice(t, "multipleBirthInteger").ChoiceID
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "fs1r6_filter", CandidateConstruction: candidate,
@@ -1119,7 +1119,7 @@ func TestFS1FullProposeReverseDirectionRefusedAtBoundary(t *testing.T) {
 	candidate.Steps = append(candidate.Steps, signed)
 	selection := fs1r6SignedSlotRequest()
 	selection.ChoiceID = harness.choice(t, "multipleBirthInteger").ChoiceID
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "fs1r6_filter", CandidateConstruction: candidate,

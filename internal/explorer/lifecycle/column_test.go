@@ -203,7 +203,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		}},
 		Outputs: []ws.StageColumn{{ID: "medication-id", Name: "related_medication_id", Label: "Medication FHIR resource ID", Type: "string", Nullable: true}},
 	}}}
-	response, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	response, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, OutputID: "patients", ChangedStepID: "expand_medications",
 		CandidateConstruction: candidate,
@@ -231,7 +231,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 
 	proposalID = response.ProposalID
-	preview, err := service.Preview(context.Background(), authoringcore.PreviewRequest{
+	preview, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "custom", ReceiptID: response.ProposalID, OutputID: "patients", Limit: 25,
 		SinkFactory: func(_ *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

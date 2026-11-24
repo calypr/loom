@@ -141,7 +141,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 	if len(reconciled.Receipt.Bundle.Outputs) != 1 || reconciled.Receipt.Bundle.Outputs[0].Name != "patients" {
 		t.Fatalf("selected reconcile receipt is not scoped to the requested output: %#v", reconciled.Receipt.Bundle.Outputs)
 	}
-	if _, err := lifecycleService.Preview(context.Background(), authoringcore.PreviewRequest{
+	if _, err := lifecycleService.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: reconciled.Receipt.ID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

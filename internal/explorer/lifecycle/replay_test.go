@@ -369,7 +369,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	candidate.Steps[0].Operation.Group.Aggregates[0] = ws.ConstructionGroupAggregate{
 		Operation: ws.ConstructionGroupMean, InputColumnID: "age-id", OutputColumnID: "row-count",
 	}
-	proposal, err := harness.Service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.Service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, SnapshotToken: fixture.Snapshot.Token,
 		ExpectedDraftVersion: harness.Store.created.DraftVersion, ExpectedDraftDigest: acceptedDigest,
 		OutputID: fixture.OutputID, ChangedStepID: "group-step", CandidateConstruction: candidate,
@@ -408,7 +408,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	if harness.Store.saveDraftCalls != 0 || harness.Store.created.DraftDigest != acceptedDigest || !bytes.Equal(harness.Store.created.DraftConfig, acceptedBytes) {
 		t.Fatal("proposal exchange mutated the accepted fake-store workspace")
 	}
-	preview, err := harness.Service.Preview(context.Background(), authoringcore.PreviewRequest{
+	preview, err := harness.Service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: fixture.OutputID,
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

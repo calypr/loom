@@ -92,6 +92,7 @@ func TestConstructionColumnPopulationHTTPRouteMapsMalformedBody(t *testing.T) {
 	}
 	handlers := &Handlers{
 		application:   application,
+		owners:        application.OwnerServices(),
 		authorizeRead: func(context.Context, *authscope.Principal, string) error { return nil },
 	}
 	response, err := handlers.GetExplorerConstructionColumnPopulation(context.Background(), loomapi.GetExplorerConstructionColumnPopulationRequestObject{

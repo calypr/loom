@@ -603,7 +603,7 @@ func TestProposeConstructionExpandSourceRejectsForgedChoiceID(t *testing.T) {
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		carrier, expandTestExpandStep(expandTestInput, expandTestCarrier),
 	}}
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: expandTestOutput,
 		ChangedStepID:         expandTestStep,
@@ -663,7 +663,7 @@ func TestProposeConstructionExpandSourceRejectsChoiceFromAnotherSnapshot(t *test
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{
 		carrier, expandTestExpandStep(expandTestInput, expandTestCarrier),
 	}}
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: expandTestOutput,
 		ChangedStepID:         expandTestStep,
@@ -948,7 +948,7 @@ func TestProposeConstructionExpandSourceSignsServerOwnedPayload(t *testing.T) {
 	step.Operation.Expand.ExpandedField = expandTestSignedPayload("status", "string", "code")
 	candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, step}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 		ChangedStepID:         expandTestStep,
@@ -981,7 +981,7 @@ func TestProposeConstructionExpandSourceCarriesArrayThroughCarryingPrefix(t *tes
 		carrier, expandTestProcedureExpandStep(expandTestCarrier, carrier.Outputs),
 	}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 		ChangedStepID:         expandTestStep,
@@ -1012,7 +1012,7 @@ func TestProposeConstructionExpandSourceRefusesCarryingThroughRowChangingPrefix(
 		melt, expandTestProcedureExpandStep("melt-prefix", carried),
 	}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 		ChangedStepID:         expandTestStep,
@@ -1037,7 +1037,7 @@ func TestProposeConstructionExpandSourceRefusesCodingElementArray(t *testing.T) 
 	}}
 
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "node-patient", "Patient", "meta.tag[]", "Coding")
-	_, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: expandTestOutput,
 		ChangedStepID:         expandTestStep,
@@ -1063,7 +1063,7 @@ func TestApplyConstructionProposalRefusesStaleExpandSourceBinding(t *testing.T) 
 			step.Operation.Expand.ExpandedField = expandTestSignedPayload("instantiatesUri[]", "string", "string")
 			candidate := ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{carrier, step}}
 			choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
-			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+			proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest, OutputID: "procedures",
 				ChangedStepID:         expandTestStep,

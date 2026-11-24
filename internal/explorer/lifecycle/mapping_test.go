@@ -125,7 +125,7 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 		t.Fatal(createErr)
 	}
 	expected := population.PopulationMappingBinding{ReceiptID: receipt.ID, OutputID: "patients", Project: project, ExplorerID: receipt.ExplorerID, Generation: selection.Generation, ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: "membership-digest", ResourceType: "Specimen"}
-	result, err := service.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: requestProject, ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+	result, err := service.OwnerServices().Population.PopulationMapping(context.Background(), population.PopulationMappingRequest{Project: requestProject, ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 	row := formalPopulationResult{ID: value.ID, Outcome: string(result.Report.Status), MemberReads: store.visits, MappingCalls: calls, Counts: []int64{}}
 	if err != nil {
 		row.Outcome = "rejected"

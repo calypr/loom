@@ -37,7 +37,7 @@ func (r *Handlers) PrepareExplorerArtifact(ctx context.Context, request loomapi.
 		if body == nil {
 			return response, explorer.MalformedRouteError("artifact", errors.New("request body is required"))
 		}
-		result, err := h.application.PrepareArtifact(ctx, publication.ArtifactRequest{
+		result, err := h.owners.Publication.PrepareArtifact(ctx, publication.ArtifactRequest{
 			Project: project, ExplorerID: explorerID, RevisionID: body.RevisionId,
 			OutputID: body.OutputId, IdempotencyKey: body.IdempotencyKey,
 		})
@@ -65,7 +65,7 @@ func (r *Handlers) DownloadExplorerArtifact(ctx context.Context, request loomapi
 		if h == nil || h.application == nil {
 			return response, explorer.ExplorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured")
 		}
-		reader, record, err := h.application.OpenArtifact(ctx, publication.ArtifactOpenRequest{Project: project, ExplorerID: explorerID, ArtifactID: artifactID})
+		reader, record, err := h.owners.Publication.OpenArtifact(ctx, publication.ArtifactOpenRequest{Project: project, ExplorerID: explorerID, ArtifactID: artifactID})
 		if err != nil {
 			return response, err
 		}
@@ -115,7 +115,7 @@ func (h *Handlers) previewSavedReceiptWithTimeout(ctx context.Context, project, 
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var encoder *previewResponseEncoder
-	preview, err := h.application.Preview(previewCtx, authoringcore.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.owners.Core.Preview(previewCtx, authoringcore.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *receiptmodel.CompilationReceipt, columns []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		var encoderErr error
 		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
@@ -140,7 +140,7 @@ func (h *Handlers) publishReceipt(ctx context.Context, project, explorerID, auth
 	if body == nil {
 		return result, explorer.MalformedRouteError("publish", errors.New("receiptId is required"))
 	}
-	value, err := h.application.Publish(ctx, publication.PublishRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, Actor: authscope.SubjectFromContext(ctx)})
+	value, err := h.owners.Publication.Publish(ctx, publication.PublishRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, err
 	}

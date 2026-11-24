@@ -506,7 +506,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		t.Fatalf("CODED_GROUP saved meaning changed after exact recompile: first=(%q,%q), second=(%q,%q)", receipt.CompilationKey, receipt.ID, repeated.CompilationKey, repeated.ID)
 	}
 
-	capabilities, err := application.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := application.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
 		OutputID: "specimens", StageID: recipe.ConstructionSourceProjectionID,
@@ -518,7 +518,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		t.Fatalf("coded-group capability choices = %#v, want only populated Specimen.type.coding[]", capabilities.SelectedStage.CodedGroupChoices)
 	}
 	document.Construction.Steps[0].Operation.CodedGroup.ChoiceID = capabilities.SelectedStage.CodedGroupChoices[0].ChoiceID
-	proposal, err := application.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := application.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
 		OutputID: "specimens", ChangedStepID: stepID,

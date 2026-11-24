@@ -19,7 +19,7 @@ import (
 func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	store.selection = completedTestSelection(snapshot, "Observation")
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
@@ -61,7 +61,7 @@ func TestPopulationRouteChoicePersistsAndRevalidatesStorageDirection(t *testing.
 func TestLegacyPopulationRouteHydratesDirectionOnlyForResolvedInputs(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	store.selection = completedTestSelection(snapshot, "Observation")
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		SelectionRevisionID: "selection-1",
 	})
@@ -163,32 +163,32 @@ func TestConstructionColumnPopulationValidatesExactStageAndCachesOnlyConclusiveR
 
 	stale := request
 	stale.StageID = "stale-stage"
-	if _, err := service.GetConstructionColumnPopulation(context.Background(), stale); lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+	if _, err := service.OwnerServices().Construction.GetConstructionColumnPopulation(context.Background(), stale); lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("stale stage error = %v", err)
 	}
 	stale = request
 	stale.ColumnIDs = []string{"stale-column"}
-	if _, err := service.GetConstructionColumnPopulation(context.Background(), stale); lifecycleErrorCode(err) != "INVALID_COLUMN_ID" {
+	if _, err := service.OwnerServices().Construction.GetConstructionColumnPopulation(context.Background(), stale); lifecycleErrorCode(err) != "INVALID_COLUMN_ID" {
 		t.Fatalf("stale column error = %v", err)
 	}
 	if calls != 0 {
 		t.Fatalf("scanner ran before exact stage/columns validated: %d", calls)
 	}
 
-	if _, err := service.GetConstructionColumnPopulation(context.Background(), request); lifecycleErrorCode(err) != "COLUMN_POPULATION_SCAN_FAILED" {
+	if _, err := service.OwnerServices().Construction.GetConstructionColumnPopulation(context.Background(), request); lifecycleErrorCode(err) != "COLUMN_POPULATION_SCAN_FAILED" {
 		t.Fatalf("scan failure = %v", err)
 	}
-	response, err := service.GetConstructionColumnPopulation(context.Background(), request)
+	response, err := service.OwnerServices().Construction.GetConstructionColumnPopulation(context.Background(), request)
 	if err != nil || calls != 2 || len(response.Columns) != 2 || response.Columns[0].Status != "POPULATED" || response.Columns[1].Status != "EMPTY" {
 		t.Fatalf("population response = %#v, calls=%d, error=%v", response, calls, err)
 	}
-	if _, err := service.GetConstructionColumnPopulation(context.Background(), request); err != nil || calls != 2 {
+	if _, err := service.OwnerServices().Construction.GetConstructionColumnPopulation(context.Background(), request); err != nil || calls != 2 {
 		t.Fatalf("cached population call = calls %d, error %v", calls, err)
 	}
 
 	stale = request
 	stale.ExpectedDraftDigest = "stale-digest"
-	if _, err := service.GetConstructionColumnPopulation(context.Background(), stale); lifecycleErrorCode(err) == "" {
+	if _, err := service.OwnerServices().Construction.GetConstructionColumnPopulation(context.Background(), stale); lifecycleErrorCode(err) == "" {
 		t.Fatal("cached summary bypassed current draft revalidation")
 	}
 }

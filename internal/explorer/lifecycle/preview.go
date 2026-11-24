@@ -165,7 +165,3 @@ func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *rec
 	}
 	return rows, summary, nil
 }
-
-func (s *Service) Preview(ctx context.Context, request authoringcore.PreviewRequest) (authoringcore.PreviewResult, error) {
-	return s.core.Preview(ctx, request)
-}

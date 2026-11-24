@@ -575,7 +575,7 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
@@ -844,13 +844,13 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 			}
 			service := newTestService(t, store, config)
 			request := explorerpublication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"}
-			if _, err := service.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.wantDiagnostic) {
+			if _, err := service.OwnerServices().Publication.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.wantDiagnostic) {
 				t.Fatalf("first publish error = %v, want %s", err, test.wantDiagnostic)
 			}
 			if store.repositoryRevision == nil || store.repositoryRevision.Status != explorer.RevisionFailed || len(store.repositoryRevision.Diagnostics) != 1 || store.repositoryRevision.Diagnostics[0].Code != test.wantDiagnostic {
 				t.Fatalf("failed revision = %#v, want retryable diagnostic %s", store.repositoryRevision, test.wantDiagnostic)
 			}
-			result, err := service.PublishRepository(context.Background(), request)
+			result, err := service.OwnerServices().Publication.PublishRepository(context.Background(), request)
 			if err != nil || result.Revision == nil || result.Revision.Status != explorer.RevisionActive {
 				t.Fatalf("retry result = %#v, err=%v", result, err)
 			}
@@ -881,7 +881,7 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 				return dataframeexecution.PreviewSummary{}, nil
 			}
 			service := newTestService(t, store, config)
-			_, err := service.Preview(context.Background(), authoringcore.PreviewRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
+			_, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 			var value *ports.Error
 			if !errors.As(err, &value) || value.Code != test.wantCode {
 				t.Fatalf("err=%v, want %s", err, test.wantCode)
@@ -921,7 +921,7 @@ func TestPreviewIncludesStableRowIdentityForRecordsAndGroups(t *testing.T) {
 				return dataframeexecution.PreviewSummary{}, nil
 			}
 			service := newTestService(t, &fakeStore{receipt: receipt}, config)
-			_, err := service.Preview(context.Background(), authoringcore.PreviewRequest{
+			_, err := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 				Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10,
 				SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
@@ -1001,7 +1001,7 @@ func testPublishCommitsReleaseAndRevisionTogether(t *testing.T, project, storage
 		setup.Config.AuthoringPublisher = publicationProjectStore{fakeStore: store, t: t, project: project, storageProject: storageProject}
 	}
 	service := newTestService(t, store, config, projectStore)
-	result, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	result, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err != nil || result.Revision == nil || !store.published {
 		t.Fatalf("publish = %#v, err=%v", result, err)
 	}
@@ -1013,14 +1013,14 @@ func testPublishCommitsReleaseAndRevisionTogether(t *testing.T, project, storage
 	}
 
 	store.publishErr = errors.New("revision write failed")
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var persistenceFailure *ports.Error
 	if !errors.As(err, &persistenceFailure) || persistenceFailure.Class != ports.ClassUnavailable || persistenceFailure.Code != "PERSISTENCE_UNAVAILABLE" || !errors.Is(err, store.publishErr) {
 		t.Fatalf("publish failure=%v, want unavailable PERSISTENCE_UNAVAILABLE", err)
 	}
 
 	store.publishErr = dataset.ErrReleaseActivationConflict
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var activationFailure *ports.Error
 	if !errors.As(err, &activationFailure) || activationFailure.Class != ports.ClassConflict || activationFailure.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("activation failure=%#v, want PUBLICATION_ACTIVATION_CONFLICT", err)
@@ -1032,7 +1032,7 @@ func testPublishCommitsReleaseAndRevisionTogether(t *testing.T, project, storage
 		return errors.New("disk full")
 	}
 	service = newTestService(t, store, config, projectStore)
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var writebackFailure *ports.Error
 	if !errors.As(err, &writebackFailure) || writebackFailure.Code != "LOCAL_WORKSPACE_WRITEBACK_FAILED" || !store.published {
 		t.Fatalf("writeback failure published=%v, err=%v", store.published, err)
@@ -1044,7 +1044,7 @@ func testPublishCommitsReleaseAndRevisionTogether(t *testing.T, project, storage
 		return dataset.ProjectRelease{}, 0, errors.New("release preparation failed")
 	}
 	service = newTestService(t, store, config, projectStore)
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err == nil || store.published {
 		t.Fatalf("preparation failure published=%v, err=%v", store.published, err)
 	}
@@ -1078,7 +1078,7 @@ func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing
 				return execution, nil
 			}
 			service := newTestService(t, store, config)
-			_, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID})
+			_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID})
 			var lifecycleErr *ports.Error
 			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUALITY_EVIDENCE_INVALID" {
 				t.Fatalf("quality gate error = %v", err)
@@ -1109,7 +1109,7 @@ func TestPublishPreservesPublicationInProgress(t *testing.T) {
 	}
 	service := newTestService(t, store, config)
 
-	_, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1138,7 +1138,7 @@ func TestPublishKeepsMaterializationFailuresUnavailable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 
-	_, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1166,7 +1166,7 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 	}
 	service := newTestService(t, store, config)
 
-	_, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1199,7 +1199,7 @@ func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 
-	_, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err := service.OwnerServices().Publication.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
@@ -1230,7 +1230,7 @@ func TestRowDefinitionProposalProjectsExactCandidateWithoutSaving(t *testing.T) 
 	service := newTestServiceFromSetup(t, setup)
 	before := append([]byte(nil), store.created.DraftConfig...)
 	request := rowProposalRequest(store.created, snapshot)
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1269,7 +1269,7 @@ func TestRowDefinitionProposalProjectsNamedGroupAfterSavedFilter(t *testing.T) {
 	service := newTestServiceFromSetup(t, setup)
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = rowdef.RowDefinitionSelection{Kind: rowdef.RowDefinitionSelectionExplicitGroup, ExplicitGroup: &rowdef.ExplicitGroupSelection{RevisionID: "group-revision-1", UnassignedMemberPolicy: ws.UnassignedMemberExclude}}
-	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	proposal, err := service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1372,7 +1372,7 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			request := rowProposalRequest(store.created, snapshot)
 			request.Selection = selection
 			service := newTestServiceFromSetup(t, setup)
-			_, err = service.ProposeRowDefinition(context.Background(), request)
+			_, err = service.OwnerServices().RowDefinition.ProposeRowDefinition(context.Background(), request)
 			if lifecycleErrorCode(err) != "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED" {
 				t.Fatalf("got %v; want precise source ownership rejection", err)
 			}

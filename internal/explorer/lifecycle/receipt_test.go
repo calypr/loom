@@ -51,7 +51,7 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 	originalConfig, version := append([]byte(nil), draft...), store.created.DraftVersion
 
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatalf("propose construction from saved v9 workspace: %v", err)
 	}

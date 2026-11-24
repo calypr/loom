@@ -122,7 +122,7 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 		definition.Contributor = &contributor
 	}
 	candidate := match.StructuralCandidate
-	return s.CreateInterpretationRevision(ctx, interpretation.CreateInterpretationRevisionRequest{
+	return s.interpretationService.CreateInterpretationRevision(ctx, interpretation.CreateInterpretationRevisionRequest{
 		Project: request.Project, LibraryID: request.LibraryID, ParentRevisionID: request.ParentRevisionID,
 		Applicability: interpretation.InterpretationApplicability{
 			ResourceTypes: singletonInterpretationDimension(candidate.ResourceType),

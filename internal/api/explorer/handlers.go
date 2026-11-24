@@ -17,6 +17,7 @@ type Handlers struct {
 	authorizeRead      explorerConfigReadAuthorizer
 	views              *projectconfig.Service
 	application        *lifecycle.Service
+	owners             lifecycle.OwnerServices
 	constructionInputs constructioninputs.Catalog
 	authorizeExecution func(context.Context, string) error
 }
@@ -32,7 +33,7 @@ type Config struct {
 
 func NewHandlers(config Config) *Handlers {
 	application, _ := lifecycle.New(config.Explorers, config.Lifecycle)
-	return &Handlers{
+	handlers := &Handlers{
 		authorizer:         config.Authorizer,
 		authorizeRead:      config.AuthorizeRead,
 		views:              projectconfig.New(config.Explorers),
@@ -40,4 +41,8 @@ func NewHandlers(config Config) *Handlers {
 		constructionInputs: config.ConstructionInputs,
 		authorizeExecution: config.AuthorizeExecution,
 	}
+	if application != nil {
+		handlers.owners = application.OwnerServices()
+	}
+	return handlers
 }

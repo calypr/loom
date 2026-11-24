@@ -102,7 +102,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 		Project: project, ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
 		OutputID: "out", FrameID: frame.ID,
 	}
-	before, err := service.BrowseSemanticInventory(context.Background(), request)
+	before, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 	if err != nil || len(before.Entries) != 1 || before.Entries[0].ConstructionChoice == nil {
 		t.Fatalf("saved frame browse before coverage build changed: response=%#v err=%v", before, err)
 	}
@@ -112,7 +112,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 	}
 
 	currentBuildID = newBuildID
-	after, err := service.BrowseSemanticInventory(context.Background(), request)
+	after, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 	if err != nil || after.BuildID != newBuildID || len(after.Entries) != 1 || after.Entries[0].ConstructionChoice == nil {
 		t.Fatalf("saved frame did not resolve against the coverage-versioned inventory build: response=%#v err=%v", after, err)
 	}
@@ -168,7 +168,7 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 				request := fixture.request()
 				test.mutate(&request)
 				service := newTestService(t, fixture.store, fixture.config)
-				_, err := service.BrowseSemanticInventory(context.Background(), request)
+				_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 				assertLifecycleError(t, err, ports.ClassMalformed, "MALFORMED_REQUEST")
 				if fixture.authorizationReads != 0 || fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 					t.Fatalf("malformed request reached authorization or data reads: auth=%d inventory=%d coverage=%d", fixture.authorizationReads, fixture.inventoryReads, fixture.coverageReads)
@@ -182,7 +182,7 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 		request := fixture.request()
 		request.FieldPresentation.ExpectedDraftVersion++
 		service := newTestService(t, fixture.store, fixture.config)
-		_, err := service.BrowseSemanticInventory(context.Background(), request)
+		_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_FIELD_PRESENTATION_CONTEXT")
 		if fixture.authorizationReads != 1 || fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 			t.Fatalf("stale draft reached inventory or coverage reads: auth=%d inventory=%d coverage=%d", fixture.authorizationReads, fixture.inventoryReads, fixture.coverageReads)
@@ -194,7 +194,7 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 		request := fixture.request()
 		request.FieldPresentation.CandidateIDs = []string{"not-in-current-snapshot"}
 		service := newTestService(t, fixture.store, fixture.config)
-		_, err := service.BrowseSemanticInventory(context.Background(), request)
+		_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_FIELD_PRESENTATION_CONTEXT")
 		if fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 			t.Fatalf("unauthorized candidate reached inventory or coverage reads: inventory=%d coverage=%d", fixture.inventoryReads, fixture.coverageReads)
@@ -207,7 +207,7 @@ func TestFieldPresentationRequestValidationAndAuthorization(t *testing.T) {
 		stageID := "not-a-current-stage"
 		request.FieldPresentation.StageID = &stageID
 		service := newTestService(t, fixture.store, fixture.config)
-		_, err := service.BrowseSemanticInventory(context.Background(), request)
+		_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 		assertLifecycleError(t, err, ports.ClassConflict, "STALE_FIELD_PRESENTATION_CONTEXT")
 		if fixture.inventoryReads != 0 || fixture.coverageReads != 0 {
 			t.Fatalf("stale stage reached inventory or coverage reads: inventory=%d coverage=%d", fixture.inventoryReads, fixture.coverageReads)
@@ -257,7 +257,7 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 	}
 
 	service := newTestService(t, fixture.store, fixture.config)
-	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+	response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}
 		service := newTestService(t, fixture.store, fixture.config)
-		_, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+		_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 		assertLifecycleError(t, err, ports.ClassInternal, "CONSTRUCTION_ROUTE_PROOF_FAILED")
 		if fixture.coverageReads != 0 {
 			t.Fatalf("compiler proof failure reached coverage lookup %d times", fixture.coverageReads)
@@ -293,7 +293,7 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 			return semanticarango.SemanticCoverageLookupResult{}, errors.New("injected coverage read failure")
 		}
 		service := newTestService(t, fixture.store, fixture.config)
-		_, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+		_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 		assertLifecycleError(t, err, ports.ClassUnavailable, "PERSISTENCE_UNAVAILABLE")
 	})
 }
@@ -322,7 +322,7 @@ func TestFieldPresentationRequiresStageWhenOutputHasConstructionSteps(t *testing
 	persistTestWorkspace(t, fixture.store, workspace)
 
 	service := newTestService(t, fixture.store, fixture.config)
-	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+	response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestFieldPresentationKeepsRawWhenCoverageProofIsMissingPartialOrStale(t *te
 			fixture := newFieldPresentationTestFixture(t, false)
 			test.mutate(fixture)
 			service := newTestService(t, fixture.store, fixture.config)
-			response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+			response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -393,7 +393,7 @@ func TestFieldPresentationKeepsRawWhenReplacementIsUnavailableOrNotInCodedView(t
 			fixture := newFieldPresentationTestFixture(t, false)
 			test.mutate(fixture)
 			service := newTestService(t, fixture.store, fixture.config)
-			response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+			response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -418,7 +418,7 @@ func TestFieldPresentationKeepsRawForClosedCoverageDisposition(t *testing.T) {
 	fixture.coverageResult.Candidates[0].Reason = fieldprofile.SemanticCoverageReasonMissingSystem
 	fixture.coverageResult.Candidates[0].References = nil
 	service := newTestService(t, fixture.store, fixture.config)
-	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+	response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestFieldPresentationDoesNotBypassRawPopulatedOrAddableChecks(t *testing.T)
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			}
 			service := newTestService(t, fixture.store, fixture.config)
-			response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+			response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -613,7 +613,7 @@ func assertFieldPresentationCodedFamilyProof(
 			SourceNodeID: sourceNodeID, OccurrenceID: ws.RootOccurrenceID, CandidateIDs: []string{codeCandidate.ID},
 		},
 	}
-	response, err := service.BrowseSemanticInventory(context.Background(), request)
+	response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +658,7 @@ func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 	t.Helper()
 	fixture := newFieldPresentationTestFixture(t, related)
 	service := newTestService(t, fixture.store, fixture.config)
-	response, err := service.BrowseSemanticInventory(context.Background(), fixture.request())
+	response, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), fixture.request())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -923,7 +923,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 				},
 			}}
 			req := semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Limit: 50}
-			first, err := service.BrowseSemanticInventory(context.Background(), req)
+			first, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), req)
 			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || len(first.Entries[0].Examples) != 2 || !first.Entries[0].ExamplesTruncated || len(first.Entries[0].ObservedUnits) != 2 || !first.Entries[0].ObservedUnitsTruncated || first.Entries[0].Completeness != semantic.CompletenessComplete || first.Entries[0].Readiness.Status != semanticauthoring.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != semanticauthoring.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != semantic.SourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
 				t.Fatalf("first=%#v err=%v", first, err)
 			}
@@ -966,17 +966,17 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 				t.Fatalf("serialized semantic choice source=%#v err=%v", serializedSource, err)
 			}
 			req.Cursor = first.NextCursor
-			second, err := service.BrowseSemanticInventory(context.Background(), req)
+			second, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), req)
 			if err != nil || second.ContextToken != first.ContextToken || calls != 2 {
 				t.Fatalf("second=%#v calls=%d err=%v", second, calls, err)
 			}
 			req.RowRoot = "Specimen"
-			if _, err := service.BrowseSemanticInventory(context.Background(), req); err == nil {
+			if _, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), req); err == nil {
 				t.Fatal("cursor accepted after changing row root")
 			}
 			req.RowRoot = "Observation"
 			buildID = "build-b"
-			if _, err := service.BrowseSemanticInventory(context.Background(), req); err == nil {
+			if _, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), req); err == nil {
 				t.Fatal("cursor accepted after changing inventory build")
 			}
 		})
@@ -1038,7 +1038,7 @@ func TestBrowseSemanticInventoryOutputScopeKeepsOnlyCompilerProvenIdentifiers(t 
 		},
 	})
 
-	global, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+	global, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: "Patient", Limit: 50,
 	})
 	if err != nil || len(global.Entries) != 4 {
@@ -1048,7 +1048,7 @@ func TestBrowseSemanticInventoryOutputScopeKeepsOnlyCompilerProvenIdentifiers(t 
 		t.Fatalf("global semantic context/build missing: %#v", global)
 	}
 
-	scoped, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+	scoped, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: "Patient", OutputID: "patients", Limit: 50,
 	})
 	if err != nil || len(scoped.Entries) != 2 {
@@ -1117,7 +1117,7 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 			}, nil
 		},
 	})
-	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+	result, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
 		OutputID: "out_b", FrameID: frame.ID,
 	})
@@ -1127,7 +1127,7 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 	if result.FrameID != frame.ID || result.FrameSource == nil || browse.BindingID != frame.Source.BindingID || browse.ResourceType != frame.Source.ResourceType {
 		t.Fatalf("framed browse did not resolve the exact output source: result=%#v options=%#v", result, browse)
 	}
-	_, err = service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+	_, err = service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation", FrameID: frame.ID,
 	})
 	assertLifecycleError(t, err, ports.ClassMalformed, "MALFORMED_REQUEST")
@@ -1182,7 +1182,7 @@ func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testi
 			}, nil
 		},
 	}}
-	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
+	result, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "MedicationRequest",
 	})
 	if err != nil || len(result.Entries) != 1 || result.Entries[0].Readiness.Status != semanticauthoring.SemanticReadinessReady || result.Entries[0].ConstructionChoice == nil {
@@ -1207,7 +1207,7 @@ func TestBrowseSemanticInventoryMarksMissingCompilerProofUnsupported(t *testing.
 			return semantic.Page{Build: semantic.Build{BuildID: "build"}, Entries: []semantic.Entry{{ConceptID: "concept", BindingID: "binding", Observation: observation}}}, nil
 		},
 	}}
-	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
+	result, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
 	if err != nil || len(result.Entries) != 1 || result.Entries[0].ConstructionChoice != nil || result.Entries[0].Readiness.Status != semanticauthoring.SemanticReadinessUnsupported || result.Entries[0].Readiness.Code != "COMPILER_PROOF_UNAVAILABLE" {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
@@ -1232,7 +1232,7 @@ func TestBrowseSemanticInventoryRejectsAmbiguousCompilerProof(t *testing.T) {
 			return semantic.Page{Build: semantic.Build{BuildID: "build"}, Entries: []semantic.Entry{{ConceptID: "concept", BindingID: "binding", Observation: observation}}}, nil
 		},
 	}}
-	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
+	result, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
 	if err != nil || len(result.Entries) != 1 || result.Entries[0].ConstructionChoice != nil || result.Entries[0].Readiness.Code != "COMPILER_PROOF_UNAVAILABLE" {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
@@ -1251,7 +1251,7 @@ func TestBrowseSemanticInventoryRejectsInvalidScopeBeforeRead(t *testing.T) {
 			return semantic.Page{}, nil
 		},
 	}}
-	_, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
+	_, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
 	var failure *ports.Error
 	if !errors.As(err, &failure) || failure.Code != "STALE_AUTHORIZATION_SCOPE" {
 		t.Fatalf("error=%v", err)
@@ -1270,7 +1270,7 @@ func TestBrowseSemanticInventoryUnknownRemainsUnknown(t *testing.T) {
 			return semantic.Page{State: semantic.Unknown}, nil
 		},
 	}}
-	result, err := service.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
+	result, err := service.OwnerServices().SemanticBrowse.BrowseSemanticInventory(context.Background(), semanticbrowse.BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
 	if err != nil || result.State != semantic.Unknown || result.SourceAvailability != semantic.SourceAvailabilityUnknown || result.Entries == nil || len(result.Entries) != 0 {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
@@ -1335,7 +1335,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 			}, nil
 		},
 	})
-	result, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	result, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: snapshot.Identity.Project, ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{
 			Kind: capability.ConstructionChoiceSourceSemantic, ContextToken: contextToken, BuildID: buildID,

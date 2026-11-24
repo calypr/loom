@@ -273,7 +273,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				if _, _, err := baseDoc.AnalyzeConstructionCandidate(req.CandidateConstruction, req.ChangedStepID, req.RemoveStepIDs); err != nil {
 					t.Fatalf("trace %s action %d actual Document.AnalyzeConstructionCandidate: %v", traceID, actionIndex, err)
 				}
-				lastProposal, err = service.ProposeConstruction(context.Background(), req)
+				lastProposal, err = service.OwnerServices().Construction.ProposeConstruction(context.Background(), req)
 				if err != nil {
 					t.Fatalf("trace %s action %d actual ProposeConstruction: %v", traceID, actionIndex, err)
 				}
@@ -292,7 +292,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					}
 					summary.ReadyProposalCount++
 					ready = true
-					preview, previewErr := service.Preview(context.Background(), authoringcore.PreviewRequest{
+					preview, previewErr := service.OwnerServices().Core.Preview(context.Background(), authoringcore.PreviewRequest{
 						Project: req.Project, ExplorerID: req.ExplorerID, ReceiptID: lastProposal.ProposalID, OutputID: req.OutputID, Limit: req.Limit,
 						SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 							return func(map[string]any) error { return nil }, nil
@@ -411,7 +411,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				if reloadErr != nil || !bytes.Equal(readCanonical, persistedCanonical) || afterReload.DraftDigest != persistedDigest || afterReload.DraftVersion != version+1 {
 					t.Fatalf("fresh Builder lost saved Group: err=%v", reloadErr)
 				}
-				reloadCaps, reloadErr := reloadService.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
+				reloadCaps, reloadErr := reloadService.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
 				if reloadErr != nil {
 					t.Fatalf("fresh Group capabilities: %v", reloadErr)
 				}
@@ -542,7 +542,7 @@ func prepareOperationHistorySeeds(t *testing.T, traces operationHistoryTraceFile
 		prepareRequest := construction.ConstructionProposalRequest{Project: workspaceContext.Project, ExplorerID: workspaceContext.ExplorerID, SnapshotToken: identity.SnapshotToken,
 			ExpectedDraftVersion: identity.AcceptedVersion, ExpectedDraftDigest: identity.AcceptedDigest, OutputID: identity.OutputID}
 		service, store, _, _, stats := newOperationHistoryService(t, workspace, prepareRequest)
-		if _, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+		if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 			Project: prepareRequest.Project, ExplorerID: prepareRequest.ExplorerID, SnapshotToken: prepareRequest.SnapshotToken,
 			ExpectedDraftVersion: prepareRequest.ExpectedDraftVersion, ExpectedDraftDigest: prepareRequest.ExpectedDraftDigest,
 			OutputID: prepareRequest.OutputID, StageID: recipe.ConstructionSourceProjectionID,

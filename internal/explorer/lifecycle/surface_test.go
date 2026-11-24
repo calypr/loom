@@ -640,7 +640,7 @@ func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSi
 
 func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourceInput(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -699,7 +699,7 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         unpivotSourceStep,
@@ -839,7 +839,7 @@ func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *te
 			ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 		choice := deriveSourceRowChoice(t, snapshot, "Patient", row.fieldPath)
-		proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+		proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 			Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 			ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 			ChangedStepID:         unpivotSourceStep,
@@ -898,7 +898,7 @@ func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-language")})
 
 	choice := deriveSourceRowChoice(t, snapshot, "Patient", "language")
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         unpivotSourceStep,
@@ -949,7 +949,7 @@ func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T
 		ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
 
 	choice := deriveSourceRowChoice(t, snapshot, "Patient", "birthDate")
-	_, err = harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err = harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         unpivotSourceStep,
@@ -983,7 +983,7 @@ func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T)
 			}
 			candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
 				ws.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
-			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+			proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 				ChangedStepID:         unpivotSourceStep,
@@ -1377,7 +1377,7 @@ func TestProposeConstructionResolvesPivotDiscoveryToConcreteCategories(t *testin
 	}
 
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("propose discovery Pivot: %v", err)
 	}
@@ -1434,7 +1434,7 @@ func TestProposeConstructionRejectsUnverifiablePivotDiscovery(t *testing.T) {
 	}
 
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if got := lifecycleErrorCode(err); got != "PIVOT_CATEGORIES_UNVERIFIABLE" {
 		t.Fatalf("unverifiable discovery error code = %q, want PIVOT_CATEGORIES_UNVERIFIABLE; error = %v", got, err)
 	}
@@ -1471,7 +1471,7 @@ func TestLoadConstructionBaseRejectsSavedUnresolvedPivotDiscovery(t *testing.T) 
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
 
-	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	_, err = service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,

@@ -85,7 +85,7 @@ func testRepositoryPublishReleaseCASConflict(t *testing.T, project, storageProje
 	})
 
 	publish := func(commit string) (publication.RepositoryPublishResult, error) {
-		return service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: project, Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
+		return service.OwnerServices().Publication.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: project, Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
 	}
 
 	first, err := publish("commit-prior")

@@ -220,7 +220,7 @@ func TestProposeConstructionReauthorizesRelatedSourceChangedOutsideHint(t *testi
 			request.CandidateConstruction.Steps[index].Operation.RelatedSource.Source.Path = "valueQuantity.value"
 		}
 	}
-	_, err := service.ProposeConstruction(context.Background(), request)
+	_, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
 		t.Fatalf("tampered related source with unrelated changedStepId error = %v, want stale choice", err)
 	}
@@ -232,7 +232,7 @@ func TestProposeConstructionReauthorizesRelatedSourceWhenChangedStepHintOmitted(
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "", "filter_step")
 	request.CandidateConstruction.Steps = []ws.ConstructionStep{workspace.Documents[0].Construction.Steps[1]}
 	request.CandidateConstruction.Steps[0].Operation.RelatedSource.Source.Path = "valueQuantity.value"
-	_, err := service.ProposeConstruction(context.Background(), request)
+	_, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
 		t.Fatalf("tampered related source with omitted changedStepId error = %v, want stale choice", err)
 	}
@@ -243,7 +243,7 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWhenChangedStepHintIsFor
 	workspace, related := seedConstructionProposalWithTwoFilters(t, store, snapshot)
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "filter_step")
 	request.CandidateConstruction.Steps[1] = turnProposalStepIntoRelatedSource(workspace, 1, related)
-	_, err := service.ProposeConstruction(context.Background(), request)
+	_, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
 		t.Fatalf("new related source with forged changedStepId error = %v, want stale choice", err)
 	}
@@ -254,7 +254,7 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 	workspace, related := seedConstructionProposalWithTwoFilters(t, store, snapshot)
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "", "filter_step")
 	request.CandidateConstruction.Steps = []ws.ConstructionStep{turnProposalStepIntoRelatedSource(workspace, 1, related)}
-	_, err := service.ProposeConstruction(context.Background(), request)
+	_, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
 		t.Fatalf("new related source with omitted changedStepId error = %v, want stale choice", err)
 	}
@@ -285,7 +285,7 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 		return receipt, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	choices, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
+	choices, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, AnchorColumnID: "_key", TargetResourceType: "Observation",
@@ -324,13 +324,13 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 			}}},
 		}
 	}
-	valid, err := service.ProposeConstruction(context.Background(), makeRequest(choice.Route))
+	valid, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), makeRequest(choice.Route))
 	if err != nil || valid.PreviewStatus != "PREVIEW_PENDING" || valid.ProposalID == "" {
 		t.Fatalf("authorized related expansion proposal = %#v, %v", valid, err)
 	}
 	forgedRoute := append([]capability.ConstructionRouteStep(nil), choice.Route...)
 	forgedRoute[0].EdgeID = "forged-edge"
-	_, err = service.ProposeConstruction(context.Background(), makeRequest(forgedRoute))
+	_, err = service.OwnerServices().Construction.ProposeConstruction(context.Background(), makeRequest(forgedRoute))
 	if lifecycleErrorCode(err) != "INVALID_CONSTRUCTION_CHOICE" {
 		t.Fatalf("route changed after server-issued choice error = %v, want invalid choice", err)
 	}
@@ -341,7 +341,7 @@ func TestProposeConstructionDoesNotReauthorizeUnchangedRelatedSource(t *testing.
 	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
 	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "filter_step")
 	request.CandidateConstruction.Steps[0].Operation.Filter.Operator = ws.ConstructionFilterMissing
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatalf("unrelated edit with unchanged saved related source: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 		t.Fatal(err)
 	}
 	request := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step")
-	capabilities, err := service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
 		ExpectedDraftVersion: request.ExpectedDraftVersion, ExpectedDraftDigest: request.ExpectedDraftDigest,
 		OutputID: request.OutputID, StageID: recipe.ConstructionSourceProjectionID,
@@ -375,7 +375,7 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 		t.Fatalf("source descriptor omitted stable column identity: %#v", capabilities.SelectedStage.Columns)
 	}
 	stageID := "frontend-invented-stage"
-	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	_, err = service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
 		ExpectedDraftVersion: request.ExpectedDraftVersion, ExpectedDraftDigest: request.ExpectedDraftDigest,
 		OutputID: request.OutputID, StageID: stageID,
@@ -418,7 +418,7 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 				return compileReceipt(ctx, request)
 			}
 			service := newTestServiceFromSetup(t, setup)
-			_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+			_, err = service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 				OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -447,7 +447,7 @@ func TestProposeConstructionKeepsAcceptedDraftWhenDependencyRepairIsNeeded(t *te
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	request := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "broken_filter")
 	request.CandidateConstruction.Steps[0].Operation.Filter.ColumnID = "missing_stable_column"
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +496,7 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 	store.created.DraftConfig = draft
 	store.created.DraftDigest = digest
 
-	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", RemoveStepIDs: []string{"only_step"},
@@ -527,7 +527,7 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +609,7 @@ func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T)
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -640,7 +640,7 @@ func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 0, Complete: true}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,7 +676,7 @@ func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing
 		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +708,7 @@ func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *tes
 		return dataframeexecution.PreviewSummary{}, errors.New("preview backend failed")
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,7 +734,7 @@ func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection
 		t.Fatal(err)
 	}
 	proposal := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step")
-	_, err = service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	_, err = service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: proposal.Project, ExplorerID: proposal.ExplorerID, SnapshotToken: proposal.SnapshotToken,
 		ExpectedDraftVersion: proposal.ExpectedDraftVersion + 1, ExpectedDraftDigest: proposal.ExpectedDraftDigest,
 		OutputID: proposal.OutputID, StageID: recipe.ConstructionSourceProjectionID,
@@ -810,7 +810,7 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"record_id", "status", "patient_gender"}, RowCount: 1, Complete: true}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "append_three_sources", CandidateConstruction: candidate,

@@ -98,7 +98,7 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service, request := constructionCategoryDiscoveryErrorFixture(t, test.scanErr)
-			_, err := service.DiscoverConstructionCategories(context.Background(), request)
+			_, err := service.OwnerServices().Construction.DiscoverConstructionCategories(context.Background(), request)
 			if err == nil {
 				t.Fatal("DiscoverConstructionCategories() error = nil")
 			}

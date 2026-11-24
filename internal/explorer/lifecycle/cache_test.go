@@ -72,11 +72,11 @@ func TestConstructionBaseCacheSkipsCompileForIdenticalRequest(t *testing.T) {
 	}
 	service := newTestServiceFromSetup(t, setup)
 
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err != nil {
 		t.Fatalf("first capabilities request: %v", err)
 	}
 	authorizationChecks = 0
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err != nil {
 		t.Fatalf("second capabilities request: %v", err)
 	}
 	if calls != 1 {
@@ -94,11 +94,11 @@ func TestConstructionBaseCacheSeparatesDraftVersionAndDigest(t *testing.T) {
 	configureSnapshotConstructionCompilation(setup.Config, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	service := newTestServiceFromSetup(t, setup)
 
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
 		t.Fatalf("base capabilities request: %v", err)
 	}
 	store.created.DraftVersion++
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
 		t.Fatalf("new draft version request: %v", err)
 	}
 	if calls != 2 {
@@ -119,7 +119,7 @@ func TestConstructionBaseCacheSeparatesDraftVersionAndDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.created.DraftConfig, store.created.DraftDigest = raw, digest
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
 		t.Fatalf("new draft digest request: %v", err)
 	}
 	if calls != 3 {
@@ -135,13 +135,13 @@ func TestConstructionBaseCacheSeparatesSnapshotTokenAndScopeDigest(t *testing.T)
 	authorization := configureSnapshotConstructionCompilation(setup.Config, store, snapshot, scope, &calls)
 	service := newTestServiceFromSetup(t, setup)
 
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
 		t.Fatalf("base capabilities request: %v", err)
 	}
 
 	otherToken := readySnapshot("project-a", "generation-a", "snapshot-other", scope)
 	authorization.snapshot = otherToken
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, otherToken.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, otherToken.Token, "patients")); err != nil {
 		t.Fatalf("other token request: %v", err)
 	}
 	if calls != 2 {
@@ -153,13 +153,13 @@ func TestConstructionBaseCacheSeparatesSnapshotTokenAndScopeDigest(t *testing.T)
 	calls = 0
 	authorization = configureSnapshotConstructionCompilation(setup.Config, store, snapshot, scope, &calls)
 	service = newTestServiceFromSetup(t, setup)
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")); err != nil {
 		t.Fatalf("base scope capabilities request: %v", err)
 	}
 	otherScope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/x"}}
 	scopedSnapshot := readySnapshot("project-a", "generation-a", snapshot.Token, otherScope)
 	authorization.snapshot, authorization.scope = scopedSnapshot, otherScope
-	if _, err := service.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, scopedSnapshot.Token, "patients")); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), constructionCapabilitiesRequestFor(store.created, scopedSnapshot.Token, "patients")); err != nil {
 		t.Fatalf("other scope request: %v", err)
 	}
 	if calls != 2 {
@@ -174,11 +174,11 @@ func TestConstructionBaseCacheHitStillRejectsStaleDraft(t *testing.T) {
 	configureSnapshotConstructionCompilation(setup.Config, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	service := newTestServiceFromSetup(t, setup)
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err != nil {
 		t.Fatalf("first capabilities request: %v", err)
 	}
 	store.created.DraftDigest = "stale-digest"
-	_, err := service.GetConstructionCapabilities(context.Background(), request)
+	_, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request)
 	if lifecycleErrorCode(err) != "DRAFT_CONFLICT" {
 		t.Fatalf("stale cache-hit error = %v, want DRAFT_CONFLICT", err)
 	}
@@ -202,11 +202,11 @@ func TestConstructionBaseCacheDoesNotCacheErrors(t *testing.T) {
 	}
 	service := newTestServiceFromSetup(t, setup)
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err == nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err == nil {
 		t.Fatal("expected compile failure")
 	}
 	failCompile = false
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err != nil {
 		t.Fatalf("retry capabilities request: %v", err)
 	}
 	if calls != 1 {
@@ -221,7 +221,7 @@ func TestConstructionBaseCacheReturnsIndependentCopies(t *testing.T) {
 	configureSnapshotConstructionCompilation(setup.Config, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	service := newTestServiceFromSetup(t, setup)
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")
-	first, err := service.GetConstructionCapabilities(context.Background(), request)
+	first, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestConstructionBaseCacheReturnsIndependentCopies(t *testing.T) {
 	if len(first.BaseConstruction.Steps) > 0 {
 		first.BaseConstruction.Steps[0].ID = "corrupted"
 	}
-	second, err := service.GetConstructionCapabilities(context.Background(), request)
+	second, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,11 +262,11 @@ func TestConstructionBaseCacheExpiresEntries(t *testing.T) {
 	configureSnapshotConstructionCompilation(setup.Config, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	service := newTestServiceFromSetup(t, setup)
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(2 * time.Minute)
-	if _, err := service.GetConstructionCapabilities(context.Background(), request); err != nil {
+	if _, err := service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {

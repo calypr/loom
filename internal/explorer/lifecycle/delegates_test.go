@@ -744,7 +744,7 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 
 func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceInput(t *testing.T) {
 	harness := newFilterSourceHarness(t)
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -797,7 +797,7 @@ func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t
 	version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
 
-	proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 		ChangedStepID:         "filter-birth",
@@ -870,7 +870,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 				filterSourcePatientFilterStep("patient-id"),
 			}})
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
-			proposal, err := harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+			proposal, err := harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 				Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
 				ChangedStepID:         "filter-birth",
@@ -913,7 +913,7 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 				saved.SourceProjections[0].FieldPath != "multipleBirthInteger" {
 				t.Fatalf("applied construction lost the durable filter projection: %#v", saved)
 			}
-			capabilities, capErr := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+			capabilities, capErr := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 				Project: applied.Project, ExplorerID: applied.ExplorerID, SnapshotToken: harness.snapshot.Token,
 				ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest,
 				OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -959,7 +959,7 @@ func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T
 	}
 	harness.saveDraft(t, durable)
 	restoreChoice := harness.choice(t, "multipleBirthInteger").ChoiceID
-	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
+	capabilities, err := harness.service.OwnerServices().Construction.GetConstructionCapabilities(context.Background(), construction.ConstructionCapabilitiesRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
@@ -979,7 +979,7 @@ func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T
 
 	harness.unobserveBirthCount()
 	acceptedBefore := append([]byte(nil), harness.store.created.DraftConfig...)
-	_, err = harness.service.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
+	_, err = harness.service.OwnerServices().Construction.ProposeConstruction(context.Background(), construction.ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: harness.store.created.DraftVersion, ExpectedDraftDigest: harness.store.created.DraftDigest,
 		OutputID: "patients", ChangedStepID: "filter-birth",

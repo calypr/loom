@@ -179,7 +179,7 @@ func (r *explicitGroupRepositoryFixture) AbortExplicitGroupRevision(_ context.Co
 func TestCreateExplicitGroupRevisionPreservesEmptyAndOverlappingMemberships(t *testing.T) {
 	service, selectionStore, repository := explicitGroupServiceFixture(t)
 	request := explicitGroupCreateFixtureRequest(selectionStore.header.ID)
-	result, err := service.CreateExplicitGroupRevision(context.Background(), request)
+	result, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestCreateExplicitGroupRevisionPreservesEmptyAndOverlappingMemberships(t *t
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("stored memberships = %#v err=%v, want %#v", got, err, want)
 	}
-	retry, err := service.CreateExplicitGroupRevision(context.Background(), request)
+	retry, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), request)
 	if err != nil || retry.RevisionID != result.RevisionID || repository.completeCalls != 1 {
 		t.Fatalf("idempotent retry = %#v err=%v completeCalls=%d", retry, err, repository.completeCalls)
 	}
@@ -209,7 +209,7 @@ func TestCreateExplicitGroupRevisionRejectsForeignMembersBeforeStaging(t *testin
 	service, selectionStore, repository := explicitGroupServiceFixture(t)
 	request := explicitGroupCreateFixtureRequest(selectionStore.header.ID)
 	request.Groups[0].MemberIDs = []string{"member-a", "not-a-source-member"}
-	_, err := service.CreateExplicitGroupRevision(context.Background(), request)
+	_, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), request)
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "EXPLICIT_GROUP_FOREIGN_MEMBER" {
 		t.Fatalf("foreign member error = %v", err)
@@ -222,7 +222,7 @@ func TestCreateExplicitGroupRevisionRejectsForeignMembersBeforeStaging(t *testin
 func TestCreateExplicitGroupRevisionAbortsFailedStagingWithoutCompletion(t *testing.T) {
 	service, selectionStore, repository := explicitGroupServiceFixture(t)
 	repository.appendErr = errors.New("injected membership write error")
-	_, err := service.CreateExplicitGroupRevision(context.Background(), explicitGroupCreateFixtureRequest(selectionStore.header.ID))
+	_, err := service.OwnerServices().ExplicitGroup.CreateExplicitGroupRevision(context.Background(), explicitGroupCreateFixtureRequest(selectionStore.header.ID))
 	if err == nil || repository.abortCalls != 1 || repository.completeCalls != 0 || repository.header != nil {
 		t.Fatalf("failed write left partial revision: err=%v abort=%d complete=%d header=%#v", err, repository.abortCalls, repository.completeCalls, repository.header)
 	}

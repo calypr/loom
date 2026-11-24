@@ -5,8 +5,6 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	"github.com/calypr/loom/internal/explorer/population"
-
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -35,10 +33,6 @@ func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapabi
 		ResourceType: terminalResourceType, FieldRef: terminalResourceType + ".id", Selector: "id", Route: compilerRoute,
 	})
 	return err == nil
-}
-
-func (s *Service) SearchPopulationRoutes(ctx context.Context, request population.PopulationRoutesRequest) (population.PopulationRoutesResponse, error) {
-	return s.populationService.SearchPopulationRoutes(ctx, request)
 }
 
 func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

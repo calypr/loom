@@ -87,7 +87,7 @@ func constructionRouteTestReceipt(config *Config, request ports.CompileReceiptRe
 
 func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testing.T) {
 	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
-	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	search, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -132,7 +132,7 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 
 func TestConstructionChoiceAppliesRelatedAllForScalarField(t *testing.T) {
 	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
-	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	search, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -182,7 +182,7 @@ func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 	}
 
 	service := newTestServiceFromSetup(t, setup)
-	_, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	_, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: unsupported.ID},
 	})
@@ -220,7 +220,7 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 			return receipt, nil
 		}
 	})
-	result, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
+	result, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "keep_patients", AnchorColumnID: "_key", TargetResourceType: "Observation",
@@ -256,7 +256,7 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
+	saved, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "keep_patients", AnchorColumnID: "_key", TargetResourceType: "Observation",
@@ -383,7 +383,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	service := newTestServiceFromSetup(t, setup)
 	searchRoute := func(stageID, anchorColumnID, targetResourceType string) construction.RelatedExpandRouteChoice {
 		t.Helper()
-		result, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
+		result, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			OutputID: "patients", StageID: stageID, AnchorColumnID: anchorColumnID, TargetResourceType: targetResourceType,
@@ -396,7 +396,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 
 	searchContributors := func(stageID string, route construction.RelatedExpandRouteChoice, query string, limit int, cursor string) construction.RelatedExpandContributorChoiceSearchResponse {
 		t.Helper()
-		result, err := service.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
+		result, err := service.OwnerServices().Construction.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			OutputID: "patients", StageID: stageID, RouteChoiceID: route.ChoiceID, Query: query, Limit: limit, Cursor: cursor,
@@ -446,7 +446,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	if err != nil || !reflect.DeepEqual(rootIdentity.Route, rootRoute.Route) {
 		t.Fatalf("contributor choice did not retain the selected route: identity=%#v err=%v", rootIdentity, err)
 	}
-	firstPage, err := service.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
+	firstPage, err := service.OwnerServices().Construction.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, RouteChoiceID: rootRoute.ChoiceID, Limit: 1,
@@ -454,7 +454,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	if err != nil || firstPage.Complete || !firstPage.Truncated || firstPage.NextCursor == "" || len(firstPage.Choices) != 1 {
 		t.Fatalf("first contributor page = %#v, %v", firstPage, err)
 	}
-	secondPage, err := service.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
+	secondPage, err := service.OwnerServices().Construction.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, RouteChoiceID: rootRoute.ChoiceID,
@@ -484,14 +484,14 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	if err != nil || !reflect.DeepEqual(activeIdentity.Route, activeRoute.Route) {
 		t.Fatalf("active contributor choice did not retain the selected route: identity=%#v err=%v", activeIdentity, err)
 	}
-	if _, err := service.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
+	if _, err := service.OwnerServices().Construction.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "expand_observations", RouteChoiceID: rootRoute.ChoiceID,
 	}); err == nil || lifecycleErrorCode(err) != "INVALID_CONSTRUCTION_CHOICE" {
 		t.Fatalf("route token retargeted to another stage: %v", err)
 	}
-	if _, err := service.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
+	if _, err := service.OwnerServices().Construction.SearchRelatedExpandContributorChoices(context.Background(), construction.RelatedExpandContributorChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "expand_observations", RouteChoiceID: activeRoute.ChoiceID, Limit: 1, Cursor: firstPage.NextCursor,
@@ -533,11 +533,11 @@ func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *test
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "after_group", AnchorColumnID: "_key", TargetResourceType: "Observation",
 	}
-	if _, err := service.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_SOURCE_ROW_ANCHOR" {
+	if _, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_SOURCE_ROW_ANCHOR" {
 		t.Fatalf("unsupported selected stage error = %v, want NO_SOURCE_ROW_ANCHOR", err)
 	}
 	request.StageID = "missing_stage"
-	if _, err := service.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+	if _, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("missing selected stage error = %v, want STALE_STAGE_REFERENCE", err)
 	}
 }
@@ -620,7 +620,7 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 	service := newTestServiceFromSetup(t, setup)
 	search := func(anchorColumnID, targetResourceType string) construction.RelatedExpandChoiceSearchResponse {
 		t.Helper()
-		result, err := service.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
+		result, err := service.OwnerServices().Construction.SearchRelatedExpandChoices(context.Background(), construction.RelatedExpandChoiceSearchRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 			OutputID: "patients", StageID: "add_observation_status", AnchorColumnID: anchorColumnID,
@@ -715,7 +715,7 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	response, err := service.SearchRelatedFieldChoices(context.Background(), construction.RelatedFieldChoiceSearchRequest{
+	response, err := service.OwnerServices().Construction.SearchRelatedFieldChoices(context.Background(), construction.RelatedFieldChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: "keep_observations", Query: "status", Limit: 20,
@@ -784,11 +784,11 @@ func TestRelatedFieldChoicesRequireActiveStageIdentity(t *testing.T) {
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
 		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
 	}
-	if _, err := service.SearchRelatedFieldChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_ACTIVE_RELATED_RECORD" {
+	if _, err := service.OwnerServices().Construction.SearchRelatedFieldChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_ACTIVE_RELATED_RECORD" {
 		t.Fatalf("source-stage related field choices error = %v, want NO_ACTIVE_RELATED_RECORD", err)
 	}
 	request.StageID = "missing-stage"
-	if _, err := service.SearchRelatedFieldChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+	if _, err := service.OwnerServices().Construction.SearchRelatedFieldChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("missing-stage related field choices error = %v, want STALE_STAGE_REFERENCE", err)
 	}
 }
@@ -800,7 +800,7 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 	catalog := setup.Catalog
 	snapshot, _ = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	service := newTestServiceFromSetup(t, setup)
-	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	search, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -870,7 +870,7 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 		t.Fatal(err)
 	}
 	for edgeID, occurrenceID := range occurrences {
-		result, searchErr := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+		result, searchErr := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: occurrenceID,
 			Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 		})
@@ -891,7 +891,7 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 		if columnID == "" {
 			t.Fatalf("reloaded occurrence %q has no authored column", occurrenceID)
 		}
-		source, sourceErr := service.ColumnSource(context.Background(), semanticbrowse.ColumnSourceRequest{
+		source, sourceErr := service.OwnerServices().SemanticBrowse.ColumnSource(context.Background(), semanticbrowse.ColumnSourceRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", Column: columnID,
 		})
 		if sourceErr != nil || len(source.Route) != 2 || source.Route[1].CatalogEdgeID != edgeID {
@@ -911,7 +911,7 @@ func TestConstructionChoiceRejectsAmbiguousLegacyPrefix(t *testing.T) {
 		Children: []ws.RouteNode{{OccurrenceID: "legacy-observation", ResourceType: "Observation", Relationship: "subject_Patient"}},
 	})
 	service := newTestServiceFromSetup(t, setup)
-	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	search, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -936,7 +936,7 @@ func TestConstructionChoiceSearchScopesToSavedOccurrenceRoute(t *testing.T) {
 		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient",
 		Children: []ws.RouteNode{{OccurrenceID: "saved-observation", ResourceType: "Observation", Relationship: "subject_Patient", MatchMode: ws.RouteMatchOptional}},
 	})
-	result, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	result, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: "saved-observation",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -958,7 +958,7 @@ func TestApplyConstructionChoiceReusesTheSavedOccurrencePrefix(t *testing.T) {
 		OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient",
 		Children: []ws.RouteNode{{OccurrenceID: "saved-observation", ResourceType: "Observation", Relationship: "subject_Patient", MatchMode: ws.RouteMatchOptional}},
 	})
-	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	search, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: "saved-observation",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -1013,7 +1013,7 @@ func TestConstructionChoiceSearchRejectsOccurrenceOutsideOutputOrWrongTerminal(t
 		t.Run(test.name, func(t *testing.T) {
 			store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
 			test.prepare(t, store)
-			_, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+			_, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 				Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: test.occurrenceID,
 				Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 			})
@@ -1040,7 +1040,7 @@ func TestConstructionChoiceSearchRejectsAmbiguousOccurrenceEdgeResolution(t *tes
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	service := newTestServiceFromSetup(t, setup)
-	_, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	_, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: "ambiguous-observation",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -1085,7 +1085,7 @@ func TestConstructionChoiceSearchRequiresCompleteRouteCompilerProof(t *testing.T
 	}
 	setup.Config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
 	service := newTestServiceFromSetup(t, setup)
-	result, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	result, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -1096,7 +1096,7 @@ func TestConstructionChoiceSearchRequiresCompleteRouteCompilerProof(t *testing.T
 
 func TestConstructionChoiceRejectsTamperedRouteAtomically(t *testing.T) {
 	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
-	search, err := service.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
+	search, err := service.OwnerServices().Construction.SearchConstructionChoices(context.Background(), construction.ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: construction.ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
@@ -1120,7 +1120,7 @@ func TestConstructionChoiceRejectsTamperedRouteAtomically(t *testing.T) {
 func TestPopulationRoutesApplyAndColumnSourceAreGenericAndReadOnly(t *testing.T) {
 	store, service, snapshot, catalog, _ := inboundPatientObservationRouteFixture(t)
 	store.selection = completedTestSelection(snapshot, "Observation")
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
 	if err != nil || !routes.Complete || len(routes.Choices) != 1 || routes.Choices[0].Route[0].StorageDirection != "INBOUND" {
@@ -1156,7 +1156,7 @@ func TestPopulationRoutesApplyAndColumnSourceAreGenericAndReadOnly(t *testing.T)
 		t.Fatal(err)
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
-	inspected, err := service.ColumnSource(context.Background(), semanticbrowse.ColumnSourceRequest{
+	inspected, err := service.OwnerServices().SemanticBrowse.ColumnSource(context.Background(), semanticbrowse.ColumnSourceRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", Column: "observation_status",
 	})
 	if err != nil {
@@ -1269,7 +1269,7 @@ func TestPopulationRouteChoicePersistsExactParallelEdgeAndReloads(t *testing.T) 
 	snapshot, _ = addParallelObservationRoute(setup.Config, snapshot, catalog)
 	store.selection = completedTestSelection(snapshot, "Observation")
 	service := newTestServiceFromSetup(t, setup)
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
 	if err != nil || len(routes.Choices) != 2 {
@@ -1337,7 +1337,7 @@ func addParallelObservationRoute(config *Config, snapshot capability.Snapshot, c
 func TestPopulationRouteRejectionIsAtomicWhenChoiceIsTampered(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	store.selection = completedTestSelection(snapshot, "Observation")
-	routes, err := service.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
+	routes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-1",
 	})
 	if err != nil || len(routes.Choices) != 1 {
@@ -1399,7 +1399,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 		},
 	}
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstructionChoice(context.Background(), request)
+	proposal, err := service.OwnerServices().Construction.ProposeConstructionChoice(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1469,7 +1469,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 	}
 	request.ExpectedDraftVersion++
 	service := newTestServiceFromSetup(t, setup)
-	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "DRAFT_CONFLICT") {
+	if _, err := service.OwnerServices().Construction.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "DRAFT_CONFLICT") {
 		t.Fatalf("stale draft error = %v", err)
 	}
 	request.ExpectedDraftVersion = store.created.DraftVersion
@@ -1478,7 +1478,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 		t.Fatal(err)
 	}
 	request.ConstructionChoices[0].ChoiceID = staleChoice.ChoiceID
-	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "STALE_CONSTRUCTION_CHOICE") {
+	if _, err := service.OwnerServices().Construction.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "STALE_CONSTRUCTION_CHOICE") {
 		t.Fatalf("choice from different snapshot error = %v", err)
 	}
 	if store.saveDraftCalls != 0 {
@@ -1507,7 +1507,7 @@ func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDr
 	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
 	service := newTestServiceFromSetup(t, setup)
-	proposal, err := service.ProposeConstructionChoice(context.Background(), construction.ConstructionChoiceProposalRequest{
+	proposal, err := service.OwnerServices().Construction.ProposeConstructionChoice(context.Background(), construction.ConstructionChoiceProposalRequest{
 		CommandID: "semantic-choice-preview", Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: beforeVersion, ExpectedDraftDigest: beforeDigest, OutputID: "patients",
 		ConstructionChoices: []construction.ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},

@@ -284,20 +284,6 @@ func selectionCapabilityResolver(capabilities ports.CapabilityResolver) selectio
 	}
 }
 
-func (s *Service) InterpretationService() *interpretation.Service {
-	if s == nil {
-		return nil
-	}
-	return s.interpretationService
-}
-
-func (s *Service) SelectionService() *selection.Service {
-	if s == nil {
-		return nil
-	}
-	return s.selectionService
-}
-
 func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request AuthoringNetworkRequest) (AuthoringNetworkResponse, error) {
 	empty := AuthoringNetworkResponse{}
 	for name, value := range map[string]string{"project": request.Project, "explorerId": request.ExplorerID, "outputId": request.OutputID, "snapshotToken": request.SnapshotToken, "expectedDraftDigest": request.ExpectedDraftDigest} {
@@ -352,28 +338,8 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
 }
 
-func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request explicitgroup.ExplicitGroupCreateRequest) (explicitgroup.ExplicitGroupCreateResult, error) {
-	return s.explicitGroupService.CreateExplicitGroupRevision(ctx, request)
-}
-
 func NewSchemaRowChoiceResolver(index *fhirschema.Index) (*rowdef.SchemaRowChoiceResolver, error) {
 	return rowdef.NewSchemaRowChoiceResolver(index)
-}
-
-func (s *Service) AssessRowChange(ctx context.Context, request rowdef.AssessRowChangeRequest) (rowdef.AssessRowChangeResult, error) {
-	return s.rowDefService.AssessRowChange(ctx, request)
-}
-
-func (s *Service) ListRowDefinitionChoices(ctx context.Context, request rowdef.RowDefinitionChoicesRequest) (rowdef.RowDefinitionChoicesResponse, error) {
-	return s.rowDefService.ListRowDefinitionChoices(ctx, request)
-}
-
-func (s *Service) RowLineage(ctx context.Context, request rowdef.RowLineageRequest) (rowdef.RowLineageResult, error) {
-	return s.rowDefService.RowLineage(ctx, request)
-}
-
-func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDefinitionProposalRequest) (rowdef.RowDefinitionProposal, error) {
-	return s.rowDefService.ProposeRowDefinition(ctx, request)
 }
 
 func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace ws.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
