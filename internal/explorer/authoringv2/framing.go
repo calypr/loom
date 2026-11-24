@@ -6,23 +6,23 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func (c *Command) ResolveFrameSource(frame ws.FrameDefinition) error {
-	if c == nil || c.Type != CommandSetFrameSource && c.Type != CommandReplaceFrameSource {
-		return fmt.Errorf("a frame source can only be resolved for SET_FRAME_SOURCE or REPLACE_FRAME_SOURCE")
+func ResolveFrameSource(c Command, frame ws.FrameDefinition) (FrameSourceResolution, error) {
+	if c.Type != CommandSetFrameSource && c.Type != CommandReplaceFrameSource {
+		return FrameSourceResolution{}, fmt.Errorf("a frame source can only be resolved for SET_FRAME_SOURCE or REPLACE_FRAME_SOURCE")
 	}
 	if err := frame.Validate(); err != nil {
-		return fmt.Errorf("resolved frame source: %w", err)
+		return FrameSourceResolution{}, fmt.Errorf("resolved frame source: %w", err)
 	}
 	cloned := frame
 	cloned.Route = ws.CloneFrameRoute(frame.Route)
 	cloned.Source.ChoiceArms = append([]string(nil), frame.Source.ChoiceArms...)
 	cloned.Source.ValueFallbacks = append([]string(nil), frame.Source.ValueFallbacks...)
-	c.resolvedFrame = &cloned
-	return nil
+	return FrameSourceResolution{Frame: cloned}, nil
 }
 
-func applyFrameSourceCommand(workspace *ws.Workspace, command Command) (CommandResult, error) {
+func applyFrameSourceCommand(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
+	frameResolution, hasFrame := resolution.(FrameSourceResolution)
 	documentIndexValue := documentIndex(workspace, command.OutputID)
 	if documentIndexValue < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
@@ -32,16 +32,16 @@ func applyFrameSourceCommand(workspace *ws.Workspace, command Command) (CommandR
 	case CommandRemoveFrameSource:
 		return removeFrameSource(document, workspace, command.OutputID, command.FrameID())
 	case CommandSetFrameSource:
-		if command.resolvedFrame == nil {
+		if !hasFrame {
 			return result, fmt.Errorf("SET_FRAME_SOURCE has no lifecycle-resolved source")
 		}
 		for _, existing := range document.Frames {
-			if existing.ID == command.resolvedFrame.ID {
+			if existing.ID == frameResolution.Frame.ID {
 				return result, fmt.Errorf("frame source %q already exists", existing.ID)
 			}
 		}
 	case CommandReplaceFrameSource:
-		if command.resolvedFrame == nil {
+		if !hasFrame {
 			return result, fmt.Errorf("REPLACE_FRAME_SOURCE has no lifecycle-resolved source")
 		}
 		if !frameExists(document.Frames, command.FrameID()) {
@@ -59,12 +59,12 @@ func applyFrameSourceCommand(workspace *ws.Workspace, command Command) (CommandR
 		documentIndexValue = documentIndex(workspace, command.OutputID)
 		document = &workspace.Documents[documentIndexValue]
 		for _, existing := range document.Frames {
-			if existing.ID == command.resolvedFrame.ID {
+			if existing.ID == frameResolution.Frame.ID {
 				return result, fmt.Errorf("replacement frame source %q already exists", existing.ID)
 			}
 		}
 	}
-	frame := *command.resolvedFrame
+	frame := frameResolution.Frame
 	frame.Route = ws.CloneFrameRoute(frame.Route)
 	frame.Source.ChoiceArms = append([]string(nil), frame.Source.ChoiceArms...)
 	frame.Source.ValueFallbacks = append([]string(nil), frame.Source.ValueFallbacks...)

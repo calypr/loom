@@ -29,11 +29,11 @@ func (s *Service) proposalConfig() proposal.Config {
 	}
 }
 
-func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	return s.proposalService.PrepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
 
-func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	return s.proposalService.PrepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
 

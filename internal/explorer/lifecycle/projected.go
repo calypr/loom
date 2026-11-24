@@ -24,11 +24,12 @@ func (s *Service) prepareProjectedFieldRemoval(
 	workspace ws.Workspace,
 	catalog ws.CatalogSnapshot,
 	commands []authoringv2.Command,
-) ([]authoringv2.Command, error) {
+) ([]authoringv2.PreparedCommand, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandRemoveProjectedField {
 		return nil, support.Malformed("commands", "REMOVE_PROJECTED_FIELD must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
+	var resolution authoringv2.CommandResolution
 	if s.config.AuthoringNetwork == nil {
 		return nil, support.Unavailable("commands", "AUTHORING_NETWORK_UNAVAILABLE", "projected field ownership is unavailable", nil)
 	}
@@ -90,9 +91,11 @@ func (s *Service) prepareProjectedFieldRemoval(
 			}
 			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_FIELD_REMOVAL", editErr.Error(), editErr)
 		}
-		if err := command.ResolveProjectedFieldRemovalDocument(updated); err != nil {
-			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_FIELD_REMOVAL", err.Error(), err)
+		resolved, resolveErr := authoringv2.ResolveProjectedFieldRemovalDocument(*command, updated)
+		if resolveErr != nil {
+			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_FIELD_REMOVAL", resolveErr.Error(), resolveErr)
 		}
+		resolution = resolved
 	case projected.Owner == authoringnetwork.ProjectedFieldOwnerPinned && projected.Removal == authoringnetwork.ProjectedFieldRemovalDisablePinnedOutput:
 		if document.ImportedRecipe == nil || projected.SourceStepID == "" || projected.SourceOutputKey == "" || s.config.RemoveImportedOutput == nil {
 			return nil, support.Unavailable("commands", "IMPORTED_OUTPUT_REMOVAL_UNAVAILABLE", "the pinned output cannot be removed safely", nil)
@@ -105,18 +108,21 @@ func (s *Service) prepareProjectedFieldRemoval(
 			}
 			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_OUTPUT_REMOVAL", editErr.Error(), editErr)
 		}
-		if err := command.ResolveProjectedFieldRemovalDocument(updated); err != nil {
-			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_OUTPUT_REMOVAL", err.Error(), err)
+		resolved, resolveErr := authoringv2.ResolveProjectedFieldRemovalDocument(*command, updated)
+		if resolveErr != nil {
+			return nil, support.Unprocessable("commands", "INVALID_IMPORTED_OUTPUT_REMOVAL", resolveErr.Error(), resolveErr)
 		}
+		resolution = resolved
 	default:
 		return nil, support.Unprocessable("commands", "PROJECTED_FIELD_UNAVAILABLE", "the saved field does not support removal", nil)
 	}
-	candidate, _, err := authoringv2.ApplyCommands(workspace, catalog, "projected-field-removal-preview", commands)
+	prepared := []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}
+	candidate, _, err := authoringv2.ApplyCommands(workspace, catalog, "projected-field-removal-preview", prepared)
 	if err != nil {
 		return nil, support.Unprocessable("commands", "INVALID_PROJECTED_FIELD_REMOVAL", err.Error(), err)
 	}
 	if _, err := s.core.Compile(ctx, authoringcore.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: "projected-field-removal-candidate"}); err != nil {
 		return nil, fmt.Errorf("validate projected field removal candidate: %w", err)
 	}
-	return commands, nil
+	return prepared, nil
 }

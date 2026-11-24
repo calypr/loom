@@ -28,7 +28,7 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := constructionWorkspace(migrated)
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "refresh", []Command{command}); err == nil || !strings.Contains(err.Error(), "lifecycle-resolved") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "refresh", CommandsWithoutResolution([]Command{command})); err == nil || !strings.Contains(err.Error(), "lifecycle-resolved") {
 		t.Fatalf("unresolved source command error = %v", err)
 	}
 	request := ApplyCommandsRequest{CommandID: "refresh", SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: "snapshot", Commands: []Command{command}}
@@ -89,15 +89,16 @@ func TestImportedGraphAndRowsCannotMutateProjectedDocument(t *testing.T) {
 		{Type: CommandSetRouteMatchMode, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: ws.RootOccurrenceID, MatchMode: ws.RouteMatchRequired}},
 		{Type: CommandRemoveRoute, OutputID: document.Output.ID, Payload: &RoutePayload{OccurrenceID: ws.RootOccurrenceID}},
 	} {
-		if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-guard", []Command{command}); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_REQUIRED") {
+		if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-guard", CommandsWithoutResolution([]Command{command})); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_REQUIRED") {
 			t.Fatalf("projected route mutation error=%v", err)
 		}
 	}
 	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: document.Output.ID, Payload: &ProposalPayload{ProposalID: "receipt"}}
-	if err := command.ResolveRowDefinitionProposal(ws.RecordsRowDefinition()); err != nil {
+	resolution, err := ResolveRowDefinitionProposal(command, ws.RecordsRowDefinition())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-row-guard", []Command{command}); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_ROWS_REQUIRED") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "imported-row-guard", []PreparedCommand{{Command: command, Resolution: resolution}}); err == nil || !strings.Contains(err.Error(), "IMPORTED_SOURCE_ROWS_REQUIRED") {
 		t.Fatalf("projected row mutation error=%v", err)
 	}
 }
@@ -116,10 +117,11 @@ func TestImportedSourceProposalCannotDeleteOrChangeUnrelatedAuthoredWork(t *test
 	changed := *document
 	changed.Output.Title = "Changed outside source edit"
 	command := Command{Type: CommandApplyImportedRelationshipProposal, OutputID: document.Output.ID, Payload: &ImportedSourcePayload{ProposalID: "receipt"}}
-	if err := command.ResolveImportedDocument(changed); err != nil {
+	resolution, err := ResolveImportedDocument(command, changed)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "source-scope-guard", []Command{command}); err == nil || !strings.Contains(err.Error(), "downstream authored work") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "source-scope-guard", []PreparedCommand{{Command: command, Resolution: resolution}}); err == nil || !strings.Contains(err.Error(), "downstream authored work") {
 		t.Fatalf("source edit scope violation error=%v", err)
 	}
 }

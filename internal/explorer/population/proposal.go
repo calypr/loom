@@ -235,7 +235,7 @@ func (s *Service) PopulationRemovalRouteChoice(ctx context.Context, request Popu
 	return "", support.Unprocessable("population-member-proposal", "INVALID_POPULATION_ROUTE", "the existing population route is no longer available for the candidate selection", nil)
 }
 
-func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
+func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, *receiptmodel.CompilationReceipt, error) {
 	snapshot := authorized.Snapshot
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyPopulationMemberProposal {
 		return nil, nil, support.Malformed("commands", "APPLY_POPULATION_MEMBER_PROPOSAL must be the only command in its atomic request", nil)
@@ -318,10 +318,11 @@ func (s *Service) PreparePopulationMemberRemovalProposal(ctx context.Context, pr
 	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "population-member-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
 		return nil, nil, err
 	}
-	if err := command.ResolvePopulationMemberProposal(candidateSelection.ID, baseDocument.Population.Route); err != nil {
+	resolution, err := authoringv2.ResolvePopulationMemberProposal(*command, candidateSelection.ID, baseDocument.Population.Route)
+	if err != nil {
 		return nil, nil, support.Conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the candidate population is invalid", nil, err)
 	}
-	return commands, receipt, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}, receipt, nil
 }
 
 func CheckPopulationMemberRemovalProposalResult(workspace ws.Workspace, receipt *receiptmodel.CompilationReceipt) error {

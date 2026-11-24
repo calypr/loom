@@ -35,6 +35,6 @@ func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapabi
 	return err == nil
 }
 
-func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	return s.populationService.PreparePopulationRouteChoices(ctx, project, authorized, identities, workspace, commands)
 }

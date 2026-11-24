@@ -188,7 +188,8 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 		return RowDefinitionProposal{}, support.Unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: request.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: "proposal-preview"}}
-	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
+	resolution, err := authoringv2.ResolveRowDefinitionProposal(command, rows)
+	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, request.ExplorerID)
@@ -196,7 +197,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", []authoringv2.Command{command})
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
@@ -374,7 +375,7 @@ func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *recei
 	return s.config.Core.VerifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
-func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
+func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, *receiptmodel.CompilationReceipt, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyRowDefinitionProposal {
 		return nil, nil, support.Malformed("commands", "APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request", nil)
 	}
@@ -436,8 +437,9 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if _, err := s.resolveExplicitGroupRevisionForRows(ctx, project, explorerID, command.OutputID, snapshot, *candidateDocument, candidateDocument.Rows, receipt); err != nil {
 		return nil, nil, err
 	}
-	if err := command.ResolveRowDefinitionProposal(candidateDocument.Rows); err != nil {
+	resolution, err := authoringv2.ResolveRowDefinitionProposal(*command, candidateDocument.Rows)
+	if err != nil {
 		return nil, nil, support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate row definition is invalid", nil, err)
 	}
-	return commands, receipt, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}, receipt, nil
 }

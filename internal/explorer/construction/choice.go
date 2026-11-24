@@ -291,7 +291,7 @@ func invalidConstructionChoice(message string) error {
 	return unprocessable("commands", "INVALID_CONSTRUCTION_CHOICE", message, fmt.Errorf("%s", message))
 }
 
-func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	if len(commands) == 0 || len(commands) > 100 || len(commands) != len(identities) {
 		return nil, malformed("commands", "APPLY_CONSTRUCTION_CHOICE requires between 1 and 100 resolved choices", nil)
 	}
@@ -303,8 +303,9 @@ func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID stri
 	if err != nil {
 		return nil, err
 	}
+	prepared := make([]authoringv2.PreparedCommand, len(commands))
 	for index := range commands {
-		command := &commands[index]
+		command := commands[index]
 		if command.Type != authoringv2.CommandApplyConstructionChoice || command.ConstructionChoice() == nil {
 			return nil, malformed("commands", "construction choice requests cannot include unrelated commands", nil)
 		}
@@ -362,12 +363,9 @@ func (s *Service) PrepareConstructionChoice(ctx context.Context, explorerID stri
 			}
 			resolution.FrameID = frame.ID
 		}
-		command.ResolvedChoice = &resolution
-		if strings.TrimSpace(command.Title) == "" {
-			command.Title = title
-		}
+		prepared[index] = authoringv2.PreparedCommand{Command: command, Resolution: authoringv2.ConstructionChoiceResolution{Choice: &resolution, Title: title}}
 	}
-	return commands, nil
+	return prepared, nil
 }
 
 func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]semantic.Entry, map[string]semantic.Family, string, error) {

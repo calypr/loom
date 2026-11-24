@@ -174,7 +174,7 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 			return nil, err
 		}
 	}
-	updated, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, commands)
+	updated, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, authoringv2.CommandsWithoutResolution(commands))
 	if err != nil {
 		return nil, err
 	}

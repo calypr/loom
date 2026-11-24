@@ -10,7 +10,11 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 )
 
-func applySemanticSelections(workspace *ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commandID string, commandIndex int, command Command) (CommandResult, error) {
+func applySemanticSelections(workspace *ws.Workspace, catalogSnapshot ws.CatalogSnapshot, commandID string, commandIndex int, command Command, resolution CommandResolution) (CommandResult, error) {
+	resolved, ok := resolution.(SemanticSelectionResolution)
+	if !ok || len(resolved.Observations) != len(command.SemanticSelections()) {
+		return CommandResult{}, fmt.Errorf("semantic selections have no server-resolved inventory rows")
+	}
 	documentIndex := documentIndex(workspace, command.OutputID)
 	if documentIndex < 0 {
 		return CommandResult{}, fmt.Errorf("output %q was not found", command.OutputID)
@@ -18,7 +22,7 @@ func applySemanticSelections(workspace *ws.Workspace, catalogSnapshot ws.Catalog
 	document := &workspace.Documents[documentIndex]
 	result := CommandResult{Type: CommandResultSemanticSelectionsAdded, OutputID: command.OutputID, SemanticSelections: make([]SemanticSelectionResult, 0, len(command.SemanticSelections()))}
 	for selectionIndex, selection := range command.SemanticSelections() {
-		entry := selection.ResolvedObservation
+		entry := &resolved.Observations[selectionIndex]
 		if entry == nil || entry.ConceptID != selection.ConceptID || entry.BindingID != selection.BindingID {
 			return CommandResult{}, fmt.Errorf("semantic selection %d has no matching server-resolved inventory row", selectionIndex)
 		}

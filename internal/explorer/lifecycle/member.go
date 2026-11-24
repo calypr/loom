@@ -20,6 +20,6 @@ func previewPopulationMemberRemovalProposal(ctx context.Context, service *Servic
 	return service.populationService.PreviewPopulationMemberRemovalProposal(ctx, project, explorerID, receipt)
 }
 
-func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, error) {
+func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, *receiptmodel.CompilationReceipt, error) {
 	return s.populationService.PreparePopulationMemberRemovalProposal(ctx, project, explorerID, request, authorized, current, commands)
 }

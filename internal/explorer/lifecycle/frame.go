@@ -22,7 +22,7 @@ func (s *Service) prepareFrameSourceCommand(
 	workspace ws.Workspace,
 	command authoringv2.Command,
 	identity capability.ConstructionChoiceIdentity,
-) ([]authoringv2.Command, error) {
+) ([]authoringv2.PreparedCommand, error) {
 	if command.Type != authoringv2.CommandSetFrameSource && command.Type != authoringv2.CommandReplaceFrameSource {
 		return nil, support.Malformed("commands", "unsupported frame source command", nil)
 	}
@@ -94,11 +94,11 @@ func (s *Service) prepareFrameSourceCommand(
 	if err != nil {
 		return nil, invalidFrameSource("the selected frame definition is invalid")
 	}
-	commands := []authoringv2.Command{command}
-	if err := commands[0].ResolveFrameSource(frame); err != nil {
+	resolution, err := authoringv2.ResolveFrameSource(command, frame)
+	if err != nil {
 		return nil, invalidFrameSource("the resolved frame definition is invalid")
 	}
-	return commands, nil
+	return []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}, nil
 }
 
 func invalidFrameSource(message string) error {

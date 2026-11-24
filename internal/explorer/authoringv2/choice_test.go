@@ -67,7 +67,7 @@ func TestConstructionChoiceAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 		Payload: &ConstructionChoicePayload{OccurrenceID: ws.RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue}},
 	}
 	_, err := applyColumnSource(&workspace, commandCatalog(), "imported-additive", 0, command,
-		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
+		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE", nil)
 	if err != nil {
 		t.Fatalf("additive construction column on imported recipe was rejected: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestConstructionChoiceAddsMemberFieldToExplicitCohort(t *testing.T) {
 		Payload: &ConstructionChoicePayload{OccurrenceID: ws.RootOccurrenceID, ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue, RowValuePolicy: ws.ConstructionRowValueAll}},
 	}
 	_, err := applyColumnSource(&workspace, commandCatalog(), "cohort-field", 0, command,
-		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
+		ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE", nil)
 	if err != nil {
 		t.Fatalf("cohort member field was rejected: %v", err)
 	}

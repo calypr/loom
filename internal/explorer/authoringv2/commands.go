@@ -73,7 +73,6 @@ type ApplyCommandsRequest struct {
 	ExpectedDraftVersion int64     `json:"expectedDraftVersion"`
 	ExpectedDraftDigest  string    `json:"expectedDraftDigest,omitempty"`
 	Commands             []Command `json:"commands"`
-	draftSourceContext   *DraftSourceContext
 }
 
 type DraftSourceContext struct {
@@ -82,22 +81,14 @@ type DraftSourceContext struct {
 	AuthorizationScopeDigest string
 }
 
-func (r *ApplyCommandsRequest) ResolveDraftSourceContext(value DraftSourceContext) error {
-	if r == nil || strings.TrimSpace(value.SnapshotToken) == "" || value.SnapshotToken != strings.TrimSpace(value.SnapshotToken) ||
+func NewDraftSourceContext(snapshotToken, generation, authorizationScopeDigest string) (DraftSourceContext, error) {
+	value := DraftSourceContext{SnapshotToken: snapshotToken, SourceGeneration: generation, AuthorizationScopeDigest: authorizationScopeDigest}
+	if strings.TrimSpace(value.SnapshotToken) == "" || value.SnapshotToken != strings.TrimSpace(value.SnapshotToken) ||
 		strings.TrimSpace(value.SourceGeneration) == "" || value.SourceGeneration != strings.TrimSpace(value.SourceGeneration) ||
 		strings.TrimSpace(value.AuthorizationScopeDigest) == "" || value.AuthorizationScopeDigest != strings.TrimSpace(value.AuthorizationScopeDigest) {
-		return fmt.Errorf("resolved draft source context requires exact snapshot, generation, and authorization scope identities")
+		return DraftSourceContext{}, fmt.Errorf("resolved draft source context requires exact snapshot, generation, and authorization scope identities")
 	}
-	r.draftSourceContext = &value
-	return nil
-}
-
-func (r ApplyCommandsRequest) ResolvedDraftSourceContext() *DraftSourceContext {
-	if r.draftSourceContext == nil {
-		return nil
-	}
-	value := *r.draftSourceContext
-	return &value
+	return value, nil
 }
 
 func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
@@ -113,6 +104,72 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 type CommandPayload interface {
 	commandPayload()
 }
+
+type CommandResolution interface {
+	commandResolution()
+}
+
+type PreparedCommand struct {
+	Command    Command
+	Resolution CommandResolution
+}
+
+func CommandsWithoutResolution(commands []Command) []PreparedCommand {
+	prepared := make([]PreparedCommand, len(commands))
+	for index, command := range commands {
+		prepared[index] = PreparedCommand{Command: command}
+	}
+	return prepared
+}
+
+type ColumnPolicyResolution struct {
+	ColumnID       string
+	ProjectionMode string
+}
+
+func (ColumnPolicyResolution) commandResolution() {}
+
+type FrameSourceResolution struct{ Frame ws.FrameDefinition }
+
+func (FrameSourceResolution) commandResolution() {}
+
+type ImportedDocumentResolution struct{ Document ws.Document }
+
+func (ImportedDocumentResolution) commandResolution() {}
+
+type RowDefinitionResolution struct{ Rows ws.RowDefinition }
+
+func (RowDefinitionResolution) commandResolution() {}
+
+type ConstructionResolution struct {
+	Construction *ws.Construction
+	Rows         ws.RowDefinition
+}
+
+func (ConstructionResolution) commandResolution() {}
+
+type PopulationResolution struct{ Population ws.Population }
+
+func (PopulationResolution) commandResolution() {}
+
+type DraftRevisionResolution struct{ Workspace ws.Workspace }
+
+func (DraftRevisionResolution) commandResolution() {}
+
+type PopulationRouteResolution struct{ Route []ws.PopulationRouteStep }
+
+func (PopulationRouteResolution) commandResolution() {}
+
+type ConstructionChoiceResolution struct {
+	Choice *ResolvedConstructionChoice
+	Title  string
+}
+
+func (ConstructionChoiceResolution) commandResolution() {}
+
+type SemanticSelectionResolution struct{ Observations []semantic.Entry }
+
+func (SemanticSelectionResolution) commandResolution() {}
 
 type TablePayload struct {
 	SourceOutputID      string   `json:"sourceOutputId,omitempty"`
@@ -199,19 +256,6 @@ type Command struct {
 	Title               string         `json:"title,omitempty"`
 	InitialPresentation string         `json:"initialPresentation,omitempty"`
 	Payload             CommandPayload `json:"-"`
-
-	ResolvedChoice           *ResolvedConstructionChoice `json:"-"`
-	resolvedFrame            *ws.FrameDefinition
-	ResolvedPopulationRoute  []ws.PopulationRouteStep `json:"-"`
-	resolvedColumnPolicy     *resolvedColumnPolicy
-	resolvedImportedDocument *ws.Document
-	resolvedRowDefinition    *ws.RowDefinition
-	resolvedConstruction     *ws.Construction
-	resolvedConstructionSet  bool
-	resolvedConstructionRows *ws.RowDefinition
-	resolvedPopulation       *ws.Population
-	resolvedPopulationSet    bool
-	resolvedDraftRevision    *ws.Workspace
 }
 
 type commandWire struct {
@@ -550,16 +594,15 @@ func (p ConstructionOutputPresentation) Validate() error {
 	return nil
 }
 
-func (c *Command) ResolveDraftRevision(workspace ws.Workspace) error {
-	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID()) == "" || c.DraftRevisionID() != strings.TrimSpace(c.DraftRevisionID()) {
-		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
+func ResolveDraftRevision(c Command, workspace ws.Workspace) (DraftRevisionResolution, error) {
+	if c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID()) == "" || c.DraftRevisionID() != strings.TrimSpace(c.DraftRevisionID()) {
+		return DraftRevisionResolution{}, fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
 	}
 	cloned, err := cloneWorkspace(workspace)
 	if err != nil {
-		return err
+		return DraftRevisionResolution{}, err
 	}
-	c.resolvedDraftRevision = &cloned
-	return nil
+	return DraftRevisionResolution{Workspace: cloned}, nil
 }
 
 type ColumnTransformationChange struct {
@@ -638,12 +681,11 @@ type ResolvedConstructionChoice struct {
 }
 
 type SemanticSelection struct {
-	ConceptID           string          `json:"conceptId"`
-	BindingID           string          `json:"bindingId"`
-	RouteEdgeIDs        []string        `json:"routeEdgeIds"`
-	ProjectionMode      string          `json:"projectionMode"`
-	Title               string          `json:"title,omitempty"`
-	ResolvedObservation *semantic.Entry `json:"-"`
+	ConceptID      string   `json:"conceptId"`
+	BindingID      string   `json:"bindingId"`
+	RouteEdgeIDs   []string `json:"routeEdgeIds"`
+	ProjectionMode string   `json:"projectionMode"`
+	Title          string   `json:"title,omitempty"`
 }
 
 func (s *SemanticSelection) UnmarshalJSON(raw []byte) error {
@@ -778,67 +820,61 @@ func rejectUnknownProposalCommandFields(raw []byte, commandType string) error {
 	return nil
 }
 
-func (c *Command) ResolveRowDefinitionProposal(rows ws.RowDefinition) error {
-	if c == nil || c.Type != CommandApplyRowDefinitionProposal {
-		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
+func ResolveRowDefinitionProposal(c Command, rows ws.RowDefinition) (RowDefinitionResolution, error) {
+	if c.Type != CommandApplyRowDefinitionProposal {
+		return RowDefinitionResolution{}, fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
 	}
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
 		strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
-		return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires outputId and proposalId")
+		return RowDefinitionResolution{}, fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires outputId and proposalId")
 	}
 	if err := rows.Validate(); err != nil {
-		return fmt.Errorf("resolved row definition: %w", err)
+		return RowDefinitionResolution{}, fmt.Errorf("resolved row definition: %w", err)
 	}
 	cloned, err := cloneRowDefinition(rows)
 	if err != nil {
-		return err
+		return RowDefinitionResolution{}, err
 	}
-	c.resolvedRowDefinition = &cloned
-	return nil
+	return RowDefinitionResolution{Rows: cloned}, nil
 }
 
-func (c *Command) ResolveConstructionProposal(candidate *ws.Document) error {
-	if c == nil || c.Type != CommandApplyConstructionProposal {
-		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
+func ResolveConstructionProposal(c Command, candidate *ws.Document) (ConstructionResolution, error) {
+	if c.Type != CommandApplyConstructionProposal {
+		return ConstructionResolution{}, fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
 	}
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
 		strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
-		return fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL requires outputId and proposalId")
+		return ConstructionResolution{}, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL requires outputId and proposalId")
 	}
-	if candidate == nil || candidate.Output.ID != c.OutputID || candidate.Construction == nil {
-		return fmt.Errorf("resolved construction candidate is required for the target output")
+	if candidate == nil || candidate.Output.ID != c.OutputID {
+		return ConstructionResolution{}, fmt.Errorf("resolved construction candidate is required for the target output")
 	}
 	if err := candidate.Rows.Validate(); err != nil {
-		return fmt.Errorf("resolved construction candidate rows are invalid: %w", err)
+		return ConstructionResolution{}, fmt.Errorf("resolved construction candidate rows are invalid: %w", err)
 	}
 	clonedConstruction, err := cloneConstruction(candidate.Construction)
 	if err != nil {
-		return err
+		return ConstructionResolution{}, err
 	}
 	clonedRows, err := cloneRowDefinition(candidate.Rows)
 	if err != nil {
-		return err
+		return ConstructionResolution{}, err
 	}
-	c.resolvedConstruction = clonedConstruction
-	c.resolvedConstructionSet = true
-	c.resolvedConstructionRows = &clonedRows
-	return nil
+	return ConstructionResolution{Construction: clonedConstruction, Rows: clonedRows}, nil
 }
 
-func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []ws.PopulationRouteStep) error {
-	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
-		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
+func ResolvePopulationMemberProposal(c Command, selectionRevisionID string, route []ws.PopulationRouteStep) (PopulationResolution, error) {
+	if c.Type != CommandApplyPopulationMemberProposal {
+		return PopulationResolution{}, fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
 	}
 	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) || strings.TrimSpace(c.ProposalID()) == "" || c.ProposalID() != strings.TrimSpace(c.ProposalID()) {
-		return fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL requires outputId and proposalId")
+		return PopulationResolution{}, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL requires outputId and proposalId")
 	}
 	population := ws.Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: ws.ClonePopulationRouteSteps(route)}
 	if err := population.Validate(); err != nil {
-		return fmt.Errorf("resolved population is invalid: %w", err)
+		return PopulationResolution{}, fmt.Errorf("resolved population is invalid: %w", err)
 	}
-	c.resolvedPopulation = &population
-	c.resolvedPopulationSet = true
-	return nil
+	return PopulationResolution{Population: population}, nil
 }
 
 type CommandResult struct {
@@ -1047,14 +1083,14 @@ func commandFieldsPresent(values ...string) bool {
 	return true
 }
 
-func ApplyCommands(workspace ws.Workspace, catalog ws.CatalogSnapshot, commandID string, commands []Command) (ws.Workspace, []CommandResult, error) {
+func ApplyCommands(workspace ws.Workspace, catalog ws.CatalogSnapshot, commandID string, commands []PreparedCommand) (ws.Workspace, []CommandResult, error) {
 	working, err := ws.CloneCurrentWorkspace(workspace)
 	if err != nil {
 		return ws.Workspace{}, nil, err
 	}
 	results := make([]CommandResult, 0, len(commands))
 	for index, command := range commands {
-		result, applyErr := applyCommand(&working, catalog, commandID, index, command)
+		result, applyErr := applyCommand(&working, catalog, commandID, index, command.Command, command.Resolution)
 		if applyErr != nil {
 			return ws.Workspace{}, nil, fmt.Errorf("commands[%d]: %w", index, applyErr)
 		}
@@ -1070,7 +1106,7 @@ func ApplyCommands(workspace ws.Workspace, catalog ws.CatalogSnapshot, commandID
 	return working, results, nil
 }
 
-func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if command.Type != CommandUpdateColumnRowValuePolicy && command.RowValuePolicy() != "" {
 		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
@@ -1098,7 +1134,7 @@ func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID
 		case CommandSetTableRoot:
 			return applySetTableRoot(workspace, catalog, command)
 		case CommandSetTablePopulation:
-			return applySetTablePopulation(workspace, catalog, command)
+			return applySetTablePopulation(workspace, catalog, command, resolution)
 		case CommandClearTablePopulation:
 			return applyClearTablePopulation(workspace, command)
 		}
@@ -1142,38 +1178,38 @@ func applyCommand(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID
 		case CommandRemoveColumn:
 			return applyRemoveColumn(workspace, command)
 		case CommandRemoveProjectedField:
-			return applyRemoveProjectedField(workspace, command)
+			return applyRemoveProjectedField(workspace, command, resolution)
 		}
 	case *ProposalPayload:
 		switch command.Type {
 		case CommandApplyColumnPolicyProposal:
-			return applyApplyColumnPolicyProposal(workspace, catalog, commandID, index, command)
+			return applyApplyColumnPolicyProposal(workspace, catalog, commandID, index, command, resolution)
 		case CommandApplyRowDefinitionProposal:
-			return applyApplyRowDefinitionProposal(workspace, command)
+			return applyApplyRowDefinitionProposal(workspace, command, resolution)
 		case CommandApplyPopulationMemberProposal:
-			return applyApplyPopulationMemberProposal(workspace, command)
+			return applyApplyPopulationMemberProposal(workspace, command, resolution)
 		case CommandApplyConstructionProposal:
-			return applyApplyConstructionProposal(workspace, command)
+			return applyApplyConstructionProposal(workspace, command, resolution)
 		case CommandRestoreDraftRevision:
-			return applyRestoreDraftRevision(workspace, command)
+			return applyRestoreDraftRevision(workspace, command, resolution)
 		}
 	case *SemanticPayload:
 		if command.Type == CommandAddSemanticSelections {
-			return applyAddSemanticSelections(workspace, catalog, commandID, index, command)
+			return applyAddSemanticSelections(workspace, catalog, commandID, index, command, resolution)
 		}
 	case *ConstructionChoicePayload:
 		if command.Type == CommandApplyConstructionChoice {
-			return applyApplyConstructionChoice(workspace, catalog, commandID, index, command)
+			return applyApplyConstructionChoice(workspace, catalog, commandID, index, command, resolution)
 		}
 	case *FramePayload:
 		switch command.Type {
 		case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
-			return applySetFrameSourceVariants(workspace, command)
+			return applySetFrameSourceVariants(workspace, command, resolution)
 		}
 	case *ImportedSourcePayload:
 		switch command.Type {
 		case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
-			return applyUpdateImportedSourceStepVariants(workspace, command)
+			return applyUpdateImportedSourceStepVariants(workspace, command, resolution)
 		}
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)

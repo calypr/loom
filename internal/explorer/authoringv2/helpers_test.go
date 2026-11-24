@@ -52,7 +52,7 @@ func TestPopulateGroupedRowsPreservesIdentityReloadAndRemoval(t *testing.T) {
 	if !reflect.DeepEqual(reloaded.Documents[0].Construction.Steps[0].RowValues, step.RowValues) {
 		t.Fatal("reload lost contributing-record value policy")
 	}
-	removed, _, err := ApplyCommands(reloaded, commandCatalog(), "remove-gender", []Command{{Type: CommandRemoveColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "gender"}}})
+	removed, _, err := ApplyCommands(reloaded, commandCatalog(), "remove-gender", CommandsWithoutResolution([]Command{{Type: CommandRemoveColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "gender"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestRemoveProjectedFieldUsesStableIDAndExistingDownstreamCleanup(t *testing
 		t.Fatal(err)
 	}
 	workspace := constructionWorkspace(document)
-	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", []Command{{Type: CommandRemoveProjectedField, OutputID: "patients", Payload: &ColumnPayload{ColumnID: "gender_source"}}})
+	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", CommandsWithoutResolution([]Command{{Type: CommandRemoveProjectedField, OutputID: "patients", Payload: &ColumnPayload{ColumnID: "gender_source"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,8 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 		t.Fatalf("migrate proposal base: %v", err)
 	}
 	proposal := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
-	if err := proposal.ResolveConstructionProposal(&candidate); err != nil {
+	resolution, err := ResolveConstructionProposal(proposal, &candidate)
+	if err != nil {
 		t.Fatalf("resolve proposal: %v", err)
 	}
 	candidate.Construction.Steps[0].Operation.Pivot.Categories[0].OutputColumnID = "mutated_after_resolution"
@@ -468,7 +469,7 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 	if err := request.Validate(); err != nil {
 		t.Fatalf("valid proposal request rejected: %v", err)
 	}
-	got, results, err := ApplyCommands(workspace, commandCatalog(), request.CommandID, request.Commands)
+	got, results, err := ApplyCommands(workspace, commandCatalog(), request.CommandID, []PreparedCommand{{Command: proposal, Resolution: resolution}})
 	if err != nil {
 		t.Fatalf("apply construction proposal: %v", err)
 	}
@@ -507,11 +508,31 @@ func TestApplyConstructionProposalRejectsClientPlanAndUnresolvedApply(t *testing
 	base := legacyPivotDocument()
 	base.ArchiveRetiredShape = nil
 	workspace := constructionWorkspace(base)
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{command}); err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved construction") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", CommandsWithoutResolution([]Command{command})); err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved construction") {
 		t.Fatalf("unresolved apply error = %v", err)
 	}
-	if err := command.ResolveConstructionProposal(nil); err == nil {
+	if _, err := ResolveConstructionProposal(command, nil); err == nil {
 		t.Fatal("nil resolved candidate was accepted")
+	}
+}
+
+func TestConstructionResolutionCanExplicitlyClearConstruction(t *testing.T) {
+	base := legacyPivotDocument()
+	base.ArchiveRetiredShape = nil
+	workspace := constructionWorkspace(base)
+	candidate := base
+	candidate.Construction = nil
+	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-clear"}}
+	resolution, err := ResolveConstructionProposal(command, &candidate)
+	if err != nil {
+		t.Fatalf("resolve cleared construction: %v", err)
+	}
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "clear-construction", []PreparedCommand{{Command: command, Resolution: resolution}})
+	if err != nil {
+		t.Fatalf("apply cleared construction: %v", err)
+	}
+	if updated.Documents[0].Construction != nil {
+		t.Fatalf("construction was not cleared: %#v", updated.Documents[0].Construction)
 	}
 }
 
@@ -556,7 +577,8 @@ func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.
 	}
 
 	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
-	if err := command.ResolveConstructionProposal(&candidate); err != nil {
+	resolution, err := ResolveConstructionProposal(command, &candidate)
+	if err != nil {
 		t.Fatalf("resolve exact candidate: %v", err)
 	}
 	wantRows, err := cloneRowDefinition(candidate.Rows)
@@ -570,7 +592,7 @@ func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.
 	candidate.Rows.Groups.Source.Explicit.RevisionID = "mutated-after-resolution"
 	candidate.Rows.Groups.RowValues[0].ColumnID = "mutated-after-resolution"
 	candidate.Construction.Steps[0].ID = "mutated-after-resolution"
-	workspace, results, err := ApplyCommands(constructionWorkspace(document), commandCatalog(), "apply-anchor-removal", []Command{command})
+	workspace, results, err := ApplyCommands(constructionWorkspace(document), commandCatalog(), "apply-anchor-removal", []PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		t.Fatalf("apply anchor removal: %v", err)
 	}
@@ -644,7 +666,8 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 		}},
 	}}
 	command := Command{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}
-	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
+	resolution, err := ResolveRowDefinitionProposal(command, rows)
+	if err != nil {
 		t.Fatal(err)
 	}
 	rows.Groups.Source.Field.FieldPath = "mutated-after-resolution"
@@ -657,7 +680,7 @@ func TestApplyRowDefinitionProposalChangesOnlyRows(t *testing.T) {
 		t.Fatalf("resolved row definition leaked into browser command: %s", wire)
 	}
 
-	got, _, err := ApplyCommands(workspace, catalog, "command-1", []Command{command})
+	got, _, err := ApplyCommands(workspace, catalog, "command-1", []PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +707,7 @@ func TestApplyRowDefinitionProposalRequiresLifecycleResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}})
+	_, _, err = ApplyCommands(workspace, commandCatalog(), "command-1", CommandsWithoutResolution([]Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", Payload: &ProposalPayload{ProposalID: "receipt-1"}}}))
 	if err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved row definition") {
 		t.Fatalf("unprepared proposal command error = %v", err)
 	}
@@ -711,7 +734,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 		Tabs:      []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	original := workspace.Documents[0].Columns[0]
-	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())}}}})
+	workspace, results, err := ApplyCommands(workspace, catalog, "recode-status", CommandsWithoutResolution([]Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(exactCategoryTransformation())}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,7 +761,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 		t.Fatalf("persisted transformation did not round-trip: %#v", got.ValueTransformation)
 	}
 
-	reloaded, _, err = ApplyCommands(reloaded, catalog, "remove-recode", []Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "REMOVE"}}}})
+	reloaded, _, err = ApplyCommands(reloaded, catalog, "remove-recode", CommandsWithoutResolution([]Command{{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: original.Column, TransformationChange: &ColumnTransformationChange{Kind: "REMOVE"}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,13 +781,13 @@ func TestUpdateColumnTransformationRejectsUnsupportedAndIncompleteMappings(t *te
 	command := func(transformation columntransform.ValueTransformation) Command {
 		return Command{Type: CommandUpdateColumnTransformation, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", TransformationChange: &ColumnTransformationChange{Kind: "SET", Transformation: ptrTransformation(transformation)}}}
 	}
-	if _, _, err := ApplyCommands(workspace, catalog, "unsupported-type", []Command{command(exactCategoryTransformation())}); err == nil || !strings.Contains(err.Error(), "COLUMN_VALUE_TYPE_UNSUPPORTED") {
+	if _, _, err := ApplyCommands(workspace, catalog, "unsupported-type", CommandsWithoutResolution([]Command{command(exactCategoryTransformation())})); err == nil || !strings.Contains(err.Error(), "COLUMN_VALUE_TYPE_UNSUPPORTED") {
 		t.Fatalf("unsupported source type error = %v, want COLUMN_VALUE_TYPE_UNSUPPORTED", err)
 	}
 
 	incomplete := exactCategoryTransformation()
 	incomplete.ExactCategoryRecode.Mappings = nil
-	if _, _, err := ApplyCommands(workspace, commandCatalog(), "incomplete-map", []Command{command(incomplete)}); err == nil || !strings.Contains(err.Error(), "mappings must not be empty") {
+	if _, _, err := ApplyCommands(workspace, commandCatalog(), "incomplete-map", CommandsWithoutResolution([]Command{command(incomplete)})); err == nil || !strings.Contains(err.Error(), "mappings must not be empty") {
 		t.Fatalf("incomplete map error = %v, want mapping diagnostic", err)
 	}
 }
@@ -809,7 +832,7 @@ func TestRetiredTableShapeProposalCannotMutateCurrentWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, proposal := range []string{"receipt-1", "receipt-removal", ""} {
-		_, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: proposal}}})
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", CommandsWithoutResolution([]Command{{Type: "APPLY_TABLE_SHAPE_PROPOSAL", OutputID: "patients", Payload: &ProposalPayload{ProposalID: proposal}}}))
 		if err == nil {
 			t.Fatal("retired proposal reached reducer")
 		}

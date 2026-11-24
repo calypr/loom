@@ -223,14 +223,14 @@ func (s *Service) CreateSeededDataframe(ctx context.Context, project, id, title 
 }
 
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
-	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil)
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil, nil)
 }
 
-func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
-	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, prepare, checker)
+func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, sourceContext *authoringv2.DraftSourceContext, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.PreparedCommand, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, sourceContext, prepare, checker)
 }
 
-func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog ws.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, sourceContext *authoringv2.DraftSourceContext, prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.PreparedCommand, error), checker func(ws.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -276,21 +276,22 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 		return nil, err
 	}
 	commands := cloneAuthoringCommands(request.Commands)
+	prepared := authoringv2.CommandsWithoutResolution(commands)
 	if prepare != nil {
-		commands, err = prepare(ctx, workspace, commands)
+		prepared, err = prepare(ctx, workspace, commands)
 		if err != nil {
 			return nil, err
 		}
-		if len(commands) != len(request.Commands) {
+		if len(prepared) != len(request.Commands) {
 			return nil, fmt.Errorf("prepared authoring command count changed")
 		}
-		for index := range commands {
-			if commands[index].Type != request.Commands[index].Type {
+		for index := range prepared {
+			if prepared[index].Command.Type != request.Commands[index].Type {
 				return nil, fmt.Errorf("prepared authoring command type changed at index %d", index)
 			}
 		}
 	}
-	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, commands)
+	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +317,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	owner.LastAuthoringCommandID = request.CommandID
 	owner.LastAuthoringCommandDigest = commandDigest
 	owner.LastAuthoringCommandResults = resultJSON
-	if sourceContext := request.ResolvedDraftSourceContext(); sourceContext != nil {
+	if sourceContext != nil {
 		owner.DraftSnapshotToken = sourceContext.SnapshotToken
 		owner.DraftSourceGeneration = sourceContext.SourceGeneration
 		owner.DraftAuthorizationScopeDigest = sourceContext.AuthorizationScopeDigest

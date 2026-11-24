@@ -94,13 +94,13 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || snapshot.Identity.Generation == "" {
 		return nil, support.Conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
 	}
+	var sourceContext *authoringv2.DraftSourceContext
 	if snapshot.Token != "" && snapshot.Identity.Generation != "" && snapshot.Identity.AuthorizationScopeDigest != "" {
-		if sourceErr := request.ResolveDraftSourceContext(authoringv2.DraftSourceContext{
-			SnapshotToken: snapshot.Token, SourceGeneration: snapshot.Identity.Generation,
-			AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		}); sourceErr != nil {
+		resolved, sourceErr := authoringv2.NewDraftSourceContext(snapshot.Token, snapshot.Identity.Generation, snapshot.Identity.AuthorizationScopeDigest)
+		if sourceErr != nil {
 			return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, sourceErr)
 		}
+		sourceContext = &resolved
 	} else if intents.restoreDraftRevisionCommand {
 		return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
 	}
@@ -110,66 +110,66 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			return nil, err
 		}
 	}
-	var prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
+	var prepare func(context.Context, ws.Workspace, []authoringv2.Command) ([]authoringv2.PreparedCommand, error)
 	if intents.columnPolicyProposalCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			return s.prepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, workspace, commands)
 		}
 	} else if intents.projectedFieldRemovalCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			return s.prepareProjectedFieldRemoval(ctx, project, explorerID, request, authorized, workspace, catalog, commands)
 		}
 	} else if intents.importedSourceCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			if commands[0].Type == authoringv2.CommandApplyImportedRelationshipProposal {
 				return s.prepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, workspace, commands)
 			}
 			return s.prepareImportedSource(ctx, project, explorerID, authorized, workspace, catalog, commands)
 		}
 	} else if intents.semanticCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			return s.prepareSemanticSelections(ctx, explorerID, authorized, workspace, commands)
 		}
 	} else if intents.constructionChoiceCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			return s.constructionService.PrepareConstructionChoice(ctx, explorerID, authorized, intents.constructionIdentities, workspace, catalog, commands)
 		}
 	} else if intents.populationRouteCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			return s.preparePopulationRouteChoices(ctx, project, authorized, intents.populationRouteIdentities, workspace, commands)
 		}
 	} else if intents.rowDefinitionProposalCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			prepared, receipt, prepareErr := s.rowDefService.PrepareRowDefinitionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
 			rowDefinitionCandidate = receipt
 			return prepared, prepareErr
 		}
 	} else if intents.constructionProposalCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			prepared, receipt, accepted, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands, previewSinkFactory)
 			constructionCandidate = receipt
 			acceptedConstruction = accepted
 			return prepared, prepareErr
 		}
 	} else if intents.populationMemberProposalCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			prepared, receipt, prepareErr := s.preparePopulationMemberRemovalProposal(ctx, project, explorerID, request, authorized, workspace, commands)
 			populationMemberCandidate = receipt
 			return prepared, prepareErr
 		}
 	} else if intents.restoreDraftRevisionCommand {
-		prepare = func(ctx context.Context, _ ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			return s.prepareDraftRevisionRestore(ctx, project, explorerID, request, snapshot, commands)
+		prepare = func(ctx context.Context, _ ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
+			return s.prepareDraftRevisionRestore(ctx, project, explorerID, request, snapshot, sourceContext, commands)
 		}
 	} else if intents.frameSourceCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			if len(commands) != 1 {
 				return nil, support.Malformed("commands", "frame source changes must contain exactly one command", nil)
 			}
 			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, commands[0], intents.frameSourceIdentity)
 		}
 	} else if intents.rowChangeReplacementCommand {
-		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+		prepare = func(ctx context.Context, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 			if len(commands) != 1 || commands[0].RowChange() == nil {
 				return nil, support.Malformed("commands", "row replacement must be the only command", nil)
 			}
@@ -181,7 +181,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			if digestErr != nil || catalogDigest != proposal.CatalogDigest {
 				return nil, support.Conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement catalog changed after assessment", nil, digestErr)
 			}
-			candidate, _, applyErr := authoringv2.ApplyCommands(workspace, catalog, "row-change-replacement-preview", commands)
+			candidate, _, applyErr := authoringv2.ApplyCommands(workspace, catalog, "row-change-replacement-preview", authoringv2.CommandsWithoutResolution(commands))
 			if applyErr != nil {
 				return nil, support.Unprocessable("commands", "INVALID_ROW_CHANGE", applyErr.Error(), applyErr)
 			}
@@ -199,10 +199,10 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			if !support.ReceiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || support.ValidateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
 				return nil, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row replacement candidate receipt does not contain the requested output", nil, nil)
 			}
-			return commands, nil
+			return authoringv2.CommandsWithoutResolution(commands), nil
 		}
 	}
-	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace ws.Workspace) error {
+	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, sourceContext, prepare, func(workspace ws.Workspace) error {
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
 			return validationErr
 		}
@@ -306,7 +306,7 @@ func checkRowChangeReplacementResult(workspace ws.Workspace, receipt *receiptmod
 	return support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement removed its output", nil, nil)
 }
 
-func (s *Service) prepareSemanticSelections(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareSemanticSelections(ctx context.Context, explorerID string, authorized ports.AuthorizedCapability, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	if s.config.ResolveSemanticInventorySelections == nil {
 		return nil, support.Unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
@@ -369,16 +369,16 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, explorerID stri
 	if !ok {
 		return nil, support.Unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "semantic selections require a semantic command payload", nil)
 	}
-	for index := range semanticPayload.SemanticSelections {
-		selection := &semanticPayload.SemanticSelections[index]
+	observations := make([]semantic.Entry, len(semanticPayload.SemanticSelections))
+	for index, selection := range semanticPayload.SemanticSelections {
 		identity := selection.BindingID + "\x00" + selection.ConceptID
 		entry, found := byIdentity[identity]
 		if !found {
 			return nil, support.Unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "a selected concept binding is unavailable in the current authorized inventory", nil)
 		}
-		selection.ResolvedObservation = &entry
+		observations[index] = entry
 	}
-	return commands, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: authoringv2.SemanticSelectionResolution{Observations: observations}}}, nil
 }
 
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*receiptmodel.CompilationReceipt, error) {
@@ -513,8 +513,9 @@ func (s *Service) prepareDraftRevisionRestore(
 	explorerID string,
 	request authoringv2.ApplyCommandsRequest,
 	snapshot capability.Snapshot,
+	sourceContext *authoringv2.DraftSourceContext,
 	commands []authoringv2.Command,
-) ([]authoringv2.Command, error) {
+) ([]authoringv2.PreparedCommand, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandRestoreDraftRevision {
 		return nil, support.Malformed("commands", "RESTORE_DRAFT_REVISION must be the only command", nil)
 	}
@@ -543,7 +544,7 @@ func (s *Service) prepareDraftRevisionRestore(
 		revision.ExplorerID != explorerID || revision.DraftVersion != owner.DraftVersion-1 {
 		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision does not belong to this Explorer draft", nil, nil)
 	}
-	currentSource := request.ResolvedDraftSourceContext()
+	currentSource := sourceContext
 	if currentSource == nil || currentSource.SnapshotToken != snapshot.Token || currentSource.SourceGeneration != snapshot.Identity.Generation ||
 		currentSource.AuthorizationScopeDigest != snapshot.Identity.AuthorizationScopeDigest {
 		return nil, support.Conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context changed; reload before restoring", nil, nil)
@@ -582,8 +583,9 @@ func (s *Service) prepareDraftRevisionRestore(
 			restored = ws.NewWorkspace(revision.Title)
 		}
 	}
-	if err := command.ResolveDraftRevision(restored); err != nil {
+	resolution, err := authoringv2.ResolveDraftRevision(*command, restored)
+	if err != nil {
 		return nil, support.Malformed("commands", err.Error(), err)
 	}
-	return commands, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}, nil
 }

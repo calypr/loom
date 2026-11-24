@@ -199,7 +199,7 @@ func (s *Service) provePopulationRoute(ctx context.Context, authorized ports.Aut
 	return err == nil
 }
 
-func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	if len(commands) == 0 || len(commands) != len(identities) {
 		return nil, support.Malformed("commands", "population route choices must resolve one-to-one with commands", nil)
 	}
@@ -207,8 +207,9 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return nil, support.Conflict("commands", "STALE_AUTHORIZATION_SCOPE", "the authorized population route scope changed", nil, err)
 	}
+	prepared := make([]authoringv2.PreparedCommand, len(commands))
 	for index := range commands {
-		command := &commands[index]
+		command := commands[index]
 		if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID() == "" || len(command.EdgeIDs()) != 0 {
 			return nil, support.Malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
 		}
@@ -255,7 +256,7 @@ func (s *Service) PreparePopulationRouteChoices(ctx context.Context, project str
 				CatalogEdgeID: step.EdgeID, StorageDirection: step.StorageDirection,
 			})
 		}
-		command.ResolvedPopulationRoute = steps
+		prepared[index] = authoringv2.PreparedCommand{Command: command, Resolution: authoringv2.PopulationRouteResolution{Route: steps}}
 	}
-	return commands, nil
+	return prepared, nil
 }

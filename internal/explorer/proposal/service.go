@@ -41,11 +41,11 @@ func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) ws.Ca
 	return s.config.Core.Catalog(snapshot, explorerID)
 }
 
-func (s *Service) PrepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PrepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	return s.prepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
 
-func (s *Service) PrepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) PrepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	return s.prepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, current, commands)
 }
 
@@ -82,11 +82,13 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 		return fail, err
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyColumnPolicyProposal, OutputID: request.OutputID, Payload: &authoringv2.ProposalPayload{ProposalID: "candidate-preview"}}
-	if err := command.ResolveColumnPolicyProposal(request.ColumnID, request.ProjectionMode); err != nil {
+	resolution, err := authoringv2.ResolveColumnPolicyProposal(command, request.ColumnID, request.ProjectionMode)
+	if err != nil {
 		return fail, support.Malformed(stage, err.Error(), err)
 	}
 	catalog := s.catalog(draft.authorization.Snapshot, request.ExplorerID)
-	candidate, _, err := authoringv2.ApplyCommands(draft.workspace, catalog, "column-policy-preview", []authoringv2.Command{command})
+	prepared := []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}
+	candidate, _, err := authoringv2.ApplyCommands(draft.workspace, catalog, "column-policy-preview", prepared)
 	if err != nil {
 		return fail, support.Unprocessable(stage, "INVALID_COLUMN_POLICY", err.Error(), err)
 	}
@@ -124,12 +126,12 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: support.RowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: draft.owner.DraftVersion, DraftDigest: draft.owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
 }
 
-func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.PreparedCommand, error) {
 	const stage = "commands"
 	if len(commands) != 1 {
 		return nil, support.Malformed(stage, "column policy Apply requires one command", nil)
 	}
-	command := &commands[0]
+	command := commands[0]
 	receipt, err := s.config.Core.LookupReceipt(ctx, project, explorerID, command.ProposalID())
 	if err != nil {
 		return nil, err
@@ -157,10 +159,12 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 	if err != nil {
 		return nil, err
 	}
-	if err := command.ResolveColumnPolicyProposal(binding.ColumnID, binding.ProjectionMode); err != nil {
+	resolution, err := authoringv2.ResolveColumnPolicyProposal(command, binding.ColumnID, binding.ProjectionMode)
+	if err != nil {
 		return nil, err
 	}
-	applied, _, err := authoringv2.ApplyCommands(current, s.catalog(authorized.Snapshot, explorerID), "column-policy-apply-validation", commands)
+	prepared := []authoringv2.PreparedCommand{{Command: command, Resolution: resolution}}
+	applied, _, err := authoringv2.ApplyCommands(current, s.catalog(authorized.Snapshot, explorerID), "column-policy-apply-validation", prepared)
 	if err != nil {
 		return nil, support.Unprocessable(stage, "INVALID_COLUMN_POLICY", err.Error(), err)
 	}
@@ -183,5 +187,5 @@ func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, expl
 	if fresh.IntentDigest != receipt.IntentDigest || fresh.ResolvedRecipeDigest != receipt.ResolvedRecipeDigest || fresh.ResolvedSchemaDigest != receipt.ResolvedSchemaDigest {
 		return nil, support.Conflict(stage, "STALE_COLUMN_POLICY_PROPOSAL", "resolved source changed after Preview; preview again", nil, nil)
 	}
-	return commands, nil
+	return prepared, nil
 }

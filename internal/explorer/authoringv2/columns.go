@@ -61,12 +61,19 @@ func applyAddColumn(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command
 }
 
 func applyAddColumnSource(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
-	return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source(), "", InitialPresentationTable)
+	return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source(), "", InitialPresentationTable, nil)
 }
 
-func applyApplyConstructionChoice(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyApplyConstructionChoice(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	resolved := command.ResolvedChoice
+	choiceResolution, ok := resolution.(ConstructionChoiceResolution)
+	if !ok || choiceResolution.Choice == nil {
+		return result, fmt.Errorf("construction choice has no server-resolved source")
+	}
+	resolved := choiceResolution.Choice
+	if strings.TrimSpace(command.Title) == "" {
+		command.Title = choiceResolution.Title
+	}
 	if resolved == nil || strings.TrimSpace(resolved.CandidateID) == "" || strings.TrimSpace(resolved.LogicalType) == "" {
 		return result, fmt.Errorf("construction choice has no server-resolved source")
 	}
@@ -115,7 +122,7 @@ func applyApplyConstructionChoice(workspace *ws.Workspace, catalog ws.CatalogSna
 	if payload, ok := command.Payload.(*ConstructionChoicePayload); ok {
 		payload.OccurrenceID = occurrenceID
 	}
-	applied, err := applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
+	applied, err := applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation, resolution)
 	if err != nil {
 		return result, err
 	}
@@ -139,12 +146,12 @@ func applyApplyConstructionChoice(workspace *ws.Workspace, catalog ws.CatalogSna
 	return applied, nil
 }
 
-func applyAddSemanticSelections(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
+func applyAddSemanticSelections(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
 		return result, err
 	}
-	return applySemanticSelections(workspace, catalog, commandID, index, command)
+	return applySemanticSelections(workspace, catalog, commandID, index, command, resolution)
 }
 
 func applyUpdateColumn(workspace *ws.Workspace, command Command) (CommandResult, error) {
@@ -383,8 +390,9 @@ func applyRemoveColumn(workspace *ws.Workspace, command Command) (CommandResult,
 	return result, nil
 }
 
-func applyRemoveProjectedField(workspace *ws.Workspace, command Command) (CommandResult, error) {
+func applyRemoveProjectedField(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
+	resolvedDocument, hasDocument := resolution.(ImportedDocumentResolution)
 	documentPos := documentIndex(workspace, command.OutputID)
 	if documentPos < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
@@ -404,7 +412,7 @@ func applyRemoveProjectedField(workspace *ws.Workspace, command Command) (Comman
 		return result, fmt.Errorf("columnId %q was not found", command.ColumnID())
 	}
 	if current.Columns[targetIndex].Source.Kind != ws.SourceImported {
-		if command.resolvedImportedDocument != nil {
+		if hasDocument {
 			return result, fmt.Errorf("authored projected field removal cannot replace the document")
 		}
 		if err := removeDocumentColumnByID(workspace, documentPos, command.ColumnID()); err != nil {
@@ -415,10 +423,10 @@ func applyRemoveProjectedField(workspace *ws.Workspace, command Command) (Comman
 	if current.ImportedRecipe == nil {
 		return result, fmt.Errorf("pinned projected field removal requires an imported recipe")
 	}
-	if command.resolvedImportedDocument == nil {
+	if !hasDocument {
 		return result, fmt.Errorf("pinned projected field removal requires a lifecycle-resolved source edit")
 	}
-	resolved := *command.resolvedImportedDocument
+	resolved := resolvedDocument.Document
 	if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
 		return result, fmt.Errorf("projected field removal does not match its pinned output")
 	}

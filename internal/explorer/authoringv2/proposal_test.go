@@ -10,7 +10,7 @@ import (
 
 func TestApplyPopulationMemberProposalIsServerResolvedAndChangesOnlySelectionRevision(t *testing.T) {
 	catalog := commandCatalog()
-	workspace, _, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create-population-table", []Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}})
+	workspace, _, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create-population-table", CommandsWithoutResolution([]Command{{Type: CommandCreateTable, Title: "Patients", Payload: &TablePayload{RootNodeID: "patient"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,13 +18,14 @@ func TestApplyPopulationMemberProposalIsServerResolvedAndChangesOnlySelectionRev
 	workspace.Documents[0].Population = &ws.Population{SelectionRevisionID: "selection-before", Route: []ws.PopulationRouteStep{}}
 	before := workspace.Documents[0]
 	command := Command{Type: CommandApplyPopulationMemberProposal, OutputID: outputID, Payload: &ProposalPayload{ProposalID: "receipt-population-change"}}
-	if _, _, err := ApplyCommands(workspace, catalog, "unresolved-proposal", []Command{command}); err == nil {
+	if _, _, err := ApplyCommands(workspace, catalog, "unresolved-proposal", CommandsWithoutResolution([]Command{command})); err == nil {
 		t.Fatal("unresolved population proposal applied")
 	}
-	if err := command.ResolvePopulationMemberProposal("selection-after", before.Population.Route); err != nil {
+	resolution, err := ResolvePopulationMemberProposal(command, "selection-after", before.Population.Route)
+	if err != nil {
 		t.Fatal(err)
 	}
-	updated, results, err := ApplyCommands(workspace, catalog, "resolved-proposal", []Command{command})
+	updated, results, err := ApplyCommands(workspace, catalog, "resolved-proposal", []PreparedCommand{{Command: command, Resolution: resolution}})
 	if err != nil {
 		t.Fatal(err)
 	}

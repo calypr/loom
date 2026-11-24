@@ -800,7 +800,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	return baseResponse, nil
 }
 
-func (s *Service) PrepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.Command, *receiptmodel.CompilationReceipt, *AcceptedConstruction, error) {
+func (s *Service) PrepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current ws.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.PreparedCommand, *receiptmodel.CompilationReceipt, *AcceptedConstruction, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		return nil, nil, nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
@@ -919,7 +919,8 @@ func (s *Service) PrepareConstructionProposal(ctx context.Context, project, expl
 	if _, err := s.config.Core.VerifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := command.ResolveConstructionProposal(&candidateDocument); err != nil {
+	resolution, err := authoringv2.ResolveConstructionProposal(*command, &candidateDocument)
+	if err != nil {
 		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction is invalid", nil, err)
 	}
 	captureAvailable := sinkFactory != nil
@@ -956,7 +957,7 @@ func (s *Service) PrepareConstructionProposal(ctx context.Context, project, expl
 	if captureAvailable {
 		accepted = &AcceptedConstruction{Preview: preview, PreviewLimit: binding.PreviewLimit}
 	}
-	return commands, receipt, accepted, nil
+	return []authoringv2.PreparedCommand{{Command: *command, Resolution: resolution}}, receipt, accepted, nil
 }
 
 func (s *Service) ProposeConstructionChoice(ctx context.Context, request ConstructionChoiceProposalRequest) (ConstructionChoiceProposalResponse, error) {

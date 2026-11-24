@@ -7,8 +7,8 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func applyApplyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
-	return applyColumnPolicyProposal(workspace, catalog, commandID, index, command)
+func applyApplyColumnPolicyProposal(workspace *ws.Workspace, catalog ws.CatalogSnapshot, commandID string, index int, command Command, resolution CommandResolution) (CommandResult, error) {
+	return applyColumnPolicyProposal(workspace, catalog, commandID, index, command, resolution)
 }
 
 func applyApplyInterpretationCandidate(workspace *ws.Workspace, command Command) (CommandResult, error) {
@@ -42,12 +42,13 @@ func applyApplyInterpretationCandidate(workspace *ws.Workspace, command Command)
 	return result, fmt.Errorf("column %q was not found", command.Column())
 }
 
-func applyApplyRowDefinitionProposal(workspace *ws.Workspace, command Command) (CommandResult, error) {
+func applyApplyRowDefinitionProposal(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if command.resolvedRowDefinition == nil {
+	resolved, ok := resolution.(RowDefinitionResolution)
+	if !ok {
 		return result, fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL has no lifecycle-resolved row definition")
 	}
-	rows, err := cloneRowDefinition(*command.resolvedRowDefinition)
+	rows, err := cloneRowDefinition(resolved.Rows)
 	if err != nil {
 		return result, err
 	}
@@ -62,17 +63,18 @@ func applyApplyRowDefinitionProposal(workspace *ws.Workspace, command Command) (
 	return result, nil
 }
 
-func applyApplyPopulationMemberProposal(workspace *ws.Workspace, command Command) (CommandResult, error) {
+func applyApplyPopulationMemberProposal(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if !command.resolvedPopulationSet || command.resolvedPopulation == nil {
+	resolved, ok := resolution.(PopulationResolution)
+	if !ok {
 		return result, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL has no lifecycle-resolved population")
 	}
 	documentPos := documentIndex(workspace, command.OutputID)
 	if documentPos < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
-	population := *command.resolvedPopulation
-	population.Route = ws.ClonePopulationRouteSteps(command.resolvedPopulation.Route)
+	population := resolved.Population
+	population.Route = ws.ClonePopulationRouteSteps(resolved.Population.Route)
 	if err := population.Validate(); err != nil {
 		return result, fmt.Errorf("resolved population is invalid: %w", err)
 	}
@@ -80,9 +82,10 @@ func applyApplyPopulationMemberProposal(workspace *ws.Workspace, command Command
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 }
 
-func applyApplyConstructionProposal(workspace *ws.Workspace, command Command) (CommandResult, error) {
+func applyApplyConstructionProposal(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if !command.resolvedConstructionSet || command.resolvedConstruction == nil || command.resolvedConstructionRows == nil {
+	resolved, ok := resolution.(ConstructionResolution)
+	if !ok {
 		return result, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL has no lifecycle-resolved construction")
 	}
 	documentIndexValue := documentIndex(workspace, command.OutputID)
@@ -93,12 +96,12 @@ func applyApplyConstructionProposal(workspace *ws.Workspace, command Command) (C
 	if err != nil {
 		return result, fmt.Errorf("prepare staged construction: %w", err)
 	}
-	construction, err := cloneConstruction(command.resolvedConstruction)
+	construction, err := cloneConstruction(resolved.Construction)
 	if err != nil {
 		return result, err
 	}
 	document.Construction = construction
-	rows, err := cloneRowDefinition(*command.resolvedConstructionRows)
+	rows, err := cloneRowDefinition(resolved.Rows)
 	if err != nil {
 		return result, err
 	}
@@ -111,12 +114,13 @@ func applyApplyConstructionProposal(workspace *ws.Workspace, command Command) (C
 	return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 }
 
-func applyRestoreDraftRevision(workspace *ws.Workspace, command Command) (CommandResult, error) {
+func applyRestoreDraftRevision(workspace *ws.Workspace, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
-	if command.resolvedDraftRevision == nil {
+	resolved, ok := resolution.(DraftRevisionResolution)
+	if !ok {
 		return result, fmt.Errorf("RESTORE_DRAFT_REVISION has no lifecycle-resolved draft revision")
 	}
-	restored, err := cloneWorkspace(*command.resolvedDraftRevision)
+	restored, err := cloneWorkspace(resolved.Workspace)
 	if err != nil {
 		return result, err
 	}

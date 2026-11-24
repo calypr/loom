@@ -39,7 +39,7 @@ func TestApplyInterpretationCandidatePinsAndClearsContributorWithoutChangingSour
 	workspace.Documents[0].Columns[0].Contributor = predicate
 	originalSource := workspace.Documents[0].Columns[0].Source
 
-	updated, results, err := ApplyCommands(workspace, testCatalog(), "candidate", []Command{{Type: CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", InterpretationCandidate: &ApplyInterpretationCandidate{CandidateReceiptID: "receipt-candidate", RevisionID: "revision-a"}}}})
+	updated, results, err := ApplyCommands(workspace, testCatalog(), "candidate", CommandsWithoutResolution([]Command{{Type: CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", InterpretationCandidate: &ApplyInterpretationCandidate{CandidateReceiptID: "receipt-candidate", RevisionID: "revision-a"}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestApplyInterpretationCandidatePinsAndClearsContributorWithoutChangingSour
 	if column.Contributor != nil || !reflect.DeepEqual(column.Source, originalSource) {
 		t.Fatalf("candidate changed unrelated feature state: contributor=%#v source=%#v", column.Contributor, column.Source)
 	}
-	second, _, err := ApplyCommands(updated, testCatalog(), "candidate-retry", []Command{{Type: CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", InterpretationCandidate: &ApplyInterpretationCandidate{CandidateReceiptID: "receipt-candidate", RevisionID: "revision-a"}}}})
+	second, _, err := ApplyCommands(updated, testCatalog(), "candidate-retry", CommandsWithoutResolution([]Command{{Type: CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &ColumnPayload{Column: "patient_id", InterpretationCandidate: &ApplyInterpretationCandidate{CandidateReceiptID: "receipt-candidate", RevisionID: "revision-a"}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -122,7 +122,7 @@ func TestApplyInterpretationCandidateRequiresExactReceiptAndCommandResult(t *tes
 	}
 	catalog := config.Capability.Catalog(snapshot, "patients")
 	command := authoringv2.Command{Type: authoringv2.CommandApplyInterpretationCandidate, OutputID: "patients", Payload: &authoringv2.ColumnPayload{Column: "patient_id", InterpretationCandidate: &authoringv2.ApplyInterpretationCandidate{CandidateReceiptID: "placeholder", RevisionID: string(revision.ID)}}}
-	proposed, _, err := authoringv2.ApplyCommands(workspace, catalog, "preview-command", []authoringv2.Command{command})
+	proposed, _, err := authoringv2.ApplyCommands(workspace, catalog, "preview-command", authoringv2.CommandsWithoutResolution([]authoringv2.Command{command}))
 	if err != nil {
 		t.Fatal(err)
 	}

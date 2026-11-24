@@ -999,12 +999,12 @@ func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t
 	document := documentWithDependentSteps()
 	workspace := constructionWorkspace(document)
 	visible, order := false, 7
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", []Command{{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", CommandsWithoutResolution([]Command{{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
 		StepID:   "bonus_step",
 		ColumnID: "score_id",
 		Label:    "Patient score",
 		Table:    &ws.TablePresentation{Visible: &visible, Order: &order},
-	}}}})
+	}}}}))
 	if err != nil {
 		t.Fatalf("update construction output presentation: %v", err)
 	}
@@ -1047,10 +1047,10 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 		oldIDs[column.Column] = column.ColumnID
 	}
 	catalog := commandCatalog()
-	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", []Command{
+	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", CommandsWithoutResolution([]Command{
 		{Type: CommandAddColumn, OutputID: "patients", Title: "Added catalog ID", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, CandidateID: "patient-id"}},
 		{Type: CommandAddColumnSource, OutputID: "patients", Title: "Added source ID", Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("add source columns to staged document: %v", err)
 	}
@@ -1141,7 +1141,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate RELATED_EXPAND source workspace: %v", err)
 	}
-	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}})
+	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", CommandsWithoutResolution([]Command{{Type: CommandAddColumnSource, OutputID: document.Output.ID, Payload: &ColumnPayload{OccurrenceID: ws.RootOccurrenceID, Source: &ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}}}))
 	if err != nil {
 		t.Fatalf("ADD_COLUMN_SOURCE after RELATED_EXPAND: %v", err)
 	}
@@ -1316,13 +1316,13 @@ func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
 	workspace := constructionWorkspace(document)
 	one := 1
 
-	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", []Command{
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", CommandsWithoutResolution([]Command{
 		{Type: CommandUpdateColumn, OutputID: "patients", Payload: &ColumnPayload{Column: "group_id", ColumnValue: &ws.Column{Label: "Specimen ID", Table: &ws.TablePresentation{Order: &one}}}},
 		{Type: CommandUpdateConstructionOutput, OutputID: "patients", Payload: &ColumnPayload{ConstructionOutput: &ConstructionOutputPresentation{
 			StepID: "pivot_step", ColumnID: "group_id", Label: "Group",
 			Table: &ws.TablePresentation{Order: &one},
 		}}},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("apply source and Pivot group-key presentation updates: %v", err)
 	}

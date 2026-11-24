@@ -139,17 +139,18 @@ func applyApplyTableRootRebase(workspace *ws.Workspace, catalog ws.CatalogSnapsh
 	return result, nil
 }
 
-func applySetTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command Command) (CommandResult, error) {
+func applySetTablePopulation(workspace *ws.Workspace, catalog ws.CatalogSnapshot, command Command, resolution CommandResolution) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	document := documentIndex(workspace, command.OutputID)
 	if document < 0 {
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	if command.RouteChoiceID() != "" {
-		if command.ResolvedPopulationRoute == nil {
+		populationRoute, ok := resolution.(PopulationRouteResolution)
+		if !ok || populationRoute.Route == nil {
 			return result, fmt.Errorf("population route choice has no server resolution")
 		}
-		setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID(), command.ResolvedPopulationRoute)
+		setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID(), populationRoute.Route)
 	} else if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID(), command.EdgeIDs()); err != nil {
 		return result, err
 	}
