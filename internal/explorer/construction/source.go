@@ -14,6 +14,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -140,7 +141,7 @@ func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability
 		return rowSourceSkipObserved
 	case len(found.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(found.Cardinality):
 		return rowSourceSkipRoute
-	case !hasScalarSourceProjectionMode(found.ProjectionModes):
+	case !rowsource.ContainsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
 		return rowSourceSkipInventory
 	case !capability.IsSupportedConstructionSourceType(found.LogicalType):
 		return rowSourceSkipType
@@ -516,21 +517,6 @@ func hasNewRootPivotSource(sources []resolvedConstructionPivotSource) bool {
 		}
 	}
 	return false
-}
-
-func uniqueRowSourceCandidate(snapshot capability.Snapshot, nodeID, resourceType, path string) (capability.Candidate, bool) {
-	var result capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID != nodeID || candidate.ResourceType != resourceType || canonicalRowPath(candidate.FieldPath) != canonicalRowPath(path) {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		result, found = candidate, true
-	}
-	return result, found
 }
 
 func sourceCandidate(snapshot capability.Snapshot, source ws.ConstructionRelatedFieldSource) capability.Candidate {

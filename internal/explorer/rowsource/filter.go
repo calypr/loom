@@ -10,6 +10,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -158,7 +159,7 @@ func (s *Service) ConstructionFilterSourceCapability(
 	base Base,
 	outputID, stageID string,
 ) (ConstructionFilterSourceCapability, error) {
-	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []ConstructionFilterSourceChoice{}}
+	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []SourceChoice{}}
 	if importedSourceChoiceUnavailable(base.Document) {
 		result.Supported = true
 		return result, nil
@@ -194,7 +195,7 @@ func (s *Service) ConstructionFilterSourceCapability(
 				enumeration.skip(rowSourceCandidateSkipClass(base.Snapshot, choice))
 				continue
 			}
-			result.Choices = append(result.Choices, ConstructionFilterSourceChoice{
+			result.Choices = append(result.Choices, SourceChoice{
 				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
 				Label:       constructionFieldDisplayLabel(base.Document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
@@ -233,10 +234,10 @@ func (s *Service) ResolveConstructionFilterSource(
 	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
 		return ws.ConstructionSourceProjection{}, conflict("INVALID_FILTER_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil)
 	}
-	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, ports.RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 		Snapshot: base.Snapshot.Clone(), Route: base.Document.Route,
-		RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
+		RowChoiceID: selection.ChoiceID, ExpectedKind: ports.RowChoiceFieldGroup,
 	})
 	if resolveErr != nil || identity.Kind != capability.RowChoiceFieldGroupKey ||
 		identity.Occurrence.OccurrenceID != ws.RootOccurrenceID ||

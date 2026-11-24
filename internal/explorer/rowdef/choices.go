@@ -12,43 +12,24 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/projectid"
 
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-type RowChoiceKind string
+type RowChoiceKind = ports.RowChoiceKind
 
 const (
-	RowChoiceFieldGroup RowChoiceKind = "FIELD_GROUP"
-	RowChoiceExpanded   RowChoiceKind = "EXPANDED"
+	RowChoiceFieldGroup = ports.RowChoiceFieldGroup
+	RowChoiceExpanded   = ports.RowChoiceExpanded
 )
 
-type RowChoiceResolveRequest struct {
-	Project      string
-	ExplorerID   string
-	OutputID     string
-	Snapshot     capability.Snapshot
-	Route        ws.RouteNode
-	RowChoiceID  string
-	ExpectedKind RowChoiceKind
-}
-
-type ResolvedRowChoice struct {
-	Kind         RowChoiceKind
-	OccurrenceID string
-	FieldPath    string
-	ScopePath    string
-}
-
-type RowChoiceResolver interface {
-	ResolveRowChoiceID(context.Context, RowChoiceResolveRequest) (ResolvedRowChoice, error)
-}
-
-type RowChoicePlanner interface {
-	ListRowChoices(context.Context, capability.Snapshot, ws.Document) ([]capability.RowChoice, error)
-}
+type RowChoiceResolveRequest = ports.RowChoiceResolveRequest
+type ResolvedRowChoice = ports.ResolvedRowChoice
+type RowChoiceResolver = ports.RowChoiceResolver
+type RowChoicePlanner = ports.RowChoicePlanner
 
 type RowDefinitionChoice struct {
 	ChoiceID          string                      `json:"choiceId"`

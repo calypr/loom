@@ -15,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -31,13 +30,13 @@ type AcceptedConstruction struct {
 
 type PreviewSinkFactory = authoringcore.PreviewSinkFactory
 
-type RowChoiceResolver = rowdef.RowChoiceResolver
-type RowChoicePlanner = rowdef.RowChoicePlanner
-type RowChoiceResolveRequest = rowdef.RowChoiceResolveRequest
+type RowChoiceResolver = ports.RowChoiceResolver
+type RowChoicePlanner = ports.RowChoicePlanner
+type RowChoiceResolveRequest = ports.RowChoiceResolveRequest
 
 const (
-	RowChoiceFieldGroup = rowdef.RowChoiceFieldGroup
-	RowChoiceExpanded   = rowdef.RowChoiceExpanded
+	RowChoiceFieldGroup = ports.RowChoiceFieldGroup
+	RowChoiceExpanded   = ports.RowChoiceExpanded
 )
 
 type FrameSourceFamilyCandidate struct {
@@ -69,8 +68,8 @@ type Config struct {
 	SelectionMembersCollection         string
 	SemanticInventory                  func(context.Context, semantic.PageOptions) (semantic.Page, error)
 	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
-	RowChoiceResolver                  rowdef.RowChoiceResolver
-	RowChoicePlanner                   rowdef.RowChoicePlanner
+	RowChoiceResolver                  ports.RowChoiceResolver
+	RowChoicePlanner                   ports.RowChoicePlanner
 
 	CompileReceipt ports.ReceiptCompiler
 
@@ -81,33 +80,7 @@ type Config struct {
 	ConstructionBaseCacheEntries int
 	Now                          func() time.Time
 
-	SourceLanes SourceLanes
-}
-
-type SourceLanes interface {
-	ConstructionFilterSourceCapability(context.Context, Base, string, string) (ConstructionFilterSourceCapability, error)
-	ResolveConstructionFilterSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionFilterSourceSelection) (ws.ConstructionSourceProjection, error)
-	ConstructionCandidateWithFilterSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
-	ReauthorizeConstructionFilterSources(context.Context, Base, string, ws.Construction) error
-	ConstructionHasFilterSourceInput(ws.Construction) bool
-
-	ConstructionDeriveSourceCapability(context.Context, Base, string, string) (ConstructionDeriveSourceCapability, error)
-	ResolveConstructionDeriveSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionDeriveSourceSelection) (ws.ConstructionSourceProjection, error)
-	ConstructionCandidateWithDeriveSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
-	ReauthorizeConstructionDeriveSources(context.Context, Base, string, ws.Construction) error
-	ConstructionHasDeriveSourceInput(ws.Construction) bool
-
-	ConstructionExpandSourceCapability(context.Context, Base, string, string) (ConstructionExpandSourceCapability, error)
-	ResolveConstructionExpandSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionExpandSourceSelection) (ws.ConstructionSourceProjection, error)
-	ConstructionCandidateWithExpandSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
-	ReauthorizeConstructionExpandSources(context.Context, Base, string, ws.Construction) error
-	ConstructionHasExpandSourceInput(ws.Construction) bool
-
-	ConstructionUnpivotSourceCapability(context.Context, Base, string, string) (ConstructionUnpivotSourceCapability, error)
-	ResolveConstructionUnpivotSource(context.Context, Base, rowsource.ProposalRequest, string, ConstructionUnpivotSourceSelection) (ws.ConstructionSourceProjection, error)
-	ConstructionCandidateWithUnpivotSources(context.Context, Base, rowsource.ProposalRequest, ws.Construction) (ws.Construction, error)
-	ReauthorizeConstructionUnpivotSources(context.Context, Base, string, ws.Construction) error
-	ConstructionHasUnpivotSourceInput(ws.Construction) bool
+	SourceLanes *rowsource.Service
 }
 
 type Service struct {

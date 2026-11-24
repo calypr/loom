@@ -131,7 +131,7 @@ func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(
 	if !result.Supported || result.ReasonCode != "" || result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("filter source capability = %#v, want a supported source-stage capability", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionFilterSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -636,22 +636,22 @@ func TestConstructionFilterSourceSelectionsRequireExactDeduplicatedFacts(t *test
 	}
 }
 
-func TestConstructionFilterSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
+func TestDeriveSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
-	structFields := make(map[string]bool, reflect.TypeOf(rowsource.ConstructionFilterSourceChoice{}).NumField())
-	for index := range reflect.TypeOf(rowsource.ConstructionFilterSourceChoice{}).NumField() {
-		tag := strings.Split(reflect.TypeOf(rowsource.ConstructionFilterSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
+	structFields := make(map[string]bool, reflect.TypeOf(rowsource.SourceChoice{}).NumField())
+	for index := range reflect.TypeOf(rowsource.SourceChoice{}).NumField() {
+		tag := strings.Split(reflect.TypeOf(rowsource.SourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
 		structFields[tag] = true
 	}
 	if !reflect.DeepEqual(structFields, wantFields) {
-		t.Fatalf("rowsource.ConstructionFilterSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
+		t.Fatalf("rowsource.SourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
 	}
 	for _, pivotExtra := range []string{"occurrenceId", "fhirType", "valueType", "isIdentifier", "isReference"} {
 		if structFields[pivotExtra] {
 			t.Fatalf("pivot-style field %q must never appear on a filter source choice: %#v", pivotExtra, structFields)
 		}
 	}
-	encoded, err := json.Marshal(rowsource.ConstructionFilterSourceChoice{
+	encoded, err := json.Marshal(rowsource.SourceChoice{
 		ChoiceID: "rc1.a.b", FieldPath: filterSourceField, Label: "BodyStructure.active", LogicalType: "boolean", IsPopulated: true,
 	})
 	if err != nil {
@@ -759,7 +759,7 @@ func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceI
 	if result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("filter source input stage = %#v, want the selected source stage", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionFilterSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}

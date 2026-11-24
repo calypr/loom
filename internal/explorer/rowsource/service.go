@@ -10,7 +10,6 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/explorer/rowdef"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -18,8 +17,8 @@ import (
 type Config struct {
 	Capability        ports.CapabilityResolver
 	SemanticInventory func(context.Context, semantic.PageOptions) (semantic.Page, error)
-	RowChoiceResolver rowdef.RowChoiceResolver
-	RowChoicePlanner  rowdef.RowChoicePlanner
+	RowChoiceResolver ports.RowChoiceResolver
+	RowChoicePlanner  ports.RowChoicePlanner
 }
 
 type Service struct {
@@ -29,14 +28,6 @@ type Service struct {
 func NewService(config Config) *Service {
 	return &Service{config: config}
 }
-
-type RowChoiceResolver = rowdef.RowChoiceResolver
-type RowChoicePlanner = rowdef.RowChoicePlanner
-type RowChoiceResolveRequest = rowdef.RowChoiceResolveRequest
-
-const RowChoiceFieldGroup = rowdef.RowChoiceFieldGroup
-
-const RowChoiceExpanded = rowdef.RowChoiceExpanded
 
 func (s *Service) ConstructionHasFilterSourceInput(construction ws.Construction) bool {
 	return ConstructionHasFilterSourceInput(construction)
@@ -59,7 +50,7 @@ func (s *Service) ConstructionDeriveSourceCapability(
 	base Base,
 	outputID, stageID string,
 ) (ConstructionDeriveSourceCapability, error) {
-	result := ConstructionDeriveSourceCapability{StageID: stageID, Choices: []ConstructionDeriveSourceChoice{}}
+	result := ConstructionDeriveSourceCapability{StageID: stageID, Choices: []SourceChoice{}}
 	if importedSourceChoiceUnavailable(base.Document) {
 		result.Supported = true
 		return result, nil
@@ -99,7 +90,7 @@ func (s *Service) ConstructionDeriveSourceCapability(
 				enumeration.skip(rowSourceSkipType)
 				continue
 			}
-			result.Choices = append(result.Choices, ConstructionDeriveSourceChoice{
+			result.Choices = append(result.Choices, SourceChoice{
 				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
 				Label:       constructionFieldDisplayLabel(base.Document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
@@ -138,10 +129,10 @@ func (s *Service) ResolveConstructionDeriveSource(
 	if identity.SnapshotToken != base.Snapshot.Token || identity.SchemaDigest != base.Snapshot.Identity.SchemaDigest {
 		return ws.ConstructionSourceProjection{}, conflict("INVALID_DERIVE_SOURCE_CHOICE", "reload the current populated root scalar field choice", nil)
 	}
-	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+	resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, ports.RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 		Snapshot: base.Snapshot.Clone(), Route: base.Document.Route,
-		RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,
+		RowChoiceID: selection.ChoiceID, ExpectedKind: ports.RowChoiceFieldGroup,
 	})
 	if resolveErr != nil || identity.Kind != capability.RowChoiceFieldGroupKey ||
 		identity.Occurrence.OccurrenceID != ws.RootOccurrenceID ||

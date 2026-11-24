@@ -252,7 +252,7 @@ func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRoot
 	if !result.Supported || result.ReasonCode != "" || result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("derive source capability = %#v, want a supported source-stage capability", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionDeriveSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -583,22 +583,22 @@ func TestConstructionDeriveSourceSelectionsRequireExactDeduplicatedFacts(t *test
 	}
 }
 
-func TestConstructionDeriveSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
+func TestFilterSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
-	structFields := make(map[string]bool, reflect.TypeOf(rowsource.ConstructionDeriveSourceChoice{}).NumField())
-	for index := range reflect.TypeOf(rowsource.ConstructionDeriveSourceChoice{}).NumField() {
-		tag := strings.Split(reflect.TypeOf(rowsource.ConstructionDeriveSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
+	structFields := make(map[string]bool, reflect.TypeOf(rowsource.SourceChoice{}).NumField())
+	for index := range reflect.TypeOf(rowsource.SourceChoice{}).NumField() {
+		tag := strings.Split(reflect.TypeOf(rowsource.SourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
 		structFields[tag] = true
 	}
 	if !reflect.DeepEqual(structFields, wantFields) {
-		t.Fatalf("rowsource.ConstructionDeriveSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
+		t.Fatalf("rowsource.SourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
 	}
 	for _, pivotExtra := range []string{"occurrenceId", "fhirType", "valueType", "isIdentifier", "isReference"} {
 		if structFields[pivotExtra] {
 			t.Fatalf("pivot-style field %q must never appear on a derive source choice: %#v", pivotExtra, structFields)
 		}
 	}
-	encoded, err := json.Marshal(rowsource.ConstructionDeriveSourceChoice{
+	encoded, err := json.Marshal(rowsource.SourceChoice{
 		ChoiceID: "rc1.a.b", FieldPath: "multipleBirthInteger", Label: "Patient.multipleBirthInteger", LogicalType: "integer", IsPopulated: true,
 	})
 	if err != nil {
@@ -698,7 +698,7 @@ func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceI
 	if result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("derive source input stage = %#v, want the selected source stage", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionDeriveSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}

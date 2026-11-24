@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/rowdef"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 
 	"strings"
 
@@ -45,7 +46,7 @@ func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Co
 			choice.Reference || fhirNonGroupableSourcePath(choice.Path) {
 			continue
 		}
-		candidate, ok := constructionGroupSourceCandidate(base.Snapshot, choice)
+		candidate, ok := rowsource.ConstructionGroupSourceCandidate(base.Snapshot, choice)
 		if !ok {
 			continue
 		}
@@ -153,7 +154,7 @@ func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Conte
 		}
 	}
 	if candidate == nil || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
-		!hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
+		!rowsource.ContainsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return ws.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_GROUP_SOURCE_FIELD", "the selected root field does not support a scalar VALUE projection", nil)
 	}
@@ -173,26 +174,6 @@ func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Conte
 	}, nil
 }
 
-func constructionGroupSourceCandidate(snapshot capability.Snapshot, choice capability.RowChoice) (capability.Candidate, bool) {
-	var candidate capability.Candidate
-	found := false
-	for _, current := range snapshot.Candidates {
-		if current.NodeID != choice.NodeID || current.ResourceType != choice.ResourceType || canonicalRowPath(current.FieldPath) != choice.Path {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		candidate, found = current, true
-	}
-	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
-		!hasScalarSourceProjectionMode(candidate.ProjectionModes) ||
-		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-		return capability.Candidate{}, false
-	}
-	return candidate, true
-}
-
 func canonicalRowPath(path string) string {
 	return strings.TrimPrefix(strings.TrimSpace(path), "root.")
 }
@@ -204,15 +185,6 @@ func fhirNonGroupableSourcePath(path string) bool {
 func fhirNonGroupableGroupFieldPath(path string) bool {
 	path = canonicalRowPath(path)
 	return path == "resourceType" || (fhirIdentifierPath(path) && path != "id")
-}
-
-func hasScalarSourceProjectionMode(modes []capability.ProjectionMode) bool {
-	for _, mode := range modes {
-		if mode == capability.ProjectionScalar {
-			return true
-		}
-	}
-	return false
 }
 
 func constructionGroupFieldLabel(path string) string {

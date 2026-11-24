@@ -1,14 +1,14 @@
 package rowsource
 
 type ConstructionDeriveSourceCapability struct {
-	Supported  bool                             `json:"supported"`
-	StageID    string                           `json:"stageId"`
-	ReasonCode string                           `json:"reasonCode,omitempty"`
-	Reason     string                           `json:"reason,omitempty"`
-	Choices    []ConstructionDeriveSourceChoice `json:"choices"`
+	Supported  bool           `json:"supported"`
+	StageID    string         `json:"stageId"`
+	ReasonCode string         `json:"reasonCode,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
+	Choices    []SourceChoice `json:"choices"`
 }
 
-type ConstructionDeriveSourceChoice struct {
+type SourceChoice struct {
 	ChoiceID    string `json:"choiceId"`
 	FieldPath   string `json:"fieldPath"`
 	Label       string `json:"label"`
@@ -23,20 +23,11 @@ type ConstructionDeriveSourceSelection struct {
 }
 
 type ConstructionExpandSourceCapability struct {
-	Supported  bool                             `json:"supported"`
-	StageID    string                           `json:"stageId"`
-	ReasonCode string                           `json:"reasonCode,omitempty"`
-	Reason     string                           `json:"reason,omitempty"`
-	Choices    []ConstructionExpandSourceChoice `json:"choices"`
-}
-
-type ConstructionExpandSourceChoice struct {
-	ChoiceID    string `json:"choiceId"`
-	FieldPath   string `json:"fieldPath"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	IsPopulated bool   `json:"isPopulated"`
-	ColumnID    string `json:"columnId"`
+	Supported  bool           `json:"supported"`
+	StageID    string         `json:"stageId"`
+	ReasonCode string         `json:"reasonCode,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
+	Choices    []SourceChoice `json:"choices"`
 }
 
 type ConstructionExpandSourceSelection struct {
@@ -45,20 +36,11 @@ type ConstructionExpandSourceSelection struct {
 }
 
 type ConstructionFilterSourceCapability struct {
-	Supported  bool                             `json:"supported"`
-	StageID    string                           `json:"stageId"`
-	ReasonCode string                           `json:"reasonCode,omitempty"`
-	Reason     string                           `json:"reason,omitempty"`
-	Choices    []ConstructionFilterSourceChoice `json:"choices"`
-}
-
-type ConstructionFilterSourceChoice struct {
-	ChoiceID    string `json:"choiceId"`
-	FieldPath   string `json:"fieldPath"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	IsPopulated bool   `json:"isPopulated"`
-	ColumnID    string `json:"columnId"`
+	Supported  bool           `json:"supported"`
+	StageID    string         `json:"stageId"`
+	ReasonCode string         `json:"reasonCode,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
+	Choices    []SourceChoice `json:"choices"`
 }
 
 type ConstructionFilterSourceSelection struct {
@@ -67,20 +49,11 @@ type ConstructionFilterSourceSelection struct {
 }
 
 type ConstructionUnpivotSourceCapability struct {
-	Supported  bool                              `json:"supported"`
-	StageID    string                            `json:"stageId"`
-	ReasonCode string                            `json:"reasonCode,omitempty"`
-	Reason     string                            `json:"reason,omitempty"`
-	Choices    []ConstructionUnpivotSourceChoice `json:"choices"`
-}
-
-type ConstructionUnpivotSourceChoice struct {
-	ChoiceID    string `json:"choiceId"`
-	FieldPath   string `json:"fieldPath"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	IsPopulated bool   `json:"isPopulated"`
-	ColumnID    string `json:"columnId"`
+	Supported  bool           `json:"supported"`
+	StageID    string         `json:"stageId"`
+	ReasonCode string         `json:"reasonCode,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
+	Choices    []SourceChoice `json:"choices"`
 }
 
 type ConstructionUnpivotSourceSelection struct {

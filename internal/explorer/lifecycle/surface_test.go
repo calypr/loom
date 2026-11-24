@@ -100,7 +100,7 @@ func TestConstructionUnpivotSourceCapabilityExposesPopulatedUnselectedRootScalar
 	if !result.Supported || result.ReasonCode != "" || result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("unpivot source capability = %#v, want a supported source-stage capability", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionUnpivotSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -257,7 +257,7 @@ func TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	byPath := make(map[string]rowsource.ConstructionUnpivotSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
@@ -548,22 +548,22 @@ func TestConstructionUnpivotSourceSelectionsRequireExactDeduplicatedFacts(t *tes
 	}
 }
 
-func TestConstructionUnpivotSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
+func TestUnpivotSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
-	structFields := make(map[string]bool, reflect.TypeOf(rowsource.ConstructionUnpivotSourceChoice{}).NumField())
-	for index := range reflect.TypeOf(rowsource.ConstructionUnpivotSourceChoice{}).NumField() {
-		tag := strings.Split(reflect.TypeOf(rowsource.ConstructionUnpivotSourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
+	structFields := make(map[string]bool, reflect.TypeOf(rowsource.SourceChoice{}).NumField())
+	for index := range reflect.TypeOf(rowsource.SourceChoice{}).NumField() {
+		tag := strings.Split(reflect.TypeOf(rowsource.SourceChoice{}).Field(index).Tag.Get("json"), ",")[0]
 		structFields[tag] = true
 	}
 	if !reflect.DeepEqual(structFields, wantFields) {
-		t.Fatalf("rowsource.ConstructionUnpivotSourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
+		t.Fatalf("rowsource.SourceChoice struct fields = %v, want exactly %v", structFields, wantFields)
 	}
 	for _, pivotExtra := range []string{"occurrenceId", "fhirType", "valueType", "isIdentifier", "isReference"} {
 		if structFields[pivotExtra] {
 			t.Fatalf("pivot-style field %q must never appear on an unpivot source choice: %#v", pivotExtra, structFields)
 		}
 	}
-	encoded, err := json.Marshal(rowsource.ConstructionUnpivotSourceChoice{
+	encoded, err := json.Marshal(rowsource.SourceChoice{
 		ChoiceID: "rc1.a.b", FieldPath: "multipleBirthInteger", Label: "Patient.multipleBirthInteger", LogicalType: "integer", IsPopulated: true,
 	})
 	if err != nil {
@@ -655,7 +655,7 @@ func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourc
 	if result.StageID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("unpivot source input stage = %#v, want the selected source stage", result)
 	}
-	byPath := make(map[string]rowsource.ConstructionUnpivotSourceChoice, len(result.Choices))
+	byPath := make(map[string]rowsource.SourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
 		byPath[choice.FieldPath] = choice
 	}
