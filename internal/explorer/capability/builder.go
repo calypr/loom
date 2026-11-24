@@ -94,8 +94,6 @@ type Builder struct {
 
 	EntityIdentity SnapshotIdentity
 	Policy         Policy
-	Complete       bool
-	Truncated      bool
 
 	Evidence Evidence
 	Compiler CompilerCallbacks
@@ -104,7 +102,7 @@ type Builder struct {
 const DefaultSuggestionLimit = 32
 
 func NewBuilder(identity SnapshotIdentity, evidence Evidence, compiler CompilerCallbacks) Builder {
-	return Builder{Identity: identity, Evidence: evidence, Compiler: compiler, Complete: true, Policy: Policy{Route: RoutePolicy{AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: ProjectionPolicy{SuggestionLimit: DefaultSuggestionLimit}}}
+	return Builder{Identity: identity, Evidence: evidence, Compiler: compiler, Policy: Policy{Route: RoutePolicy{AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: ProjectionPolicy{SuggestionLimit: DefaultSuggestionLimit}}}
 }
 
 func (b Builder) Build(ctx context.Context) (Snapshot, error) {
@@ -112,11 +110,11 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	identity.Project = strings.TrimSpace(identity.Project)
 	identity.Generation = strings.TrimSpace(identity.Generation)
 	if identity.Project == "" || identity.Generation == "" {
-		return b.failed(identity, "INVALID_SNAPSHOT_IDENTITY", "project and generation are required"), fmt.Errorf("project and generation are required")
+		return Snapshot{}, fmt.Errorf("project and generation are required")
 	}
 	diags := []Diagnostic{}
 	if !b.Evidence.ResourcesAvailable || !b.Evidence.RelationshipsAvailable || !b.Evidence.FieldsAvailable || b.Compiler.Node == nil || b.Compiler.Edge == nil || b.Compiler.Candidate == nil {
-		return b.failedWith(identity, diags, "MISSING_CAPABILITY_DEPENDENCY", "resource, relationship, field, and compiler callbacks are required"), fmt.Errorf("capability dependencies are incomplete")
+		return Snapshot{}, fmt.Errorf("capability dependencies are incomplete")
 	}
 
 	resources := append([]ResourceObservation(nil), b.Evidence.Resources...)
@@ -151,7 +149,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		policy.Route.Version = identity.TraversalPolicyVersion
 	}
 	if policy.Route.MaxHops < 0 {
-		return b.failedWith(identity, diags, "INVALID_ROUTE_POLICY", "route MaxHops cannot be negative"), fmt.Errorf("route MaxHops cannot be negative")
+		return Snapshot{}, fmt.Errorf("route MaxHops cannot be negative")
 	}
 
 	if !policy.Route.AllowsRepeatedEdges && !policy.Route.AllowsSelfLoops {
@@ -313,15 +311,8 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.AggregateOperations = cloneAggregateOperationCapabilities(proof.AggregateOperations)
 		candidates = append(candidates, c)
 	}
-	status := StatusReady
-	if !b.Complete || b.Truncated {
-		status = StatusBuilding
-	}
-	if len(diags) > 0 && !b.Evidence.FieldsAvailable {
-		status = StatusFailed
-	}
-	availability := buildAvailability(b.Evidence, resources, relationships, observedFields, b.Complete, b.Truncated)
-	s := NewSnapshot(identity, policy, status, b.Complete, b.Truncated, nodes, edges, candidates, diags)
+	availability := buildAvailability(b.Evidence, resources, relationships, observedFields)
+	s := NewSnapshot(identity, policy, StatusReady, true, false, nodes, edges, candidates, diags)
 	s.Availability = &availability
 	s.AuditNodes = auditNodes
 	s.AuditEdges = auditEdges
@@ -330,7 +321,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	return s, nil
 }
 
-func buildAvailability(evidence Evidence, resources []ResourceObservation, relationships []RelationshipObservation, fields []ObservedField, complete, truncated bool) Availability {
+func buildAvailability(evidence Evidence, resources []ResourceObservation, relationships []RelationshipObservation, fields []ObservedField) Availability {
 	readiness := evidence.AvailabilityReadiness
 	if readiness.ResourceInventory.Status == "" {
 		readiness.ResourceInventory = inferredReadiness(evidence.ResourcesAvailable)
@@ -356,20 +347,6 @@ func buildAvailability(evidence Evidence, resources []ResourceObservation, relat
 				readiness.Reason = source.Reason
 				break
 			}
-		}
-	}
-	if !complete || truncated {
-		readiness.Status = "UNKNOWN"
-		for _, source := range []*AvailabilitySourceReadiness{&readiness.ResourceInventory, &readiness.Relationships, &readiness.FieldProfiles} {
-			if source.Status == "COMPLETE" {
-				source.Status = "UNKNOWN"
-				if source.Reason == "" {
-					source.Reason = "source completeness is not established"
-				}
-			}
-		}
-		if readiness.Reason == "" {
-			readiness.Reason = "one or more observation sources are incomplete or truncated"
 		}
 	}
 
@@ -416,13 +393,6 @@ func inferredReadiness(available bool) AvailabilitySourceReadiness {
 	return AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "observation source is unavailable"}
 }
 
-func (b Builder) failed(identity SnapshotIdentity, code, message string) Snapshot {
-	return b.failedWith(identity, nil, code, message)
-}
-func (b Builder) failedWith(identity SnapshotIdentity, ds []Diagnostic, code, message string) Snapshot {
-	ds = append(ds, diag(code, message, ""))
-	return NewSnapshot(identity, b.Policy, StatusFailed, false, b.Truncated, nil, nil, nil, ds)
-}
 func rehash(s Snapshot) Snapshot {
 	s.Token = ""
 	p := s.CanonicalPayload()

@@ -19,6 +19,9 @@ func NewStore() *Store {
 }
 
 func (s *Store) Put(_ context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
+	if err := capability.ValidateSnapshotWrite(snapshot); err != nil {
+		return nil, err
+	}
 	stored := snapshot.Clone()
 	s.byToken[stored.Token] = stored
 	s.byIdentity[stored.Identity] = stored.Token

@@ -219,23 +219,33 @@ func TestBuilderFieldEnrichmentIsFailClosed(t *testing.T) {
 	obs.RelationshipsAvailable = true
 	b := NewBuilder(testIdentity(), obs, testProbe())
 	s, err := b.Build(context.Background())
-	if err == nil || s.Status != StatusFailed || s.Usable() {
+	if err == nil || !reflect.DeepEqual(s, Snapshot{}) {
 		t.Fatalf("missing enrichment was not failed closed: %#v, %v", s, err)
 	}
 }
 
-func TestIncompleteAndTruncatedSnapshotsAreNotUsable(t *testing.T) {
-	obs := Evidence{}
-	b := testBuilder(obs)
-	b.Complete = false
-	s, err := b.Build(context.Background())
-	if err != nil || s.Status != StatusBuilding || s.Usable() {
-		t.Fatalf("incomplete snapshot: %#v %v", s, err)
-	}
-	b.Complete, b.Truncated = true, true
-	s, err = b.Build(context.Background())
-	if err != nil || s.Status != StatusBuilding || s.Usable() {
-		t.Fatalf("truncated snapshot: %#v %v", s, err)
+func TestIncompleteTruncatedAndFailedSnapshotsAreNotUsable(t *testing.T) {
+	for _, state := range []struct {
+		name                string
+		status              Status
+		complete, truncated bool
+	}{
+		{"incomplete", StatusBuilding, false, false},
+		{"truncated", StatusBuilding, true, true},
+		{"failed", StatusFailed, false, false},
+	} {
+		t.Run(state.name, func(t *testing.T) {
+			snapshot := NewSnapshot(testIdentity(), Policy{}, state.status, state.complete, state.truncated, nil, nil, nil, nil)
+			if snapshot.Usable() || snapshot.ValidateToken(snapshot.Token) != ErrSnapshotUnavailable {
+				t.Fatalf("unusable snapshot accepted: %+v", snapshot)
+			}
+			if err := ValidateSnapshot(snapshot); err != nil {
+				t.Fatalf("historical snapshot cannot be decoded: %v", err)
+			}
+			if err := ValidateSnapshotWrite(snapshot); err == nil {
+				t.Fatal("unusable snapshot accepted for a new cache write")
+			}
+		})
 	}
 }
 

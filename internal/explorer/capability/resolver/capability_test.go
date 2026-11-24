@@ -1195,3 +1195,37 @@ func TestCapabilityEvidenceSynthesizesCodeableConceptTextFieldFromProfiler(t *te
 		t.Fatalf("catalog semantic evidence changed across capability conversion: %#v", retained)
 	}
 }
+
+type capabilityWriteRecorder struct {
+	*capabilityfixtures.Store
+	writes int
+}
+
+func (r *capabilityWriteRecorder) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
+	r.writes++
+	return r.Store.Put(ctx, snapshot)
+}
+
+func TestUnavailableCapabilityEvidenceNeverWritesSnapshots(t *testing.T) {
+	manifest := capabilityfixtures.StagedManifest(t, "project-a", "generation-a")
+	for _, state := range []catalog.EvidenceStatus{catalog.EvidenceIncomplete, "TRUNCATED", "FAILED", "BUILDING"} {
+		t.Run(string(state), func(t *testing.T) {
+			repository := &capabilityWriteRecorder{Store: capabilityfixtures.NewStore()}
+			evidence := staticCapabilityEvidence{
+				Inventory:     catalog.ResourceInventoryResult{Available: true, Complete: true, Status: state},
+				Relationships: catalog.RelationshipObservationResult{Available: true, Complete: true},
+				Fields:        catalog.FieldEnrichmentResult{Available: true, Complete: true},
+			}
+			resolver, err := NewResolver(evidence, nil, staticActiveManifest{Manifest: manifest}, repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := resolver.Resolve(context.Background(), "project-a", ""); !errors.Is(err, capability.ErrSnapshotUnavailable) {
+				t.Fatalf("unavailable evidence error = %v", err)
+			}
+			if repository.writes != 0 {
+				t.Fatalf("unavailable evidence wrote %d snapshots", repository.writes)
+			}
+		})
+	}
+}
