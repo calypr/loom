@@ -3,7 +3,6 @@ package rowsource
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sort"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -50,66 +49,9 @@ func (s *Service) ConstructionDeriveSourceCapability(
 	base Base,
 	outputID, stageID string,
 ) (ConstructionDeriveSourceCapability, error) {
-	result := ConstructionDeriveSourceCapability{StageID: stageID, Choices: []SourceChoice{}}
-	if importedSourceChoiceUnavailable(base.Document) {
-		result.Supported = true
-		return result, nil
-	}
-	if _, found := constructionReceiptStage(base.Stages, stageID); !found {
-		result.ReasonCode = "STALE_STAGE_REFERENCE"
-		result.Reason = "the selected stage is not present in the current compiled output"
-		return result, nil
-	}
-	enumeration := rowSourceEnumeration{
-		rootReachable:     constructionRootProjectionCanReachStage(base.Construction, stageID),
-		plannerConfigured: s.config.RowChoicePlanner != nil,
-	}
-	if enumeration.rootReachable && enumeration.plannerConfigured {
-		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
-		if err != nil {
-			result.ReasonCode, result.Reason = rowSourceInventoryFailure(deriveSourceReasons)
-			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
-				fmt.Errorf("list authorized root derive source choices for output %q: %w", outputID, err))
-		}
-		for _, choice := range choices {
-			if rowSourceChoiceIsStaleVersion(choice, base.Snapshot) {
-				enumeration.skip(rowSourceSkipVersion)
-				continue
-			}
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
-				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
-				enumeration.skip(rowSourceSkipRoute)
-				continue
-			}
-			candidate, ok := constructionGroupSourceCandidate(base.Snapshot, choice)
-			if !ok {
-				enumeration.skip(rowSourceCandidateSkipClass(base.Snapshot, choice))
-				continue
-			}
-			if !deriveSourceLogicalTypeIsNumeric(candidate.LogicalType) {
-				enumeration.skip(rowSourceSkipType)
-				continue
-			}
-			result.Choices = append(result.Choices, SourceChoice{
-				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
-				Label:       constructionFieldDisplayLabel(base.Document.RootResourceType, choice.Path, candidate.Label, choice.Label),
-				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
-				ColumnID: constructionOwnedDeriveSourceColumnID(base.Construction, stageID, choice.Path),
-			})
-		}
-	}
-	sort.SliceStable(result.Choices, func(i, j int) bool {
-		if result.Choices[i].FieldPath != result.Choices[j].FieldPath {
-			return result.Choices[i].FieldPath < result.Choices[j].FieldPath
-		}
-		return result.Choices[i].ChoiceID < result.Choices[j].ChoiceID
-	})
-	if len(result.Choices) == 0 {
-		result.ReasonCode, result.Reason = enumeration.decision(deriveSourceReasons)
-		return result, nil
-	}
-	result.Supported = true
-	return result, nil
+	result, err := s.constructionSourceCapability(ctx, base, outputID, stageID, deriveSourceReasons, "derive",
+		deriveSourceLogicalTypeIsNumeric, constructionOwnedDeriveSourceColumnID)
+	return result.derive(), err
 }
 
 func (s *Service) ResolveConstructionDeriveSource(
@@ -288,57 +230,5 @@ func (s *Service) ConstructionCandidateWithDeriveSources(
 }
 
 func (s *Service) ReauthorizeConstructionDeriveSources(ctx context.Context, base Base, outputID string, construction ws.Construction) error {
-	if s.config.RowChoicePlanner == nil {
-		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized derive source choice planning is not configured", nil)
-	}
-	var choices []capability.RowChoice
-	planned := false
-	for _, projection := range construction.SourceProjections {
-		if projection.OwnerStepID == "" {
-			continue
-		}
-		index := constructionStepIndex(construction.Steps, projection.OwnerStepID)
-		if index < 0 {
-			return fmt.Errorf("derive source projection %q names a missing owner step", projection.ColumnID)
-		}
-		step := construction.Steps[index]
-		if step.Operation.Kind != ws.ConstructionOperationDerive {
-			continue
-		}
-		if step.Operation.Derive == nil || !containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID) {
-			return fmt.Errorf("derive source projection %q is not a column operand of its owner Derive step", projection.ColumnID)
-		}
-		if !planned {
-			listed, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.Snapshot.Clone(), base.Document)
-			if err != nil {
-				return fmt.Errorf("list authorized root derive source choices for output %q: %w", outputID, err)
-			}
-			choices, planned = listed, true
-		}
-		matched := false
-		for _, choice := range choices {
-			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != ws.RootOccurrenceID || choice.Reference ||
-				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) != canonicalRowPath(projection.FieldPath) {
-				continue
-			}
-			if _, found := base.Snapshot.Node(choice.NodeID); !found {
-				continue
-			}
-			derived, ok := ConstructionDeriveSourceFacts(base.Snapshot, base.Document.RootResourceType, projection.FieldPath)
-			if !ok {
-				continue
-			}
-			expected := ws.ConstructionSourceProjection{
-				ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
-				OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
-				FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
-			}
-			matched = reflect.DeepEqual(expected, projection)
-			break
-		}
-		if !matched {
-			return fmt.Errorf("derive source projection %q no longer matches an authorized populated root scalar field", projection.ColumnID)
-		}
-	}
-	return nil
+	return s.reauthorizeConstructionSources(ctx, base, outputID, construction, deriveSourceReauthorization)
 }
