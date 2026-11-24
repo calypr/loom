@@ -2,9 +2,6 @@ package rowdef
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/calypr/loom/internal/explorer/authoringcore"
@@ -130,24 +127,6 @@ func rowDefinitionWorkspaceChange(base, candidate ws.Workspace, outputID string)
 	return candidate.Documents[candidateDocument], nil
 }
 
-func ProposalDocument(workspace ws.Workspace, outputID string) *ws.Document {
-	for index := range workspace.Documents {
-		if workspace.Documents[index].Output.ID == outputID {
-			return &workspace.Documents[index]
-		}
-	}
-	return nil
-}
-
-func DocumentDigest(document ws.Document) (string, error) {
-	raw, err := json.Marshal(document)
-	if err != nil {
-		return "", fmt.Errorf("encode authoring document digest: %w", err)
-	}
-	sum := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
 	return s.propose(ctx, request)
 }
@@ -185,14 +164,14 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 	if err != nil || baseDigest != owner.DraftDigest {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
-	baseDocument := ProposalDocument(workspace, request.OutputID)
+	baseDocument := support.ProposalDocument(workspace, request.OutputID)
 	if baseDocument == nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
 	if baseDocument.ImportedRecipe != nil {
 		return RowDefinitionProposal{}, support.Unprocessable("row-definition-proposal", "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED", "imported source rows are defined by the immutable recipe pin and source overlay; use a construction Group or related-record expansion, or explicitly replace the source to detach the pin", nil)
 	}
-	baseDocumentDigest, err := DocumentDigest(*baseDocument)
+	baseDocumentDigest, err := support.DocumentDigest(*baseDocument)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
@@ -262,7 +241,7 @@ func (s *Service) propose(ctx context.Context, request RowDefinitionProposalRequ
 		return RowDefinitionProposal{}, err
 	}
 
-	candidateDocument := ProposalDocument(verifiedCandidate, request.OutputID)
+	candidateDocument := support.ProposalDocument(verifiedCandidate, request.OutputID)
 	if candidateDocument == nil {
 		return RowDefinitionProposal{}, support.Conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
 	}
@@ -418,11 +397,11 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if currentDigest != binding.DraftDigest {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft no longer matches the proposal base", nil, nil)
 	}
-	baseDocument := ProposalDocument(current, command.OutputID)
+	baseDocument := support.ProposalDocument(current, command.OutputID)
 	if baseDocument == nil {
 		return nil, nil, support.Conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the proposal output is missing from the saved draft", nil, nil)
 	}
-	baseDocumentDigest, err := DocumentDigest(*baseDocument)
+	baseDocumentDigest, err := support.DocumentDigest(*baseDocument)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -433,7 +412,7 @@ func (s *Service) PrepareRowDefinitionProposal(ctx context.Context, project, exp
 	if err != nil {
 		return nil, nil, err
 	}
-	candidateDocument := ProposalDocument(candidate, command.OutputID)
+	candidateDocument := support.ProposalDocument(candidate, command.OutputID)
 	if candidateDocument == nil {
 		return nil, nil, support.Conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt does not contain the requested output", nil, nil)
 	}

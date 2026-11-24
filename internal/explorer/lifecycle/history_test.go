@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"os"
 	"reflect"
 	"sort"
@@ -254,14 +255,14 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					if err := json.Unmarshal(cp.AcceptedDocument, &doc); err != nil {
 						t.Fatalf("trace %s action %d decode acceptedDocument: %v", traceID, actionIndex, err)
 					}
-					if current := proposalDocument(accepted, req.OutputID); current == nil || !reflect.DeepEqual(doc, *current) {
+					if current := support.ProposalDocument(accepted, req.OutputID); current == nil || !reflect.DeepEqual(doc, *current) {
 						t.Fatalf("trace %s action %d acceptedDocument differs from acceptedWorkspace", traceID, actionIndex)
 					}
 				}
 				baseCompiles, candidateCompiles := stats.base, stats.candidate
 				before := append([]byte(nil), store.created.DraftConfig...)
 				beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
-				baseDoc := proposalDocument(accepted, req.OutputID)
+				baseDoc := support.ProposalDocument(accepted, req.OutputID)
 				if baseDoc == nil || baseDoc.Construction == nil {
 					t.Fatalf("trace %s action %d accepted document has no construction", traceID, actionIndex)
 				}
@@ -383,8 +384,8 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 				if err != nil || persistedDigest != store.created.DraftDigest || !bytes.Equal(persistedCanonical, appliedCanonical) || !bytes.Equal(store.created.DraftConfig, persistedCanonical) {
 					t.Fatalf("trace %s action %d persisted canonical workspace differs from Apply reply: storedDigest=%q persistedDigest=%q err=%v", traceID, actionIndex, store.created.DraftDigest, persistedDigest, err)
 				}
-				appliedDoc := proposalDocument(applied.Workspace, lastProposal.OutputID)
-				persistedDoc := proposalDocument(persistedWorkspace, lastProposal.OutputID)
+				appliedDoc := support.ProposalDocument(applied.Workspace, lastProposal.OutputID)
+				persistedDoc := support.ProposalDocument(persistedWorkspace, lastProposal.OutputID)
 				if appliedDoc == nil || appliedDoc.Construction == nil || persistedDoc == nil || persistedDoc.Construction == nil {
 					t.Fatalf("trace %s action %d acknowledgement omitted the applied document construction", traceID, actionIndex)
 				}

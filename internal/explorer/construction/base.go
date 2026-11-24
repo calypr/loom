@@ -17,7 +17,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
-	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/rowsource"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -119,7 +118,7 @@ func (s constructionBaseLoader) validateConstructionBase(ctx context.Context, pr
 		return constructionBaseValidation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
 	document := workspace.Documents[documentIndex]
-	baseDocumentSHA, err := documentDigest(document)
+	baseDocumentSHA, err := support.DocumentDigest(document)
 	if err != nil {
 		return constructionBaseValidation{}, fmt.Errorf("digest construction base document: %w", err)
 	}
@@ -257,10 +256,6 @@ func validateReceiptOutputContract(receipt *receiptmodel.CompilationReceipt, out
 
 func receiptHasOutput(bundle recipe.Bundle, id string) bool {
 	return support.ReceiptHasOutput(bundle, id)
-}
-
-func documentDigest(document ws.Document) (string, error) {
-	return rowdef.DocumentDigest(document)
 }
 
 func workspaceValidationCode(err error) string {

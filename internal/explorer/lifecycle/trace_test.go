@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"sort"
 	"testing"
 
@@ -560,7 +561,7 @@ func assertTraceWorkspaceMatchesRequest(t *testing.T, id string, w ws.Workspace,
 	if err != nil || digest != r.ExpectedDraftDigest {
 		t.Fatalf("trace %s accepted workspace digest %q != request digest %q (err %v)", id, digest, r.ExpectedDraftDigest, err)
 	}
-	if r.Project == "" || r.ExplorerID == "" || r.SnapshotToken == "" || r.ExpectedDraftVersion < 1 || r.OutputID == "" || proposalDocument(w, r.OutputID) == nil {
+	if r.Project == "" || r.ExplorerID == "" || r.SnapshotToken == "" || r.ExpectedDraftVersion < 1 || r.OutputID == "" || support.ProposalDocument(w, r.OutputID) == nil {
 		t.Fatalf("trace %s proposal identity/output is incomplete: %#v", id, r)
 	}
 }

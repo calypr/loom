@@ -308,7 +308,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	if err != nil || digest != owner.DraftDigest {
 		return empty, support.Conflict("authoring-network", "DRAFT_CONFLICT", "saved source digest does not match", nil, err)
 	}
-	document := proposalDocument(workspace, request.OutputID)
+	document := support.ProposalDocument(workspace, request.OutputID)
 	if document == nil {
 		return empty, support.Unprocessable("authoring-network", "OUTPUT_NOT_FOUND", "saved output is unavailable", nil)
 	}
@@ -323,7 +323,7 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	if network.ProjectedFields == nil {
 		network.ProjectedFields = authoringnetwork.ProjectedFieldsForDocument(*document, network)
 	}
-	rowIdentity := rowIdentityForNetwork(*document, network)
+	rowIdentity := support.RowIdentityForNetwork(*document, network)
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
 }
 
@@ -353,14 +353,6 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request rowdef.RowDe
 
 func (s *Service) validateRowValuePolicyCandidate(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, workspace ws.Workspace, snapshot capability.Snapshot, compilationAuth ports.AuthorizedCapability, command authoringv2.Command) error {
 	return s.rowDefService.ValidateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, compilationAuth, command)
-}
-
-func proposalDocument(workspace ws.Workspace, outputID string) *ws.Document {
-	return proposal.ProposalDocument(workspace, outputID)
-}
-
-func documentDigest(document ws.Document) (string, error) {
-	return proposal.DocumentDigest(document)
 }
 
 func rowChangeReceiptWorkspace(workspace ws.Workspace, outputID string) (ws.Workspace, error) {

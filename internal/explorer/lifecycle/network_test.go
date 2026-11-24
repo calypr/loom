@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 )
@@ -23,7 +25,7 @@ func TestRowIdentityForNetworkUsesEffectiveOccurrencesAndPreservesDocument(t *te
 		{OccurrenceID: "observation_patient", ParentOccurrenceID: "base", ResourceType: "Patient", Enabled: true, MatchMode: ws.RouteMatchOptional},
 		{OccurrenceID: "removed", ParentOccurrenceID: "base", ResourceType: "Observation", Enabled: false, MatchMode: ws.RouteMatchRequired},
 	}
-	projected := rowIdentityForNetwork(document, network)
+	projected := support.RowIdentityForNetwork(document, network)
 	if !reflect.DeepEqual(document, before) {
 		t.Fatal("projection changed authoritative document")
 	}

@@ -85,7 +85,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
-	candidateDocument := ProposalDocument(verified, request.OutputID)
+	candidateDocument := support.ProposalDocument(verified, request.OutputID)
 	if candidateDocument == nil {
 		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
 	}
