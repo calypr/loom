@@ -38,12 +38,7 @@ func TestRenderWorkspaceAppendCapturesExactSameBundleInputsInOrder(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered.Query, "FROM `loom_private_first` AS __loom_input_0") || !strings.Contains(rendered.Query, "FROM `loom_private_second` AS __loom_input_1") {
-		t.Fatalf("workspace append lost authored source order: %s", rendered.Query)
-	}
-	if !strings.HasSuffix(rendered.Query, "LIMIT 3") {
-		t.Fatalf("terminal preview limit was not applied after append: %s", rendered.Query)
-	}
+	assertCombineRenderGolden(t, rendered.Query, rendered.Args)
 	if !reflect.DeepEqual(rendered.Columns, []string{"__loom_row_id", "value", "auth_resource_path"}) {
 		t.Fatalf("rendered columns = %#v", rendered.Columns)
 	}

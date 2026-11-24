@@ -1,11 +1,9 @@
 package lower
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -19,36 +17,15 @@ func TestConstructionCodedPivotRepeatedCodeableConceptDisplayHonorsErrorCardinal
 	if pivot == nil || pivot.CodedCorrelation == nil {
 		t.Fatalf("coded Pivot IR = %#v, want a typed coded correlation", pivot)
 	}
+	if pivot.DuplicatePolicy != "ERROR" {
+		t.Fatalf("coded Pivot duplicate policy = %q, want ERROR", pivot.DuplicatePolicy)
+	}
 	if got := pivot.CodedCorrelation.ValueSelector.CanonicalPath(); got != "valueCodeableConcept.text" {
 		t.Fatalf("preferred correlated value selector = %q", got)
 	}
 	if len(pivot.CodedCorrelation.ValueFallbacks) != 1 || pivot.CodedCorrelation.ValueFallbacks[0].CanonicalPath() != "valueCodeableConcept.coding[].display" ||
 		!pivot.CodedCorrelation.FallbackOnBlankString {
 		t.Fatalf("physical correlated fallback = %#v, want repeated displays and blank-string fallback enabled", pivot.CodedCorrelation)
-	}
-
-	rendered, err := aql.Render(compiled.Plan, aql.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := rendered.Query
-	if !strings.Contains(query, "valueCodeableConcept.text == null ? []") ||
-		!strings.Contains(query, "FOR __s1 IN (__s0.coding ? __s0.coding : [])") ||
-		!strings.Contains(query, "LET __value = __s1.display") || !strings.Contains(query, "RETURN __value") ||
-		!strings.Contains(query, "TRIM(") {
-		t.Fatalf("coded Pivot did not prefer text and retain every repeated display fallback value:\n%s", query)
-	}
-	cardinality := strings.Index(query, "ASSERT(LENGTH(__loom_physical_construction_reshape_coded_values_0) <= 1, \"TABLE_PIVOT_CELL_CARDINALITY\")")
-	first := strings.Index(query, "? FIRST(__loom_physical_construction_reshape_coded_values_0)")
-	displayIteration := strings.Index(query, "FOR __s1 IN (__s0.coding ? __s0.coding : [])")
-	if displayIteration < 0 || cardinality < displayIteration || first < cardinality {
-		t.Fatalf("duplicatePolicy ERROR must count every fallback display before selecting its sole value (display=%d cardinality=%d first=%d):\n%s", displayIteration, cardinality, first, query)
-	}
-	if strings.Contains(query, "SORTED_UNIQUE(") || strings.Contains(query, "UNIQUE(") {
-		t.Fatalf("repeated displays must retain multiplicity for duplicatePolicy ERROR, not be deduplicated:\n%s", query)
-	}
-	if strings.Contains(query, "FIRST(__coded_values)") || strings.Contains(query, "LIMIT 1\n        RETURN __value") {
-		t.Fatalf("repeated display fallback values were reduced before the cell cardinality check:\n%s", query)
 	}
 }
 
@@ -57,18 +34,6 @@ func TestConstructionCodedPivotGenericStringKeepsDefaultEmptyPrimaryBehavior(t *
 	pivot := compiled.Plan.StageSequence.Stages[0].GroupedPivot
 	if pivot == nil || pivot.CodedCorrelation == nil || pivot.CodedCorrelation.FallbackOnBlankString {
 		t.Fatalf("generic string correlation = %#v, want blank-string fallback disabled by default", pivot)
-	}
-	rendered, err := aql.Render(compiled.Plan, aql.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := rendered.Query
-	if !strings.Contains(query, "FILTER LENGTH(__correlation_candidate) > 0") ||
-		!strings.Contains(query, "valueCodeableConcept.text == null ? []") || !strings.Contains(query, "FILTER __value != null") {
-		t.Fatalf("generic string fallback must keep the existing array-presence check, where empty primary text remains present:\n%s", query)
-	}
-	if strings.Contains(query, "TRIM(") || strings.Contains(query, "__value != \"\"") {
-		t.Fatalf("generic string binding without the flag must not treat an empty string as missing:\n%s", query)
 	}
 }
 

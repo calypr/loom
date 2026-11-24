@@ -406,12 +406,77 @@ func TestDraftCASAfterWinnerCommitAgainstArango(t *testing.T) {
 	if !errors.Is(loser, explorer.ErrDraftConflict) {
 		t.Errorf("CAS_DELAYED_LOSER_NOT_DOMAIN_CONFLICT: %v", loser)
 	}
+
+	wrongDigest := *head
+	wrongDigest.Title = "Wrong digest at current version"
+	wrongDigest.DraftConfig, wrongDigest.DraftDigest = draftCASPayload(t, wrongDigest.Title)
+	if _, err := s.SaveDraft(ctx, wrongDigest, head.DraftVersion, before.DraftDigest); !errors.Is(err, explorer.ErrDraftConflict) {
+		t.Fatalf("same-version stale digest error=%v, want ErrDraftConflict", err)
+	}
+	unchanged, err := s.Get(ctx, before.Project, before.ExplorerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchangedHistory := draftCASHistory(t, ctx, c, before)
+	if !reflect.DeepEqual(unchanged, head) || !reflect.DeepEqual(unchangedHistory, history) {
+		t.Fatalf("same-version stale digest changed head or history: headChanged=%v historyChanged=%v", !reflect.DeepEqual(unchanged, head), !reflect.DeepEqual(unchangedHistory, history))
+	}
+
+	priorID := head.PreviousDraftRevisionID
+	if priorID == "" {
+		t.Fatal("winning head has no previous draft revision ID")
+	}
+	prior, err := s.GetDraftRevision(ctx, before.Project, before.ExplorerID, priorID)
+	if err != nil || prior.ID != priorID || prior.DraftDigest != before.DraftDigest {
+		t.Fatalf("owned draft history lookup=%#v error=%v", prior, err)
+	}
+	decoyID := "draft_revision_key_guard_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	decoy, err := db.Document(explorer.DraftRevision{
+		ID: decoyID, Project: before.Project, ExplorerID: before.ExplorerID, DraftVersion: 99,
+		DraftDigest: "decoy-digest", DraftConfig: json.RawMessage(`{"documents":[]}`),
+	}, "draft_history_decoy_"+strings.ReplaceAll(uuid.NewString(), "-", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.QueryRows(ctx, `INSERT @doc INTO @@c RETURN NEW`, 1, map[string]any{"@c": db.DraftRevisionsCollection, "doc": decoy}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("insert wrong-key history decoy: %v", err)
+	}
+	if _, err := s.GetDraftRevision(ctx, before.Project, before.ExplorerID, decoyID); !errors.Is(err, explorer.ErrNotFound) {
+		t.Fatalf("wrong-key history lookup error=%v, want ErrNotFound", err)
+	}
+	idMismatch := "draft_revision_id_guard_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	idMismatchDoc, err := db.Document(explorer.DraftRevision{
+		ID: idMismatch + "_different", Project: before.Project, ExplorerID: before.ExplorerID, DraftVersion: 100,
+		DraftDigest: "id-mismatch-digest", DraftConfig: json.RawMessage(`{"documents":[]}`),
+	}, idMismatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.QueryRows(ctx, `INSERT @doc INTO @@c RETURN NEW`, 1, map[string]any{"@c": db.DraftRevisionsCollection, "doc": idMismatchDoc}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("insert mismatched-id history decoy: %v", err)
+	}
+	if _, err := s.GetDraftRevision(ctx, before.Project, before.ExplorerID, idMismatch); !errors.Is(err, explorer.ErrNotFound) {
+		t.Fatalf("mismatched-id history lookup error=%v, want ErrNotFound", err)
+	}
+	for _, scope := range []struct {
+		name       string
+		project    string
+		explorerID string
+	}{
+		{name: "foreign project", project: "another-project", explorerID: before.ExplorerID},
+		{name: "foreign explorer", project: before.Project, explorerID: "another-explorer"},
+	} {
+		t.Run("history scope "+scope.name, func(t *testing.T) {
+			if _, err := s.GetDraftRevision(ctx, scope.project, scope.explorerID, priorID); !errors.Is(err, explorer.ErrNotFound) {
+				t.Fatalf("foreign scope lookup error=%v, want ErrNotFound", err)
+			}
+		})
+	}
 }
 
 type draftHistoryClient struct {
 	owner       map[string]any
 	revisions   map[string]map[string]any
-	calls       []queryCall
 	transaction store.TransactionCollections
 	loseCAS     bool
 }
@@ -433,7 +498,6 @@ func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections st
 
 func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit store.RowVisitor) error {
 	visit = storedJSONVisitorForTest(query, visit)
-	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	collection, _ := binds["@c"].(string)
 	switch {
 	case strings.HasPrefix(strings.TrimSpace(query), "INSERT") && collection == db.DraftRevisionsCollection:
@@ -557,9 +621,6 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 	if snapshot.SnapshotToken != "snapshot-old" || snapshot.SourceGeneration != "generation-old" || snapshot.AuthorizationScopeDigest != "scope-old" {
 		t.Fatalf("snapshot source context = %#v", snapshot)
 	}
-	if !strings.Contains(client.calls[0].query, "@expectedDigest") || !strings.Contains(client.calls[2].query, "previousDraftRevisionId: @revisionId") {
-		t.Fatalf("history write/CAS query sequence is incomplete: %#v", client.calls)
-	}
 }
 
 func TestSaveDraftCASConflictDoesNotPersistHistory(t *testing.T) {
@@ -625,12 +686,6 @@ func TestGetDraftRevisionScopesOpaqueIDsToExplorer(t *testing.T) {
 	}
 	if got.ID != revision.ID || !json.Valid(got.DraftConfig) || !strings.Contains(string(got.DraftConfig), `"outputId":"patients"`) {
 		t.Fatalf("draft revision lookup = %#v", got)
-	}
-	query := client.calls[len(client.calls)-1].query
-	for _, predicate := range []string{"d.project == @project", "d.explorerId == @explorerId", "d.id == @revisionId"} {
-		if !strings.Contains(query, predicate) {
-			t.Fatalf("revision lookup missing scope %q: %s", predicate, query)
-		}
 	}
 }
 

@@ -64,20 +64,7 @@ func TestRenderKeyJoinPinsExactInputsAndPreservesLeftRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderCombine() error = %v", err)
 	}
-	for _, expected := range []string{
-		"ALL LEFT JOIN",
-		"__loom_left.`auth_resource_path` = __loom_right.`auth_resource_path`",
-		"__loom_right.`auth_resource_path` IN ?",
-		"WHERE __loom_left.`auth_resource_path` IN ?",
-		"SETTINGS join_use_nulls = 1",
-	} {
-		if !strings.Contains(rendered.Query, expected) {
-			t.Errorf("query does not contain %q: %s", expected, rendered.Query)
-		}
-	}
-	if strings.Contains(rendered.Query, "WHERE `__loom_right`") {
-		t.Fatalf("right scope filter moved into WHERE and would drop unmatched left rows: %s", rendered.Query)
-	}
+	assertCombineRenderGolden(t, rendered.Query, rendered.Args)
 	wantArgs := []any{[]string{"/programs/p1"}, []string{"/programs/p1"}}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("query args = %#v, want right ON args then left WHERE args %#v", rendered.Args, wantArgs)

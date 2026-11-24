@@ -1,0 +1,11 @@
+{
+  "query": "SELECT concat('0:', toString(lengthUTF8(toString(__loom_input_0.`__loom_row_id`))), ':', toString(__loom_input_0.`__loom_row_id`)) AS `__loom_row_id`, __loom_input_0.`first_value` AS `value`, ifNull(__loom_input_0.`auth_resource_path`, '') AS `auth_resource_path` FROM `loom_private_first` AS __loom_input_0 WHERE __loom_input_0.`auth_resource_path` IN ? UNION ALL SELECT concat('1:', toString(lengthUTF8(toString(__loom_input_1.`__loom_row_id`))), ':', toString(__loom_input_1.`__loom_row_id`)) AS `__loom_row_id`, __loom_input_1.`second_value` AS `value`, ifNull(__loom_input_1.`auth_resource_path`, '') AS `auth_resource_path` FROM `loom_private_second` AS __loom_input_1 WHERE __loom_input_1.`auth_resource_path` IN ? ORDER BY `__loom_row_id` ASC LIMIT 3",
+  "binds": [
+    [
+      "/programs/p1"
+    ],
+    [
+      "/programs/p1"
+    ]
+  ]
+}

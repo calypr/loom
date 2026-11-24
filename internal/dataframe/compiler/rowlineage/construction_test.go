@@ -171,12 +171,15 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 	if pastEnd["found"] != true || pastEnd["hasMore"] != false || len(pastEnd["contributors"].([]any)) != 0 {
 		t.Fatalf("past-end Pivot lineage page = %#v, want found row and empty final page", pastEnd)
 	}
-	missingIDBytes, err := json.Marshal([]any{"GROUPED_PIVOT", "row_lineage_pivot", []any{"STRING", "absent"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	missing := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(string(missingIDBytes), 0))
-	if missing["found"] != false || missing["hasMore"] != false || len(missing["contributors"].([]any)) != 0 {
-		t.Fatalf("nonexistent typed Pivot identity disclosed contributors: %#v", missing)
+	for _, requestedID := range []string{
+		`["GROUPED_PIVOT","row_lineage_pivot",["STRING","absent"]]`,
+		`["GROUPED_PIVOT","other_construction",["STRING","wanted"]]`,
+		`["GROUPED_PIVOT","row_lineage_pivot",["INTEGER",1]]`,
+		"not-a-pivot-row-id",
+	} {
+		missing := recipetest.ExecuteRowLineageOracleQuery(t, ctx, client, compilePage(requestedID, 0))
+		if missing["found"] != false || missing["hasMore"] != false || len(missing["contributors"].([]any)) != 0 {
+			t.Fatalf("nonexistent Pivot identity %q disclosed contributors: %#v", requestedID, missing)
+		}
 	}
 }

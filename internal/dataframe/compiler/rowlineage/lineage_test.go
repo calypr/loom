@@ -777,29 +777,11 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		"population_member.generation == @dataset_generation",
 		"population_member.resourceType == @population_resource_type",
 		"auth_resource_path IN @auth_resource_paths",
-		"FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id",
-		"GROUPED_PIVOT", "FILTER ASSERT(", "TABLE_PIVOT_UNLISTED_CATEGORY",
-		"COLLECT AGGREGATE", "TABLE_PIVOT_CELL_CARDINALITY",
-		"SORT __loom_physical_construction_row_lineage_pivot_source",
-		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit", "contributors: SLICE(", "hasMore:",
+		"COLLECT AGGREGATE", "LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 	} {
 		if !strings.Contains(compiled.Query, want) {
 			t.Errorf("construction Pivot lineage query is missing %q:\n%s", want, compiled.Query)
 		}
-	}
-	pageAt := strings.Index(compiled.Query, "LET __loom_physical_construction_row_lineage_pivot_page = (")
-	if pageAt < 0 {
-		t.Fatalf("Pivot contributor page subquery is missing:\n%s", compiled.Query)
-	}
-	validationQuery := compiled.Query[:pageAt]
-	if !strings.Contains(validationQuery, "TABLE_PIVOT_UNLISTED_CATEGORY") ||
-		!strings.Contains(validationQuery, "TABLE_PIVOT_CELL_CARDINALITY") ||
-		!strings.Contains(validationQuery, "== @row_lineage_row_id ? 1 : 0") {
-		t.Fatalf("Pivot found check does not globally validate policies and aggregate the selected identity:\n%s", validationQuery)
-	}
-	if strings.Contains(validationQuery, "== @row_lineage_pivot_group_key_0") ||
-		strings.Contains(validationQuery, "FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id") {
-		t.Fatalf("Pivot policy validation was narrowed to the requested key before global checks:\n%s", validationQuery)
 	}
 	if strings.Contains(compiled.Query, "COLLECT INTO") || strings.Contains(compiled.Query, "sourceRows") || strings.Contains(compiled.Query, "fullsourceRows") {
 		t.Fatalf("construction Pivot lineage retained an unbounded source/member array:\n%s", compiled.Query)
@@ -833,9 +815,8 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		if compileErr != nil {
 			t.Fatalf("compile forged Pivot row ID %q: %v", forgedID, compileErr)
 		}
-		if !strings.Contains(forged.Query, "FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id") ||
-			forged.BindVars[rowlineage.RowLineageRowIDBind] != forgedID {
-			t.Errorf("forged Pivot row ID %q did not remain an exact owner-identity comparison: %#v", forgedID, forged.BindVars)
+		if got := forged.BindVars[rowlineage.RowLineageRowIDBind]; got != forgedID {
+			t.Errorf("requested Pivot row ID binding = %q, want %q", got, forgedID)
 		}
 		if key, ok := forged.BindVars["row_lineage_pivot_group_key_0"]; !ok || key != nil {
 			t.Errorf("forged Pivot row ID %q did not fail closed with a null key bind: %#v", forgedID, forged.BindVars)

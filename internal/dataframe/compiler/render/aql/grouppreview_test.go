@@ -99,12 +99,13 @@ func TestTerminalGroupRowValuePreviewRejectsNonDirectScalarExtractKey(t *testing
 			} else {
 				projection.Presence.Paths[0][0] = "different_field"
 			}
-			rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{})
-			if err != nil {
-				t.Fatalf("renderPhysicalStageSequence() error = %v", err)
+			if _, err := renderPhysicalStageSequence(plan, physicalRenderOptions{}); err != nil {
+				t.Fatalf("render generic fallback: %v", err)
 			}
-			if strings.Contains(rendered.Query, "group_preview_selected_root_keys") {
-				t.Fatalf("unsupported key projection entered the preview frontier:\n%s", rendered.Query)
+			sourcePlan := ir.ClonePhysicalPlan(plan)
+			sourcePlan.StageSequence = nil
+			if _, _, ok := terminalGroupRowValuePreviewWindowFor(plan, sourcePlan, plan.StageSequence, physicalRenderOptions{}, false); ok {
+				t.Fatal("unsupported Group shape entered the typed preview frontier")
 			}
 		})
 	}
@@ -135,8 +136,10 @@ func TestTerminalGroupRowValuePreviewLeavesNonAllPolicyOnGenericPath(t *testing.
 	if err != nil {
 		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
 	}
-	if strings.Contains(rendered.Query, "group_preview_root_keys_by_group") || strings.Contains(rendered.Query, "group_preview_selected_root_keys") {
-		t.Fatalf("unsupported ONE row-value shape entered the ALL-only preview window:\n%s", rendered.Query)
+	sourcePlan := ir.ClonePhysicalPlan(plan)
+	sourcePlan.StageSequence = nil
+	if _, _, ok := terminalGroupRowValuePreviewWindowFor(plan, sourcePlan, plan.StageSequence, physicalRenderOptions{}, false); ok {
+		t.Fatal("unsupported Group shape entered the typed preview frontier")
 	}
 	rowValueWork := strings.Index(rendered.Query, "root.payload.values")
 	group := strings.Index(rendered.Query, "COLLECT group_key_value = group_input[@")
@@ -151,12 +154,13 @@ func TestTerminalGroupRowValuePreviewRequiresDeferredProjectionWork(t *testing.T
 	plan.Operations[last].Return.Projections[1] = ir.PhysicalProjection{
 		Name: "row_tags", Value: ir.PhysicalValue{Variable: "root", Path: []string{"payload", "values"}},
 	}
-	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{})
-	if err != nil {
-		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
+	if _, err := renderPhysicalStageSequence(plan, physicalRenderOptions{}); err != nil {
+		t.Fatalf("render generic fallback: %v", err)
 	}
-	if strings.Contains(rendered.Query, "group_preview_root_keys_by_group") || strings.Contains(rendered.Query, "group_preview_selected_root_keys") {
-		t.Fatalf("direct root-only row values should remain on the canonical renderer path:\n%s", rendered.Query)
+	sourcePlan := ir.ClonePhysicalPlan(plan)
+	sourcePlan.StageSequence = nil
+	if _, _, ok := terminalGroupRowValuePreviewWindowFor(plan, sourcePlan, plan.StageSequence, physicalRenderOptions{}, false); ok {
+		t.Fatal("unsupported Group shape entered the typed preview frontier")
 	}
 }
 
@@ -166,8 +170,10 @@ func TestTerminalGroupRowValuePreviewKeepsHintedOrdinaryGroupOnGenericPath(t *te
 	if err != nil {
 		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
 	}
-	if strings.Contains(rendered.Query, "group_preview_selected_root_keys") {
-		t.Fatalf("ordinary row-value Group changed its preexisting hinted render path:\n%s", rendered.Query)
+	sourcePlan := ir.ClonePhysicalPlan(plan)
+	sourcePlan.StageSequence = nil
+	if _, _, ok := terminalGroupRowValuePreviewWindowFor(plan, sourcePlan, plan.StageSequence, physicalRenderOptions{rootIndex: RootIndexHint("loom_pivot_preview_test")}, false); ok {
+		t.Fatal("unsupported Group shape entered the typed preview frontier")
 	}
 	if !strings.Contains(rendered.Query, `OPTIONS { indexHint: "loom_pivot_preview_test", forceIndexHint: false }`) {
 		t.Fatalf("ordinary Group lost its existing non-forcing root-index hint:\n%s", rendered.Query)
@@ -188,8 +194,10 @@ func TestTerminalGroupRowValuePreviewRejectsPostScopeSourceFilter(t *testing.T) 
 	if err != nil {
 		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
 	}
-	if strings.Contains(rendered.Query, "group_preview_root_keys_by_group") || strings.Contains(rendered.Query, "group_preview_selected_root_keys") {
-		t.Fatalf("post-scope source FILTER must stay on the canonical renderer path:\n%s", rendered.Query)
+	sourcePlan := ir.ClonePhysicalPlan(plan)
+	sourcePlan.StageSequence = nil
+	if _, _, ok := terminalGroupRowValuePreviewWindowFor(plan, sourcePlan, plan.StageSequence, physicalRenderOptions{}, false); ok {
+		t.Fatal("unsupported Group shape entered the typed preview frontier")
 	}
 	if !strings.Contains(rendered.Query, "FILTER root.payload.active == @active") {
 		t.Fatalf("canonical source FILTER was dropped from fallback:\n%s", rendered.Query)

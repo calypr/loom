@@ -1,0 +1,10 @@
+{
+  "query": "  FOR input_row IN (LENGTH(source_rows) == 0 ? [null] : source_rows)\n  COLLECT AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(input_row != null ? 1 : 0), __loom_physical_test_construction_group_row_value_arrays_0 = UNIQUE((input_row[@__loom_physical_test_construction_row_value_column] == null ? [] : (ASSERT(IS_ARRAY(input_row[@__loom_physical_test_construction_row_value_column]), \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") ? input_row[@__loom_physical_test_construction_row_value_column] : [])))\n  LET row_count = __loom_physical_test_construction_group_count_rows\n  LET __loom_physical_test_construction_group_row_value_unique_0 = SORTED_UNIQUE((FOR __loom_physical_test_construction_group_row_value_item_0 IN FLATTEN(__loom_physical_test_construction_group_row_value_arrays_0, 1) FILTER __loom_physical_test_construction_group_row_value_item_0 != null FILTER ASSERT(TYPENAME(__loom_physical_test_construction_group_row_value_item_0) == @__loom_physical_test_construction_row_value_type, \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") RETURN __loom_physical_test_construction_group_row_value_item_0))\n  LET tag_value = (ASSERT(LENGTH(__loom_physical_test_construction_group_row_value_unique_0) \u003c= 1, \"CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES\") ? (LENGTH(__loom_physical_test_construction_group_row_value_unique_0) == 0 ? null : FIRST(__loom_physical_test_construction_group_row_value_unique_0)) : null)\n  LET row_id = TO_STRING([[\"construction\", @construction_id], [\"operation\", \"GROUP\"]])\n  LET output_row = { [@__loom_physical_test_projection_0_name]: row_count, [@__loom_physical_test_projection_1_name]: tag_value }\n  RETURN output_row",
+  "binds": {
+    "__loom_physical_test_construction_row_value_column": "tags",
+    "__loom_physical_test_construction_row_value_type": "string",
+    "__loom_physical_test_projection_0_name": "rows",
+    "__loom_physical_test_projection_1_name": "tag_value",
+    "construction_id": "group"
+  }
+}
