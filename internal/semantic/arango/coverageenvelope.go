@@ -2,6 +2,7 @@ package arango
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/semantic"
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
@@ -18,7 +19,7 @@ type semanticCoverageEnvelopePath struct {
 }
 
 func semanticCoverageSourceEnvelopeKey(identity fieldprofile.SemanticCoverageSourceIdentity, buildID string) string {
-	return semanticCoverageDocumentKey(
+	return semantic.CoverageDocumentKey(
 		"semantic-coverage-source-envelope",
 		fmt.Sprint(fieldprofile.SemanticCoverageStorageFormatVersion),
 		identity.Project,

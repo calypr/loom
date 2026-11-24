@@ -856,9 +856,9 @@ func semanticCoverageFixtureContribution() fieldprofile.SemanticCoverageSourceCo
 	}
 }
 
-func semanticCoverageTestResourceExpectation(t *testing.T, resourceType string, contributions ...fieldprofile.SemanticCoverageSourceContribution) SemanticCoverageResourceExpectation {
+func semanticCoverageTestResourceExpectation(t *testing.T, resourceType string, contributions ...fieldprofile.SemanticCoverageSourceContribution) semantic.ResourceExpectation {
 	t.Helper()
-	accumulator := NewSemanticCoverageSourceSetAccumulator(resourceType, true)
+	accumulator := semantic.NewSourceSetAccumulator(resourceType, true)
 	for _, contribution := range contributions {
 		if contribution.Identity.ResourceType != resourceType {
 			t.Fatalf("test source resource type %q, want %q", contribution.Identity.ResourceType, resourceType)
@@ -894,11 +894,11 @@ func completeSemanticCoverageMemoryBuild(t *testing.T, adapter *Store, identity 
 }
 
 func TestSemanticCoverageDocumentKeyUsesUnambiguousStableParts(t *testing.T) {
-	first := semanticCoverageDocumentKey("project", "generation", "source", "path|part")
-	if got := semanticCoverageDocumentKey("project", "generation", "source", "path|part"); got != first {
+	first := semantic.CoverageDocumentKey("project", "generation", "source", "path|part")
+	if got := semantic.CoverageDocumentKey("project", "generation", "source", "path|part"); got != first {
 		t.Fatalf("same identity key changed: %q != %q", got, first)
 	}
-	if got := semanticCoverageDocumentKey("project", "generation", "source|path", "part"); got == first {
+	if got := semantic.CoverageDocumentKey("project", "generation", "source|path", "part"); got == first {
 		t.Fatalf("different identity parts collided: %q", got)
 	}
 }

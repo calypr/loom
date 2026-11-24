@@ -32,7 +32,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	if err := adapter.MarkSemanticCoverageResourceMissing(ctx, identity, "Task"); err != nil {
 		t.Fatalf("mark missing Task collection failed (%v)", err)
 	}
-	emptyPatient := NewSemanticCoverageSourceSetAccumulator("Patient", true)
+	emptyPatient := semantic.NewSourceSetAccumulator("Patient", true)
 	patientExpectation, err := emptyPatient.Snapshot(true)
 	if err != nil {
 		t.Fatalf("record empty Patient source set failed (%v)", err)
@@ -280,9 +280,9 @@ func semanticCoverageResourceExpectation(
 	t *testing.T,
 	resourceType string,
 	contributions []fieldprofile.SemanticCoverageSourceContribution,
-) SemanticCoverageResourceExpectation {
+) semantic.ResourceExpectation {
 	t.Helper()
-	accumulator := NewSemanticCoverageSourceSetAccumulator(resourceType, true)
+	accumulator := semantic.NewSourceSetAccumulator(resourceType, true)
 	for _, contribution := range contributions {
 		if err := accumulator.AddSource(contribution.Identity.SourceID, contribution.Identity.AuthResourcePath); err != nil {
 			t.Fatalf("add expected %s source identity failed (%v)", resourceType, err)
