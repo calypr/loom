@@ -1,15 +1,18 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/discoverycache"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/ingest/sourceload"
+	"github.com/calypr/loom/internal/releasecommit"
 	"github.com/calypr/loom/internal/server/sourcepublication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -22,10 +25,13 @@ func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.Con
 		ConnectionOptions: connOpts,
 	}}
 	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
-		LoadGeneration:      ingestRunner.RunGeneration,
-		GenerationActivator: lifecycleStore,
-		DataframeReleases:   publishedRegistry,
-		Logger:              logger,
+		LoadGeneration: ingestRunner.RunGeneration,
+		Manifests:      lifecycleStore,
+		ActivateBundle: func(ctx context.Context, manifest publicationcontract.Manifest, execution publication.BundleExecution) error {
+			return releasecommit.ActivateBundle(ctx, lifecycleClient, *releaseService, manifest, execution)
+		},
+		DataframeReleases: publishedRegistry,
+		Logger:            logger,
 		OnSuccess: func(project string) {
 			discoveryCache.InvalidateProject(project)
 			if scopeResolver != nil {

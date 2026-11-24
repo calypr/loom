@@ -45,10 +45,7 @@ type GenerationActivationResult struct {
 	Activated            bool   `json:"activated"`
 }
 
-type GenerationActivator interface {
-	ReadManifest(context.Context, publication.Ref) (publication.Manifest, error)
-	Activate(context.Context, publication.Manifest) error
-}
+type BundleActivator func(context.Context, publication.Manifest, dataframepublication.BundleExecution) error
 
 type DataframeReleaseStore interface {
 	GetExecution(context.Context, string) (dataframepublication.BundleExecution, error)
@@ -80,19 +77,21 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 }
 
 type ServiceConfig struct {
-	LoadGeneration      GenerationLoader
-	Logger              *slog.Logger
-	OnSuccess           func(project string)
-	GenerationActivator GenerationActivator
-	DataframeReleases   DataframeReleaseStore
+	LoadGeneration    GenerationLoader
+	Logger            *slog.Logger
+	OnSuccess         func(project string)
+	Manifests         publication.ManifestReader
+	ActivateBundle    BundleActivator
+	DataframeReleases DataframeReleaseStore
 }
 
 type Service struct {
-	loadGeneration      GenerationLoader
-	logger              *slog.Logger
-	onSuccess           func(project string)
-	generationActivator GenerationActivator
-	dataframeReleases   DataframeReleaseStore
+	loadGeneration    GenerationLoader
+	logger            *slog.Logger
+	onSuccess         func(project string)
+	manifests         publication.ManifestReader
+	activateBundle    BundleActivator
+	dataframeReleases DataframeReleaseStore
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
@@ -103,11 +102,12 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
-		loadGeneration:      cfg.LoadGeneration,
-		logger:              cfg.Logger,
-		onSuccess:           cfg.OnSuccess,
-		generationActivator: cfg.GenerationActivator,
-		dataframeReleases:   cfg.DataframeReleases,
+		loadGeneration:    cfg.LoadGeneration,
+		logger:            cfg.Logger,
+		onSuccess:         cfg.OnSuccess,
+		manifests:         cfg.Manifests,
+		activateBundle:    cfg.ActivateBundle,
+		dataframeReleases: cfg.DataframeReleases,
 	}, nil
 }
 
@@ -115,14 +115,14 @@ func (s *Service) generationStatus(ctx context.Context, project, generation stri
 	if project == "" || generation == "" {
 		return nil, errors.New("project and generation are required")
 	}
-	if s.generationActivator == nil {
+	if s.manifests == nil {
 		return nil, errors.New("generation manifest reader is not configured")
 	}
 	ref, err := publication.NewRef(project, generation)
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := s.generationActivator.ReadManifest(ctx, ref)
+	manifest, err := s.manifests.ReadManifest(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -136,12 +136,12 @@ func (s *Service) runGeneration(ctx context.Context, req GenerationLoadRequest) 
 	if req.Project == "" || req.Generation == "" || req.StagedDir == "" {
 		return nil, errors.New("project, generation, and staged directory are required")
 	}
-	if s.generationActivator != nil {
+	if s.manifests != nil {
 		ref, err := publication.NewRef(req.Project, req.Generation)
 		if err != nil {
 			return nil, err
 		}
-		manifest, err := s.generationActivator.ReadManifest(ctx, ref)
+		manifest, err := s.manifests.ReadManifest(ctx, ref)
 		switch {
 		case err == nil && manifest.IsStaged():
 			s.logger.Info("reusing ready generation", "project", req.Project, "generation", req.Generation)
@@ -175,7 +175,7 @@ func (s *Service) activateGeneration(ctx context.Context, project, generation, e
 		}
 		return err
 	}
-	if s.generationActivator == nil || s.dataframeReleases == nil {
+	if s.manifests == nil || s.activateBundle == nil || s.dataframeReleases == nil {
 		return fail(errors.New("generation release activation is not configured"))
 	}
 	ref, err := publication.NewRef(project, generation)
@@ -201,7 +201,7 @@ func (s *Service) activateGeneration(ctx context.Context, project, generation, e
 	if pointer.ExecutionID != execution.ID {
 		return fail(fmt.Errorf("dataframe release %q is no longer active", executionID))
 	}
-	manifest, err := s.generationActivator.ReadManifest(ctx, ref)
+	manifest, err := s.manifests.ReadManifest(ctx, ref)
 	if err != nil {
 		return fail(fmt.Errorf("read generation release: %w", err))
 	}
@@ -209,7 +209,7 @@ func (s *Service) activateGeneration(ctx context.Context, project, generation, e
 
 		return fail(fmt.Errorf("generation %s/%s is not READY (state %s): %w", project, generation, manifest.State, publication.ErrGenerationNotReady))
 	}
-	if err := s.generationActivator.Activate(ctx, manifest); err != nil {
+	if err := s.activateBundle(ctx, manifest, execution); err != nil {
 		return fail(fmt.Errorf("activate generation release: %w", err))
 	}
 	if s.onSuccess != nil {

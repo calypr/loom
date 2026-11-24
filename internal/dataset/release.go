@@ -134,7 +134,7 @@ func (s ReleaseService) validateGeneration(ctx context.Context, ref Ref) error {
 }
 
 func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (ProjectRelease, error) {
-	if s.Manifests == nil || s.Releases == nil || s.Verifier == nil {
+	if s.Manifests == nil || s.Releases == nil || (s.Verifier == nil && (len(s.Required) != 0 || len(request.OptionalSelectors) != 0)) {
 		return ProjectRelease{}, fmt.Errorf("release service dependencies are required")
 	}
 	ref, err := NewRef(strings.TrimSpace(request.Project), strings.TrimSpace(request.Generation))

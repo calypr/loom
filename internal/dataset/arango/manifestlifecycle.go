@@ -166,6 +166,8 @@ func (s *Store) ResolveActiveManifest(ctx context.Context, project string) (publ
 	}
 	bindVars := lifecycleBindVars(project)
 	bindVars["active_key"] = activeDocumentKey(project)
+	bindVars["active_release_key"] = activeReleaseDocumentKey(project)
+	bindVars["manifest_key_seed"] = documentKeyDomain + "\x00manifest\x00" + project + "\x00"
 	bindVars["staged_state"] = string(publication.StateStaged)
 	bindVars["ready_state"] = string(publication.StateReady)
 	rows, err := s.manifestRows(ctx, readActiveAQL, bindVars)
@@ -205,6 +207,7 @@ func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) er
 	}
 	bindVars := lifecycleBindVars(candidate.Dataset.Project)
 	bindVars["candidate_key"] = manifestDocumentKey(candidate.Dataset)
+	bindVars["active_release_key"] = activeReleaseDocumentKey(candidate.Dataset.Project)
 	bindVars["active_key"] = activeDocumentKey(candidate.Dataset.Project)
 	bindVars["generation"] = candidate.Dataset.Generation
 	bindVars["schema_identity"] = schemaIdentity
@@ -298,24 +301,31 @@ FOR manifest IN @@lifecycle_collection
 `
 
 const readActiveAQL = `
-FOR active IN @@lifecycle_collection
-  FILTER active._key == @active_key
-  FILTER active.recordType == @active_record_type
-  FILTER active.project == @project
-  FILTER active.manifestKey != null
-  FOR manifest IN @@lifecycle_collection
-    FILTER manifest._key == active.manifestKey
-    FILTER manifest.recordType == @manifest_record_type
-    FILTER manifest.dataset == active.dataset
-    FILTER manifest.state == @ready_state OR manifest.state == @staged_state
-    LIMIT 2
-    RETURN {
-      dataset: manifest.dataset,
-      state: manifest.state,
-      schemaIdentity: manifest.schemaIdentity,
-      identityFormat: manifest.identityFormat,
-      analysisVersion: manifest.analysisVersion
-    }
+LET activeRelease = DOCUMENT(@@lifecycle_collection, @active_release_key)
+LET hasRelease = activeRelease != null AND (activeRelease.releaseKey != null OR activeRelease.releaseId != null OR activeRelease.revision > 0)
+LET release = IS_STRING(activeRelease.releaseKey) ? DOCUMENT(@@lifecycle_collection, activeRelease.releaseKey) : null
+LET active = DOCUMENT(@@lifecycle_collection, @active_key)
+LET releaseIsValid = hasRelease AND activeRelease.recordType == "active_project_release"
+  AND activeRelease.project == @project AND activeRelease.revision > 0
+  AND release != null AND release.recordType == "project_release" AND release.id == activeRelease.releaseId
+  AND release.project == @project AND IS_STRING(release.generation) AND release.generation != ""
+LET legacyIsValid = active != null AND active.recordType == @active_record_type
+  AND active.project == @project AND IS_STRING(active.manifestKey)
+LET manifestKey = hasRelease
+  ? (releaseIsValid ? CONCAT("manifest_", SHA256(CONCAT(@manifest_key_seed, release.generation))) : null)
+  : (legacyIsValid ? active.manifestKey : null)
+LET manifest = manifestKey == null ? null : DOCUMENT(@@lifecycle_collection, manifestKey)
+LET valid = manifest != null AND manifest.recordType == @manifest_record_type
+  AND (hasRelease ? manifest.dataset.project == @project AND manifest.dataset.generation == release.generation : manifest.dataset == active.dataset)
+  AND manifest.state IN [@ready_state, @staged_state]
+FILTER hasRelease OR valid
+RETURN valid ? {
+  dataset: manifest.dataset,
+  state: manifest.state,
+  schemaIdentity: manifest.schemaIdentity,
+  identityFormat: manifest.identityFormat,
+  analysisVersion: manifest.analysisVersion
+} : {}
 `
 
 const activateAQL = `
@@ -331,11 +341,13 @@ LET candidate = FIRST(
     RETURN manifest
 )
 LET active = DOCUMENT(@@lifecycle_collection, @active_key)
+LET activeRelease = DOCUMENT(@@lifecycle_collection, @active_release_key)
 FILTER candidate != null
 FILTER active != null
 FILTER active.recordType == @active_record_type
 FILTER active.project == @project
 FILTER active.sourceTracked != true
+FILTER activeRelease == null OR activeRelease.releaseId == null
 UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection
   OPTIONS { ignoreRevs: false, mergeObjects: false }
 RETURN { dataset: NEW.dataset }

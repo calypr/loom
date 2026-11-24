@@ -43,7 +43,7 @@ func (s *activationManifestStore) ReadManifest(context.Context, publication.Ref)
 	return s.manifest, nil
 }
 
-func (s *activationManifestStore) Activate(_ context.Context, manifest publication.Manifest) error {
+func (s *activationManifestStore) Activate(_ context.Context, manifest publication.Manifest, _ dataframepublication.BundleExecution) error {
 	s.activateCalls++
 	s.activated = manifest
 	return s.activateErr
@@ -105,7 +105,7 @@ func TestRunGenerationReusesReadyManifest(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	manifest := activationManifest(t, "project-a", "generation-a")
 	store := &activationManifestStore{manifest: manifest}
-	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, Manifests: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +127,8 @@ func TestGenerationStatusReportsReusableManifest(t *testing.T) {
 	manifest := activationManifest(t, "project-a", "generation-a")
 	store := &activationManifestStore{manifest: manifest}
 	svc, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: store,
+		LoadGeneration: activationGenerationRunner{}.RunGeneration,
+		Manifests:      store,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -149,8 +149,8 @@ func TestGenerationStatusReportsReusableManifest(t *testing.T) {
 func TestGenerationStatusPreservesManifestNotFound(t *testing.T) {
 	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
 	svc, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: store,
+		LoadGeneration: activationGenerationRunner{}.RunGeneration,
+		Manifests:      store,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +165,7 @@ func TestGenerationStatusPreservesManifestNotFound(t *testing.T) {
 func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
-	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, Manifests: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 func TestRunGenerationRejectsManifestLookupFailure(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	store := &activationManifestStore{readErr: errors.New("database unavailable")}
-	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, Manifests: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 			activator := &activationManifestStore{manifest: readyManifest}
 			releases := &activationReleaseStore{execution: execution, pointer: pointer}
 			runner := activationGenerationRunner{}
-			svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: activator, DataframeReleases: releases})
+			svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, Manifests: activator, ActivateBundle: activator.Activate, DataframeReleases: releases})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -261,10 +261,11 @@ func TestActivateGenerationActivatesPublishedAllOutputBundle(t *testing.T) {
 	activator := &activationManifestStore{manifest: manifest}
 	calledSuccess := false
 	svc, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: activator,
-		DataframeReleases:   &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
-		OnSuccess:           func(string) { calledSuccess = true },
+		LoadGeneration:    activationGenerationRunner{}.RunGeneration,
+		Manifests:         activator,
+		ActivateBundle:    activator.Activate,
+		DataframeReleases: &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
+		OnSuccess:         func(string) { calledSuccess = true },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -321,9 +322,10 @@ func TestActivateGenerationLoadingManifestMapsTo409(t *testing.T) {
 	}
 	activator := &activationManifestStore{manifest: loading}
 	svc, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: activator,
-		DataframeReleases:   &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
+		LoadGeneration:    activationGenerationRunner{}.RunGeneration,
+		Manifests:         activator,
+		ActivateBundle:    activator.Activate,
+		DataframeReleases: &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -366,7 +368,7 @@ func (a *recordingActivator) ReadManifest(_ context.Context, ref publication.Ref
 	return publication.Manifest{}, publication.ErrManifestNotFound
 }
 
-func (a *recordingActivator) Activate(_ context.Context, candidate publication.Manifest) error {
+func (a *recordingActivator) Activate(_ context.Context, candidate publication.Manifest, _ dataframepublication.BundleExecution) error {
 	a.activated = append(a.activated, candidate.Dataset)
 	return nil
 }
@@ -416,10 +418,11 @@ func newTestHandler(t *testing.T, writePaths []string, catalogPaths map[string][
 		},
 	})
 	service, err := NewService(ServiceConfig{
-		LoadGeneration:      loader,
-		Logger:              slog.New(slog.NewTextHandler(io.Discard, nil)),
-		GenerationActivator: activator,
-		DataframeReleases:   releases,
+		LoadGeneration:    loader,
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Manifests:         activator,
+		ActivateBundle:    activator.Activate,
+		DataframeReleases: releases,
 	})
 	if err != nil {
 		t.Fatalf("service: %v", err)

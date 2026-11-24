@@ -163,6 +163,8 @@ LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)
 LET releasePointer = DOCUMENT(@@lifecycle_collection, @active_release_key)
 LET storedRelease = DOCUMENT(@@lifecycle_collection, @release_key)
 LET currentRevision = releasePointer == null ? 0 : releasePointer.revision
+LET hasRelease = releasePointer != null AND (releasePointer.releaseKey != null OR releasePointer.releaseId != null OR currentRevision > 0)
+LET currentRelease = hasRelease AND IS_STRING(releasePointer.releaseKey) ? DOCUMENT(@@lifecycle_collection, releasePointer.releaseKey) : null
 LET alreadyActive = releasePointer != null AND releasePointer.releaseId == @release_id
 LET selectedRevision = alreadyActive ? currentRevision : @next_revision
 FILTER storedRelease != null AND storedRelease.recordType == "project_release"
@@ -173,9 +175,11 @@ FILTER manifest.state IN [@staged_state, @ready_state]
 FILTER generationPointer != null AND generationPointer.recordType == "active_generation"
 FILTER generationPointer.sourceTracked != true
 FILTER NOT @require_current_generation OR (
-  generationPointer.dataset.project == @project
-  AND generationPointer.dataset.generation == @generation
-  AND generationPointer.manifestKey == @manifest_key
+  hasRelease
+  ? (currentRelease != null AND currentRelease.recordType == "project_release"
+    AND currentRelease.project == @project AND currentRelease.id == releasePointer.releaseId AND currentRelease.generation == @generation)
+  : (generationPointer.dataset.project == @project
+    AND generationPointer.dataset.generation == @generation AND generationPointer.manifestKey == @manifest_key)
 )
 FILTER releasePointer != null AND releasePointer.recordType == "active_project_release"
 FILTER currentRevision == @expected_revision OR alreadyActive

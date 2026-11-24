@@ -26,6 +26,7 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/releasecommit"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	"github.com/calypr/loom/internal/semantic/backfill"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -616,7 +617,7 @@ func activateStagedGeneration(ctx context.Context, connection arangostore.Connec
 	if err != nil {
 		return err
 	}
-	return lifecycle.Activate(ctx, manifest)
+	return releasecommit.ActivateGeneration(ctx, client, lifecycle, manifest)
 }
 
 type semanticInventoryBackfillCommand struct {

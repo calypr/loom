@@ -959,8 +959,8 @@ func TestCreateDatasetGenerationRejectedAuthorizationAndLoaderFailureLeaveNoFile
 
 func TestGetDatasetGenerationStatusMapsMissingManifest(t *testing.T) {
 	service, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: &activationManifestStore{readErr: publication.ErrManifestNotFound},
+		LoadGeneration: activationGenerationRunner{}.RunGeneration,
+		Manifests:      &activationManifestStore{readErr: publication.ErrManifestNotFound},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -980,8 +980,8 @@ func TestGetDatasetGenerationStatusMapsMissingManifest(t *testing.T) {
 func TestGetDatasetGenerationStatusAuthorizesBeforeManifestLookup(t *testing.T) {
 	store := &activationManifestStore{manifest: activationManifest(t, "project-a", "generation-a")}
 	service, err := NewService(ServiceConfig{
-		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
-		GenerationActivator: store,
+		LoadGeneration: activationGenerationRunner{}.RunGeneration,
+		Manifests:      store,
 	})
 	if err != nil {
 		t.Fatal(err)

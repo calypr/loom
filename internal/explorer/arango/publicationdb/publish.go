@@ -14,9 +14,9 @@ import (
 	publicationdata "github.com/calypr/loom/internal/dataframe/publication"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataset"
-	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/releasecommit"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -84,74 +84,80 @@ func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request ex
 
 	collections := store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
-		Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection, db.ViewBuilderSettingsCollection},
+		Write: []string{db.ExplorersCollection, db.RevisionsCollection, db.ViewBuilderSettingsCollection},
 	}
 	if sourceLoad != nil {
 		collections.Write = append(collections.Write, sourceLoad.PublicationCollection())
 	}
-	var active dataset.ActiveRelease
-	err = s.client.WithTransaction(ctx, collections, func(txCtx context.Context, tx store.RowQueryer) error {
-		execution, err := readProjectConfigExecution(txCtx, tx, executionID)
-		if err != nil {
-			return err
-		}
-		if err := validateProjectConfigExecution(request, execution); err != nil {
-			return err
-		}
+	active, err := releasecommit.GoLive(ctx, s.client, releasecommit.Request{
+		Release: request.Release, ExpectedRevision: request.ExpectedReleaseRevision, Collections: collections,
+		Prepare: func(txCtx context.Context, tx store.RowQueryer) (releasecommit.Participant, error) {
+			return prepareProjectConfigCommit(txCtx, tx, request, project, executionID, sourceLoad)
+		},
+	})
+	if err != nil {
+		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs for %s/%s: %w", project, request.Release.Generation, normalizeViewBuilderConflict(err))
+	}
+	return active, nil
+}
 
-		owners, err := readProjectConfigOwners(txCtx, tx, project)
-		if err != nil {
-			return err
-		}
-		var settings *viewBuilderSettingsRow
-		if request.CatalogSnapshot != nil {
-			if err := validateExpectedProjectConfigHeads(request, project, owners); err != nil {
-				return err
-			}
-			settings, err = readViewBuilderSettings(txCtx, tx, project)
-			if err != nil {
-				return err
-			}
-		}
-		plans, retired, revisionIDs, err := planProjectConfigOwners(request, project, owners)
-		if err != nil {
-			return err
-		}
-		for _, plan := range plans {
-			revisionIDs = append(revisionIDs, plan.publication.Revision.ID)
-		}
-		if request.CatalogSnapshot != nil {
-			revisionIDs = append(revisionIDs, request.CatalogSnapshot.ID)
-			if settings != nil {
-				revisionIDs = append(revisionIDs, settings.value.Catalogs[request.RecipeName])
-			}
-		}
-		revisions, err := readProjectConfigRevisions(txCtx, tx, uniqueStrings(revisionIDs))
-		if err != nil {
-			return err
-		}
-		if err := validateProjectConfigRevisionGuards(plans, retired, revisions); err != nil {
-			return err
-		}
-		if request.CatalogSnapshot != nil {
-			if priorID := settingsCatalogID(settings, request.RecipeName); priorID != "" {
-				if prior, ok := revisions[priorID]; !ok || prior.Project != project || prior.ExplorerID != "" || prior.Publication.ExecutionID == "" {
-					return fmt.Errorf("stored catalog anchor for recipe %q is invalid", request.RecipeName)
-				}
-			}
-			if err := validateCatalogSnapshot(request, execution); err != nil {
-				return err
-			}
-			if existing, ok := revisions[request.CatalogSnapshot.ID]; ok && !sameProjectConfigRevision(existing, *request.CatalogSnapshot) {
-				return fmt.Errorf("catalog snapshot %q conflicts with immutable content: %w", request.CatalogSnapshot.ID, explorer.ErrImmutableRevision)
-			}
-		}
+func prepareProjectConfigCommit(txCtx context.Context, tx store.RowQueryer, request explorer.ProjectConfigPublishRequest, project, executionID string, sourceLoad SourceLoadCommit) (releasecommit.Participant, error) {
+	execution, err := readProjectConfigExecution(txCtx, tx, executionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateProjectConfigExecution(request, execution); err != nil {
+		return nil, err
+	}
 
-		active, err = datasetarango.CompareAndSwapActivateRelease(txCtx, tx, request.Release, request.ExpectedReleaseRevision)
-		if err != nil {
-			return err
+	owners, err := readProjectConfigOwners(txCtx, tx, project)
+	if err != nil {
+		return nil, err
+	}
+	var settings *viewBuilderSettingsRow
+	if request.CatalogSnapshot != nil {
+		if err := validateExpectedProjectConfigHeads(request, project, owners); err != nil {
+			return nil, err
 		}
-
+		settings, err = readViewBuilderSettings(txCtx, tx, project)
+		if err != nil {
+			return nil, err
+		}
+	}
+	plans, retired, revisionIDs, err := planProjectConfigOwners(request, project, owners)
+	if err != nil {
+		return nil, err
+	}
+	for _, plan := range plans {
+		revisionIDs = append(revisionIDs, plan.publication.Revision.ID)
+	}
+	if request.CatalogSnapshot != nil {
+		revisionIDs = append(revisionIDs, request.CatalogSnapshot.ID)
+		if settings != nil {
+			revisionIDs = append(revisionIDs, settings.value.Catalogs[request.RecipeName])
+		}
+	}
+	revisions, err := readProjectConfigRevisions(txCtx, tx, uniqueStrings(revisionIDs))
+	if err != nil {
+		return nil, err
+	}
+	if err := validateProjectConfigRevisionGuards(plans, retired, revisions); err != nil {
+		return nil, err
+	}
+	if request.CatalogSnapshot != nil {
+		if priorID := settingsCatalogID(settings, request.RecipeName); priorID != "" {
+			if prior, ok := revisions[priorID]; !ok || prior.Project != project || prior.ExplorerID != "" || prior.Publication.ExecutionID == "" {
+				return nil, fmt.Errorf("stored catalog anchor for recipe %q is invalid", request.RecipeName)
+			}
+		}
+		if err := validateCatalogSnapshot(request, execution); err != nil {
+			return nil, err
+		}
+		if existing, ok := revisions[request.CatalogSnapshot.ID]; ok && !sameProjectConfigRevision(existing, *request.CatalogSnapshot) {
+			return nil, fmt.Errorf("catalog snapshot %q conflicts with immutable content: %w", request.CatalogSnapshot.ID, explorer.ErrImmutableRevision)
+		}
+	}
+	return func(txCtx context.Context, tx store.RowQueryer, active dataset.ActiveRelease) error {
 		for _, plan := range plans {
 			revision := plan.publication.Revision
 			if err := insertProjectConfigRevision(txCtx, tx, revision, revisions[revision.ID]); err != nil {
@@ -221,11 +227,7 @@ func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request ex
 			return sourceLoad.CompletePublication(txCtx, tx, executionID, active.Revision)
 		}
 		return nil
-	})
-	if err != nil {
-		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs for %s/%s: %w", project, request.Release.Generation, normalizeViewBuilderConflict(err))
-	}
-	return active, nil
+	}, nil
 }
 
 func canonicalProjectConfigPublications(configs []explorer.ProjectConfigPublication) ([]explorer.ProjectConfigPublication, error) {

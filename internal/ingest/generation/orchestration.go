@@ -20,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/releasecommit"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -434,7 +435,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	manifest = stagedManifest
 	manifestStaged = true
 	if !opts.StageOnly && !opts.DeferActivation {
-		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
+		if activationErr := releasecommit.ActivateGeneration(ctx, client, lifecycleStore, manifest); activationErr != nil {
 			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
 		}
 		recordFinalization("activation")
