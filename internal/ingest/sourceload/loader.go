@@ -70,7 +70,17 @@ func (e *SourceFileValidationError) Error() string {
 	return fmt.Sprintf("source file validation failed for %d row(s)", e.TotalErrors)
 }
 
-type SourceLoadMaterializer func(context.Context, string, string, string, string, int64) (executionID string, sourceRevision int64, err error)
+type PublicationAttempt struct {
+	Project          string
+	Generation       string
+	OperationID      string
+	GitCommit        string
+	ExpectedRevision int64
+	record           sourceLoadRecord
+	owner            string
+}
+
+type SourceLoadMaterializer func(context.Context, PublicationAttempt) error
 
 type SourceLoadPublisherConfig struct {
 	Client               *arangostore.Client

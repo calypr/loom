@@ -57,7 +57,12 @@ type projectConfigOwnerPlan struct {
 	reactivate  bool
 }
 
-func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error) {
+type SourceLoadCommit interface {
+	PublicationCollection() string
+	CompletePublication(context.Context, store.RowQueryer, string, int64) error
+}
+
+func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest, sourceLoad SourceLoadCommit) (dataset.ActiveRelease, error) {
 	if request.CatalogSnapshot != nil {
 		normalized, err := canonicalProjectConfigRevision(*request.CatalogSnapshot)
 		if err != nil {
@@ -77,11 +82,15 @@ func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request ex
 		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs: Explorer Arango store is required")
 	}
 
-	var active dataset.ActiveRelease
-	err = s.client.WithTransaction(ctx, store.TransactionCollections{
+	collections := store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
 		Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection, db.ViewBuilderSettingsCollection},
-	}, func(txCtx context.Context, tx store.RowQueryer) error {
+	}
+	if sourceLoad != nil {
+		collections.Write = append(collections.Write, sourceLoad.PublicationCollection())
+	}
+	var active dataset.ActiveRelease
+	err = s.client.WithTransaction(ctx, collections, func(txCtx context.Context, tx store.RowQueryer) error {
 		execution, err := readProjectConfigExecution(txCtx, tx, executionID)
 		if err != nil {
 			return err
@@ -207,6 +216,9 @@ func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request ex
 					return err
 				}
 			}
+		}
+		if sourceLoad != nil {
+			return sourceLoad.CompletePublication(txCtx, tx, executionID, active.Revision)
 		}
 		return nil
 	})

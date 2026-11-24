@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/lease"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operationID string) (SourcePublishReceipt, error) {
@@ -62,6 +63,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		}
 		return SourcePublishReceipt{}, ErrSourceLoadInProgress
 	}
+	record.ManifestHash = manifestHash
 	defer p.releaseSourceLoadPublication(record.Key, owner)
 	workCtx, stopLease := p.renewSourceLoadPublication(ctx, record.Key, owner)
 	defer stopLease()
@@ -97,32 +99,28 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		return SourcePublishReceipt{}, err
 	}
 	materializeStarted := time.Now()
-	executionID, revision, err := p.materialize(workCtx, project, record.Generation, operationID, record.Plan.Commit, record.BaseRevision)
+	err = p.materialize(workCtx, PublicationAttempt{
+		Project: project, Generation: record.Generation, OperationID: operationID,
+		GitCommit: record.Plan.Commit, ExpectedRevision: record.BaseRevision, record: record, owner: owner,
+	})
+	latest, found, readErr := p.readSourceLoad(ctx, record.Key)
+	if readErr == nil && found && latest.State == SourceLoadPublished {
+		slog.InfoContext(ctx, "source load published", "operation_id", operationID, "execution_id", latest.ExecutionID,
+			"finalize_and_prepare_ms", materializeStarted.Sub(finalizeStarted).Milliseconds(),
+			"materialize_and_activate_ms", time.Since(materializeStarted).Milliseconds())
+		return sourceLoadPublicationReceipt(latest, err != nil), nil
+	}
+	if errors.Is(err, dataset.ErrReleaseActivationConflict) {
+		_ = p.supersedeSourceLoad(workCtx, record.Key, owner)
+		return SourcePublishReceipt{}, &SourcePublishConflictError{Reason: "project release changed while this source load was publishing"}
+	}
 	if err != nil {
-		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
-			_ = p.supersedeSourceLoad(workCtx, record.Key, owner)
-			return SourcePublishReceipt{}, &SourcePublishConflictError{Reason: "project release changed while this source load was publishing"}
-		}
 		return SourcePublishReceipt{}, err
 	}
-	materialized := time.Now()
-	if executionID == "" || revision <= record.BaseRevision {
-		return SourcePublishReceipt{}, fmt.Errorf("source load publication returned an invalid release receipt")
+	if readErr != nil {
+		return SourcePublishReceipt{}, readErr
 	}
-	record.ExecutionID, record.SourceRevision, record.ManifestHash, record.State = executionID, revision, manifestHash, SourceLoadPublished
-	if err := p.completeSourceLoadPublication(workCtx, record, owner); err != nil {
-
-		latest, found, readErr := p.readSourceLoad(ctx, record.Key)
-		if readErr == nil && found && latest.State == SourceLoadPublished {
-			return sourceLoadPublicationReceipt(latest, true), nil
-		}
-		return SourcePublishReceipt{}, err
-	}
-	slog.InfoContext(ctx, "source load published", "operation_id", operationID, "execution_id", executionID,
-		"finalize_and_prepare_ms", materializeStarted.Sub(finalizeStarted).Milliseconds(),
-		"materialize_and_activate_ms", materialized.Sub(materializeStarted).Milliseconds(),
-		"complete_ms", time.Since(materialized).Milliseconds())
-	return sourceLoadPublicationReceipt(record, false), nil
+	return SourcePublishReceipt{}, fmt.Errorf("publication transaction did not complete the source load receipt")
 }
 
 func (p *RepositorySourceLoader) claimSourceLoadPublication(ctx context.Context, key, owner, manifestHash string) (bool, error) {
@@ -153,12 +151,19 @@ UPDATE record WITH {publish_expires_at:DATE_NOW()+@ttl} IN @@loads RETURN {updat
 	return renewal.Context(), func() { renewal.Stop(nil) }
 }
 
-func (p *RepositorySourceLoader) completeSourceLoadPublication(ctx context.Context, record sourceLoadRecord, owner string) error {
+func (attempt PublicationAttempt) PublicationCollection() string {
+	return sourceLoadCollection
+}
+
+func (attempt PublicationAttempt) CompletePublication(ctx context.Context, tx arangostore.RowQueryer, executionID string, revision int64) error {
+	if executionID == "" || revision <= attempt.record.BaseRevision {
+		return fmt.Errorf("source load publication returned an invalid release receipt")
+	}
 	updated := false
-	err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
+	err := tx.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
 FILTER record != null AND record.state == @pending AND record.publish_owner == @owner AND record.publish_expires_at >= DATE_NOW()
 UPDATE record WITH {state:@published,execution_id:@execution,source_revision:@revision,manifest_hash:@hash,publish_owner:null,publish_expires_at:0,updated_at:@now} IN @@loads
-RETURN {updated:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key": record.Key, "owner": owner, "pending": SourceLoadPublishPending, "published": SourceLoadPublished, "execution": record.ExecutionID, "revision": record.SourceRevision, "hash": record.ManifestHash, "now": time.Now().UTC()}, func(row map[string]any) error { updated, _ = row["updated"].(bool); return nil })
+RETURN {updated:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key": attempt.record.Key, "owner": attempt.owner, "pending": SourceLoadPublishPending, "published": SourceLoadPublished, "execution": executionID, "revision": revision, "hash": attempt.record.ManifestHash, "now": time.Now().UTC()}, func(row map[string]any) error { updated, _ = row["updated"].(bool); return nil })
 	if err != nil {
 		return err
 	}

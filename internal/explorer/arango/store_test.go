@@ -44,7 +44,7 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 	)
 	originalConfigJSON := string(first.Configs[0].Revision.Config)
 	originalContractJSON := string(first.Configs[0].Revision.PublicOutputContract)
-	active, err := explorers.PublishProjectConfigs(ctx, first)
+	active, err := explorers.PublishProjectConfigs(ctx, first, nil)
 	if err != nil {
 		t.Fatalf("publish first config set: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 	assertProjectConfigActive(t, ctx, explorers, project, "default", "revision-1-default")
 	assertProjectConfigActive(t, ctx, explorers, project, "files", "revision-1-files")
 
-	retried, err := explorers.PublishProjectConfigs(ctx, first)
+	retried, err := explorers.PublishProjectConfigs(ctx, first, nil)
 	if err != nil {
 		t.Fatalf("retry exact active config publication: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 		"commit-2", active.Revision,
 		explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default v2", "revision-2-default", "generation-2", "execution-2", bundle),
 	)
-	active, err = explorers.PublishProjectConfigs(ctx, second)
+	active, err = explorers.PublishProjectConfigs(ctx, second, nil)
 	if err != nil {
 		t.Fatalf("publish reduced config set: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	if _, err := explorers.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "taken", Title: "Interactive", ManagementMode: viewer.ManagementInteractive, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := explorers.PublishProjectConfigs(ctx, request); !errors.Is(err, explorer.ErrDraftConflict) {
+	if _, err := explorers.PublishProjectConfigs(ctx, request, nil); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("interactive ID collision error = %v, want ErrDraftConflict", err)
 	}
 	assertNoProjectConfigRelease(t, ctx, generations, project)
@@ -137,7 +137,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	if _, err := explorers.Create(ctx, explorer.Explorer{Project: legacyProject, ExplorerID: "default", Title: "Legacy repository", ManagementMode: viewer.ManagementRepository, DraftVersion: 1, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := explorers.PublishProjectConfigs(ctx, legacyRequest); !errors.Is(err, explorer.ErrDraftConflict) {
+	if _, err := explorers.PublishProjectConfigs(ctx, legacyRequest, nil); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("legacy repository owner collision error = %v, want ErrDraftConflict", err)
 	}
 	assertNoProjectConfigRelease(t, ctx, generations, legacyProject)
@@ -157,7 +157,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	if _, err := explorers.InsertRevision(ctx, conflicting); err != nil {
 		t.Fatalf("seed immutable revision key: %v", err)
 	}
-	if _, err := explorers.PublishProjectConfigs(ctx, immutableRequest); !errors.Is(err, explorer.ErrImmutableRevision) {
+	if _, err := explorers.PublishProjectConfigs(ctx, immutableRequest, nil); !errors.Is(err, explorer.ErrImmutableRevision) {
 		t.Fatalf("immutable revision collision error = %v, want ErrImmutableRevision", err)
 	}
 	assertNoProjectConfigRelease(t, ctx, generations, immutableProject)
@@ -167,7 +167,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 		"commit-cas", 77,
 		explorerfixtures.ProjectConfigPublication(t, casProject, "default", "recipe-a", "Default", "revision-cas", "generation-1", "execution-cas", bundle),
 	)
-	if _, err := explorers.PublishProjectConfigs(ctx, casRequest); !errors.Is(err, dataset.ErrReleaseActivationConflict) {
+	if _, err := explorers.PublishProjectConfigs(ctx, casRequest, nil); !errors.Is(err, dataset.ErrReleaseActivationConflict) {
 		t.Fatalf("wrong release CAS error = %v, want ErrReleaseActivationConflict", err)
 	}
 	assertNoProjectConfigRelease(t, ctx, generations, casProject)
@@ -188,7 +188,7 @@ func TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstA
 		explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default A", "revision-a-default", "generation-1", "execution-1", bundle),
 		explorerfixtures.ProjectConfigPublication(t, project, "files", "recipe-a", "Files A", "revision-a-files", "generation-1", "execution-1", bundle),
 	)
-	firstActive, err := explorers.PublishProjectConfigs(ctx, first)
+	firstActive, err := explorers.PublishProjectConfigs(ctx, first, nil)
 	if err != nil {
 		t.Fatalf("publish A config set: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstA
 	second := first
 	second.Configs = []explorer.ProjectConfigPublication{definitionB}
 	second.ExpectedReleaseRevision = firstActive.Revision
-	secondActive, err := explorers.PublishProjectConfigs(ctx, second)
+	secondActive, err := explorers.PublishProjectConfigs(ctx, second, nil)
 	if err != nil {
 		t.Fatalf("publish B config set on same execution: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstA
 
 	third := first
 	third.ExpectedReleaseRevision = secondActive.Revision
-	thirdActive, err := explorers.PublishProjectConfigs(ctx, third)
+	thirdActive, err := explorers.PublishProjectConfigs(ctx, third, nil)
 	if err != nil {
 		t.Fatalf("reactivate exact A revisions on same execution: %v", err)
 	}
@@ -851,7 +851,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		"legacy-commit", 0,
 		explorerfixtures.ProjectConfigPublication(t, "view-builder-adopt", "default", "recipe-a", "Legacy default", "legacy-revision", "legacy-generation", "legacy-execution", bundle),
 	)
-	if _, err := explorers.PublishProjectConfigs(ctx, legacy); err != nil {
+	if _, err := explorers.PublishProjectConfigs(ctx, legacy, nil); err != nil {
 		t.Fatalf("seed pre-View-Builder project: %v", err)
 	}
 	legacySettings, err := explorers.GetViewBuilderSettings(ctx, "view-builder-adopt")
@@ -884,7 +884,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 	)
 	first.ExpectedConfigRevisionIDs = map[string]string{"default": "", "files": ""}
 	first.CatalogSnapshot = viewBuilderTestCatalogSnapshot(t, first.Configs[0])
-	active, err := explorers.PublishProjectConfigs(ctx, first)
+	active, err := explorers.PublishProjectConfigs(ctx, first, nil)
 	if err != nil {
 		t.Fatalf("publish source with catalog snapshot: %v", err)
 	}
@@ -904,7 +904,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("stored metadata-only catalog snapshot = %+v, %v", catalogSnapshot, err)
 	}
 
-	if _, err := explorers.PublishProjectConfigs(ctx, first); err != nil {
+	if _, err := explorers.PublishProjectConfigs(ctx, first, nil); err != nil {
 		t.Fatalf("retry exact source publication after lost acknowledgement: %v", err)
 	}
 	retriedSettings, err := explorers.GetViewBuilderSettings(ctx, project)
@@ -1041,7 +1041,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		"commit-2", active.Revision, secondPublication)
 	second.ExpectedConfigRevisionIDs = map[string]string{"files": filesPrepared.Revision.ID}
 	second.CatalogSnapshot = viewBuilderTestCatalogSnapshot(t, secondPublication)
-	active, err = explorers.PublishProjectConfigs(ctx, second)
+	active, err = explorers.PublishProjectConfigs(ctx, second, nil)
 	if err != nil {
 		t.Fatalf("rebind remaining views to second execution: %v", err)
 	}
@@ -1072,7 +1072,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		"commit-3", active.Revision, thirdPublication)
 	third.ExpectedConfigRevisionIDs = map[string]string{"files": "revision-1-files"}
 	third.CatalogSnapshot = viewBuilderTestCatalogSnapshot(t, thirdPublication)
-	if _, err := explorers.PublishProjectConfigs(ctx, third); !errors.Is(err, explorer.ErrDraftConflict) {
+	if _, err := explorers.PublishProjectConfigs(ctx, third, nil); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("stale source owner head error = %v, want ErrDraftConflict", err)
 	}
 	if _, err := explorers.GetRevision(ctx, thirdPublication.Revision.ID); !errors.Is(err, explorer.ErrNotFound) {
@@ -1294,7 +1294,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	first := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle, "commit-1", 0, firstPublication)
 	first.ExpectedConfigRevisionIDs = map[string]string{"default": ""}
 	first.CatalogSnapshot = projectConfigCatalogSnapshotForTest(t, firstPublication)
-	active, err := explorers.PublishProjectConfigs(ctx, first)
+	active, err := explorers.PublishProjectConfigs(ctx, first, nil)
 	if err != nil {
 		t.Fatalf("publish source and catalog anchor: %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	if err != nil || stored.ExplorerID != "" || stored.Status != explorer.RevisionReady || len(stored.Config) != 0 || stored.Publication.ExecutionID != "execution-1" {
 		t.Fatalf("stored source catalog=%+v, err=%v", stored, err)
 	}
-	if _, err := explorers.PublishProjectConfigs(ctx, first); err != nil {
+	if _, err := explorers.PublishProjectConfigs(ctx, first, nil); err != nil {
 		t.Fatalf("retry exact source publication: %v", err)
 	}
 	retried, err := explorers.GetViewBuilderSettings(ctx, project)
@@ -1317,7 +1317,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	second := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-2", "execution-2", bundle, "commit-2", active.Revision, secondPublication)
 	second.ExpectedConfigRevisionIDs = map[string]string{"default": "revision-1"}
 	second.CatalogSnapshot = projectConfigCatalogSnapshotForTest(t, secondPublication)
-	if _, err := explorers.PublishProjectConfigs(ctx, second); err != nil {
+	if _, err := explorers.PublishProjectConfigs(ctx, second, nil); err != nil {
 		t.Fatalf("rebind catalog to new source execution: %v", err)
 	}
 	updated, err := explorers.GetViewBuilderSettings(ctx, project)
@@ -1325,6 +1325,47 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 		t.Fatalf("source rebind did not advance catalog anchor: %+v, err=%v", updated, err)
 	}
 
+}
+
+func TestSourceLoadReceiptFailureRollsBackProjectConfigPublicationAgainstArango(t *testing.T) {
+	ctx, client, explorers, generations := projectConfigPublicationDB(t)
+	project := "project-config-source-load-rollback"
+	bundle := projectConfigTestBundle("recipe-a", "translation-1")
+	config := explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-default", "generation-1", "execution-1", bundle)
+	request := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle, "commit-1", 0, config)
+	request.ExpectedConfigRevisionIDs = map[string]string{"default": ""}
+	request.CatalogSnapshot = projectConfigCatalogSnapshotForTest(t, config)
+
+	failure := errors.New("source-load publication lease expired")
+	receipt := failingSourceLoadReceipt{failure: failure}
+	if _, err := explorers.PublishProjectConfigs(ctx, request, receipt); !errors.Is(err, failure) {
+		t.Fatalf("publish error = %v, want receipt failure", err)
+	}
+	assertNoProjectConfigRelease(t, ctx, generations, project)
+	if _, err := explorers.Get(ctx, project, "default"); !errors.Is(err, explorer.ErrNotFound) {
+		t.Fatalf("rolled back owner read err = %v, want not found", err)
+	}
+	for _, id := range []string{config.Revision.ID, request.CatalogSnapshot.ID} {
+		if _, err := explorers.GetRevision(ctx, id); !errors.Is(err, explorer.ErrNotFound) {
+			t.Fatalf("rolled back revision %q read err = %v, want not found", id, err)
+		}
+	}
+	settings, err := explorers.GetViewBuilderSettings(ctx, project)
+	if err != nil || settings.Version != 0 || len(settings.Catalogs) != 0 {
+		t.Fatalf("rolled back view settings = %+v, err = %v", settings, err)
+	}
+}
+
+type failingSourceLoadReceipt struct {
+	failure error
+}
+
+func (r failingSourceLoadReceipt) PublicationCollection() string {
+	return db.ViewBuilderSettingsCollection
+}
+
+func (r failingSourceLoadReceipt) CompletePublication(context.Context, store.RowQueryer, string, int64) error {
+	return r.failure
 }
 
 func projectConfigCatalogSnapshotForTest(t *testing.T, publication explorer.ProjectConfigPublication) *explorer.Revision {
