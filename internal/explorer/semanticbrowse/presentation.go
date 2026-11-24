@@ -255,9 +255,9 @@ func (b *Service) semanticInventoryPresentationForOutput(
 		}
 		return nil, nil, support.PersistenceFailure("catalog", "semantic field coverage could not be read", err)
 	}
-	if lookup.State != semanticarango.SemanticCoverageBuildComplete && lookup.State != semanticarango.SemanticCoverageBuildPartial {
+	if lookup.State != semantic.SemanticCoverageBuildComplete && lookup.State != semantic.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
-		if lookup.State == semanticarango.SemanticCoverageBuildBuilding || lookup.State == semanticarango.SemanticCoverageBuildFailed {
+		if lookup.State == semantic.SemanticCoverageBuildBuilding || lookup.State == semantic.SemanticCoverageBuildFailed {
 			reason = FieldPresentationIncompleteCoverage
 		}
 		return choices, fieldPresentationUnavailable(reason), nil
@@ -312,7 +312,7 @@ func (b *Service) semanticInventoryPresentationForOutput(
 		coverage := coverageByPath[semanticCoverageCandidatePathKey(semanticarango.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 		})]
-		if coverage.ResourceState != semanticarango.SemanticCoverageBuildComplete {
+		if coverage.ResourceState != semantic.SemanticCoverageBuildComplete {
 			decisions = append(decisions, FieldPresentationKeepRaw{
 				Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage,
 			})

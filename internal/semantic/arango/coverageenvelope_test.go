@@ -61,7 +61,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	}
 
 	aOnly := lookup(t, []string{"Patient/scope-a"}, false, specimenCandidate)
-	if aOnly.State != SemanticCoverageBuildPartial || aOnly.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if aOnly.State != semantic.SemanticCoverageBuildPartial || aOnly.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		aOnly.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(aOnly.Candidates[0].References) == 0 {
 		t.Fatalf("complete Specimen auth-A candidate under partial audit = %+v, want exact groupable proof", aOnly)
 	}
@@ -75,7 +75,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := lookup(t, test.paths, test.unrestricted, specimenCandidate)
-			if result.State != SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+			if result.State != semantic.SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 				result.Candidates[0].Status == SemanticCoverageCandidateGroupable || len(result.Candidates[0].References) != 0 {
 				t.Fatalf("combined Specimen auth candidate = %+v, want no groupable proof", result)
 			}
@@ -83,12 +83,12 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	}
 
 	task := lookup(t, []string{"Patient/scope-a"}, false, SemanticCoverageCandidatePath{ResourceType: "Task", CanonicalPath: "code.coding[].code"})
-	if task.State != SemanticCoverageBuildPartial || task.Candidates[0].ResourceState != SemanticCoverageBuildMissing ||
+	if task.State != semantic.SemanticCoverageBuildPartial || task.Candidates[0].ResourceState != semantic.SemanticCoverageBuildMissing ||
 		task.Candidates[0].ResourceReason != "SOURCE_COLLECTION_MISSING" || task.Candidates[0].Status != SemanticCoverageCandidateUnavailable || len(task.Candidates[0].References) != 0 {
 		t.Fatalf("missing Task resource candidate = %+v, want distinct MISSING certificate and no refs", task)
 	}
 	patient := lookup(t, nil, true, SemanticCoverageCandidatePath{ResourceType: "Patient", CanonicalPath: "identifier.type.coding[].code"})
-	if patient.State != SemanticCoverageBuildPartial || patient.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if patient.State != semantic.SemanticCoverageBuildPartial || patient.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		patient.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || len(patient.Candidates[0].References) != 0 {
 		t.Fatalf("existing empty Patient resource candidate = %+v, want COMPLETE certificate with raw absence", patient)
 	}
@@ -98,7 +98,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{"Patient/scope-a"}, Candidates: []SemanticCoverageCandidatePath{specimenCandidate},
 	})
-	if err != nil || staleBuild.State != SemanticCoverageBuildUnavailable || staleBuild.Reason != "BUILD_ID_MISMATCH" || len(staleBuild.Candidates[0].References) != 0 {
+	if err != nil || staleBuild.State != semantic.SemanticCoverageBuildUnavailable || staleBuild.Reason != "BUILD_ID_MISMATCH" || len(staleBuild.Candidates[0].References) != 0 {
 		t.Fatalf("stale build lookup = %+v, err=%v; want unavailable identity proof", staleBuild, err)
 	}
 	staleSchema, err := adapter.LookupSemanticCoverage(ctx, SemanticCoverageLookupOptions{
@@ -106,7 +106,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		SchemaIdentity: strings.Repeat("c", 64), SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{"Patient/scope-a"}, Candidates: []SemanticCoverageCandidatePath{specimenCandidate},
 	})
-	if err != nil || staleSchema.State != SemanticCoverageBuildUnavailable || len(staleSchema.Candidates[0].References) != 0 {
+	if err != nil || staleSchema.State != semantic.SemanticCoverageBuildUnavailable || len(staleSchema.Candidates[0].References) != 0 {
 		t.Fatalf("stale schema lookup = %+v, err=%v; want unavailable identity proof", staleSchema, err)
 	}
 
@@ -118,7 +118,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{"Patient/scope-a"}, Candidates: []SemanticCoverageCandidatePath{specimenCandidate},
 	})
-	if err != nil || building.State != SemanticCoverageBuildBuilding || len(building.Candidates[0].References) != 0 {
+	if err != nil || building.State != semantic.SemanticCoverageBuildBuilding || len(building.Candidates[0].References) != 0 {
 		t.Fatalf("in-progress resource replay lookup = %+v, err=%v; want BUILDING and no refs", building, err)
 	}
 	if err := adapter.BeginSemanticCoverageResource(ctx, identity, "Specimen"); err != nil {
@@ -141,12 +141,12 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	}
 	assertSemanticCoverageEnvelopes(t, ctx, client, identity, replayedContributions)
 	oldPartition := lookup(t, []string{"Patient/scope-a"}, false, specimenCandidate)
-	if oldPartition.State != SemanticCoverageBuildPartial || oldPartition.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if oldPartition.State != semantic.SemanticCoverageBuildPartial || oldPartition.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		oldPartition.Candidates[0].Status == SemanticCoverageCandidateGroupable || len(oldPartition.Candidates[0].References) != 0 {
 		t.Fatalf("old authorization partition after source auth-path drift = %+v, want no old proof", oldPartition)
 	}
 	replayed := lookup(t, []string{"Patient/scope-c"}, false, specimenCandidate)
-	if replayed.State != SemanticCoverageBuildPartial || replayed.Candidates[0].ResourceState != SemanticCoverageBuildComplete ||
+	if replayed.State != semantic.SemanticCoverageBuildPartial || replayed.Candidates[0].ResourceState != semantic.SemanticCoverageBuildComplete ||
 		replayed.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(replayed.Candidates[0].References) == 0 {
 		t.Fatalf("replayed Specimen auth-A proof = %+v, want current groupable proof", replayed)
 	}
@@ -224,7 +224,7 @@ FOR d IN fhir_semantic_coverage
 		AuthResourcePaths: []string{"Patient/scope-a"},
 		Candidates:        []SemanticCoverageCandidatePath{{ResourceType: "Specimen", CanonicalPath: "type.coding[].code"}},
 	})
-	if err != nil || result.State != SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != SemanticCoverageBuildFailed ||
+	if err != nil || result.State != semantic.SemanticCoverageBuildPartial || result.Candidates[0].ResourceState != semantic.SemanticCoverageBuildFailed ||
 		result.Candidates[0].ResourceReason == "" ||
 		result.Candidates[0].Status != SemanticCoverageCandidateUnavailable || len(result.Candidates[0].References) != 0 {
 		t.Fatalf("mismatched Specimen source-envelope lookup = %+v, err=%v; want FAILED candidate with no refs", result, err)

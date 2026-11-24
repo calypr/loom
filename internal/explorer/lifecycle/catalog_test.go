@@ -344,7 +344,7 @@ func TestFieldPresentationKeepsRawWhenCoverageProofIsMissingPartialOrStale(t *te
 			fixture.config.SemanticCoverage = nil
 		}},
 		{name: "build still building", mutate: func(fixture *fieldPresentationTestFixture) {
-			fixture.coverageResult.State = semanticarango.SemanticCoverageBuildBuilding
+			fixture.coverageResult.State = semantic.SemanticCoverageBuildBuilding
 		}},
 		{name: "requested facet missing", mutate: func(fixture *fieldPresentationTestFixture) {
 			fixture.coverageResult.Candidates = nil
@@ -483,29 +483,29 @@ func TestFieldPresentationGroupsExactRelatedOccurrenceAndAppliesCurrentChoice(t 
 
 func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *testing.T) {
 	assertFieldPresentationCodedFamilyProof(
-		t, "Observation", "code", semanticarango.SemanticCoverageBuildComplete,
-		semanticarango.SemanticCoverageBuildComplete, semanticarango.SemanticCoverageCandidateGroupable, true,
+		t, "Observation", "code", semantic.SemanticCoverageBuildComplete,
+		semantic.SemanticCoverageBuildComplete, semanticarango.SemanticCoverageCandidateGroupable, true,
 	)
 }
 
 func TestFieldPresentationGroupsSpecimenCandidateDuringPartialAudit(t *testing.T) {
 	assertFieldPresentationCodedFamilyProof(
-		t, "Specimen", "type", semanticarango.SemanticCoverageBuildPartial,
-		semanticarango.SemanticCoverageBuildComplete, semanticarango.SemanticCoverageCandidateGroupable, true,
+		t, "Specimen", "type", semantic.SemanticCoverageBuildPartial,
+		semantic.SemanticCoverageBuildComplete, semanticarango.SemanticCoverageCandidateGroupable, true,
 	)
 }
 
 func TestFieldPresentationKeepsTaskCandidateRawWithoutResourceCertificate(t *testing.T) {
 	assertFieldPresentationCodedFamilyProof(
-		t, "Task", "code", semanticarango.SemanticCoverageBuildPartial,
-		semanticarango.SemanticCoverageBuildMissing, semanticarango.SemanticCoverageCandidateUnavailable, false,
+		t, "Task", "code", semantic.SemanticCoverageBuildPartial,
+		semantic.SemanticCoverageBuildMissing, semanticarango.SemanticCoverageCandidateUnavailable, false,
 	)
 }
 
 func assertFieldPresentationCodedFamilyProof(
 	t *testing.T,
 	resourceType, ownerField string,
-	globalState, resourceState semanticarango.SemanticCoverageBuildState,
+	globalState, resourceState semantic.SemanticCoverageBuildState,
 	candidateStatus semanticarango.SemanticCoverageCandidateStatus,
 	wantGroup bool,
 ) {
@@ -822,7 +822,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	persistTestWorkspace(t, store, workspace)
 	coverage := semanticarango.SemanticCoverageCandidateResult{
 		ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath, CoverageID: "coverage-id",
-		ResourceState: semanticarango.SemanticCoverageBuildComplete, Status: semanticarango.SemanticCoverageCandidateGroupable,
+		ResourceState: semantic.SemanticCoverageBuildComplete, Status: semanticarango.SemanticCoverageCandidateGroupable,
 		References: []fieldprofile.SemanticCoverageReference{{
 			Kind: fieldprofile.SemanticCoverageExactReference, ConceptID: entry.ConceptID, BindingID: entry.BindingID,
 			CandidatePath: candidate.FieldPath, ResourceType: candidate.ResourceType,
@@ -832,7 +832,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 		store: store, snapshot: snapshot, candidate: candidate, entry: entry, buildID: buildID,
 		occurrenceID: occurrenceID, rootResourceType: rootResourceType,
 		coverageResult: semanticarango.SemanticCoverageLookupResult{
-			State: semanticarango.SemanticCoverageBuildComplete, Candidates: []semanticarango.SemanticCoverageCandidateResult{coverage},
+			State: semantic.SemanticCoverageBuildComplete, Candidates: []semanticarango.SemanticCoverageCandidateResult{coverage},
 		},
 		resolvedInventory: semanticAuthoringInventory(snapshot, []semantic.Entry{entry}),
 	}
