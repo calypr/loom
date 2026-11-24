@@ -18,6 +18,12 @@ Verification on the final Go source at `bbdaf6746` passed `make test-go`, `make 
 
 `make lint-filenames` still flags the tracked `arango_stream.go`, `clickhouse_stream.go`, and `output_stream.go` in dataframe execution. The baseline contains all three names and this change leaves those paths alone.
 
+## Proposal preparation follow-up
+
+Column policy and source relationship use one preparation path for catalog authorization, draft version and digest, workspace decoding and integrity, and output lookup. The two handlers keep their own failure text and imported-source eligibility. Row definition still uses the active-revision fallback in `PreviewWorkspace`. Population removal has its own selection identity checks and creates a new immutable selection. Construction uses its cached base compiler and requires the returned owner to match the request. None of those three paths uses the narrower draft loader.
+
+The successful source-relationship HTTP fixture counts two compilation capability lookups: proposal preparation and the compile boundary. The column-policy fixture denies the second lookup. It returns `FORBIDDEN` at the `capability` stage before compiling, persisting a receipt, running preview, or saving the draft. A scratch overlay that called `CompileAuthorized` with the earlier grant failed this test because the request succeeded. Keep the recheck. Production re-resolves the read scope and active generation, so the earlier grant is insufficient after scope or release turnover. The fixture counts resolver calls and makes no latency claim.
+
 ## Ranked implementation units
 
 ### 1. Remove the retired GraphQL resolver scheduler and retain SQL job batching

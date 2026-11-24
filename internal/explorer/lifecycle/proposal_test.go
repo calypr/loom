@@ -1072,6 +1072,43 @@ func columnPolicyApply(store *fakeStore, snapshot capability.Snapshot, id, comma
 	return authoringv2.ApplyCommandsRequest{CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyColumnPolicyProposal, OutputID: "patients", Payload: &authoringv2.ProposalPayload{ProposalID: id}}}}
 }
 
+func TestColumnPolicyProposalRejectsAuthorizationChangedBeforeCompile(t *testing.T) {
+	setup := columnPolicySetup(t)
+	originalResolver := setup.Config.Capability.ForCompilation
+	resolutions := 0
+	setup.Config.Capability.ForCompilation = func(ctx context.Context, project, token string) (ports.AuthorizedCapability, error) {
+		resolutions++
+		if resolutions == 2 {
+			return ports.AuthorizedCapability{}, authscope.ErrForbidden
+		}
+		return originalResolver(ctx, project, token)
+	}
+	compileCalls := 0
+	compileReceipt := setup.Config.CompileReceipt
+	setup.Config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
+		compileCalls++
+		return compileReceipt(ctx, request)
+	}
+	previewCalls := 0
+	previewReceipt := setup.Config.PreviewReceipt
+	setup.Config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previewCalls++
+		return previewReceipt(ctx, receipt, bindings, visit)
+	}
+
+	service := newTestServiceFromSetup(t, setup)
+	_, err := service.ProposeColumnPolicy(context.Background(), columnPolicyRequest(setup.Store, setup.Snapshot))
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassForbidden ||
+		lifecycleErr.Stage != "capability" || lifecycleErr.Code != "FORBIDDEN" || !errors.Is(lifecycleErr.Cause, authscope.ErrForbidden) {
+		t.Fatalf("authorization change error = %#v, want forbidden capability error", err)
+	}
+	if resolutions != 2 || compileCalls != 0 || previewCalls != 0 || setup.Store.saveDraftCalls != 0 || setup.Store.receipt != nil {
+		t.Fatalf("after authorization changed: resolutions=%d compiles=%d previews=%d saves=%d receipt=%#v",
+			resolutions, compileCalls, previewCalls, setup.Store.saveDraftCalls, setup.Store.receipt)
+	}
+}
+
 func TestColumnPolicyProposalPreviewCancelApplyReloadAndStale(t *testing.T) {
 	setup := columnPolicySetup(t)
 	store, snapshot := setup.Store, setup.Snapshot

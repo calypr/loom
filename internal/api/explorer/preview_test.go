@@ -61,6 +61,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	edits, stepEdits, networks, previews := 0, 0, 0, 0
+	compilationLookups := 0
 	var previewFailure error
 	var lastPreviewLimit int
 	var previewCell any = "p1"
@@ -68,6 +69,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
 		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			compilationLookups++
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		},
 		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
@@ -203,9 +205,26 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.Create(ctx, explorer.Explorer{
+		Project: "project-a", ExplorerID: "unreadable", Title: "Unreadable draft",
+		DraftConfig: json.RawMessage(`{}`), DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unreadable := requestJSON(t, app, http.MethodPost,
+		"/api/v1/projects/project-a/explorers/unreadable/authoring/v2/source-relationship-proposals",
+		"{"+identity+`,"change":{"action":"ADD","parentOccurrenceId":"base","edgeId":"authorized-edge","matchMode":"OPTIONAL"}}`)
+	if unreadable.StatusCode != http.StatusConflict || !strings.Contains(unreadable.Body, `"code":"AUTHORING_STATE_MISSING"`) ||
+		!strings.Contains(unreadable.Body, `"message":"the saved source cannot be read"`) {
+		t.Fatalf("unreadable draft HTTP %d: %s", unreadable.StatusCode, unreadable.Body)
+	}
+	lookupsBeforeProposal := compilationLookups
 	proposed := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", "{"+identity+`,"change":{"action":"ADD","parentOccurrenceId":"base","edgeId":"authorized-edge","matchMode":"OPTIONAL"}}`)
 	if proposed.StatusCode != http.StatusOK {
 		t.Fatalf("proposal HTTP %d: %s", proposed.StatusCode, proposed.Body)
+	}
+	if lookups := compilationLookups - lookupsBeforeProposal; lookups != 2 {
+		t.Fatalf("compilation capability lookups = %d, want draft check and compile recheck", lookups)
 	}
 	var proposal proposalpkg.SourceRelationshipProposal
 	if err := json.Unmarshal([]byte(proposed.Body), &proposal); err != nil {
