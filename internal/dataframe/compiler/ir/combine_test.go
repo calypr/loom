@@ -30,6 +30,15 @@ func TestPhysicalClickHouseCombineValidatesClosedExactInputPlan(t *testing.T) {
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("valid ClickHouse plan: %v", err)
 	}
+	plan.Engine = PhysicalEngineAQL
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "AQL physical plan") {
+		t.Fatalf("AQL plan combine payload error = %v", err)
+	}
+	plan.Engine = PhysicalEngineClickHouse
+	plan.ClickHouseCombine = nil
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "requires a typed combine payload") {
+		t.Fatalf("missing ClickHouse payload error = %v", err)
+	}
 }
 
 func TestPhysicalClickHouseCombineValidatesWorkspaceArtifactsOnlyAtCaptureBoundary(t *testing.T) {
@@ -113,29 +122,6 @@ func TestPhysicalClickHouseAppendAllowsOnlyNullableScalarMissingInputs(t *testin
 	allEmpty.Outputs = append(allEmpty.Outputs, PhysicalCombineOutputColumn{ID: "empty", Name: "empty", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true})
 	if err := allEmpty.Validate(); err == nil || !strings.Contains(err.Error(), "not projected") {
 		t.Fatalf("all-empty output error = %v", err)
-	}
-}
-
-func TestPhysicalClickHouseCombineRejectsAQLPayloadAndUnpinnedInputs(t *testing.T) {
-	combine := &PhysicalClickHouseCombine{
-		Kind: PhysicalCombineMembership,
-		Inputs: []PhysicalCombineInputRef{
-			{TableID: "left", RevisionID: "revision-1", OutputID: "left"},
-			{TableID: "right", RevisionID: "", OutputID: "right"},
-		},
-		Keys:           []PhysicalCombineKey{{LeftColumnID: "id", RightColumnID: "id"}},
-		MembershipMode: "INCLUDE",
-		Projections:    []PhysicalCombineProjection{{OutputColumnID: "id", InputIndex: 0, InputColumnID: "id"}},
-		Outputs:        []PhysicalCombineOutputColumn{{ID: "id", Name: "id", LogicalType: "string", ClickHouseType: "String"}},
-	}
-	plan := PhysicalPlan{Version: 1, Engine: PhysicalEngineAQL, ClickHouseCombine: combine}
-	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "AQL physical plan") {
-		t.Fatalf("AQL plan combine payload error = %v", err)
-	}
-	plan.Engine = PhysicalEngineClickHouse
-	plan.ClickHouseCombine = nil
-	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "requires a typed combine payload") {
-		t.Fatalf("missing ClickHouse payload error = %v", err)
 	}
 }
 

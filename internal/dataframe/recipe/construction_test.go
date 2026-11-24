@@ -302,26 +302,32 @@ func TestConstructionPivotRejectsCategoryKeyKindMismatch(t *testing.T) {
 }
 
 func TestConstructionPivotSumRequiresNumericValueColumn(t *testing.T) {
-	construction := pivotConstructionForTypes("string", "string", "string", PivotDuplicateSum)
-	err := construction.Validate(nil)
-	if err == nil || !strings.Contains(err.Error(), `pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got "string"`) {
-		t.Fatalf("SUM string value error = %v", err)
+	tests := []struct {
+		name      string
+		groupType string
+		category  string
+		valueType string
+		wantErr   string
+	}{
+		{name: "reject string value", groupType: "string", category: "string", valueType: "string", wantErr: `pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got "string"`},
+		{name: "accept integer value", groupType: "string", category: "string", valueType: "integer"},
+		{name: "accept decimal value", groupType: "string", category: "string", valueType: "decimal"},
+		{name: "allow unresolved schema types"},
 	}
-}
-
-func TestConstructionPivotSumAcceptsNumericValueColumns(t *testing.T) {
-	for _, logicalType := range []string{"integer", "decimal"} {
-		construction := pivotConstructionForTypes("string", "string", logicalType, PivotDuplicateSum)
-		if err := construction.Validate(nil); err != nil {
-			t.Errorf("SUM %s value column rejected: %v", logicalType, err)
-		}
-	}
-}
-
-func TestConstructionPivotSkipsTypeChecksWithoutSchemaTypes(t *testing.T) {
-	construction := pivotConstructionForTypes("", "", "", PivotDuplicateSum)
-	if err := construction.Validate(nil); err != nil {
-		t.Fatalf("pivot with unresolved types rejected: %v", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			construction := pivotConstructionForTypes(test.groupType, test.category, test.valueType, PivotDuplicateSum)
+			err := construction.Validate(nil)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("SUM string value error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("SUM value type %q rejected: %v", test.valueType, err)
+			}
+		})
 	}
 }
 

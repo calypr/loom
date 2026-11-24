@@ -10,8 +10,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testing.T) {
-	compiled := compilePopulationMappingRecipe(t, recipe.Output{
+func TestPopulationMappingDirectPlanAndCompilationKeepMemberRowWitnessesInternal(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
 		Population: &recipe.PopulationConstraint{
@@ -19,6 +19,49 @@ func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testin
 			ResourceType: "Specimen",
 		},
 	})
+	physical, err := population.MappingPhysicalPlan(output, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var terminal *ir.PhysicalPopulationMappingReturn
+	var rootSource *ir.PhysicalPopulationRootSource
+	for index := range physical.Operations {
+		operation := &physical.Operations[index]
+		if operation.Kind == ir.PhysicalRootScanOp && operation.RootScan != nil {
+			rootSource = operation.RootScan.Population
+		}
+		if operation.Kind == ir.PhysicalPopulationMappingReturnOp {
+			terminal = operation.PopulationMappingReturn
+		}
+	}
+	if rootSource == nil || terminal == nil {
+		t.Fatalf("mapping plan missing population root source or witness terminal: %#v", physical.Operations)
+	}
+	if rootSource.MemberScan.Variable != "population_member" || rootSource.MemberScan.CollectionBindKey != "population_members_collection" {
+		t.Fatalf("mapping root source has wrong member scan: %#v", rootSource.MemberScan)
+	}
+	if rootSource.CollectMembersVariable != ir.PopulationMappingMembersVariable {
+		t.Fatalf("mapping root source does not collect member witnesses: %#v", rootSource)
+	}
+	if rootSource.MemberID.Variable != "population_member" || len(rootSource.MemberID.Path) != 1 || rootSource.MemberID.Path[0] != "id" {
+		t.Fatalf("mapping root source does not collect selected IDs: %#v", rootSource.MemberID)
+	}
+	if terminal.Members.Value == nil || terminal.Members.Value.Variable != ir.PopulationMappingMembersVariable {
+		t.Fatalf("witness terminal does not reuse matched-member value: %#v", terminal.Members)
+	}
+	if len(terminal.IdentityParts) != 2 || terminal.IdentityParts[0].Name != "project" || terminal.IdentityParts[1].Name != "_key" {
+		t.Fatalf("witness terminal identity parts are not canonical: %#v", terminal.IdentityParts)
+	}
+	if terminal.IdentityParts[0].Expression.Value == nil || terminal.IdentityParts[0].Expression.Value.BindKey != "project" {
+		t.Fatalf("witness terminal project identity is not compiler-bound: %#v", terminal.IdentityParts[0])
+	}
+	if terminal.IdentityParts[1].Expression.Value == nil || terminal.IdentityParts[1].Expression.Value.Variable != "root" || len(terminal.IdentityParts[1].Expression.Value.Path) != 1 || terminal.IdentityParts[1].Expression.Value.Path[0] != "_key" {
+		t.Fatalf("witness terminal key identity is not final root key: %#v", terminal.IdentityParts[1])
+	}
+	compiled, err := population.CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := strings.Count(compiled.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
 		t.Fatalf("mapping member scan count = %d, want 1:\n%s", got, compiled.Query)
 	}
@@ -123,56 +166,6 @@ func TestCompilePopulationMappingRejectsMissingIdentityField(t *testing.T) {
 	output.RowIdentity.Fields = []string{"project", "missing_identity_field"}
 	if _, err := population.CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "missing_identity_field") {
 		t.Fatalf("missing identity field error = %v", err)
-	}
-}
-
-func TestPopulationMappingPhysicalPlanCollectsMatchedIDsOnceAndUsesFinalTerminal(t *testing.T) {
-	output := compilePopulationMappingOutput(t, recipe.Output{
-		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
-			ResourceType: "Specimen",
-		},
-	})
-	physical, err := population.MappingPhysicalPlan(output, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var terminal *ir.PhysicalPopulationMappingReturn
-	var rootSource *ir.PhysicalPopulationRootSource
-	for index := range physical.Operations {
-		operation := &physical.Operations[index]
-		if operation.Kind == ir.PhysicalRootScanOp && operation.RootScan != nil {
-			rootSource = operation.RootScan.Population
-		}
-		if operation.Kind == ir.PhysicalPopulationMappingReturnOp {
-			terminal = operation.PopulationMappingReturn
-		}
-	}
-	if rootSource == nil || terminal == nil {
-		t.Fatalf("mapping plan missing population root source or witness terminal: %#v", physical.Operations)
-	}
-	if rootSource.MemberScan.Variable != "population_member" || rootSource.MemberScan.CollectionBindKey != "population_members_collection" {
-		t.Fatalf("mapping root source has wrong member scan: %#v", rootSource.MemberScan)
-	}
-	if rootSource.CollectMembersVariable != ir.PopulationMappingMembersVariable {
-		t.Fatalf("mapping root source does not collect member witnesses: %#v", rootSource)
-	}
-	if rootSource.MemberID.Variable != "population_member" || len(rootSource.MemberID.Path) != 1 || rootSource.MemberID.Path[0] != "id" {
-		t.Fatalf("mapping root source does not collect selected IDs: %#v", rootSource.MemberID)
-	}
-	if terminal.Members.Value == nil || terminal.Members.Value.Variable != ir.PopulationMappingMembersVariable {
-		t.Fatalf("witness terminal does not reuse matched-member value: %#v", terminal.Members)
-	}
-	if len(terminal.IdentityParts) != 2 || terminal.IdentityParts[0].Name != "project" || terminal.IdentityParts[1].Name != "_key" {
-		t.Fatalf("witness terminal identity parts are not canonical: %#v", terminal.IdentityParts)
-	}
-	if terminal.IdentityParts[0].Expression.Value == nil || terminal.IdentityParts[0].Expression.Value.BindKey != "project" {
-		t.Fatalf("witness terminal project identity is not compiler-bound: %#v", terminal.IdentityParts[0])
-	}
-	if terminal.IdentityParts[1].Expression.Value == nil || terminal.IdentityParts[1].Expression.Value.Variable != "root" || len(terminal.IdentityParts[1].Expression.Value.Path) != 1 || terminal.IdentityParts[1].Expression.Value.Path[0] != "_key" {
-		t.Fatalf("witness terminal key identity is not final root key: %#v", terminal.IdentityParts[1])
 	}
 }
 
