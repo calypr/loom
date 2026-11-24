@@ -12,5 +12,5 @@ func ExplainCompiledQuery(ctx context.Context, client *arangostore.Client, compi
 	if err != nil {
 		return dataframeexecution.ExplainAssessment{}, err
 	}
-	return dataframeexecution.AssessmentFromArango(arangostore.AssessExplainResult(result)), nil
+	return arangostore.AssessExplainResult(result), nil
 }

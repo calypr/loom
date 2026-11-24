@@ -162,15 +162,15 @@ func (r Runtime) PopulationMapping(ctx context.Context, receipt *receiptmodel.Co
 		r.logger.Error("Explorer receipt population mapping resolution failed", "receipt_id", receipt.ID, "error", err)
 		return dataframeexecution.PopulationMappingResult{}, ClassifyPreviewResolutionError(receipt.ID, err)
 	}
-	reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+	visitMembers := func(_ context.Context, visit func(string) error) error {
 		for _, id := range memberIDs {
 			if err := visit(id); err != nil {
 				return err
 			}
 		}
 		return nil
-	})
-	return r.engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
+	}
+	return r.engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, visitMembers)
 }
 
 func (r Runtime) CellTrace(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {

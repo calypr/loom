@@ -25,19 +25,19 @@ func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 			return nil
 		},
 	}
-	reader := PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+	visitMembers := func(_ context.Context, visit func(string) error) error {
 		for _, id := range []string{"file-001", "file-002", "file-002", "file-004"} {
 			if err := visit(id); err != nil {
 				return err
 			}
 		}
 		return nil
-	})
+	}
 	result, err := engine.populationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query:        "RETURN witnesses",
 		MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
-	}, PopulationMappingRequest{MaxUnmapped: 10}, reader)
+	}, PopulationMappingRequest{MaxUnmapped: 10}, visitMembers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +56,13 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 			return visit(map[string]any{"member": "file-001", "identity": []any{"specimen-001"}})
 		},
 	}
-	reader := PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+	visitMembers := func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")
-	})
+	}
 	result, err := engine.populationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
-	}, PopulationMappingRequest{MaxWitnessRows: 0}, reader)
+	}, PopulationMappingRequest{MaxWitnessRows: 0}, visitMembers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 	incomplete, err := engine.populationMappingCompiled(ctx, population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
-	}, PopulationMappingRequest{}, reader)
+	}, PopulationMappingRequest{}, visitMembers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,9 +144,9 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 	}
 	result, err := engine.populationMappingCompiled(context.Background(), population.CompiledPopulationMappingQuery{
 		Query: "RETURN witnesses", MemberColumn: "member", ExplicitIdentityColumn: "identity",
-	}, PopulationMappingRequest{MaxUnmapped: 10}, PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+	}, PopulationMappingRequest{MaxUnmapped: 10}, func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")
-	}))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

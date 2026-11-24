@@ -161,15 +161,15 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 			if err != nil {
 				return dataframeexecution.PopulationMappingResult{}, err
 			}
-			reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+			visitMembers := func(_ context.Context, visit func(string) error) error {
 				for _, id := range memberIDs {
 					if err := visit(id); err != nil {
 						return err
 					}
 				}
 				return nil
-			})
-			return engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
+			}
+			return engine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, visitMembers)
 		},
 	}
 	app := fiber.New()
