@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/dataframe/publication"
 
@@ -167,7 +169,7 @@ RETURN doc`, r.batchSize, map[string]interface{}{
 	}
 }
 
-func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector dataset.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	if err := selector.Validate(); err != nil {
 		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err
 	}

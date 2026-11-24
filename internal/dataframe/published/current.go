@@ -15,7 +15,7 @@ import (
 
 var errReleaseBindingUnavailable = errors.New("active release binding is unavailable")
 
-func (r *Reader) CurrentProjectDataset(ctx context.Context, project string, selector DataframeSelector) (Materialization, error) {
+func (r *Reader) CurrentProjectDataset(ctx context.Context, project string, selector publication.DataframeSelector) (Materialization, error) {
 	project = strings.TrimSpace(project)
 	if r == nil || r.Catalog == nil {
 		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
@@ -70,7 +70,7 @@ func (r *Reader) CurrentProjectDataset(ctx context.Context, project string, sele
 	return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 }
 
-func (r *Reader) activeReleaseDataset(ctx context.Context, project string, selector DataframeSelector) (Materialization, error) {
+func (r *Reader) activeReleaseDataset(ctx context.Context, project string, selector publication.DataframeSelector) (Materialization, error) {
 	active, err := r.ActiveReleaseResolver.ReadActiveRelease(ctx, project)
 	if err != nil {
 		if errors.Is(err, publication.ErrNoActiveRelease) {
@@ -112,7 +112,7 @@ func (r *Reader) releaseMaterialization(ctx context.Context, release publication
 	return Materialization{}, fmt.Errorf("%w: active dataframe execution %q has no queryable output %q", errReleaseBindingUnavailable, binding.ExecutionID, binding.Selector.Output)
 }
 
-func (r *Reader) currentMaterialization(ctx context.Context, execution bundlepublication.BundleExecution, output bundlepublication.BundleOutputRecord, selector DataframeSelector) (Materialization, bool, error) {
+func (r *Reader) currentMaterialization(ctx context.Context, execution bundlepublication.BundleExecution, output bundlepublication.BundleOutputRecord, selector publication.DataframeSelector) (Materialization, bool, error) {
 	if !execution.State.Successful() || !output.Queryable() || outputSelector(execution, output.Name, output.Selector) != selector {
 		return Materialization{}, false, nil
 	}
@@ -238,7 +238,7 @@ func (r *Reader) activeGeneration(ctx context.Context, project string) (string, 
 	return manifest.Dataset.Generation, nil
 }
 
-func outputSelector(execution bundlepublication.BundleExecution, output string, value DataframeSelector) DataframeSelector {
+func outputSelector(execution bundlepublication.BundleExecution, output string, value publication.DataframeSelector) publication.DataframeSelector {
 	if value.Valid() {
 		return value
 	}

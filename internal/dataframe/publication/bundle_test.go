@@ -204,7 +204,7 @@ type exactExecutionFixture struct {
 	output              BundleOutputRecord
 }
 
-func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
+func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector dataset.DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
 	f.project, f.generation, f.selector = project, generation, selector
 	return f.execution, f.output, nil
 }

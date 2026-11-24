@@ -18,7 +18,7 @@ type exactCurrentCatalog struct {
 	executionErrors map[string]error
 }
 
-func (c exactCurrentCatalog) FindExecutionBySelector(context.Context, string, string, publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func (c exactCurrentCatalog) FindExecutionBySelector(context.Context, string, string, dataset.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	return c.execution, c.output, nil
 }
 
@@ -46,7 +46,7 @@ func (f activeReleaseFixture) ReadActiveRelease(context.Context, string) (datase
 }
 
 func TestCurrentProjectDatasetUsesExactCatalogLookup(t *testing.T) {
-	selector := DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}
+	selector := dataset.DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}
 	verified := time.Now().UTC()
 	output := publication.BundleOutputRecord{
 		Name: "Patient", Selector: selector, PhysicalTable: "patient_table",
@@ -77,7 +77,7 @@ func TestCurrentProjectDatasetUsesExactCatalogLookup(t *testing.T) {
 }
 
 func TestCurrentProjectDatasetUsesActiveReleaseExecutionWhenBundlePointerMoves(t *testing.T) {
-	selector := DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}
+	selector := dataset.DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}
 	verified := time.Now().UTC()
 	output := func(table string) publication.BundleOutputRecord {
 		return publication.BundleOutputRecord{
@@ -121,7 +121,7 @@ func TestCurrentProjectDatasetUsesActiveReleaseExecutionWhenBundlePointerMoves(t
 }
 
 func TestCurrentProjectDatasetsSkipsBrokenOptionalReleaseBinding(t *testing.T) {
-	selector := DataframeSelector{Recipe: "healthy", TranslationVersion: "v1", Output: "out-a"}
+	selector := dataset.DataframeSelector{Recipe: "healthy", TranslationVersion: "v1", Output: "out-a"}
 	verified := time.Now().UTC()
 	output := publication.BundleOutputRecord{Name: selector.Output, Selector: selector, PhysicalTable: "healthy_table", State: publication.BundlePublished, VerifiedAt: &verified}
 	healthy := publication.BundleExecution{ID: "healthy", BundleIdentity: publication.BundleIdentity{Project: "P1", DatasetGeneration: "generation"}, State: publication.BundlePublished, Outputs: []publication.BundleOutputRecord{output}}
@@ -135,7 +135,7 @@ func TestCurrentProjectDatasetsSkipsBrokenOptionalReleaseBinding(t *testing.T) {
 			Project: "P1", Generation: "generation",
 			Publications: []dataset.ReleasePublication{
 				{Selector: selector, ExecutionID: healthy.ID, Generation: "generation", Required: true},
-				{Selector: DataframeSelector{Recipe: "optional", TranslationVersion: "v1", Output: "out-b"}, ExecutionID: "optional", Generation: "generation"},
+				{Selector: dataset.DataframeSelector{Recipe: "optional", TranslationVersion: "v1", Output: "out-b"}, ExecutionID: "optional", Generation: "generation"},
 			},
 		}}},
 	}
@@ -144,13 +144,13 @@ func TestCurrentProjectDatasetsSkipsBrokenOptionalReleaseBinding(t *testing.T) {
 	if err != nil || len(values) != 1 || values[0].ID != healthy.ID+":"+selector.Output {
 		t.Fatalf("list with broken optional binding = %#v, %v; want healthy output only", values, err)
 	}
-	if _, err := reader.CurrentProjectDataset(context.Background(), "P1", DataframeSelector{Recipe: "optional", TranslationVersion: "v1", Output: "out-b"}); !errors.Is(err, publication.ErrBundleNotFound) {
+	if _, err := reader.CurrentProjectDataset(context.Background(), "P1", dataset.DataframeSelector{Recipe: "optional", TranslationVersion: "v1", Output: "out-b"}); !errors.Is(err, publication.ErrBundleNotFound) {
 		t.Fatalf("single read for broken optional binding = %v, want its missing-execution error", err)
 	}
 }
 
 func TestCurrentProjectDatasetsFailsClosedForBrokenRequiredOrTransientBinding(t *testing.T) {
-	selector := DataframeSelector{Recipe: "required", TranslationVersion: "v1", Output: "out-a"}
+	selector := dataset.DataframeSelector{Recipe: "required", TranslationVersion: "v1", Output: "out-a"}
 	transient := errors.New("catalog unavailable")
 	for _, tc := range []struct {
 		name     string
@@ -176,7 +176,7 @@ func TestCurrentProjectDatasetsFailsClosedForBrokenRequiredOrTransientBinding(t 
 	}
 }
 
-func findTestExecutionBySelector(execution publication.BundleExecution, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func findTestExecutionBySelector(execution publication.BundleExecution, project, generation string, selector dataset.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	if execution.Project == project && execution.DatasetGeneration == generation && execution.State.Successful() {
 		for _, output := range execution.Outputs {
 			if output.Queryable() && outputSelector(execution, output.Name, output.Selector) == selector {

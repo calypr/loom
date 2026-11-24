@@ -261,11 +261,11 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, ok := response.FieldPresentation.(FieldPresentationReady)
+	ready, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationReady)
 	if !ok || len(ready.Decisions) != 1 {
 		t.Fatalf("presentation=%#v, want one authorized presentation decision", response.FieldPresentation)
 	}
-	if _, ok := ready.Decisions[0].(FieldPresentationGroupUnderSemantic); !ok {
+	if _, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationGroupUnderSemantic); !ok {
 		t.Fatalf("restricted-scope decision=%#v, want exact authorized replacement", ready.Decisions[0])
 	}
 }
@@ -326,7 +326,7 @@ func TestFieldPresentationRequiresStageWhenOutputHasConstructionSteps(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	unavailableResult, ok := response.FieldPresentation.(FieldPresentationUnavailable)
+	unavailableResult, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationUnavailable)
 	if !ok || unavailableResult.Reason != semanticbrowse.FieldPresentationUnsupportedCurrentStage {
 		t.Fatalf("presentation=%#v, want unsupported-stage fallback when stageId is omitted", response.FieldPresentation)
 	}
@@ -365,7 +365,7 @@ func TestFieldPresentationKeepsRawWhenCoverageProofIsMissingPartialOrStale(t *te
 			if err != nil {
 				t.Fatal(err)
 			}
-			unavailableResult, ok := response.FieldPresentation.(FieldPresentationUnavailable)
+			unavailableResult, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationUnavailable)
 			if !ok || unavailableResult.Reason == "" {
 				t.Fatalf("presentation=%#v, want structured UNAVAILABLE fallback", response.FieldPresentation)
 			}
@@ -397,11 +397,11 @@ func TestFieldPresentationKeepsRawWhenReplacementIsUnavailableOrNotInCodedView(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			ready, ok := response.FieldPresentation.(FieldPresentationReady)
+			ready, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationReady)
 			if !ok || len(ready.Decisions) != 1 {
 				t.Fatalf("presentation=%#v, want one READY raw-retention decision", response.FieldPresentation)
 			}
-			decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
+			decision, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationKeepRaw)
 			if !ok || decision.CandidateID != fixture.candidate.ID || decision.Reason != semanticbrowse.FieldPresentationReplacementUnavailable {
 				t.Fatalf("decision=%#v, want KEEP_RAW / REPLACEMENT_UNAVAILABLE", ready.Decisions[0])
 			}
@@ -422,11 +422,11 @@ func TestFieldPresentationKeepsRawForClosedCoverageDisposition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, ok := response.FieldPresentation.(FieldPresentationReady)
+	ready, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationReady)
 	if !ok || len(ready.Decisions) != 1 {
 		t.Fatalf("presentation=%#v, want one READY raw-retention decision", response.FieldPresentation)
 	}
-	decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
+	decision, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationKeepRaw)
 	if !ok || decision.Reason != semanticbrowse.FieldPresentationMissingSystem || decision.CandidateID != fixture.candidate.ID {
 		t.Fatalf("decision=%#v, want closed MISSING_SYSTEM reason for the requested raw candidate", ready.Decisions[0])
 	}
@@ -461,11 +461,11 @@ func TestFieldPresentationDoesNotBypassRawPopulatedOrAddableChecks(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			ready, ok := response.FieldPresentation.(FieldPresentationReady)
+			ready, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationReady)
 			if !ok || len(ready.Decisions) != 1 || len(ready.Replacements) != 0 {
 				t.Fatalf("presentation=%#v, want one bounded raw fallback", response.FieldPresentation)
 			}
-			decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
+			decision, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationKeepRaw)
 			if !ok || decision.CandidateID != fixture.candidate.ID || decision.Reason != test.wantReason {
 				t.Fatalf("decision=%#v, want KEEP_RAW / %s", ready.Decisions[0], test.wantReason)
 			}
@@ -617,7 +617,7 @@ func assertFieldPresentationCodedFamilyProof(
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, ok := response.FieldPresentation.(FieldPresentationReady)
+	ready, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationReady)
 	if !ok || len(ready.Decisions) != 1 {
 		t.Fatalf("presentation=%#v, want one exact resource-certificate decision", response.FieldPresentation)
 	}
@@ -625,11 +625,11 @@ func assertFieldPresentationCodedFamilyProof(
 		if len(ready.Replacements) != 1 {
 			t.Fatalf("presentation=%#v, want one existing category-family replacement", ready)
 		}
-		group, ok := ready.Decisions[0].(FieldPresentationGroupUnderSemantic)
+		group, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationGroupUnderSemantic)
 		if !ok || len(group.ReplacementIDs) != 1 {
 			t.Fatalf("decision=%#v, want one category-family identity", ready.Decisions[0])
 		}
-		familyIdentity, ok := group.ReplacementIDs[0].(FamilySemanticInventoryItemIdentity)
+		familyIdentity, ok := group.ReplacementIDs[0].(semanticbrowse.FamilySemanticInventoryItemIdentity)
 		if !ok || familyIdentity.FamilyID != family.FamilyID || familyIdentity.BindingID != family.BindingID {
 			t.Fatalf("replacement identity=%#v, want existing system-version family", group.ReplacementIDs[0])
 		}
@@ -644,7 +644,7 @@ func assertFieldPresentationCodedFamilyProof(
 		if len(ready.Replacements) != 0 {
 			t.Fatalf("presentation=%#v, incomplete Task certificate must not return replacements", ready.Replacements)
 		}
-		decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
+		decision, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationKeepRaw)
 		if !ok || decision.CandidateID != codeCandidate.ID || decision.Reason != semanticbrowse.FieldPresentationIncompleteCoverage {
 			t.Fatalf("decision=%#v, want KEEP_RAW / INCOMPLETE_COVERAGE", ready.Decisions[0])
 		}
@@ -662,15 +662,15 @@ func assertFieldPresentationGroupsAndApplies(t *testing.T, related bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, ok := response.FieldPresentation.(FieldPresentationReady)
+	ready, ok := response.FieldPresentation.(semanticbrowse.FieldPresentationReady)
 	if !ok || len(ready.Decisions) != 1 || len(ready.Replacements) != 1 {
 		t.Fatalf("presentation=%#v, want one ready decision and one replacement", response.FieldPresentation)
 	}
-	group, ok := ready.Decisions[0].(FieldPresentationGroupUnderSemantic)
+	group, ok := ready.Decisions[0].(semanticbrowse.FieldPresentationGroupUnderSemantic)
 	if !ok || group.CandidateID != fixture.candidate.ID || group.CoverageID != "coverage-id" || group.Access != semanticbrowse.FieldPresentationAccessSourceFields || len(group.ReplacementIDs) != 1 {
 		t.Fatalf("decision=%#v, want bounded semantic group with Source fields access", ready.Decisions[0])
 	}
-	identity, ok := group.ReplacementIDs[0].(ExactSemanticInventoryItemIdentity)
+	identity, ok := group.ReplacementIDs[0].(semanticbrowse.ExactSemanticInventoryItemIdentity)
 	if !ok || identity.ConceptID != fixture.entry.ConceptID || identity.BindingID != fixture.entry.BindingID {
 		t.Fatalf("replacement identity=%#v, want exact current semantic item", group.ReplacementIDs[0])
 	}

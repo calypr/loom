@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -132,9 +134,9 @@ func TestCreateSelectionVariantStreamsBaseMembershipAndAppliesExclusions(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+	created, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{
 		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "exclude-file-2",
-		Source:     SelectionSourceIntent{Kind: SelectionSourceSelectionRevision, SelectionRevisionID: store.base.ID},
+		Source:     explorerselection.SelectionSourceIntent{Kind: SelectionSourceSelectionRevision, SelectionRevisionID: store.base.ID},
 		Exclusions: []explorerselection.ResourceRef{ref("file-2")},
 	})
 	if err != nil {
@@ -176,7 +178,7 @@ func TestCreateSelectionRejectsChangedExplicitRefsForSameIdempotencyKey(t *testi
 	}}, SelectionReferenceValidator: func(context.Context, string, string, authscope.ReadScope, []explorerselection.ResourceRef) error {
 		return nil
 	}})
-	first := SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "same-key", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}}}}
+	first := explorerselection.SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "same-key", Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}}}}
 	if _, err := service.CreateSelection(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
@@ -204,9 +206,9 @@ func TestCreateSelectionRejectsRetainedOldGenerationSnapshot(t *testing.T) {
 			return nil
 		},
 	})
-	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+	_, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{
 		Project: "project", ExplorerID: "explorer", SnapshotToken: "old-token", IdempotencyKey: "old-generation",
-		Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{{Project: "project", Generation: "old-generation", ResourceType: "DocumentReference", ID: "files001"}}},
+		Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{{Project: "project", Generation: "old-generation", ResourceType: "DocumentReference", ID: "files001"}}},
 	})
 	if !errors.Is(err, capability.ErrStaleSnapshot) {
 		t.Fatalf("old-generation selection error = %v", err)
@@ -237,7 +239,7 @@ func TestReadSelectionResolvesCurrentSnapshotThenExecutionToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: store.header.ID, Limit: 10}); err != nil {
+	if _, err := service.ReadSelection(context.Background(), explorerselection.SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: store.header.ID, Limit: 10}); err != nil {
 		t.Fatal(err)
 	}
 	if currentProject != "project" || currentExplorer != "explorer" || currentGeneration != "" {
@@ -356,9 +358,9 @@ func TestCreateSelectionAbortsInterruptedPublishedStreamWithoutCompletion(t *tes
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}, SelectionSourceResolver: resolver})
-	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+	_, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{
 		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "interrupted-stream",
-		Source: SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}},
+		Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &explorerselection.PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}},
 	})
 	if !errors.Is(err, streamErr) {
 		t.Fatalf("interrupted stream error = %v", err)
@@ -375,9 +377,9 @@ func TestCreateSelectionReportsUnavailablePublishedResolver(t *testing.T) {
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}})
-	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+	_, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{
 		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "published-unavailable",
-		Source: SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}},
+		Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &explorerselection.PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}},
 	})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "PUBLISHED_SELECTION_UNAVAILABLE" {
@@ -401,9 +403,9 @@ func TestCreateSelectionRejectsRowsAboveLimitWithoutCompletion(t *testing.T) {
 			return nil
 		},
 	})
-	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+	_, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{
 		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "row-limit",
-		ResourceType: "DocumentReference", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: refs},
+		ResourceType: "DocumentReference", Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourceResources, Resources: refs},
 	})
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "SELECTION_LIMIT_EXCEEDED" {
@@ -426,7 +428,7 @@ func TestReadSelectionRejectsInvalidScopeBeforeHeaderLoad(t *testing.T) {
 			return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("current-token", "generation-a", "invalid-scope"), Scope: badScope}, nil
 		},
 	}})
-	_, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: "selection-never-loaded", Limit: 10})
+	_, err := service.ReadSelection(context.Background(), explorerselection.SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: "selection-never-loaded", Limit: 10})
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "SELECTION_STALE_SCOPE" {
 		t.Fatalf("invalid scope error = %v", err)
@@ -453,7 +455,7 @@ func TestReadSelectionRejectsNarrowedScopeWithoutReturningCounts(t *testing.T) {
 			return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("current-token", "generation-a", digest), Scope: scope}, nil
 		},
 	}})
-	result, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: store.header.ID, Limit: 10})
+	result, err := service.ReadSelection(context.Background(), explorerselection.SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: store.header.ID, Limit: 10})
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "SELECTION_STALE_SCOPE" {
 		t.Fatalf("narrowed scope error = %v", err)
@@ -470,7 +472,7 @@ func TestCreateSelectionRejectsForeignReferencesWithoutRewritingThem(t *testing.
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}})
-	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "foreign", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{{Project: "other", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}}}})
+	_, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "foreign", Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{{Project: "other", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}}}})
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "SELECTION_STALE_SCOPE" {
 		t.Fatalf("error = %v, want stale-scope lifecycle error", err)
@@ -484,7 +486,7 @@ func TestCreateSelectionRejectsBothSourceVariants(t *testing.T) {
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}})
-	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "both", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{}, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}}})
+	_, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "both", Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorerselection.ResourceRef{}, PublishedOutput: &explorerselection.PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}}})
 	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "MALFORMED_REQUEST" {
 		t.Fatalf("error = %v, want malformed lifecycle error", err)
@@ -495,11 +497,11 @@ func TestCreateSelectionBindsRequestedRevisionSeparatelyFromExecution(t *testing
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{revision: &explorer.Revision{Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema", Publication: viewer.PublicationMetadata{ExecutionID: "execution-a"}, Dataset: viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{Name: "files"}}}}}
 	persistence, _ := explorer.NewService(store)
-	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "final-physical-schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: published.DataframeSelector{Recipe: "recipe", Output: "files"}}}
+	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "final-physical-schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: dataset.DataframeSelector{Recipe: "recipe", Output: "files"}}}
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}, SelectionSourceResolver: resolver})
-	created, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "revision-binding", Source: SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision-request", OutputID: "files"}}})
+	created, err := service.CreateSelection(context.Background(), explorerselection.SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "revision-binding", Source: explorerselection.SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &explorerselection.PublishedOutputIntent{RevisionID: "revision-request", OutputID: "files"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,8 +2,9 @@ package lifecycle
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/semantic"
 	"reflect"
+
+	"github.com/calypr/loom/internal/semantic"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -100,12 +101,7 @@ func (s *Service) prepareFrameSourceCommand(
 	return commands, nil
 }
 
-type BrowseFrameSourceOptionsRequest = semanticbrowse.BrowseFrameSourceOptionsRequest
-type FrameSourceForm = semanticbrowse.FrameSourceForm
-type FrameSourceOption = semanticbrowse.FrameSourceOption
-type BrowseFrameSourceOptionsResponse = semanticbrowse.BrowseFrameSourceOptionsResponse
-
-func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFrameSourceOptionsRequest) (BrowseFrameSourceOptionsResponse, error) {
+func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request semanticbrowse.BrowseFrameSourceOptionsRequest) (semanticbrowse.BrowseFrameSourceOptionsResponse, error) {
 	return s.browseService().BrowseFrameSourceOptions(ctx, request)
 }
 

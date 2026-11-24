@@ -12,7 +12,7 @@ type erroringExecutionCatalog struct {
 	err error
 }
 
-func (c *erroringExecutionCatalog) FindExecutionBySelector(_ context.Context, _, _ string, _ DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
+func (c *erroringExecutionCatalog) FindExecutionBySelector(_ context.Context, _, _ string, _ dataset.DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
 	return BundleExecution{}, BundleOutputRecord{}, c.err
 }
 

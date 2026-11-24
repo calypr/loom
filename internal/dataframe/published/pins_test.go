@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
@@ -109,6 +111,6 @@ func TestWithExecutionReadPinsCancelsVisitorOnRenewalLoss(t *testing.T) {
 	}
 }
 
-func (*pinTestCatalog) FindExecutionBySelector(context.Context, string, string, publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func (*pinTestCatalog) FindExecutionBySelector(context.Context, string, string, dataset.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
 }

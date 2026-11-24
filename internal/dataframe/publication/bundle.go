@@ -14,8 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
-type DataframeSelector = dataset.DataframeSelector
-
 type BundleState string
 
 const (
@@ -119,19 +117,19 @@ func (i BundleIdentity) Key() string {
 }
 
 type BundleOutputRecord struct {
-	Name             string             `json:"name"`
-	PhysicalTable    string             `json:"physicalTable"`
-	Selector         DataframeSelector  `json:"selector"`
-	Columns          []PhysicalColumn   `json:"columns,omitempty"`
-	RowCount         int64              `json:"rowCount"`
-	ByteCount        int64              `json:"byteCount"`
-	State            BundleState        `json:"state"`
-	FailureCode      string             `json:"failureCode,omitempty"`
-	FailureRetryable bool               `json:"failureRetryable,omitempty"`
-	VerifiedAt       *time.Time         `json:"verifiedAt,omitempty"`
-	FailurePhase     string             `json:"failurePhase,omitempty"`
-	FailureDetails   string             `json:"failureDetails,omitempty"`
-	SourceRow        *SourceRowMetadata `json:"sourceRow,omitempty"`
+	Name             string                    `json:"name"`
+	PhysicalTable    string                    `json:"physicalTable"`
+	Selector         dataset.DataframeSelector `json:"selector"`
+	Columns          []PhysicalColumn          `json:"columns,omitempty"`
+	RowCount         int64                     `json:"rowCount"`
+	ByteCount        int64                     `json:"byteCount"`
+	State            BundleState               `json:"state"`
+	FailureCode      string                    `json:"failureCode,omitempty"`
+	FailureRetryable bool                      `json:"failureRetryable,omitempty"`
+	VerifiedAt       *time.Time                `json:"verifiedAt,omitempty"`
+	FailurePhase     string                    `json:"failurePhase,omitempty"`
+	FailureDetails   string                    `json:"failureDetails,omitempty"`
+	SourceRow        *SourceRowMetadata        `json:"sourceRow,omitempty"`
 }
 
 type SourceRowMetadata struct {
@@ -143,8 +141,8 @@ func (m *SourceRowMetadata) Valid() bool {
 	return m != nil && strings.TrimSpace(m.ResourceType) != "" && strings.TrimSpace(m.IDColumn) != ""
 }
 
-func (e BundleExecution) Selector(output string) DataframeSelector {
-	return DataframeSelector{Recipe: e.Name, TranslationVersion: e.TranslationVersion, Output: output}
+func (e BundleExecution) Selector(output string) dataset.DataframeSelector {
+	return dataset.DataframeSelector{Recipe: e.Name, TranslationVersion: e.TranslationVersion, Output: output}
 }
 
 func (o BundleOutputRecord) Queryable() bool {
@@ -232,7 +230,7 @@ type PagedBundleCatalog interface {
 }
 
 type ExactExecutionCatalog interface {
-	FindExecutionBySelector(context.Context, string, string, DataframeSelector) (BundleExecution, BundleOutputRecord, error)
+	FindExecutionBySelector(context.Context, string, string, dataset.DataframeSelector) (BundleExecution, BundleOutputRecord, error)
 }
 
 type PhaseError struct {

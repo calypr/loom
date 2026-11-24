@@ -11,6 +11,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -290,7 +292,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					}
 					summary.ReadyProposalCount++
 					ready = true
-					preview, previewErr := service.Preview(context.Background(), PreviewRequest{
+					preview, previewErr := service.Preview(context.Background(), authoringcore.PreviewRequest{
 						Project: req.Project, ExplorerID: req.ExplorerID, ReceiptID: lastProposal.ProposalID, OutputID: req.OutputID, Limit: req.Limit,
 						SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 							return func(map[string]any) error { return nil }, nil

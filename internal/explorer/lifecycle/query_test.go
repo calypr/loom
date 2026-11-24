@@ -7,6 +7,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+	"github.com/calypr/loom/internal/explorer/publication"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -144,14 +147,14 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
 	service := newTestService(t, store, config)
-	_, err = service.Preview(context.Background(), PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 10, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
+	_, err = service.Preview(context.Background(), authoringcore.PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 10, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 		sinkCalls++
 		return func(map[string]any) error { return nil }, nil
 	}})
 	if lifecycleErrorCode(err) != "RECEIPT_RECOMPILE_REQUIRED" {
 		t.Fatalf("legacy Preview error=%v, want RECEIPT_RECOMPILE_REQUIRED", err)
 	}
-	_, err = service.Publish(context.Background(), PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.Publish(context.Background(), publication.PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, Actor: "alice"})
 	if lifecycleErrorCode(err) != "RECEIPT_RECOMPILE_REQUIRED" {
 		t.Fatalf("legacy Publish error=%v, want RECEIPT_RECOMPILE_REQUIRED", err)
 	}

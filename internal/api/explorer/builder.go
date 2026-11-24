@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+
 	httpapi "github.com/calypr/loom/internal/api/http"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -350,7 +352,7 @@ func (r *Handlers) SearchExplorerSchemaFields(ctx context.Context, request looma
 		if body == nil {
 			return result, explorer.MalformedRouteError("schema-fields", errors.New("request body is required"))
 		}
-		request := lifecycle.SearchSchemaFieldsRequest{
+		request := semanticbrowse.SearchSchemaFieldsRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, NodeID: body.NodeId,
 		}
 		if body.Query != nil {
@@ -749,7 +751,7 @@ func (r *Handlers) GetExplorerColumnSource(ctx context.Context, request loomapi.
 		if body == nil {
 			return result, explorer.MalformedRouteError("column-source", errors.New("request body is required"))
 		}
-		value, err := h.application.ColumnSource(ctx, lifecycle.ColumnSourceRequest{
+		value, err := h.application.ColumnSource(ctx, semanticbrowse.ColumnSourceRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 			OutputID: body.OutputId, Column: body.Column,
 		})

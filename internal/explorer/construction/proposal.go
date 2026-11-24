@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	"github.com/calypr/loom/internal/explorer/authoringcore"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -494,10 +496,10 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		groupRowValueChoices []ConstructionGroupFieldChoice
 		sourceInput          ConstructionGroupSourceCapability
 		pivotSourceInput     ConstructionPivotSourceCapability
-		filterSourceInput    ConstructionFilterSourceCapability
-		deriveSourceInput    ConstructionDeriveSourceCapability
-		unpivotSourceInput   ConstructionUnpivotSourceCapability
-		expandSourceInput    ConstructionExpandSourceCapability
+		filterSourceInput    rowsource.ConstructionFilterSourceCapability
+		deriveSourceInput    rowsource.ConstructionDeriveSourceCapability
+		unpivotSourceInput   rowsource.ConstructionUnpivotSourceCapability
+		expandSourceInput    rowsource.ConstructionExpandSourceCapability
 	)
 	builders := []func(context.Context) error{
 		func(ctx context.Context) error {

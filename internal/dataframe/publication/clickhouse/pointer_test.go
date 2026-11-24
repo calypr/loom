@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	storearango "github.com/calypr/loom/internal/store/arango"
@@ -260,8 +262,8 @@ func pppNewPublication(label, project string, h *pppHarness) pppPublication {
 	return pppPublication{identity: identity, key: bundle.Key(), pointer: bundle.PointerName(), outputs: outputs, rows: 3}
 }
 
-func (p pppPublication) selector() pubpublication.DataframeSelector {
-	return pubpublication.DataframeSelector{Recipe: p.identity.Name, TranslationVersion: p.identity.TranslationVersion, Output: p.identity.OutputName}
+func (p pppPublication) selector() dataset.DataframeSelector {
+	return dataset.DataframeSelector{Recipe: p.identity.Name, TranslationVersion: p.identity.TranslationVersion, Output: p.identity.OutputName}
 }
 
 func pppProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p pppPublication) (pubpublication.Result, error) {

@@ -440,7 +440,7 @@ func victimBundle(project, generation, executionID string) dataframepublication.
 			RecipeDigest: digest, SchemaDigest: digest,
 		},
 		State:   dataframepublication.BundlePublished,
-		Outputs: []dataframepublication.BundleOutputRecord{{Name: "list", Selector: dataframepublication.DataframeSelector{Recipe: "patients", Output: "list"}, State: dataframepublication.BundlePublished}},
+		Outputs: []dataframepublication.BundleOutputRecord{{Name: "list", Selector: publication.DataframeSelector{Recipe: "patients", Output: "list"}, State: dataframepublication.BundlePublished}},
 	}
 	return execution
 }

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -271,7 +273,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		actual.Proposal, actual.CompiledReceipt = &proposal, actualReceipt(harness.Store.receipt)
 		actual.Disposition = proposal.PreviewStatus
 		if proposal.PreviewStatus == "PREVIEW_PENDING" && proposal.ProposalID != "" {
-			preview, previewErr := harness.Service.Preview(ctx, PreviewRequest{
+			preview, previewErr := harness.Service.Preview(ctx, authoringcore.PreviewRequest{
 				Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: proposal.OutputID,
 				SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 					return func(map[string]any) error { return nil }, nil
@@ -358,7 +360,7 @@ func executeBuilderFullUIRequest(row builderFullUIInventoryRow, request builderF
 		if body.Limit != nil {
 			limit = *body.Limit
 		}
-		preview, err := harness.Service.Preview(ctx, PreviewRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: body.ReceiptID, OutputID: body.OutputID, Limit: limit, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
+		preview, err := harness.Service.Preview(ctx, authoringcore.PreviewRequest{Project: identity.Project, ExplorerID: identity.ExplorerID, ReceiptID: body.ReceiptID, OutputID: body.OutputID, Limit: limit, SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
 		}})
 		layers = append(layers, "preview_orchestration")

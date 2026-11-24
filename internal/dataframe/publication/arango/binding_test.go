@@ -69,7 +69,7 @@ func nameBindingSeedPublished(t *testing.T, ctx context.Context, registry *Regis
 		State: publication.BundlePublished,
 		Outputs: []publication.BundleOutputRecord{{
 			Name: spec.output, PhysicalTable: "ch_" + spec.id,
-			Selector: publication.DataframeSelector{Recipe: spec.recipe, TranslationVersion: spec.translationVersion, Output: spec.output},
+			Selector: dataset.DataframeSelector{Recipe: spec.recipe, TranslationVersion: spec.translationVersion, Output: spec.output},
 			RowCount: 7, ByteCount: 700, State: publication.BundlePublished,
 		}},
 		CreatedAt:   createdAt,
@@ -108,7 +108,7 @@ func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T)
 
 	project := "nlb-project"
 	generation := "nlb-gen-" + uuid.NewString()
-	selector := publication.DataframeSelector{Recipe: "nlb-recipe", TranslationVersion: "nlb-tv", Output: "nlb-output"}
+	selector := dataset.DataframeSelector{Recipe: "nlb-recipe", TranslationVersion: "nlb-tv", Output: "nlb-output"}
 	t1 := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 10, 30, 13, 0, 0, 0, time.UTC)
 
@@ -148,7 +148,7 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 
 	project := "nlb-case-project"
 	generation := "nlb-case-gen-" + uuid.NewString()
-	selector := publication.DataframeSelector{Recipe: "nlb-case-recipe", TranslationVersion: "nlb-case-tv", Output: "nlb-case-output"}
+	selector := dataset.DataframeSelector{Recipe: "nlb-case-recipe", TranslationVersion: "nlb-case-tv", Output: "nlb-case-output"}
 	t1 := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)
 
@@ -364,7 +364,7 @@ func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 
 	project := "nlb-chain-project"
 	generation := "nlb-chain-gen-" + uuid.NewString()
-	selector := publication.DataframeSelector{Recipe: "nlb-chain-recipe", TranslationVersion: "nlb-chain-tv", Output: "nlb-chain-output"}
+	selector := dataset.DataframeSelector{Recipe: "nlb-chain-recipe", TranslationVersion: "nlb-chain-tv", Output: "nlb-chain-output"}
 	t1 := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 10, 30, 18, 0, 0, 0, time.UTC)
 

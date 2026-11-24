@@ -215,7 +215,7 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 
 	_, secondExec, firstTable, secondTable, firstKey, secondKey, _ := orphPublishRecipeEdit(t, h, store)
 
-	selector := pubpublication.DataframeSelector{Recipe: "orph-recipe", TranslationVersion: "v1", Output: "orph_out"}
+	selector := dataset.DataframeSelector{Recipe: "orph-recipe", TranslationVersion: "v1", Output: "orph_out"}
 
 	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {
 		t.Fatalf("production Reconcile returned error: %v", err)

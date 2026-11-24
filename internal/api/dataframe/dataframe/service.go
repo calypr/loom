@@ -3,9 +3,11 @@ package dataframe
 import (
 	"context"
 	"errors"
-	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataset"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -97,7 +99,7 @@ func (s *Service) authorizeMaterialization(ctx context.Context, principal *auths
 	return access, nil
 }
 
-func (s *Service) currentProjectDataset(ctx context.Context, project string, selector dfmaterialization.DataframeSelector) (dfmaterialization.Materialization, projectAccess, error) {
+func (s *Service) currentProjectDataset(ctx context.Context, project string, selector dataset.DataframeSelector) (dfmaterialization.Materialization, projectAccess, error) {
 	if s.reader == nil {
 		return dfmaterialization.Materialization{}, projectAccess{}, readerUnavailable()
 	}

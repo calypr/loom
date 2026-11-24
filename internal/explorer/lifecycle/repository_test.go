@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/publication"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -49,8 +51,8 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
 	service := newTestService(t, store, config)
 
-	publish := func(commit string) (RepositoryPublishResult, error) {
-		return service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
+	publish := func(commit string) (publication.RepositoryPublishResult, error) {
+		return service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
 	}
 
 	first, err := publish("commit-prior")

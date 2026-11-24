@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/calypr/loom/internal/explorer/selection"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
@@ -111,7 +113,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
-	var selectionSourceResolver lifecycle.SelectionSourceResolver
+	var selectionSourceResolver selection.SelectionSourceResolver
 	if materializationReader != nil {
 		selectionSourceResolver = published.SelectionSourceAdapter{Reader: materializationReader}
 	}

@@ -123,8 +123,8 @@ func rrdExecution(id, key, project, generation, recipe, output, table string) pu
 	}
 }
 
-func rrdSelect(output, recipe string) published.DataframeSelector {
-	return published.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
+func rrdSelect(output, recipe string) dataset.DataframeSelector {
+	return dataset.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 }
 
 func (h *rrdHarness) seedHealthy(t *testing.T) {
@@ -1021,7 +1021,7 @@ func danglingSeedExecution(t *testing.T, ctx context.Context, registry *Registry
 		State: publication.BundlePublished,
 		Outputs: []publication.BundleOutputRecord{{
 			Name: spec.output, PhysicalTable: "ch_" + strings.ReplaceAll(spec.id, "-", "_"),
-			Selector:   publication.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
+			Selector:   dataset.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
 			RowCount:   11,
 			ByteCount:  1100,
 			State:      publication.BundlePublished,
@@ -1149,8 +1149,8 @@ func danglingMaterializationDigest(values []published.Materialization) string {
 	return fmt.Sprintf("[%s]", strings.Join(summaries, " "))
 }
 
-func danglingSelector(output string, recipe string) published.DataframeSelector {
-	return published.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
+func danglingSelector(output string, recipe string) dataset.DataframeSelector {
+	return dataset.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 }
 
 func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.T) {

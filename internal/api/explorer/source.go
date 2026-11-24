@@ -9,7 +9,6 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/proposal"
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 )
@@ -79,7 +78,7 @@ func (r *Handlers) BrowseExplorerFrameSourceOptions(ctx context.Context, request
 		if body == nil {
 			return result, explorer.MalformedRouteError("frame-source-options", nil)
 		}
-		request := lifecycle.BrowseFrameSourceOptionsRequest{
+		request := semanticbrowse.BrowseFrameSourceOptionsRequest{
 			Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, OutputID: body.OutputId,
 		}
 		if body.ResourceType != nil {

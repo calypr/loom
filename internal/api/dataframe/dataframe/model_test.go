@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfpublished "github.com/calypr/loom/internal/dataframe/published"
 )
@@ -19,7 +21,7 @@ func TestPersistedFailureRedactsLegacyText(t *testing.T) {
 func TestProjectMetadataMapping(t *testing.T) {
 	value := Model(dfpublished.Materialization{
 		ID: "execution:DocumentReference", Name: "DocumentReference", Project: "P1", DatasetGeneration: "generation", State: dfpublished.StateReady,
-		Selector: dfpublished.DataframeSelector{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"},
+		Selector: dataset.DataframeSelector{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"},
 	})
 	if value.Selector == nil || value.Selector.TranslationVersion != "v2" {
 		t.Fatalf("selector metadata = %#v", value)

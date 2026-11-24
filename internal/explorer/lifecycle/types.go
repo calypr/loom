@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer/authoringcore"
 	"github.com/calypr/loom/internal/explorer/publication"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -43,10 +42,6 @@ type CellTraceExecutor func(context.Context, *receiptmodel.CompilationReceipt, r
 
 type RowLineageExecutor func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
-type GenerationValidator = publication.GenerationValidator
-type ReleaseActivator = publication.ReleaseActivator
-type ReleasePreparer = publication.ReleasePreparer
-
 type Config struct {
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, ws.CatalogSnapshot) (ws.Workspace, error)
 	AuthoringNetwork          func(context.Context, string, ports.AuthorizedCapability, ws.Document) (authoringnetwork.AuthoringNetwork, error)
@@ -67,8 +62,8 @@ type Config struct {
 	ExplorerStore            explorer.ExplorerStore
 	RevisionWriter           publication.RevisionWriter
 
-	SelectionSourceResolver     SelectionSourceResolver
-	SelectionReferenceValidator SelectionReferenceValidator
+	SelectionSourceResolver     explorerselection.SelectionSourceResolver
+	SelectionReferenceValidator explorerselection.SelectionReferenceValidator
 	RowChoiceResolver           rowdef.RowChoiceResolver
 	RowChoicePlanner            rowdef.RowChoicePlanner
 	ExplicitGroupResolver       explicitgroup.ExplicitGroupRevisionResolver
@@ -96,9 +91,9 @@ type Config struct {
 	ConstructionBaseCacheTTL     time.Duration
 	ConstructionBaseCacheEntries int
 
-	ValidateReleaseGeneration GenerationValidator
-	ActivateRelease           ReleaseActivator
-	PrepareRelease            ReleasePreparer
+	ValidateReleaseGeneration publication.GenerationValidator
+	ActivateRelease           publication.ReleaseActivator
+	PrepareRelease            publication.ReleasePreparer
 	PersistPublishedWorkspace func(context.Context, string, string, []byte) error
 	Now                       func() time.Time
 }
@@ -193,13 +188,3 @@ type CellTraceFeature struct {
 	Lossless           bool     `json:"lossless"`
 	LossReasons        []string `json:"lossReasons"`
 }
-
-type PublishRequest = publication.PublishRequest
-type PublishResult = publication.PublishResult
-type RepositoryPublishRequest = publication.RepositoryPublishRequest
-type RepositoryPublishResult = publication.RepositoryPublishResult
-type ArtifactRequest = publication.ArtifactRequest
-type ArtifactResult = publication.ArtifactResult
-type ArtifactOpenRequest = publication.ArtifactOpenRequest
-
-type PreviewRequest = authoringcore.PreviewRequest

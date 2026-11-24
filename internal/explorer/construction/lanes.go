@@ -17,7 +17,7 @@ func (request ConstructionProposalRequest) RowSourceRequest() rowsource.Proposal
 	}
 }
 
-func (s *Service) constructionFilterSourceCapability(ctx context.Context, base Base, outputID, stageID string) (ConstructionFilterSourceCapability, error) {
+func (s *Service) constructionFilterSourceCapability(ctx context.Context, base Base, outputID, stageID string) (rowsource.ConstructionFilterSourceCapability, error) {
 	return s.config.SourceLanes.ConstructionFilterSourceCapability(ctx, base, outputID, stageID)
 }
 
@@ -29,7 +29,7 @@ func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base
 	return s.config.SourceLanes.ReauthorizeConstructionFilterSources(ctx, base, outputID, construction)
 }
 
-func (s *Service) constructionDeriveSourceCapability(ctx context.Context, base Base, outputID, stageID string) (ConstructionDeriveSourceCapability, error) {
+func (s *Service) constructionDeriveSourceCapability(ctx context.Context, base Base, outputID, stageID string) (rowsource.ConstructionDeriveSourceCapability, error) {
 	return s.config.SourceLanes.ConstructionDeriveSourceCapability(ctx, base, outputID, stageID)
 }
 
@@ -41,7 +41,7 @@ func (s *Service) reauthorizeConstructionDeriveSources(ctx context.Context, base
 	return s.config.SourceLanes.ReauthorizeConstructionDeriveSources(ctx, base, outputID, construction)
 }
 
-func (s *Service) constructionExpandSourceCapability(ctx context.Context, base Base, outputID, stageID string) (ConstructionExpandSourceCapability, error) {
+func (s *Service) constructionExpandSourceCapability(ctx context.Context, base Base, outputID, stageID string) (rowsource.ConstructionExpandSourceCapability, error) {
 	return s.config.SourceLanes.ConstructionExpandSourceCapability(ctx, base, outputID, stageID)
 }
 
@@ -53,7 +53,7 @@ func (s *Service) reauthorizeConstructionExpandSources(ctx context.Context, base
 	return s.config.SourceLanes.ReauthorizeConstructionExpandSources(ctx, base, outputID, construction)
 }
 
-func (s *Service) constructionUnpivotSourceCapability(ctx context.Context, base Base, outputID, stageID string) (ConstructionUnpivotSourceCapability, error) {
+func (s *Service) constructionUnpivotSourceCapability(ctx context.Context, base Base, outputID, stageID string) (rowsource.ConstructionUnpivotSourceCapability, error) {
 	return s.config.SourceLanes.ConstructionUnpivotSourceCapability(ctx, base, outputID, stageID)
 }
 

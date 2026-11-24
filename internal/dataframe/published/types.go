@@ -23,8 +23,6 @@ type Column struct {
 	LoomOwned    bool   `json:"loomOwned,omitempty"`
 }
 
-type DataframeSelector = dataset.DataframeSelector
-
 type Materialization struct {
 	ID                string                         `json:"id"`
 	Name              string                         `json:"name"`
@@ -49,7 +47,7 @@ type Materialization struct {
 	Error             string                         `json:"error,omitempty"`
 	FailureCode       string                         `json:"failureCode,omitempty"`
 	FailureRetryable  bool                           `json:"failureRetryable,omitempty"`
-	Selector          DataframeSelector              `json:"selector"`
+	Selector          dataset.DataframeSelector      `json:"selector"`
 	SourceRow         *publication.SourceRowMetadata `json:"sourceRow,omitempty"`
 }
 

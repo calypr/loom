@@ -11,19 +11,19 @@ import (
 	"github.com/calypr/loom/internal/explorer/publication"
 )
 
-func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishResult, error) {
+func (s *Service) Publish(ctx context.Context, request publication.PublishRequest) (publication.PublishResult, error) {
 	return s.publicationService.Publish(ctx, request)
 }
 
-func (s *Service) PublishRepository(ctx context.Context, request RepositoryPublishRequest) (RepositoryPublishResult, error) {
+func (s *Service) PublishRepository(ctx context.Context, request publication.RepositoryPublishRequest) (publication.RepositoryPublishResult, error) {
 	return s.publicationService.PublishRepository(ctx, request)
 }
 
-func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) (ArtifactResult, error) {
+func (s *Service) PrepareArtifact(ctx context.Context, request publication.ArtifactRequest) (publication.ArtifactResult, error) {
 	return s.publicationService.PrepareArtifact(ctx, request)
 }
 
-func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest) (io.ReadCloser, *explorer.ArtifactRecord, error) {
+func (s *Service) OpenArtifact(ctx context.Context, request publication.ArtifactOpenRequest) (io.ReadCloser, *explorer.ArtifactRecord, error) {
 	return s.publicationService.OpenArtifact(ctx, request)
 }
 

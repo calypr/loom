@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -316,7 +318,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	if got := compiledOutputIDs(compiledWorkspaces[len(compiledWorkspaces)-1]); !reflect.DeepEqual(got, []string{"patients"}) {
 		t.Fatalf("selected replacement reconcile scope = %#v, want target only", got)
 	}
-	if _, err := service.Preview(context.Background(), PreviewRequest{
+	if _, err := service.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: selectedReconcile.Receipt.ID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
@@ -679,7 +681,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if compileCalls != 1 || compiledWorkspace.Documents[0].RootResourceType != "Encounter" || compiledWorkspace.Documents[0].Route.ResourceType != "Encounter" {
 		t.Fatalf("candidate compile calls=%d workspace=%#v", compileCalls, compiledWorkspace)
 	}
-	preview, err := service.Preview(context.Background(), PreviewRequest{
+	preview, err := service.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: result.CandidateReceiptID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil
@@ -738,7 +740,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		t.Fatalf("replacement projection retained the old source instead of its new document: %#v", replacement)
 	}
 	previewReceiptID = replacement.CandidateReceiptID
-	if _, err := service.Preview(context.Background(), PreviewRequest{
+	if _, err := service.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: replacement.CandidateReceiptID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

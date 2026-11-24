@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/publication"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -46,7 +48,7 @@ func repositoryPublishIntoCompilation(t *testing.T, receipt *receiptmodel.Compil
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	service := newTestService(t, store, config)
-	_, err := service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
+	_, err := service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("repository publish did not surface a lifecycle error: %v", err)
@@ -175,7 +177,7 @@ func publishIntoReleasePreparation(t *testing.T, prepareErr error) (*ports.Error
 		return successfulTestExecution(receipt, "PUBLISHED"), nil
 	}
 	service := newTestService(t, store, config)
-	_, err := service.Publish(context.Background(), PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, Actor: "operator"})
+	_, err := service.Publish(context.Background(), publication.PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, Actor: "operator"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("publish did not surface a lifecycle error: %v", err)
@@ -254,7 +256,7 @@ func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*ports.Er
 	}
 	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
 	service := newTestService(t, store, config)
-	_, err := service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
+	_, err := service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("repository publish did not surface a lifecycle error: %v", err)
@@ -334,7 +336,7 @@ func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error
 	}
 	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return nil }
 	service := newTestService(t, store, config)
-	_, err := service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
+	_, err := service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
 	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("repository publish did not surface a lifecycle error: %v", err)

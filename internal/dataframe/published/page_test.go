@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
@@ -135,7 +137,7 @@ func TestPageCursorAddsWhereForUnrestrictedTable(t *testing.T) {
 
 func TestPageRejectsCursorReplayedAgainstChangedQuery(t *testing.T) {
 	queryer := &pageQueryer{}
-	materialization := Materialization{ID: "execution:Patient", Revision: "execution", Project: "project", DatasetGeneration: "generation", PhysicalTable: "published_patient", Selector: DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}, Columns: []Column{{Name: "name", ClickHouse: "String"}}}
+	materialization := Materialization{ID: "execution:Patient", Revision: "execution", Project: "project", DatasetGeneration: "generation", PhysicalTable: "published_patient", Selector: dataset.DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}, Columns: []Column{{Name: "name", ClickHouse: "String"}}}
 	original := PageRequest{First: 1, Sort: &Sort{Column: "name"}, Filters: []Filter{{Column: "name", Op: "EQ", Value: "alice"}}, Unrestricted: true}
 	binding, err := cursorFingerprint(materialization, original)
 	if err != nil {
@@ -155,7 +157,7 @@ func TestPageRejectsCursorReplayedAgainstChangedQuery(t *testing.T) {
 }
 
 func TestPageRejectsCursorWhenPublicationBindingChanges(t *testing.T) {
-	baseMaterialization := Materialization{ID: "execution:Patient", Revision: "revision-a", Project: "project", DatasetGeneration: "generation-a", PhysicalTable: "published_patient_a", Selector: DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}, Columns: []Column{{Name: "name", ClickHouse: "String"}}}
+	baseMaterialization := Materialization{ID: "execution:Patient", Revision: "revision-a", Project: "project", DatasetGeneration: "generation-a", PhysicalTable: "published_patient_a", Selector: dataset.DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}, Columns: []Column{{Name: "name", ClickHouse: "String"}}}
 	baseRequest := PageRequest{First: 1, Sort: &Sort{Column: "name"}, Unrestricted: true}
 	binding, err := cursorFingerprint(baseMaterialization, baseRequest)
 	if err != nil {

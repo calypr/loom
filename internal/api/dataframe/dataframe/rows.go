@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	httpapi "github.com/calypr/loom/internal/api/http"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
@@ -75,13 +77,13 @@ func (s *Service) Rows(ctx context.Context, input dataframemodel.DataframeRowsIn
 	return page, nil
 }
 
-func resolveSelector(input *dataframemodel.DataframeSelectorInput) (dfmaterialization.DataframeSelector, error) {
+func resolveSelector(input *dataframemodel.DataframeSelectorInput) (dataset.DataframeSelector, error) {
 	if input == nil {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
+		return dataset.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
-	selector := dfmaterialization.DataframeSelector{Recipe: strings.TrimSpace(input.Recipe), TranslationVersion: strings.TrimSpace(input.TranslationVersion), Output: strings.TrimSpace(input.Output)}
+	selector := dataset.DataframeSelector{Recipe: strings.TrimSpace(input.Recipe), TranslationVersion: strings.TrimSpace(input.TranslationVersion), Output: strings.TrimSpace(input.Output)}
 	if !selector.Valid() {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
+		return dataset.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
 	return selector, nil
 }

@@ -408,7 +408,7 @@ func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.
 	if harness.Store.saveDraftCalls != 0 || harness.Store.created.DraftDigest != acceptedDigest || !bytes.Equal(harness.Store.created.DraftConfig, acceptedBytes) {
 		t.Fatal("proposal exchange mutated the accepted fake-store workspace")
 	}
-	preview, err := harness.Service.Preview(context.Background(), PreviewRequest{
+	preview, err := harness.Service.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: fixture.Project, ExplorerID: fixture.ExplorerID, ReceiptID: proposal.ProposalID, OutputID: fixture.OutputID,
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

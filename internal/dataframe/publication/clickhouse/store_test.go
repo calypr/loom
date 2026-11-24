@@ -281,7 +281,7 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 }
 
 type uprReader interface {
-	CurrentProjectDataset(ctx context.Context, project string, selector publishedpkg.DataframeSelector) (publishedpkg.Materialization, error)
+	CurrentProjectDataset(ctx context.Context, project string, selector dataset.DataframeSelector) (publishedpkg.Materialization, error)
 	CurrentProjectDatasets(ctx context.Context, project string) ([]publishedpkg.Materialization, error)
 	Page(ctx context.Context, materialization publishedpkg.Materialization, req publishedpkg.PageRequest) (publishedpkg.Page, error)
 }
@@ -395,7 +395,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	}
 	_ = h.registry.ReleaseBundleLease(ctx, e2Key, "upr-precheck")
 
-	selector := publishedpkg.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
+	selector := dataset.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, e2Project, selector)
 	if err != nil || baselineMat.PhysicalTable != e2Table || baselineMat.State != publishedpkg.StateReady {
@@ -598,7 +598,7 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	_ = h.registry.ReleaseBundleLease(ctx, key, "owner")
 
 	victimID := mustE2ID(t, h, key)
-	selector := publishedpkg.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
+	selector := dataset.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, proj, selector)
 	if err != nil || baselineMat.PhysicalTable != table {
@@ -703,7 +703,7 @@ func (h *uprHarness) buildRunningExec(spec uprExecSpec, owner, table string) pub
 		State: pubpublication.BundleRunning,
 		Outputs: []pubpublication.BundleOutputRecord{{
 			Name: spec.output, PhysicalTable: table,
-			Selector: publishedpkg.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
+			Selector: dataset.DataframeSelector{Recipe: spec.recipe, TranslationVersion: "v1", Output: spec.output},
 			RowCount: 3, ByteCount: 300,
 			State:      pubpublication.BundlePublished,
 			VerifiedAt: &verified,

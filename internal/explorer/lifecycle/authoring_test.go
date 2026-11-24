@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringcore"
@@ -889,7 +891,7 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 		if columnID == "" {
 			t.Fatalf("reloaded occurrence %q has no authored column", occurrenceID)
 		}
-		source, sourceErr := service.ColumnSource(context.Background(), ColumnSourceRequest{
+		source, sourceErr := service.ColumnSource(context.Background(), semanticbrowse.ColumnSourceRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", Column: columnID,
 		})
 		if sourceErr != nil || len(source.Route) != 2 || source.Route[1].CatalogEdgeID != edgeID {
@@ -1154,7 +1156,7 @@ func TestPopulationRoutesApplyAndColumnSourceAreGenericAndReadOnly(t *testing.T)
 		t.Fatal(err)
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)
-	inspected, err := service.ColumnSource(context.Background(), ColumnSourceRequest{
+	inspected, err := service.ColumnSource(context.Background(), semanticbrowse.ColumnSourceRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", Column: "observation_status",
 	})
 	if err != nil {

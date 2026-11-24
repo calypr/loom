@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	"errors"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -61,7 +63,7 @@ func TestPreviewRejectsArchivedRecipeBeforeExecution(t *testing.T) {
 		return dataframeexecution.PreviewSummary{}, nil
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
-	_, err = service.Preview(context.Background(), PreviewRequest{
+	_, err = service.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients",
 		SinkFactory: func(*receiptmodel.CompilationReceipt, []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

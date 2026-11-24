@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -229,7 +231,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 
 	proposalID = response.ProposalID
-	preview, err := service.Preview(context.Background(), lifecycle.PreviewRequest{
+	preview, err := service.Preview(context.Background(), authoringcore.PreviewRequest{
 		Project: "project-a", ExplorerID: "custom", ReceiptID: response.ProposalID, OutputID: "patients", Limit: 25,
 		SinkFactory: func(_ *receiptmodel.CompilationReceipt, _ []viewer.EmittedColumn) (func(map[string]any) error, error) {
 			return func(map[string]any) error { return nil }, nil

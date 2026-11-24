@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/publication"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -137,7 +139,7 @@ func (r *Handlers) publishRepositoryExplorerConfig(ctx context.Context, request 
 	if commit == "" {
 		return result, legacyOperationFailure(http.StatusBadRequest, "MALFORMED_REQUEST", "X-Loom-Source-Commit is required", nil)
 	}
-	value, err := r.application.PublishRepository(ctx, lifecycle.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: authscope.SubjectFromContext(ctx)})
+	value, err := r.application.PublishRepository(ctx, publication.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, lifecycleLegacyFailure(err)
 	}

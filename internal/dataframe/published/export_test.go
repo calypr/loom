@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
@@ -281,6 +283,6 @@ func TestStreamExactExportPropagatesCancellationWithoutSuccess(t *testing.T) {
 	}
 }
 
-func (c *exactExportCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func (c *exactExportCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector dataset.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	return findTestExecutionBySelector(c.execution, project, generation, selector)
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/rowsource"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -36,7 +38,7 @@ func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 		},
 	}
 	base := filterSourceBase(snapshot, baseConstruction)
-	request := filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{})
+	request := filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{})
 
 	afterPivot, _, err := service.constructionSources().constructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
@@ -437,7 +439,7 @@ func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
 	}
 	candidate := rs05CloneConstruction(baseConstruction)
 	created := rs05RunBothPreparations(t, service, filterSourceBase(snapshot, baseConstruction),
-		filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{selection}), candidate)
+		filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{selection}), candidate)
 	if count := rs05CountOwned(created.SourceProjections, rs05FilterID); count != 1 {
 		t.Fatalf("created filter-owned projections = %d: %#v", count, created.SourceProjections)
 	}
@@ -451,7 +453,7 @@ func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
 
 	saved := rs05CloneConstruction(baseConstruction)
 	restored := rs05RunBothPreparations(t, service, filterSourceBase(snapshot, saved),
-		filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{selection}), saved)
+		filterSourceProposalRequest(rs05FilterID, []rowsource.ConstructionFilterSourceSelection{selection}), saved)
 	if count := rs05CountOwned(restored.SourceProjections, rs05FilterID); count != 1 {
 		t.Fatalf("restored filter-owned projections = %d: %#v", count, restored.SourceProjections)
 	}

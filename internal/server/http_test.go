@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	httpapi "github.com/calypr/loom/internal/api/http"
@@ -39,7 +41,7 @@ func (c dataframeRouteCatalog) GetPointer(context.Context, string) (publication.
 	return publication.BundlePointer{ExecutionID: c.execution.ID}, nil
 }
 
-func (c dataframeRouteCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func (c dataframeRouteCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector dataset.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	output := c.execution.Outputs[0]
 	if c.execution.Project == project && c.execution.DatasetGeneration == generation && c.execution.Selector(output.Name) == selector {
 		return c.execution, output, nil

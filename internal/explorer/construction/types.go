@@ -16,15 +16,6 @@ import (
 type ConstructionDependencyIssue = ws.ConstructionDependencyIssue
 type ConstructionDependencyImpact = ws.ConstructionImpact
 
-type ConstructionFilterSourceCapability = rowsource.ConstructionFilterSourceCapability
-type ConstructionFilterSourceSelection = rowsource.ConstructionFilterSourceSelection
-type ConstructionDeriveSourceCapability = rowsource.ConstructionDeriveSourceCapability
-type ConstructionUnpivotSourceCapability = rowsource.ConstructionUnpivotSourceCapability
-type ConstructionExpandSourceCapability = rowsource.ConstructionExpandSourceCapability
-type ConstructionDeriveSourceSelection = rowsource.ConstructionDeriveSourceSelection
-type ConstructionUnpivotSourceSelection = rowsource.ConstructionUnpivotSourceSelection
-type ConstructionExpandSourceSelection = rowsource.ConstructionExpandSourceSelection
-
 const maxConstructionChoiceProposalChoices = 100
 
 type ConstructionSemanticGroupChoice struct {
@@ -50,28 +41,28 @@ type ConstructionCapabilitiesRequest struct {
 }
 
 type ConstructionCapabilitiesResponse struct {
-	SnapshotToken                  string                                    `json:"snapshotToken"`
-	DraftVersion                   int64                                     `json:"draftVersion"`
-	DraftDigest                    string                                    `json:"draftDigest"`
-	OutputID                       string                                    `json:"outputId"`
-	StageID                        string                                    `json:"stageId"`
-	BaseConstruction               ws.Construction                           `json:"baseConstruction"`
-	Stages                         []receiptmodel.ReceiptConstructionStage   `json:"stages"`
-	SelectedStage                  receiptmodel.ReceiptConstructionStage     `json:"selectedStage"`
-	SourceInput                    ConstructionGroupSourceCapability         `json:"sourceInput"`
-	PivotSourceInput               ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
-	FilterSourceInput              ConstructionFilterSourceCapability        `json:"filterSourceInput"`
-	DeriveSourceInput              ConstructionDeriveSourceCapability        `json:"deriveSourceInput"`
-	UnpivotSourceInput             ConstructionUnpivotSourceCapability       `json:"unpivotSourceInput"`
-	ExpandSourceInput              ConstructionExpandSourceCapability        `json:"expandSourceInput"`
-	GroupFieldChoices              []ConstructionGroupFieldChoice            `json:"groupFieldChoices"`
-	GroupFieldChoicesIncomplete    bool                                      `json:"groupFieldChoicesIncomplete,omitempty"`
-	GroupRowValueChoices           []ConstructionGroupFieldChoice            `json:"groupRowValueChoices"`
-	SemanticGroupChoices           []ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
-	SemanticGroupChoicesIncomplete bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
-	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
-	NodeOccurrences                map[string]string                         `json:"nodeOccurrences,omitempty"`
-	WorkspaceInputs                []ConstructionWorkspaceInput              `json:"workspaceInputs"`
+	SnapshotToken                  string                                        `json:"snapshotToken"`
+	DraftVersion                   int64                                         `json:"draftVersion"`
+	DraftDigest                    string                                        `json:"draftDigest"`
+	OutputID                       string                                        `json:"outputId"`
+	StageID                        string                                        `json:"stageId"`
+	BaseConstruction               ws.Construction                               `json:"baseConstruction"`
+	Stages                         []receiptmodel.ReceiptConstructionStage       `json:"stages"`
+	SelectedStage                  receiptmodel.ReceiptConstructionStage         `json:"selectedStage"`
+	SourceInput                    ConstructionGroupSourceCapability             `json:"sourceInput"`
+	PivotSourceInput               ConstructionPivotSourceCapability             `json:"pivotSourceInput"`
+	FilterSourceInput              rowsource.ConstructionFilterSourceCapability  `json:"filterSourceInput"`
+	DeriveSourceInput              rowsource.ConstructionDeriveSourceCapability  `json:"deriveSourceInput"`
+	UnpivotSourceInput             rowsource.ConstructionUnpivotSourceCapability `json:"unpivotSourceInput"`
+	ExpandSourceInput              rowsource.ConstructionExpandSourceCapability  `json:"expandSourceInput"`
+	GroupFieldChoices              []ConstructionGroupFieldChoice                `json:"groupFieldChoices"`
+	GroupFieldChoicesIncomplete    bool                                          `json:"groupFieldChoicesIncomplete,omitempty"`
+	GroupRowValueChoices           []ConstructionGroupFieldChoice                `json:"groupRowValueChoices"`
+	SemanticGroupChoices           []ConstructionSemanticGroupChoice             `json:"semanticGroupChoices,omitempty"`
+	SemanticGroupChoicesIncomplete bool                                          `json:"semanticGroupChoicesIncomplete,omitempty"`
+	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability     `json:"sourceProjectionAvailability,omitempty"`
+	NodeOccurrences                map[string]string                             `json:"nodeOccurrences,omitempty"`
+	WorkspaceInputs                []ConstructionWorkspaceInput                  `json:"workspaceInputs"`
 }
 
 type ConstructionGroupFieldChoice struct {
@@ -179,13 +170,13 @@ type ConstructionProposalRequest struct {
 	ChangedStepID         string
 	RemoveStepIDs         []string
 	CandidateConstruction ws.Construction
-	GroupSources          []ConstructionGroupSourceSelection   `json:"groupSources,omitempty"`
-	GroupSource           *ConstructionGroupSourceSelection    `json:"groupSource,omitempty"`
-	PivotSources          []ConstructionPivotSourceSelection   `json:"pivotSources,omitempty"`
-	FilterSources         []ConstructionFilterSourceSelection  `json:"filterSources,omitempty"`
-	DeriveSources         []ConstructionDeriveSourceSelection  `json:"deriveSources,omitempty"`
-	UnpivotSources        []ConstructionUnpivotSourceSelection `json:"unpivotSources,omitempty"`
-	ExpandSources         []ConstructionExpandSourceSelection  `json:"expandSources,omitempty"`
+	GroupSources          []ConstructionGroupSourceSelection             `json:"groupSources,omitempty"`
+	GroupSource           *ConstructionGroupSourceSelection              `json:"groupSource,omitempty"`
+	PivotSources          []ConstructionPivotSourceSelection             `json:"pivotSources,omitempty"`
+	FilterSources         []rowsource.ConstructionFilterSourceSelection  `json:"filterSources,omitempty"`
+	DeriveSources         []rowsource.ConstructionDeriveSourceSelection  `json:"deriveSources,omitempty"`
+	UnpivotSources        []rowsource.ConstructionUnpivotSourceSelection `json:"unpivotSources,omitempty"`
+	ExpandSources         []rowsource.ConstructionExpandSourceSelection  `json:"expandSources,omitempty"`
 	Limit                 int
 }
 

@@ -185,12 +185,12 @@ func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path stri
 	return constructionfixtures.FilterSourceRowChoice(t, snapshot, filterSourceDocument(), path)
 }
 
-func filterSourceSelection(t *testing.T, snapshot capability.Snapshot, path, columnID string) ConstructionFilterSourceSelection {
+func filterSourceSelection(t *testing.T, snapshot capability.Snapshot, path, columnID string) rowsource.ConstructionFilterSourceSelection {
 	t.Helper()
-	return ConstructionFilterSourceSelection{ChoiceID: filterSourceRowChoice(t, snapshot, path).ChoiceID, ColumnID: columnID}
+	return rowsource.ConstructionFilterSourceSelection{ChoiceID: filterSourceRowChoice(t, snapshot, path).ChoiceID, ColumnID: columnID}
 }
 
-func filterSourceProposalRequest(changedStepID string, sources []ConstructionFilterSourceSelection) ConstructionProposalRequest {
+func filterSourceProposalRequest(changedStepID string, sources []rowsource.ConstructionFilterSourceSelection) ConstructionProposalRequest {
 	return ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "filter-source-token",
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:filter-source-draft", OutputID: filterSourceOutput,

@@ -8,7 +8,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 )
 
@@ -21,10 +20,10 @@ func (h *Handlers) createSelection(ctx context.Context, request loomapi.CreateEx
 		return result, explorer.MalformedRouteError("selection", errors.New("request body is required"))
 	}
 	body := request.Body
-	intent := lifecycle.SelectionIntentCreateRequest{
+	intent := explorerselection.SelectionIntentCreateRequest{
 		Project: string(request.Project), ExplorerID: string(request.ExplorerId), Actor: authscope.SubjectFromContext(ctx),
 		SnapshotToken: body.SnapshotToken, IdempotencyKey: body.IdempotencyKey,
-		Source: lifecycle.SelectionSourceIntent{Kind: string(body.Source.Kind)},
+		Source: explorerselection.SelectionSourceIntent{Kind: string(body.Source.Kind)},
 	}
 	if body.Source.Resources != nil {
 		intent.Source.Resources = selectionRefs(body.Source.Resources.Refs)
@@ -33,7 +32,7 @@ func (h *Handlers) createSelection(ctx context.Context, request loomapi.CreateEx
 		}
 	}
 	if source := body.Source.PublishedOutput; source != nil {
-		intent.Source.PublishedOutput = &lifecycle.PublishedOutputIntent{RevisionID: source.RevisionId, OutputID: source.OutputId}
+		intent.Source.PublishedOutput = &explorerselection.PublishedOutputIntent{RevisionID: source.RevisionId, OutputID: source.OutputId}
 		if source.Filters != nil {
 			filters, err := directAuthoringJSON[[]published.Filter](*source.Filters)
 			if err != nil {
@@ -60,7 +59,7 @@ func (h *Handlers) readSelection(ctx context.Context, request loomapi.GetExplore
 	if err := h.authorizeAuthoringRead(ctx, string(request.Project)); err != nil {
 		return result, err
 	}
-	intent := lifecycle.SelectionReadIntentRequest{Project: string(request.Project), ExplorerID: string(request.ExplorerId), RevisionID: request.SelectionRevision, Limit: 100}
+	intent := explorerselection.SelectionReadIntentRequest{Project: string(request.Project), ExplorerID: string(request.ExplorerId), RevisionID: request.SelectionRevision, Limit: 100}
 	if request.Params.Cursor != nil {
 		intent.Cursor = *request.Params.Cursor
 	}

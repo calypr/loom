@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/authoringcore"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/construction"
@@ -97,7 +99,7 @@ func (s *Service) previewProposal(ctx context.Context, project, explorerID, rece
 	}
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	preview, err := s.Preview(previewCtx, PreviewRequest{
+	preview, err := s.Preview(previewCtx, authoringcore.PreviewRequest{
 		Project: project, ExplorerID: explorerID, ReceiptID: receiptID, OutputID: outputID,
 		Limit: limit, AllowSampledAggregatePreview: options.AllowSampledAggregate, SinkFactory: options.Sink,
 	})

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
+
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
@@ -25,7 +27,7 @@ func (s *Service) AggregationsInput(ctx context.Context, input dataframemodel.Da
 	return result, err
 }
 
-func (s *Service) aggregations(ctx context.Context, input dataframemodel.DataframeAggregationsInput, selector dfmaterialization.DataframeSelector) (dfmaterialization.AggregationsResult, error) {
+func (s *Service) aggregations(ctx context.Context, input dataframemodel.DataframeAggregationsInput, selector dataset.DataframeSelector) (dfmaterialization.AggregationsResult, error) {
 	started := time.Now()
 	materialization, access, err := s.currentProjectDataset(ctx, input.ProjectID, selector)
 	if err != nil {
