@@ -120,7 +120,7 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
-	service, createErr := New(domain, config)
+	service, createErr := New(domain, ConfigWithTestStores(config, store))
 	if createErr != nil {
 		t.Fatal(createErr)
 	}

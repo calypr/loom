@@ -47,7 +47,7 @@ func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 	owner.ActiveRevisionID = revision.ID
 	store.Explorers[explorerfixtures.Key("project-a", "files")] = owner
 	store.Mu.Unlock()
-	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
+	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, store)
 	for _, tc := range []struct {
 		name    string
 		failure error
@@ -90,7 +90,7 @@ func TestMissingProjectConfigIsNotCreatedOnRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
+	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, store)
 	_, err = handlers.getExplorer(context.Background(), "project-a", "default")
 	var failure *explorerLegacyOperationError
 	if !errors.As(err, &failure) || failure.status != 404 {
@@ -122,7 +122,7 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 	owner.ActiveRevisionID = revision.ID
 	store.Explorers[explorerfixtures.Key("project-a", "files")] = owner
 	store.Mu.Unlock()
-	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
+	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, store)
 	scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 		return []string{"allowed", "denied"}, nil
 	}})

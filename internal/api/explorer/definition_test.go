@@ -97,7 +97,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 		RowChoiceResolver: rowChoices,
 		RowChoicePlanner:  rowChoices,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
+			return explorerfixtures.PersistTestNativeReceipt(ctx, t, store, request, snapshot)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previews++
@@ -115,7 +115,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	list := requestJSON(t, app, http.MethodGet, basePath+"/row-definition-choices?outputId=patients&snapshotToken="+snapshot.Token, "")
 	if list.StatusCode != http.StatusOK {

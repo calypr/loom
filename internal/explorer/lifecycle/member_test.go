@@ -207,12 +207,12 @@ func (s *populationProposalTestStore) ApplyWorkspaceCommandsChecked(
 func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposalTestStore, capability.Snapshot, ws.Workspace) {
 	t.Helper()
 	domain, config, store, snapshot, workspace := populationMemberProposalSetup(t)
-	return newPopulationMemberProposalService(t, domain, config), store, snapshot, workspace
+	return newPopulationMemberProposalService(t, domain, config, store), store, snapshot, workspace
 }
 
-func newPopulationMemberProposalService(t *testing.T, domain *explorer.Service, config Config) *Service {
+func newPopulationMemberProposalService(t *testing.T, domain *explorer.Service, config Config, backing explorer.ExplorerStore) *Service {
 	t.Helper()
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, backing))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		t.Fatal(err)
 	}
 
-	service := newPopulationMemberProposalService(t, domain, config)
+	service := newPopulationMemberProposalService(t, domain, config, store)
 	baseRoutes, err := service.OwnerServices().Population.SearchPopulationRoutes(context.Background(), population.PopulationRoutesRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-base",
 	})
@@ -615,7 +615,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 			}
 			return preview(ctx, receipt, bindings, sink)
 		}
-		service := newPopulationMemberProposalService(t, domain, config)
+		service := newPopulationMemberProposalService(t, domain, config, store)
 		removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 		proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 		if err != nil {

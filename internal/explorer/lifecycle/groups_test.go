@@ -251,7 +251,7 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 		t.Fatal(err)
 	}
 	repository := &explicitGroupRepositoryFixture{}
-	service, err := New(persistence, Config{
+	service, err := New(persistence, ConfigWithTestStores(Config{
 		Capability: ports.CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (ports.AuthorizedCapability, error) {
 			if project != "project" || token != "snapshot-token" {
 				return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
@@ -260,7 +260,7 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 		}},
 		ExplicitGroupRepository: repository,
 		Now:                     func() time.Time { return completedAt.Add(time.Minute) },
-	})
+	}, selectionStore))
 	if err != nil {
 		t.Fatal(err)
 	}

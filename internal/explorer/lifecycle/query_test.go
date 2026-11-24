@@ -162,7 +162,7 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 		t.Fatalf("legacy receipt reached execution/activation: preview=%d materialize=%d release=%d sink=%d published=%v", previewCalls, materializeCalls, releaseCalls, sinkCalls, store.published)
 	}
 
-	raw, err := service.store.CompilationReceiptForExplorer(context.Background(), receipt.Project, receipt.ExplorerID, receipt.ID)
+	raw, err := service.config.Receipts.GetCompilationReceiptForExplorer(context.Background(), receipt.Project, receipt.ExplorerID, receipt.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

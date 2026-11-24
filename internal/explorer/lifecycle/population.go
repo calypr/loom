@@ -11,5 +11,5 @@ import (
 )
 
 func (s *Service) resolveWorkspacePopulations(ctx context.Context, project string, workspace ws.Workspace, snapshot capability.Snapshot, scopeDigest string) (explorercompilation.ResolvedInputs, error) {
-	return authoringcore.ResolveWorkspacePopulations(ctx, project, workspace, snapshot, scopeDigest, s.store)
+	return authoringcore.ResolveWorkspacePopulations(ctx, project, workspace, snapshot, scopeDigest, s.config.SelectionStore)
 }

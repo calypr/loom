@@ -390,10 +390,5 @@ func CatalogCandidateByID(catalog CatalogSnapshot, id string) (CatalogCandidate,
 func (s ColumnSource) ValidateSource(path string) error { return s.validate(path) }
 
 func ClonePopulationRouteSteps(route []PopulationRouteStep) []PopulationRouteStep {
-	if route == nil {
-		return nil
-	}
-	cloned := make([]PopulationRouteStep, len(route))
-	copy(cloned, route)
-	return cloned
+	return slices.Clone(route)
 }

@@ -196,7 +196,7 @@ func ContractFailure(err error) error {
 	}
 }
 
-func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...*importedsource.Sources) (result *receiptmodel.CompilationReceipt, retErr error) {
+func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, receiptStore explorer.CompilationReceiptStore, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...*importedsource.Sources) (result *receiptmodel.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -381,7 +381,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 	if err := ValidateEnginePublicColumns(&receipt, resolved); err != nil {
 		return nil, receiptCompilationConflict(receipt.ID, contractMismatch("public_columns", "", "receipt public columns", err.Error()))
 	}
-	stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
+	stored, err := receiptStore.InsertCompilationReceipt(ctx, receipt)
 	if err != nil {
 		if errors.Is(err, explorer.ErrCorruptReceipt) {
 			return nil, err

@@ -697,6 +697,7 @@ FOR d IN Patient
 	if err != nil {
 		t.Fatal(err)
 	}
+	dependencies := explorerfixtures.Dependencies(proposalStore)
 	config := lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		Capability: ports.CapabilityResolver{
@@ -708,7 +709,11 @@ FOR d IN Patient
 		},
 		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
 	}
-	handlers := NewHandlers(Config{Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject, Explorers: domain, Lifecycle: config})
+	config = lifecycleConfigForTest(config, dependencies)
+	handlers := NewHandlers(Config{
+		Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject,
+		Explorers: domain, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder, Lifecycle: config,
+	})
 
 	toWireRef := func(id string) loomapi.SelectionResourceRef {
 		return loomapi.SelectionResourceRef{Project: project, Generation: generation, ResourceType: resourceType, Id: id}
@@ -840,7 +845,7 @@ func viewBuilderTestApp(t *testing.T, store *viewBuilderHTTPStore, writeFault, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service)
+	handlers := newExplorerHTTPHandlers(viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service, store)
 	app := fiber.New()
 	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
 	return app
@@ -942,7 +947,7 @@ func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	if err := resolver.AuthorizeWrite(ctx, principal, "project-a", "project-a"); err != nil {
 		t.Fatalf("editor grant invalid: %v", err)
 	}
-	handlers := newExplorerHTTPHandlers(authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service)
+	handlers := newExplorerHTTPHandlers(authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service, store)
 	state, err := handlers.authorizedViewBuilderState(ctx, "project-a", "")
 	if err != nil {
 		t.Fatal(err)
@@ -983,7 +988,7 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 	handlers := newExplorerHTTPHandlers(
 		authscope.ScopeAuthorizer{Resolver: resolver},
 		func(context.Context, *authscope.Principal, string) error { return nil },
-		service,
+		service, store,
 	)
 	app := fiber.New()
 	app.Use(func(c fiber.Ctx) error {

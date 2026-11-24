@@ -26,7 +26,8 @@ import (
 
 func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
+	backingStore := explorerfixtures.NewStore()
+	service, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
 		},
-		ReceiptLookup: service.CompilationReceiptForExplorer,
+		ReceiptLookup: backingStore.GetCompilationReceiptForExplorer,
 		CellTrace: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
 			if receipt == nil || receipt.ID == "" || bindings.DatasetGeneration != snapshot.Identity.Generation {
 				t.Fatalf("trace was not receipt/generation bound: receipt=%#v bindings=%#v", receipt, bindings)
@@ -58,7 +59,7 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 			}, nil
 		},
 	}
-	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, service, ports.CompileReceiptRequest{
+	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, backingStore, ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}, snapshot)
@@ -66,7 +67,7 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, backingStore)
 	response := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/cell-trace", `{"receiptId":"`+receipt.ID+`","outputId":"patients","rowId":"row-7","column":"c_patient","offset":2,"limit":3}`)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("trace status=%d body=%s", response.StatusCode, response.Body)
@@ -87,12 +88,13 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 }
 
 func TestCellTraceRouteMapsLifecycleValidationErrors(t *testing.T) {
-	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
+	backingStore := explorerfixtures.NewStore()
+	service, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{}, backingStore)
 	response := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/cell-trace", `{"receiptId":"receipt","outputId":"out","rowId":"row","column":"column"}`)
 	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(response.Body, `"code":"CELL_TRACE_UNAVAILABLE"`) {
 		t.Fatalf("unavailable status=%d body=%s", response.StatusCode, response.Body)

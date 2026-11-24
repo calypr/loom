@@ -172,7 +172,7 @@ func TestPrepareArtifactCommitsExactOutputAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -218,7 +218,7 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -469,7 +469,7 @@ func TestPrepareArtifactRejectsMaterializationFromBroaderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -488,7 +488,7 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -526,7 +526,7 @@ func TestOpenArtifactReauthorizesCurrentToken(t *testing.T) {
 	}
 	wrongSnapshot := snapshot
 	wrongSnapshot.Token = "wrong-token"
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: artifacts, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: wrongSnapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -607,7 +607,7 @@ func TestOpenArtifactStoreGetFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: store})
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +627,7 @@ func TestOpenArtifactStoreGetNotFoundIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: store})
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +648,7 @@ func TestOpenArtifactStoreGetMissingFileIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: store})
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,11 +665,12 @@ func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	record := artifactOpenRecord(receipt, snapshot.Token)
 	store.records[record.ID] = record
 	store.data[record.ID] = []byte("archive")
-	domain, err := explorerfixtures.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
+	faultingRevisions := &revisionErrorBackend{artifactBackend: backend, err: cause}
+	domain, err := explorerfixtures.NewService(faultingRevisions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, faultingRevisions, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -688,11 +689,12 @@ func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 func TestPrepareArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	backend, artifacts, reader, _, receipt := artifactTestFixture(t)
 	cause := errors.New("revision store transport failure")
-	domain, err := explorerfixtures.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
+	faultingRevisions := &revisionErrorBackend{artifactBackend: backend, err: cause}
+	domain, err := explorerfixtures.NewService(faultingRevisions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader})
+	service, err := NewForTest(domain, faultingRevisions, Config{ArtifactStore: artifacts, PublishedReader: reader})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -717,7 +719,7 @@ func TestOpenArtifactStoreOpenFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -744,7 +746,7 @@ func TestOpenArtifactIncompleteOpenResultIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
@@ -807,7 +809,7 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{ArtifactStore: artifacts, PublishedReader: reader,
+	service, err := NewForTest(domain, backend, Config{ArtifactStore: artifacts, PublishedReader: reader,
 		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}},
@@ -937,7 +939,7 @@ func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewForTest(domain, Config{
+	service, err := NewForTest(domain, backend, Config{
 		ArtifactStore:   store,
 		PublishedReader: reader,
 		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
@@ -998,15 +1000,20 @@ func readySnapshot(project, generation, token string, scope authscope.ReadScope)
 	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema", ShapeDigest: "shape"}, Status: capability.StatusReady, Complete: true, Token: token}
 }
 
-func NewForTest(domain *explorer.Service, config Config) (*Service, error) {
+func NewForTest(domain *explorer.Service, backing explorer.ExplorerStore, config Config) (*Service, error) {
+	dependencies := explorerfixtures.Dependencies(backing)
 	config.Core = authoringcore.New(domain, authoringcore.Config{
 		Capability:     config.Capability,
 		NativeReceipts: true,
+		Receipts:       dependencies.Receipts,
+		Selections:     dependencies.Selections,
 	})
-	config.RevisionWriter = domain.RevisionWriter()
-	config.Revisions = domain.RevisionReader()
-	config.Receipts = domain.ReceiptStore()
-	config.AuthoringPublisher = domain.AuthoringPublisher()
-	config.RepositoryActivator = domain.RepositoryActivator()
+	config.ExplorerStore = dependencies.Owners
+	config.DraftStore = dependencies.Drafts
+	config.RevisionWriter = dependencies.RevisionWriter
+	config.Revisions = dependencies.Revisions
+	config.Receipts = dependencies.Receipts
+	config.AuthoringPublisher = dependencies.AuthoringPublisher
+	config.RepositoryActivator = dependencies.RepositoryActivator
 	return NewService(config)
 }

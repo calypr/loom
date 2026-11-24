@@ -54,27 +54,6 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("Explorer lifecycle store is required")
 	}
-	if config.SelectionStore == nil {
-		config.SelectionStore = store.SelectionStorage()
-	}
-	if config.Revisions == nil {
-		config.Revisions = store.RevisionReader()
-	}
-	if config.RevisionWriter == nil {
-		config.RevisionWriter = store.RevisionWriter()
-	}
-	if config.Receipts == nil {
-		config.Receipts = store.ReceiptStore()
-	}
-	if config.AuthoringPublisher == nil {
-		config.AuthoringPublisher = store.AuthoringPublisher()
-	}
-	if config.RepositoryActivator == nil {
-		config.RepositoryActivator = store.RepositoryActivator()
-	}
-	if config.DraftRevisions == nil {
-		config.DraftRevisions = store.DraftRevisionStorage()
-	}
 	now := config.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
@@ -103,6 +82,8 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 			CompileReceipt:             config.CompileReceipt,
 			PreviewReceipt:             config.PreviewReceipt,
 			ReceiptLookup:              config.ReceiptLookup,
+			Receipts:                   config.Receipts,
+			Selections:                 config.SelectionStore,
 			InterpretationRepository:   config.InterpretationRepository,
 			SelectionMembersCollection: config.SelectionMembersCollection,
 			NativeReceipts:             config.CompileReceipt != nil || config.PreviewReceipt != nil || config.PopulationMapping != nil || config.MaterializeReceipt != nil,
@@ -148,7 +129,7 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	}
 	service.selectionService = selectionService
 	explicitGroupService, err := explicitgroup.NewService(explicitgroup.Config{
-		Store: store, Repository: config.ExplicitGroupRepository, Capability: config.Capability, Now: now,
+		Store: config.SelectionStore, Repository: config.ExplicitGroupRepository, Capability: config.Capability, Now: now,
 	})
 	if err != nil {
 		return nil, err
@@ -215,7 +196,7 @@ func (s *Service) populationConfig() population.Config {
 	return population.Config{
 		Core:                         s.core,
 		Capability:                   s.config.Capability,
-		Store:                        s.store,
+		Store:                        s.config.SelectionStore,
 		SelectionMembersCollection:   s.config.SelectionMembersCollection,
 		CreateSelection:              s.selectionService.CreateSelection,
 		ClassifyMaterializationError: support.ClassifyMaterializationError,

@@ -8,6 +8,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/importedsource"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/projectid"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
@@ -25,7 +26,7 @@ import (
 
 type RuntimeConfig struct {
 	Engine                  *dataframeexecution.Engine
-	Explorers               *explorer.Service
+	Receipts                explorer.CompilationReceiptStore
 	CapabilityResolver      *capabilityresolver.Resolver
 	Logger                  *slog.Logger
 	CombineInputSchemas     CombineInputSchemaResolver
@@ -36,7 +37,7 @@ type RuntimeConfig struct {
 
 type Runtime struct {
 	engine                  *dataframeexecution.Engine
-	explorers               *explorer.Service
+	receipts                explorer.CompilationReceiptStore
 	capabilities            *capabilityresolver.Resolver
 	logger                  *slog.Logger
 	combineInputSchemas     CombineInputSchemaResolver
@@ -47,7 +48,7 @@ type Runtime struct {
 
 func NewRuntime(config RuntimeConfig) Runtime {
 	return Runtime{
-		engine: config.Engine, explorers: config.Explorers,
+		engine: config.Engine, receipts: config.Receipts,
 		capabilities: config.CapabilityResolver, logger: config.Logger,
 		combineInputSchemas: config.CombineInputSchemas,
 		importedSources:     config.ImportedSources, materializer: config.Materializer,
@@ -56,7 +57,7 @@ func NewRuntime(config RuntimeConfig) Runtime {
 }
 
 func (r Runtime) CompileReceipt(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-	return Compile(ctx, request, r.capabilities, r.engine, r.explorers, r.logger, r.combineInputSchemas, r.importedSources)
+	return Compile(ctx, request, r.capabilities, r.engine, r.receipts, r.logger, r.combineInputSchemas, r.importedSources)
 }
 
 func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (receiptmodel.ReceiptConstructionStage, error) {
@@ -67,7 +68,7 @@ func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.Cons
 }
 
 func (r Runtime) ReceiptLookup(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-	return r.explorers.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+	return r.receipts.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, receiptID)
 }
 
 func (r Runtime) PreviewReceipt(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {

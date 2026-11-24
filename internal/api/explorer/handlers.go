@@ -26,6 +26,8 @@ type Config struct {
 	Authorizer         authscope.Authorizer
 	AuthorizeRead      func(context.Context, *authscope.Principal, string) error
 	Explorers          *explorer.Service
+	Revisions          explorer.RevisionReader
+	ViewBuilder        explorer.ViewBuilderRepository
 	Lifecycle          lifecycle.Config
 	ConstructionInputs constructioninputs.Catalog
 	AuthorizeExecution func(context.Context, string) error
@@ -36,7 +38,7 @@ func NewHandlers(config Config) *Handlers {
 	handlers := &Handlers{
 		authorizer:         config.Authorizer,
 		authorizeRead:      config.AuthorizeRead,
-		views:              projectconfig.New(config.Explorers),
+		views:              projectconfig.New(config.Explorers, config.Revisions, config.ViewBuilder),
 		application:        application,
 		constructionInputs: config.ConstructionInputs,
 		authorizeExecution: config.AuthorizeExecution,

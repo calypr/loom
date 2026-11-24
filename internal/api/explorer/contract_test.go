@@ -36,7 +36,8 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	executionScope := scope
-	service, err := explorerfixtures.NewService(newTestExplorerStore())
+	backingStore := newTestExplorerStore()
+	service, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: executionScope}, nil
 			},
 		},
-		ReceiptLookup: service.CompilationReceiptForExplorer,
+		ReceiptLookup: backingStore.GetCompilationReceiptForExplorer,
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
 			deadline, ok := ctx.Deadline()
@@ -76,12 +77,12 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, service, ports.CompileReceiptRequest{Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}}, snapshot)
+	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, backingStore, ports.CompileReceiptRequest{Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}}, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, backingStore)
 	preview := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+receipt.ID+`","outputId":"patients","limit":5}`)
 	if preview.StatusCode != http.StatusOK {
 		t.Fatalf("preview status=%d body=%s", preview.StatusCode, preview.Body)
@@ -118,7 +119,8 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 
 func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	service, err := explorerfixtures.NewService(newTestExplorerStore())
+	backingStore := newTestExplorerStore()
+	service, err := explorerfixtures.NewService(backingStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +137,11 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 			Catalog: ws.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
+			return explorerfixtures.PersistTestNativeReceipt(ctx, t, backingStore, request, snapshot)
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, backingStore)
 
 	commandBody := fmt.Sprintf(`{"commandId":"browser-command-1","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":0,"commands":[{"type":"CREATE_TABLE","title":"Patients","rootNodeId":"n_patient"}]}`, ws.CurrentSemanticsVersion, snapshot.Token)
 	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", commandBody)
@@ -218,7 +220,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{}, store)
 	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers", `{"name":"Cloned Explorer","title":"Cloned Explorer","sourceExplorerId":"source"}`)
 	if created.StatusCode != http.StatusCreated {
 		t.Fatalf("clone status=%d body=%s", created.StatusCode, created.Body)

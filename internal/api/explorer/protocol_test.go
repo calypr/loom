@@ -178,10 +178,10 @@ func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 			if fixture.beforeCompile != nil {
 				fixture.beforeCompile()
 			}
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*receiptmodel.CompilationReceipt, error) {
-			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+			return store.GetCompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
@@ -194,7 +194,7 @@ func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture.app = app
 	return fixture
 }

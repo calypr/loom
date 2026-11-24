@@ -19,6 +19,8 @@ type Config struct {
 	CompileReceipt             ports.ReceiptCompiler
 	PreviewReceipt             func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (execution.PreviewSummary, error)
 	ReceiptLookup              func(context.Context, string, string, string) (*receiptmodel.CompilationReceipt, error)
+	Receipts                   explorer.CompilationReceiptStore
+	Selections                 explorer.SelectionStore
 	InterpretationRepository   interpretation.Repository
 	SelectionMembersCollection string
 	NativeReceipts             bool

@@ -6,7 +6,17 @@ import (
 	"github.com/calypr/loom/internal/explorer/workspace"
 )
 
-func NewService(store explorer.ExplorerStore) (*explorer.Service, error) {
+type Stores struct {
+	explorer.ServiceDependencies
+	RevisionWriter      explorer.RevisionWriter
+	Receipts            explorer.CompilationReceiptStore
+	AuthoringPublisher  explorer.AuthoringPublisher
+	RepositoryActivator explorer.RepositoryGenerationActivator
+	Selections          explorer.SelectionStore
+	DraftRevisions      explorer.DraftRevisionReader
+}
+
+func Dependencies(store explorer.ExplorerStore) Stores {
 	owners, _ := store.(explorer.ExplorerOwnerStore)
 	drafts, _ := store.(explorer.DraftStore)
 	revisions, _ := store.(explorer.RevisionReader)
@@ -37,10 +47,17 @@ func NewService(store explorer.ExplorerStore) (*explorer.Service, error) {
 	if selectionStore == nil {
 		selectionStore = &SelectionStore{Store: fallback, Selections: map[string]explorerselection.SelectionRevision{}, Members: map[string][]explorerselection.SelectionMember{}}
 	}
-	return explorer.NewService(explorer.ServiceDependencies{
-		Owners: owners, Drafts: drafts, Revisions: revisions, RevisionWriter: revisionWriter,
-		Receipts: receipts, AuthoringPublisher: authoringPublisher, RepositoryActivator: repositoryActivator,
-		Selections:  selectionStore,
-		ViewBuilder: viewBuilder, DraftRevisions: draftRevisions, WorkspaceProjections: workspaceProjections,
-	})
+	return Stores{
+		ServiceDependencies: explorer.ServiceDependencies{
+			Owners: owners, Drafts: drafts, Revisions: revisions,
+			ViewBuilder: viewBuilder, WorkspaceProjections: workspaceProjections,
+		},
+		RevisionWriter: revisionWriter,
+		Receipts:       receipts, AuthoringPublisher: authoringPublisher, RepositoryActivator: repositoryActivator,
+		Selections: selectionStore, DraftRevisions: draftRevisions,
+	}
+}
+
+func NewService(store explorer.ExplorerStore) (*explorer.Service, error) {
+	return explorer.NewService(Dependencies(store).ServiceDependencies)
 }

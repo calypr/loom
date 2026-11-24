@@ -146,9 +146,9 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 			},
 			Catalog: ws.CatalogFromCapability,
 		},
-		ReceiptLookup: domain.CompilationReceiptForExplorer,
+		ReceiptLookup: store.GetCompilationReceiptForExplorer,
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, store, nil, nil)
 		},
 		PopulationMapping: func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
 			mappingCalls++
@@ -173,7 +173,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	basePath := "/api/v1/projects/" + project + "/explorers/" + explorerID + "/authoring/v2"
 
 	reconcile := requestJSON(t, app, http.MethodPost, basePath+"/reconcile", fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":1,"draftDigest":%q}`, snapshot.Token, draftDigest))
@@ -187,7 +187,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	if compiled.ReceiptId == "" {
 		t.Fatalf("reconcile returned no persisted receipt: %s", reconcile.Body)
 	}
-	receipt, err := domain.CompilationReceiptForExplorer(context.Background(), project, explorerID, compiled.ReceiptId)
+	receipt, err := store.GetCompilationReceiptForExplorer(context.Background(), project, explorerID, compiled.ReceiptId)
 	if err != nil {
 		t.Fatalf("load reconciled receipt: %v", err)
 	}

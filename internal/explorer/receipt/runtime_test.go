@@ -36,8 +36,8 @@ func TestCompileExplorerReceiptLogsSafeStructuredSummary(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	requestID := "http-request-123"
 	ctx := httpctx.ContextWithRequestID(context.Background(), requestID)
-	request, engine, service := diagnosticCompileFixture(t, "synthetic-compile-role")
-	receipt, err := Compile(ctx, request, nil, engine, service, logger, nil)
+	request, engine, receipts := diagnosticCompileFixture(t, "synthetic-compile-role")
+	receipt, err := Compile(ctx, request, nil, engine, receipts, logger, nil)
 	if err != nil {
 		t.Fatalf("compile receipt: %v", err)
 	}
@@ -74,8 +74,8 @@ func TestCompileExplorerReceiptLogsSafeStructuredSummary(t *testing.T) {
 func TestConfiguredCategoryScannerSeparatesResolutionAndScanDiagnostics(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	request, engine, service := diagnosticCompileFixture(t, "compile-role")
-	receipt, err := Compile(context.Background(), request, nil, engine, service, nil, nil)
+	request, engine, receipts := diagnosticCompileFixture(t, "compile-role")
+	receipt, err := Compile(context.Background(), request, nil, engine, receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
@@ -100,8 +100,8 @@ func TestConfiguredCategoryScannerSeparatesResolutionAndScanDiagnostics(t *testi
 func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	request, receiptEngine, service := diagnosticCompileFixture(t, "pivot-timeout")
-	receipt, err := Compile(context.Background(), request, nil, receiptEngine, service, nil, nil)
+	request, receiptEngine, receipts := diagnosticCompileFixture(t, "pivot-timeout")
+	receipt, err := Compile(context.Background(), request, nil, receiptEngine, receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
@@ -176,8 +176,8 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	request, engine, service := diagnosticCompileFixture(t, "compile-role")
-	receipt, err := Compile(context.Background(), request, nil, engine, service, nil, nil)
+	request, engine, receipts := diagnosticCompileFixture(t, "compile-role")
+	receipt, err := Compile(context.Background(), request, nil, engine, receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 	}
 }
 
-func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileReceiptRequest, *dataframeexecution.Engine, *explorer.Service) {
+func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileReceiptRequest, *dataframeexecution.Engine, explorer.CompilationReceiptStore) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := ws.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
@@ -223,14 +223,11 @@ func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	receipts := explorerfixtures.NewStore()
 	return ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: compileRole,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-	}, engine, service
+	}, engine, receipts
 }
 
 func recipeBindingsForDiagnostic(receipt *receiptmodel.CompilationReceipt) recipe.RuntimeBindings {

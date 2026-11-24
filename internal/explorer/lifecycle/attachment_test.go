@@ -192,7 +192,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, store))
 	if err != nil {
 		t.Fatal(err)
 	}

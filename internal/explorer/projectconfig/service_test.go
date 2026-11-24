@@ -63,7 +63,7 @@ func TestViewBuilderServiceGETDoesNotInitializeProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(explorers)
+	service := New(explorers, store, store)
 	state, err := service.ViewBuilderState(context.Background(), "HTAN_INT/BForePC")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(explorers)
+	service := New(explorers, store, store)
 	config := explorerconfig.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
 	request := viewer.ViewBuilderSaveRequest{CatalogRevisionID: snapshot.ID, Config: config}
 	stateChecks := 0

@@ -342,7 +342,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	config.PreviewReceipt = func(ctx context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return preview(ctx, receipt, bindings, visit)
 	}
-	service := newPopulationMemberProposalService(t, domain, config)
+	service := newPopulationMemberProposalService(t, domain, config, store)
 	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 	proposal, err := service.OwnerServices().Population.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
 	if err != nil {

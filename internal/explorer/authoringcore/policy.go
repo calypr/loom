@@ -21,8 +21,10 @@ func (s *Core) LookupReceipt(ctx context.Context, project, explorerID, receiptID
 	)
 	if s.config.ReceiptLookup != nil {
 		receipt, err = s.config.ReceiptLookup(ctx, project, explorerID, receiptID)
+	} else if s.config.Receipts != nil {
+		receipt, err = s.config.Receipts.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, receiptID)
 	} else {
-		receipt, err = s.store.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+		err = fmt.Errorf("compilation receipt store is not configured")
 	}
 	if err != nil {
 		return nil, support.WrapReceiptLookup("receipt", err)

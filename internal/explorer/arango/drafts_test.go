@@ -301,6 +301,9 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 			return ws.CatalogSnapshot{APIVersion: ws.APIVersion, Kind: ws.CatalogKind, Project: got.Identity.Project, ExplorerID: id, SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token, Complete: true, RoutePolicy: ws.RoutePolicy{Unbounded: true}, Nodes: []ws.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
 	}}
+	config.Revisions = raced
+	config.RevisionWriter = raced
+	config.SelectionStore = raced
 	service, err := lifecycle.New(domain, config)
 	if err != nil {
 		t.Fatal(err)

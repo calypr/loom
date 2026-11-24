@@ -188,7 +188,7 @@ func (defaultViewBuilderStore) GetViewBuilderSettings(context.Context, string) (
 func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {
 	service, err := NewService(ServiceDependencies{
 		Owners: defaultViewBuilderStore{}, Drafts: defaultViewBuilderStore{}, ViewBuilder: defaultViewBuilderStore{},
-		Revisions: serviceTestOptionalStores{}, Selections: serviceTestOptionalStores{},
+		Revisions: serviceTestOptionalStores{},
 	})
 	if err != nil {
 		t.Fatal(err)

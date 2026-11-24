@@ -55,7 +55,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 	}, ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, Catalog: ws.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*receiptmodel.CompilationReceipt, error) {
-		receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
+		receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, store, request, snapshot)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +69,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return service.StoreCompilationReceipt(ctx, clone)
+		return store.InsertCompilationReceipt(ctx, clone)
 	}, PreviewReceipt: func(_ context.Context, receipt *receiptmodel.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previews++
 		if receipt.ColumnPolicyProposal == nil || !bindings.IncludeRowIdentity || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
@@ -81,7 +81,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		return dataframeexecution.PreviewSummary{RowCount: 1, Complete: true}, nil
 	}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	path := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	intent := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","columnId":"patient-id","projectionMode":"FIRST"}`, snapshot.Token, digest)
 	for _, extra := range []string{`,"project":"other"`, `,"candidateWorkspace":{}`, `,"candidateDocument":{}`, `,"candidateNetwork":{}`, `,"source":{"kind":"field","field":{"path":"secret"}}`, `,"limit":0`, `,"limit":null`} {

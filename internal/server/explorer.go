@@ -55,10 +55,7 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 	}
 	explorerService, err := explorer.NewService(explorer.ServiceDependencies{
 		Owners: explorerStore, Drafts: storage.explorerDrafts,
-		Revisions: storage.explorerRevisions, RevisionWriter: storage.explorerRevisions,
-		Receipts: storage.explorerReceipts, AuthoringPublisher: storage.explorerPublisher,
-		RepositoryActivator: storage.explorerActivator, Selections: storage.explorerSelections,
-		ViewBuilder: storage.explorerViewBuilder, DraftRevisions: storage.explorerDraftRevisions,
+		Revisions: storage.explorerRevisions, ViewBuilder: storage.explorerViewBuilder,
 		WorkspaceProjections: storage.explorerProjections,
 	})
 	if err != nil {
@@ -76,7 +73,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	configuredRecipeName, configuredRecipeVersion := storage.recipeName, storage.recipeVersion
 	recipeEngine, bundleTarget, publishedRegistry := dataframe.engine, dataframe.target, dataframe.registry
 	materializationReader, degradation := dataframe.reader, dataframe.degradation
-	capabilityResolver, explorerService, artifactStore := explorerDeps.capability, explorerDeps.service, explorerDeps.artifacts
+	capabilityResolver, artifactStore := explorerDeps.capability, explorerDeps.artifacts
 	validateExplorerReleaseGeneration := releaseService.ValidateGeneration
 	importedSources := importedsource.New(recipeRegistry, recipeEngine, capabilityResolver, configuredRecipeName, configuredRecipeVersion)
 	var combineInputSchemas receiptapi.CombineInputSchemaResolver
@@ -84,7 +81,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		combineInputSchemas = receiptapi.NewCombineInputSchemaResolver(materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
 	}
 	receiptRuntime := receiptapi.NewRuntime(receiptapi.RuntimeConfig{
-		Engine: recipeEngine, Explorers: explorerService, CapabilityResolver: capabilityResolver,
+		Engine: recipeEngine, Receipts: storage.explorerReceipts, CapabilityResolver: capabilityResolver,
 		Logger: logger, CombineInputSchemas: combineInputSchemas, ImportedSources: &importedSources,
 		ConstructionSourceStage: importedSources.SourceStage,
 		Materializer: receiptapi.NewMaterializer(
@@ -188,7 +185,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	return lifecycleConfig, nil
 }
 
-func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, lifecycleConfig lifecycle.Config) *explorerapi.Handlers {
+func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, storage storageComponents, lifecycleConfig lifecycle.Config) *explorerapi.Handlers {
 	materializationReader, publishedRegistry := dataframe.reader, dataframe.registry
 	explorerService := explorerDeps.service
 	readRecipeExecution := recipeexec.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
@@ -205,8 +202,10 @@ func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authsc
 			return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 		},
 		Explorers:          explorerService,
+		Revisions:          storage.explorerRevisions,
+		ViewBuilder:        storage.explorerViewBuilder,
 		Lifecycle:          lifecycleConfig,
-		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, explorerService),
+		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, storage.explorerRevisions),
 		AuthorizeExecution: readRecipeExecution,
 	})
 }

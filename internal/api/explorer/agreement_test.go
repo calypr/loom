@@ -224,7 +224,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 	receipt, err := receiptapi.Compile(context.Background(), ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "publication-agreement", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-	}, nil, engine, service, nil, nil)
+	}, nil, engine, store, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,6 +256,6 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return app, store, service, receipt, &calls, &badQuality
 }

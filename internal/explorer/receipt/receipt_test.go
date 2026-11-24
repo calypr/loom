@@ -138,10 +138,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := explorerfixtures.NewStore()
 	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		SelectionMembersCollection: "loom_explorer_selection_members", PopulationMemberRemovalProposal: binding,
@@ -151,7 +148,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 		}}},
 		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
-	receipt, err := Compile(context.Background(), request, nil, engine, service, nil, nil)
+	receipt, err := Compile(context.Background(), request, nil, engine, explorerfixtures.Dependencies(store).Receipts, nil, nil)
 	if err != nil {
 		t.Fatalf("compile grouped related-summary population proposal receipt: %v", err)
 	}

@@ -67,7 +67,7 @@ type Config struct {
 	Receipts                 explorer.CompilationReceiptStore
 	AuthoringPublisher       explorer.AuthoringPublisher
 	RepositoryActivator      explorer.RepositoryGenerationActivator
-	SelectionStore           explorerselection.Store
+	SelectionStore           explorer.SelectionStore
 
 	SelectionSourceResolver     explorerselection.SelectionSourceResolver
 	SelectionReferenceValidator explorerselection.SelectionReferenceValidator

@@ -356,19 +356,13 @@ type testServiceOption func(*testServiceSetup)
 
 func newTestService(t *testing.T, store *fakeStore, config Config, options ...testServiceOption) *Service {
 	t.Helper()
-	config.ExplorerOwners = store
-	config.DraftStore = store
-	config.DraftRevisions = store
-	config.Revisions = store
-	config.RevisionWriter = store
-	config.Receipts = store
-	config.AuthoringPublisher = store
-	config.RepositoryActivator = store
 	return newTestServiceFromSetup(t, testServiceSetup{Config: &config, Store: store}, options...)
 }
 
 func newTestServiceFromSetup(t *testing.T, setup testServiceSetup, options ...testServiceOption) *Service {
 	t.Helper()
+	config := ConfigWithTestStores(*setup.Config, setup.Store)
+	setup.Config = &config
 	for _, option := range options {
 		option(&setup)
 	}
@@ -1381,4 +1375,18 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			}
 		})
 	}
+}
+
+func ConfigWithTestStores(config Config, backing explorer.ExplorerStore) Config {
+	dependencies := explorerfixtures.Dependencies(backing)
+	config.ExplorerOwners = dependencies.Owners
+	config.DraftStore = dependencies.Drafts
+	config.DraftRevisions = dependencies.DraftRevisions
+	config.Revisions = dependencies.Revisions
+	config.RevisionWriter = dependencies.RevisionWriter
+	config.Receipts = dependencies.Receipts
+	config.AuthoringPublisher = dependencies.AuthoringPublisher
+	config.RepositoryActivator = dependencies.RepositoryActivator
+	config.SelectionStore = dependencies.Selections
+	return config
 }

@@ -2,6 +2,7 @@ package projectconfig
 
 import (
 	"context"
+	"strings"
 
 	"github.com/calypr/loom/internal/explorer/viewer"
 )
@@ -58,7 +59,7 @@ func (v *Service) AdoptCatalogs(ctx context.Context, project string, access Muta
 			if owner.ProjectConfig == nil || owner.ActiveRevisionID == "" {
 				continue
 			}
-			revision, err := v.GetRevision(ctx, owner.ActiveRevisionID)
+			revision, err := v.revisions.GetRevision(ctx, strings.TrimSpace(owner.ActiveRevisionID))
 			if err != nil {
 				return access.storageError(err)
 			}

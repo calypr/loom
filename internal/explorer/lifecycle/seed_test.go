@@ -916,7 +916,7 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace w
 	if err != nil {
 		return nil, err
 	}
-	service, err := New(domain, config)
+	service, err := New(domain, ConfigWithTestStores(config, store))
 	if err != nil {
 		return nil, err
 	}
