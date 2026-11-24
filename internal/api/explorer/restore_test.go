@@ -334,7 +334,7 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(&coreProtocolGatedStore{testExplorerStore: base.store, gate: pending.gate})
+	domain, err := explorerfixtures.NewService(&coreProtocolGatedStore{testExplorerStore: base.store, gate: pending.gate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -890,7 +890,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		if err := rowClient.Bootstrap(context.Background(), explorerarango.BootstrapSpec()); err != nil {
 			t.Fatal(err)
 		}
-		store, err = explorerarango.New(rowClient)
+		store, err = newTestExplorerArangoStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -902,7 +902,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if _, err := store.InsertRevision(context.Background(), explorer.Revision{ID: owner.ActiveRevisionID, Project: owner.Project, ExplorerID: owner.ExplorerID, SourceGeneration: snapshot.Identity.Generation, AuthoringBundle: original}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1108,7 +1108,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}
 	if rowClient != nil {
 
-		fresh, err := explorerarango.New(rowClient)
+		fresh, err := newTestExplorerArangoStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1196,7 +1196,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		ID: owner.ActiveRevisionID, Project: owner.Project, ExplorerID: owner.ExplorerID,
 		SourceGeneration: snapshot.Identity.Generation, AuthoringBundle: previousRaw,
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

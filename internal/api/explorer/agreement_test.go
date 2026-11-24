@@ -213,7 +213,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -82,7 +82,7 @@ func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T
 }
 
 func TestConstructionColumnPopulationHTTPRouteMapsMalformedBody(t *testing.T) {
-	store, err := explorer.NewService(explorerfixtures.NewStore())
+	store, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	if _, err := store.SaveDraft(context.Background(), *owner, 1, legacyDigest); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/explorer/viewer"
-
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/discoverycache"
 	"github.com/calypr/loom/internal/dataframe/execution"
@@ -17,27 +15,21 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeauth"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"github.com/calypr/loom/internal/explorer/projectconfig"
 	"github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/projectid"
 )
-
-type projectConfigPublisher interface {
-	PublishProjectConfigs(context.Context, explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error)
-}
-
-type sourcePublicationExplorer interface {
-	GetViewBuilderSettings(context.Context, string) (viewer.ViewBuilderSettings, error)
-	projectConfigPublisher
-	List(context.Context, string) ([]explorer.Explorer, error)
-}
 
 type SourcePublicationAdapterConfig struct {
 	RecipeEngine           *execution.Engine
 	PublicationTarget      publication.Target
 	RecipeName             string
 	PublishedRegistry      publication.BundleCatalog
-	Explorer               sourcePublicationExplorer
+	Owners                 *workspacedb.WorkspaceStore
+	ViewBuilder            *publicationdb.ViewBuilderStore
+	Publisher              *publicationdb.PublicationStore
 	ReleaseService         *dataset.ReleaseService
 	DiscoveryCache         *discoverycache.Cache
 	ScopeResolver          *authscope.ScopeResolver
@@ -106,7 +98,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 	if err != nil {
 		return "", 0, fmt.Errorf("prepare view builder catalog snapshot: %w", err)
 	}
-	settings, err := config.Explorer.GetViewBuilderSettings(ctx, project)
+	settings, err := config.ViewBuilder.GetViewBuilderSettings(ctx, project)
 	if err != nil {
 		return "", 0, fmt.Errorf("load project view builder settings: %w", err)
 	}
@@ -115,7 +107,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 		(strings.TrimSpace(catalogRevisionID) == "" || catalogRevisionID != strings.TrimSpace(catalogRevisionID)) {
 		return "", 0, fmt.Errorf("project view builder catalog anchor for recipe %q is invalid", config.RecipeName)
 	}
-	owners, err := config.Explorer.List(ctx, projectid.Legacy(project))
+	owners, err := config.Owners.List(ctx, projectid.Legacy(project))
 	if err != nil {
 		return "", 0, fmt.Errorf("load project-owned Explorer views: %w", err)
 	}
@@ -142,7 +134,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 	if err != nil {
 		return "", 0, err
 	}
-	active, err := config.Explorer.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
+	active, err := config.Publisher.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
 		RecipeName: config.RecipeName, Configs: configs, Release: release,
 		ExpectedReleaseRevision: expectedRevision, ExpectedConfigRevisionIDs: expectedConfigRevisionIDs,
 		CatalogSnapshot: &catalogSnapshot,

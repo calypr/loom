@@ -20,6 +20,7 @@ import (
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -39,9 +40,9 @@ type explorerComponents struct {
 }
 
 func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *arangostore.Client, storage storageComponents, scopeResolver *authscope.ScopeResolver) (explorerComponents, error) {
-	explorerStore, catalogStore := storage.explorer, storage.catalog
+	explorerStore, catalogStore := storage.explorerOwners, storage.catalog
 	activeManifestResolver := publicationcontract.ActiveResolver(storage.lifecycle)
-	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
+	if err := explorerarango.MigrateLegacyRepositoryConfigs(ctx, lifecycleClient, storage.explorerOwners, storage.explorerDrafts, storage.explorerRevisions, storage.explorerProjections); err != nil {
 		return explorerComponents{}, fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
 	}
 	capabilitySnapshots, err := capabilitydb.NewCapabilitySnapshotStore(lifecycleClient)
@@ -52,7 +53,14 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 	if err != nil {
 		return explorerComponents{}, fmt.Errorf("create Explorer capability resolver: %w", err)
 	}
-	explorerService, err := explorer.NewService(explorerStore)
+	explorerService, err := explorer.NewService(explorer.ServiceDependencies{
+		Owners: explorerStore, Drafts: storage.explorerDrafts,
+		Revisions: storage.explorerRevisions, RevisionWriter: storage.explorerRevisions,
+		Receipts: storage.explorerReceipts, AuthoringPublisher: storage.explorerPublisher,
+		RepositoryActivator: storage.explorerActivator, Selections: storage.explorerSelections,
+		ViewBuilder: storage.explorerViewBuilder, DraftRevisions: storage.explorerDraftRevisions,
+		WorkspaceProjections: storage.explorerProjections,
+	})
 	if err != nil {
 		return explorerComponents{}, fmt.Errorf("create Explorer service: %w", err)
 	}
@@ -64,7 +72,7 @@ func wireExplorer(ctx context.Context, serverConfig Config, lifecycleClient *ara
 }
 
 func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComponents, dataframe dataframeComponents, explorerDeps explorerComponents, scopeResolver *authscope.ScopeResolver, releaseService *publicationcontract.ReleaseService, releaseRuntime *publicationcontract.ReleaseRuntime) (lifecycle.Config, error) {
-	recipeRegistry, explorerStore, semanticStore := storage.recipes, storage.explorer, storage.semantic
+	recipeRegistry, semanticStore := storage.recipes, storage.semantic
 	configuredRecipeName, configuredRecipeVersion := storage.recipeName, storage.recipeVersion
 	recipeEngine, bundleTarget, publishedRegistry := dataframe.engine, dataframe.target, dataframe.registry
 	materializationReader, degradation := dataframe.reader, dataframe.degradation
@@ -109,7 +117,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure row-choice schema resolver: %w", err)
 	}
-	explicitGroupResolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(explorerStore)
+	explicitGroupResolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(storage.explorerGroups, storage.explorerSelections)
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
@@ -129,17 +137,24 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		SemanticInventory:                  semanticStore.PageSemanticInventory,
 		SemanticCoverage:                   semanticStore.LookupSemanticCoverage,
 		ResolveSemanticInventorySelections: semanticStore.ResolveSemanticInventorySelections,
-		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
-		InterpretationRepository:           explorerStore,
+		SelectionMembersCollection:         explorerdb.SelectionMembersCollection,
+		InterpretationRepository:           storage.explorerInterpretation,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
 		SelectionSourceResolver:            selectionSourceResolver,
-		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
-		ExplorerStore:                      explorerStore,
-		RevisionWriter:                     explorerStore,
+		SelectionReferenceValidator:        storage.explorerSelections.ValidateSelectionReferences,
+		ExplorerOwners:                     storage.explorerOwners,
+		DraftStore:                         storage.explorerDrafts,
+		DraftRevisions:                     storage.explorerDraftRevisions,
+		Revisions:                          storage.explorerRevisions,
+		RevisionWriter:                     storage.explorerRevisions,
+		Receipts:                           storage.explorerReceipts,
+		AuthoringPublisher:                 storage.explorerPublisher,
+		RepositoryActivator:                storage.explorerActivator,
+		SelectionStore:                     storage.explorerSelections,
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
-		ExplicitGroupRepository:            explorerStore,
+		ExplicitGroupRepository:            storage.explorerGroups,
 		ScanCategories:                     receiptRuntime.ScanCategories,
 		ScanColumnPopulation:               receiptRuntime.ScanColumnPopulation,
 		CompileReceipt:                     compileReceipt,

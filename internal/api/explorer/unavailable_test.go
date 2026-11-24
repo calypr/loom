@@ -15,9 +15,9 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -31,7 +31,7 @@ func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(newTestExplorerStore())
+	service, err := explorerfixtures.NewService(newTestExplorerStore())
 	if err != nil {
 		t.Fatal(err)
 	}

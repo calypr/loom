@@ -50,7 +50,7 @@ func projectionTestSidecar(t *testing.T, source ws.Artifact) ws.Projection {
 func TestWorkspaceProjectionCurrentPacketsBypassReader(t *testing.T) {
 	raw, digest := projectionTestPacket(t)
 	reader := &projectionTestReader{err: errors.New("must not read sidecar")}
-	s := &Service{store: reader}
+	s := &Service{owners: reader, drafts: reader, workspaceProjections: reader}
 	revision := Revision{AuthoringBundle: raw, IntentDigest: digest}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
 	before, _ := json.Marshal(revision)
 	source := RevisionWorkspaceArtifact(revision)
 	reader := &projectionTestReader{projection: projectionTestSidecar(t, source)}
-	s := &Service{store: reader}
+	s := &Service{owners: reader, drafts: reader, workspaceProjections: reader}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err != nil {
 		t.Fatal(err)
 	}
@@ -152,13 +152,13 @@ func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 		{"wrong-source", &projectionTestReader{projection: projectionTestSidecar(t, ws.Artifact{ID: "different"})}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &Service{store: tc.reader}
+			s := &Service{owners: tc.reader, drafts: tc.reader}
 			if _, err := s.RevisionWorkspace(context.Background(), revision); err == nil {
 				t.Fatal("accepted absent or unrelated sidecar")
 			}
 		})
 	}
-	s := &Service{store: struct{ ExplorerStore }{}}
+	s := &Service{owners: struct{ ExplorerStore }{}, drafts: struct{ ExplorerStore }{}}
 	if _, err := s.RevisionWorkspace(context.Background(), revision); err == nil {
 		t.Fatal("accepted legacy packet without projection reader")
 	}
@@ -167,6 +167,11 @@ func TestWorkspaceProjectionUnavailableOrWrongSidecarFails(t *testing.T) {
 type defaultViewBuilderStore struct {
 	ExplorerStore
 	ViewBuilderRepository
+}
+
+type serviceTestOptionalStores struct {
+	RevisionReader
+	SelectionStore
 }
 
 func (defaultViewBuilderStore) Get(_ context.Context, project, id string) (*Explorer, error) {
@@ -181,7 +186,10 @@ func (defaultViewBuilderStore) GetViewBuilderSettings(context.Context, string) (
 }
 
 func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {
-	service, err := NewService(defaultViewBuilderStore{})
+	service, err := NewService(ServiceDependencies{
+		Owners: defaultViewBuilderStore{}, Drafts: defaultViewBuilderStore{}, ViewBuilder: defaultViewBuilderStore{},
+		Revisions: serviceTestOptionalStores{}, Selections: serviceTestOptionalStores{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

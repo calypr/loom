@@ -72,7 +72,7 @@ func draftTransactionError(outcome string) error {
 }
 func (c *draftTransactionPrimitive) WithTransaction(ctx context.Context, collections store.TransactionCollections, fn store.TransactionFunc) error {
 	c.transactions++
-	if !reflect.DeepEqual(collections.Write, []string{ExplorersCollection, DraftRevisionsCollection}) {
+	if !reflect.DeepEqual(collections.Write, []string{db.ExplorersCollection, db.DraftRevisionsCollection}) {
 		c.t.Fatalf("wrong transaction write set: %#v", collections)
 	}
 	if c.input.Outcomes.Begin != "ok" {
@@ -119,7 +119,7 @@ func (c *draftTransactionPrimitive) QueryRows(_ context.Context, query string, b
 	c.queries = append(c.queries, stage)
 	outcome := map[string]string{"read": c.input.Outcomes.Read, "archive": c.input.Outcomes.Archive, "update": c.input.Outcomes.Update}[stage]
 	if stage != "archive" {
-		if binds["@c"] != ExplorersCollection || binds["key"] != draftTransactionExplorerKey || binds["project"] != "project-formal" || binds["explorerId"] != "draft-formal" || binds["expected"] != int64(1) || binds["expectedDigest"] != "digest-old" {
+		if binds["@c"] != db.ExplorersCollection || binds["key"] != draftTransactionExplorerKey || binds["project"] != "project-formal" || binds["explorerId"] != "draft-formal" || binds["expected"] != int64(1) || binds["expectedDigest"] != "digest-old" {
 			c.t.Fatalf("changed CAS binds: %#v", binds)
 		}
 		for _, guard := range []string{"d._key == @key", "d.project == @project", "d.explorerId == @explorerId", "d.draftVersion == @expected", "d.draftDigest == @expectedDigest"} {
@@ -141,7 +141,7 @@ func (c *draftTransactionPrimitive) QueryRows(_ context.Context, query string, b
 	case "read":
 		return visit(maps.Clone(c.persistedHead))
 	case "archive":
-		if binds["@c"] != DraftRevisionsCollection {
+		if binds["@c"] != db.DraftRevisionsCollection {
 			c.t.Fatal("wrong history collection")
 		}
 		doc, ok := binds["doc"].(map[string]any)

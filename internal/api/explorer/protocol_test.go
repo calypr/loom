@@ -151,7 +151,7 @@ func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

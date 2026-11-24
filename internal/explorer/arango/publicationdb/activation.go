@@ -50,7 +50,7 @@ type activationState struct {
 	prior     map[string]any
 }
 
-func (s *Store) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
+func (s *PublicationStore) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
 	return s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
 		Write: []string{datasetarango.LifecycleCollection, db.ExplorersCollection, db.RevisionsCollection},

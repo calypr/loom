@@ -260,7 +260,7 @@ func testExplicitGroupCleanup(ctx context.Context, t *testing.T, client *store.C
 	if _, err := repository.AppendExplicitGroupMemberships(ctx, revision.ID, writer, []explorerselection.ExplicitGroupMembership{membership}); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.ExecuteAQL(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {writerExpiresAt: 0} IN @@c`, map[string]any{"@c": ExplicitGroupRevisionsCollection, "key": string(revision.ID)}); err != nil {
+	if err := client.ExecuteAQL(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {writerExpiresAt: 0} IN @@c`, map[string]any{"@c": db.ExplicitGroupRevisionsCollection, "key": string(revision.ID)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.CleanupExplicitGroupStaging(ctx, time.Now().UTC(), 1); err != nil {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
+	store "github.com/calypr/loom/internal/store/arango"
 )
 
 type legacyRepositoryConfig struct {
@@ -27,9 +28,9 @@ type legacyRepositoryConfig struct {
 	UpdatedAt        time.Time       `json:"updatedAt"`
 }
 
-func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
+func MigrateLegacyRepositoryConfigs(ctx context.Context, client store.RowQueryer, owners explorer.ExplorerOwnerStore, drafts explorer.DraftStore, revisions explorer.RevisionReader, projections ws.ProjectionReader) error {
 	legacy := []legacyRepositoryConfig{}
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.activeRevisionId != null AND d.activeRevisionId != "" RETURN d`, 1000, map[string]any{"@c": LegacyRepositoryConfigsCollection}, func(row map[string]any) error {
+	err := client.QueryRows(ctx, `FOR d IN @@c FILTER d.activeRevisionId != null AND d.activeRevisionId != "" RETURN d`, 1000, map[string]any{"@c": db.LegacyRepositoryConfigsCollection}, func(row map[string]any) error {
 		value, decodeErr := db.Decode[legacyRepositoryConfig](row)
 		if decodeErr == nil {
 			legacy = append(legacy, value)
@@ -41,12 +42,12 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 	}
 	for _, value := range legacy {
 		project := projectid.Legacy(value.Project)
-		if _, err := s.Get(ctx, project, "default"); err == nil {
+		if _, err := owners.Get(ctx, project, "default"); err == nil {
 			continue
 		} else if !errors.Is(err, explorer.ErrNotFound) {
 			return err
 		}
-		revision, err := s.GetRevision(ctx, value.ActiveRevisionID)
+		revision, err := revisions.GetRevision(ctx, value.ActiveRevisionID)
 		if err != nil {
 			return fmt.Errorf("migrate legacy Explorer %q revision %q: %w", project, value.ActiveRevisionID, err)
 		}
@@ -61,11 +62,7 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 				}
 			}
 			if len(draft) != 0 {
-				domain, err := explorer.NewService(s)
-				if err != nil {
-					return err
-				}
-				workspace, err := domain.RevisionWorkspace(ctx, *revision)
+				workspace, _, err := ws.ResolveStoredArtifact(ctx, projections, explorer.RevisionWorkspaceArtifact(*revision), draft)
 				if err != nil {
 					return fmt.Errorf("legacy repository authoring state requires explicit workspace migration: %w", err)
 				}
@@ -96,7 +93,7 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 		if updatedAt.IsZero() {
 			updatedAt = revision.CreatedAt
 		}
-		_, err = s.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "default", Title: title, ManagementMode: viewer.ManagementRepository, DraftConfig: append([]byte(nil), draft...), DraftVersion: 1, DraftDigest: digest, ActiveRevisionID: revision.ID, UpdatedAt: updatedAt})
+		_, err = owners.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "default", Title: title, ManagementMode: viewer.ManagementRepository, DraftConfig: append([]byte(nil), draft...), DraftVersion: 1, DraftDigest: digest, ActiveRevisionID: revision.ID, UpdatedAt: updatedAt})
 		if err != nil && !errors.Is(err, explorer.ErrDraftConflict) {
 			return fmt.Errorf("migrate legacy Explorer %q owner: %w", project, err)
 		}

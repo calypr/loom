@@ -30,7 +30,7 @@ func (c recipeExecutionCatalogFixture) GetExecution(context.Context, string) (pu
 
 func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 
 func TestMissingProjectConfigIsNotCreatedOnRead(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestMissingProjectConfigIsNotCreatedOnRead(t *testing.T) {
 
 func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

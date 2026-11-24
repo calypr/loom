@@ -1,7 +1,6 @@
 package publicationdb
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/calypr/loom/internal/explorer/arango/db"
@@ -9,20 +8,25 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-type client interface {
-	store.RowQueryer
-	WithTransaction(context.Context, store.TransactionCollections, store.TransactionFunc) error
-}
+type client = store.TransactionalRowQueryer
 
 type ReceiptStore struct{ client client }
 
-func NewReceiptStore(c client) ReceiptStore {
-	return ReceiptStore{client: c}
+func NewReceiptStore(c client) *ReceiptStore {
+	return &ReceiptStore{client: c}
 }
 
 type PublicationStore struct{ client client }
 
 type ViewBuilderStore struct{ client client }
+
+func NewPublicationStore(c client) *PublicationStore {
+	return &PublicationStore{client: c}
+}
+
+func NewViewBuilderStore(c client) *ViewBuilderStore {
+	return &ViewBuilderStore{client: c}
+}
 
 type Store struct {
 	ReceiptStore
@@ -36,9 +40,9 @@ func NewStore(c client) (*Store, error) {
 		return nil, fmt.Errorf("publication Arango client is required")
 	}
 	return &Store{
-		ReceiptStore:     NewReceiptStore(c),
-		PublicationStore: PublicationStore{client: c},
-		ViewBuilderStore: ViewBuilderStore{client: c},
+		ReceiptStore:     *NewReceiptStore(c),
+		PublicationStore: *NewPublicationStore(c),
+		ViewBuilderStore: *NewViewBuilderStore(c),
 		client:           c,
 	}, nil
 }

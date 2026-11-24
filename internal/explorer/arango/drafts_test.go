@@ -28,6 +28,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	store "github.com/calypr/loom/internal/store/arango"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -135,7 +136,7 @@ func draftCASSeed(t *testing.T, ctx context.Context, s *Store) explorer.Explorer
 func draftCASHistory(t *testing.T, ctx context.Context, c *store.Client, e explorer.Explorer) []explorer.DraftRevision {
 	t.Helper()
 	rows := []explorer.DraftRevision{}
-	err := c.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorer RETURN d`, 10, map[string]any{"@c": DraftRevisionsCollection, "project": e.Project, "explorer": e.ExplorerID}, func(row map[string]any) error {
+	err := c.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorer RETURN d`, 10, map[string]any{"@c": db.DraftRevisionsCollection, "project": e.Project, "explorer": e.ExplorerID}, func(row map[string]any) error {
 		v, err := db.Decode[explorer.DraftRevision](row)
 		rows = append(rows, v)
 		return err
@@ -289,7 +290,7 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 		}
 	}
 	raced, _ := New(&draftCASClient{Client: c, afterRead: barrier})
-	domain, err := explorer.NewService(raced)
+	domain, err := explorerfixtures.NewService(raced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +433,7 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	collection, _ := binds["@c"].(string)
 	switch {
-	case strings.HasPrefix(strings.TrimSpace(query), "INSERT") && collection == DraftRevisionsCollection:
+	case strings.HasPrefix(strings.TrimSpace(query), "INSERT") && collection == db.DraftRevisionsCollection:
 		doc := maps.Clone(binds["doc"].(map[string]any))
 		id := doc["_key"].(string)
 		if c.revisions == nil {
@@ -443,7 +444,7 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 		}
 		c.revisions[id] = doc
 		return visit(maps.Clone(doc))
-	case strings.Contains(query, "d.id == @revisionId") && collection == DraftRevisionsCollection:
+	case strings.Contains(query, "d.id == @revisionId") && collection == db.DraftRevisionsCollection:
 		id, _ := binds["key"].(string)
 		revision := c.revisions[id]
 		if revision == nil || revision["id"] != binds["revisionId"] || revision["project"] != binds["project"] || revision["explorerId"] != binds["explorerId"] {
@@ -465,7 +466,7 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 		updated["previousDraftRevisionId"] = binds["revisionId"]
 		c.owner = updated
 		return visit(maps.Clone(updated))
-	case strings.Contains(query, "RETURN d") && collection == ExplorersCollection && binds["expected"] != nil:
+	case strings.Contains(query, "RETURN d") && collection == db.ExplorersCollection && binds["expected"] != nil:
 		if !draftOwnerMatches(c.owner, binds) {
 			return nil
 		}
@@ -534,7 +535,7 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 	if len(client.revisions) != 1 {
 		t.Fatalf("persisted draft revisions=%d, want 1", len(client.revisions))
 	}
-	if !reflect.DeepEqual(client.transaction.Write, []string{ExplorersCollection, DraftRevisionsCollection}) {
+	if !reflect.DeepEqual(client.transaction.Write, []string{db.ExplorersCollection, db.DraftRevisionsCollection}) {
 		t.Fatalf("transaction write set=%v", client.transaction.Write)
 	}
 	var snapshot *explorer.DraftRevision
@@ -668,7 +669,7 @@ func (c *migrationHistoryOrderClient) QueryRows(_ context.Context, query string,
 			c.historyRaw = encoded
 		}
 		return nil
-	case strings.Contains(query, `FILTER d._key == @key RETURN {migrationJSON:JSON_STRINGIFY(d)}`) && binds["@c"] == DraftRevisionsCollection:
+	case strings.Contains(query, `FILTER d._key == @key RETURN {migrationJSON:JSON_STRINGIFY(d)}`) && binds["@c"] == db.DraftRevisionsCollection:
 		if c.historyRaw == nil {
 			return nil
 		}

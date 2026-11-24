@@ -177,7 +177,7 @@ func newScopedCompileFixture(t *testing.T) *scopedCompileFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

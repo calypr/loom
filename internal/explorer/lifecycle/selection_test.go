@@ -22,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type selectionLifecycleStore struct {
@@ -119,7 +120,7 @@ func TestCreateSelectionVariantStreamsBaseMembershipAndAppliesExclusions(t *test
 		},
 		baseMembers: baseMembers,
 	}
-	persistence, err := explorer.NewService(store)
+	persistence, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +167,7 @@ func (s *selectionLifecycleStore) BeginSelection(_ context.Context, value explor
 
 func TestCreateSelectionRejectsChangedExplicitRefsForSameIdempotencyKey(t *testing.T) {
 	store := &selectionLifecycleStore{}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	var resolvedToken string
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (ports.AuthorizedCapability, error) {
@@ -194,7 +195,7 @@ func TestCreateSelectionRejectsChangedExplicitRefsForSameIdempotencyKey(t *testi
 }
 
 func TestCreateSelectionRejectsRetainedOldGenerationSnapshot(t *testing.T) {
-	persistence, _ := explorer.NewService(&selectionLifecycleStore{})
+	persistence, _ := explorerfixtures.NewService(&selectionLifecycleStore{})
 	service, _ := New(persistence, Config{
 		Capability: ports.CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (ports.AuthorizedCapability, error) {
 			if project != "project" || token != "old-token" {
@@ -224,7 +225,7 @@ func TestReadSelectionResolvesCurrentSnapshotThenExecutionToken(t *testing.T) {
 		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: digest, RuleDigest: "rule", MembershipDigest: explorerselection.MembershipDigest(nil), Complete: true, CompletedAt: &completedAt,
 	}}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	var currentProject, currentExplorer, currentGeneration, executionProject, executionToken string
 	service, err := New(persistence, Config{Capability: ports.CapabilityResolver{
 		Current: func(_ context.Context, project, explorerID, generation string) (capability.Snapshot, error) {
@@ -345,7 +346,7 @@ func TestCreateSelectionAbortsInterruptedPublishedStreamWithoutCompletion(t *tes
 		Publication: viewer.PublicationMetadata{ExecutionID: "execution"},
 		Dataset:     viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{Name: "files"}}},
 	}}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	streamErr := errors.New("source stream interrupted")
 	resolver := &selectionResolverFixture{
 		materialization: published.Materialization{
@@ -373,7 +374,7 @@ func TestCreateSelectionAbortsInterruptedPublishedStreamWithoutCompletion(t *tes
 func TestCreateSelectionReportsUnavailablePublishedResolver(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}})
@@ -390,7 +391,7 @@ func TestCreateSelectionReportsUnavailablePublishedResolver(t *testing.T) {
 func TestCreateSelectionRejectsRowsAboveLimitWithoutCompletion(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	refs := make([]explorerselection.ResourceRef, int(DefaultSelectionMaxRows)+1)
 	for i := range refs {
 		refs[i] = explorerselection.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: fmt.Sprintf("files-%06d", i)}
@@ -418,7 +419,7 @@ func TestCreateSelectionRejectsRowsAboveLimitWithoutCompletion(t *testing.T) {
 
 func TestReadSelectionRejectsInvalidScopeBeforeHeaderLoad(t *testing.T) {
 	store := &selectionLifecycleStore{}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	badScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted, AuthResourcePaths: []string{"secret"}}
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{
 		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
@@ -446,7 +447,7 @@ func TestReadSelectionRejectsNarrowedScopeWithoutReturningCounts(t *testing.T) {
 		Complete: true, MemberCount: 42,
 		ScopeDigest: scopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}),
 	}}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{
 		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
 			return capabilitySnapshot("current-token", "generation-a", digest), nil
@@ -467,7 +468,7 @@ func TestReadSelectionRejectsNarrowedScopeWithoutReturningCounts(t *testing.T) {
 
 func TestCreateSelectionRejectsForeignReferencesWithoutRewritingThem(t *testing.T) {
 	store := &selectionLifecycleStore{}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
@@ -481,7 +482,7 @@ func TestCreateSelectionRejectsForeignReferencesWithoutRewritingThem(t *testing.
 
 func TestCreateSelectionRejectsBothSourceVariants(t *testing.T) {
 	store := &selectionLifecycleStore{}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
@@ -496,7 +497,7 @@ func TestCreateSelectionRejectsBothSourceVariants(t *testing.T) {
 func TestCreateSelectionBindsRequestedRevisionSeparatelyFromExecution(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{revision: &explorer.Revision{Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema", Publication: viewer.PublicationMetadata{ExecutionID: "execution-a"}, Dataset: viewer.DatasetMetadata{Generation: "generation-a", Outputs: []viewer.DatasetOutput{{Name: "files"}}}}}
-	persistence, _ := explorer.NewService(store)
+	persistence, _ := explorerfixtures.NewService(store)
 	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "final-physical-schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: dataset.DataframeSelector{Recipe: "recipe", Output: "files"}}}
 	service, _ := New(persistence, Config{Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		return ports.AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil

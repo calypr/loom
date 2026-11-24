@@ -76,7 +76,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "custom", Title: "Signals", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

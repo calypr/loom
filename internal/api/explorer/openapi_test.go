@@ -21,7 +21,6 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -646,7 +645,7 @@ FOR d IN Patient
 	if err != nil {
 		t.Fatal(err)
 	}
-	explorerStore, err := explorerarango.New(client)
+	explorerStore, err := newTestExplorerArangoStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,7 +693,7 @@ FOR d IN Patient
 		Selections: map[string]explorerselection.SelectionRevision{},
 		Members:    map[string][]explorerselection.SelectionMember{},
 	}
-	domain, err := explorer.NewService(proposalStore)
+	domain, err := explorerfixtures.NewService(proposalStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -837,7 +836,7 @@ func (a viewBuilderTestAuthorizer) AuthorizeWrite(context.Context, *authscope.Pr
 
 func viewBuilderTestApp(t *testing.T, store *viewBuilderHTTPStore, writeFault, readFault error) *fiber.App {
 	t.Helper()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -931,7 +930,7 @@ func TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct(t *testin
 
 func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	store := &viewBuilderHTTPStore{testExplorerStore: explorerfixtures.NewStore(), settings: viewer.ViewBuilderSettings{Catalogs: map[string]string{}}}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -977,7 +976,7 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 		testExplorerStore: explorerfixtures.NewStore(),
 		settings:          viewer.ViewBuilderSettings{Catalogs: map[string]string{}},
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

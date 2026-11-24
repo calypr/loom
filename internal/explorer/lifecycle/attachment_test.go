@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type attachmentCase struct {
@@ -187,7 +188,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) ws.CatalogSnapshot { return catalog }
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

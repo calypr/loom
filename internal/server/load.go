@@ -15,7 +15,7 @@ import (
 )
 
 func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.ConnectionOptions, lifecycleClient *arangostore.Client, storage storageComponents, dataframe dataframeComponents, discoveryCache *discoverycache.Cache, scopeResolver *authscope.ScopeResolver, releaseService *publicationcontract.ReleaseService) (*loadapi.Service, loadapi.SourceLoader, loadapi.SourceLoadLimits, error) {
-	lifecycleStore, explorerStore := storage.lifecycle, storage.explorer
+	lifecycleStore := storage.lifecycle
 	configuredRecipeName := storage.recipeName
 	bundleTarget, recipeEngine, publishedRegistry := dataframe.target, dataframe.engine, dataframe.registry
 	ingestRunner := loadapi.IngestRunner{BaseOptions: generation.LoadOptions{
@@ -41,7 +41,8 @@ func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.Con
 	if bundleTarget != nil && configuredRecipeName != "" {
 		publicationAdapter := sourcepublication.NewSourcePublicationAdapter(sourcepublication.SourcePublicationAdapterConfig{
 			RecipeEngine: recipeEngine, PublicationTarget: bundleTarget, RecipeName: configuredRecipeName,
-			PublishedRegistry: publishedRegistry, Explorer: explorerStore, ReleaseService: releaseService,
+			PublishedRegistry: publishedRegistry, Owners: storage.explorerOwners,
+			ViewBuilder: storage.explorerViewBuilder, Publisher: storage.explorerPublisher, ReleaseService: releaseService,
 			DiscoveryCache: discoveryCache, ScopeResolver: scopeResolver,
 			BatchRows: serverConfig.Server.RecipeBatchRows, BatchBytes: serverConfig.Server.RecipeBatchBytes,
 			QualityMaxRows: serverConfig.Server.RecipeQualityMaxRows, QualityMaxDistinctKeys: serverConfig.Server.RecipeQualityMaxDistinctKeys,

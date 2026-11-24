@@ -66,6 +66,11 @@ type RowBatchClient interface {
 	BatchInserter
 }
 
+type TransactionalRowQueryer interface {
+	RowQueryer
+	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error
+}
+
 type TransactionalRowClient interface {
 	RowBatchClient
 	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error

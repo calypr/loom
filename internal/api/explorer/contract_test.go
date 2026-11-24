@@ -36,7 +36,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	executionScope := scope
-	service, err := explorer.NewService(newTestExplorerStore())
+	service, err := explorerfixtures.NewService(newTestExplorerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 
 func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	service, err := explorer.NewService(newTestExplorerStore())
+	service, err := explorerfixtures.NewService(newTestExplorerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "source", Title: "Source", ManagementMode: viewer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

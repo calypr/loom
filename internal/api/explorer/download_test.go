@@ -46,7 +46,7 @@ func artifactDownloadId() string {
 func downloadArtifactWithRecord(t *testing.T, now time.Time, record *explorer.ArtifactRecord) testHTTPResponse {
 	t.Helper()
 	store := &artifactDownloadStoreFixture{record: record}
-	domain, err := explorer.NewService(explorerfixtures.NewStore())
+	domain, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}

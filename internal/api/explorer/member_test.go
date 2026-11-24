@@ -84,7 +84,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	}
 	store.Members["selection-base"] = append([]explorerselection.SelectionMember(nil), members...)
 
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

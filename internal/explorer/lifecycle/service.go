@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/calypr/loom/internal/explorer/authoringcore"
@@ -53,6 +54,27 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("Explorer lifecycle store is required")
 	}
+	if config.SelectionStore == nil {
+		config.SelectionStore = store.SelectionStorage()
+	}
+	if config.Revisions == nil {
+		config.Revisions = store.RevisionReader()
+	}
+	if config.RevisionWriter == nil {
+		config.RevisionWriter = store.RevisionWriter()
+	}
+	if config.Receipts == nil {
+		config.Receipts = store.ReceiptStore()
+	}
+	if config.AuthoringPublisher == nil {
+		config.AuthoringPublisher = store.AuthoringPublisher()
+	}
+	if config.RepositoryActivator == nil {
+		config.RepositoryActivator = store.RepositoryActivator()
+	}
+	if config.DraftRevisions == nil {
+		config.DraftRevisions = store.DraftRevisionStorage()
+	}
 	now := config.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
@@ -91,9 +113,9 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		interpretationService: interpretationService,
 	}
 	selectionService, err := selection.NewService(selection.Config{
-		Store: store,
+		Store: config.SelectionStore,
 		ReadPublishedRevision: func(ctx context.Context, id string) (*selection.PublishedRevision, error) {
-			revision, err := store.GetRevision(ctx, id)
+			revision, err := config.Revisions.GetRevision(ctx, strings.TrimSpace(id))
 			if err != nil {
 				return nil, err
 			}
@@ -171,8 +193,10 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	}
 	service.proposalService = proposalService
 	publicationService, err := publication.NewService(publication.Config{
-		Core: service.core, Store: store, ExplorerStore: config.ExplorerStore,
-		RevisionWriter: config.RevisionWriter, Capability: config.Capability,
+		Core: service.core, ExplorerStore: config.ExplorerOwners, DraftStore: config.DraftStore,
+		Revisions: config.Revisions, RevisionWriter: config.RevisionWriter, Receipts: config.Receipts,
+		AuthoringPublisher: config.AuthoringPublisher, RepositoryActivator: config.RepositoryActivator,
+		Capability:                 config.Capability,
 		SelectionMembersCollection: config.SelectionMembersCollection,
 		CompileReceipt:             config.CompileReceipt, MaterializeReceipt: config.MaterializeReceipt,
 		ArtifactStore: config.ArtifactStore, PublishedReader: config.PublishedReader,

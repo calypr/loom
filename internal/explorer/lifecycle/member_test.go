@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type populationProposalTestStore struct {
@@ -250,7 +251,7 @@ func populationMemberProposalSetup(t *testing.T) (*explorer.Service, Config, *po
 	fake := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", DraftConfig: raw, DraftVersion: 7, DraftDigest: digest}, copyGet: true,
 		selection: &baseHeader, selectionMembers: members}
 	store := &populationProposalTestStore{fakeStore: fake, selections: map[string]explorerselection.SelectionRevision{}, members: map[string][]explorerselection.SelectionMember{}}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

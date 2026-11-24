@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
@@ -31,6 +32,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	storearango "github.com/calypr/loom/internal/store/arango"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -282,7 +284,7 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +821,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(client)
+	store, err := newTestExplorerArangoStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -842,7 +844,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -948,7 +950,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = restartClient.Close(context.Background()) })
-	restartStore, err := explorerarango.New(restartClient)
+	restartStore, err := newTestExplorerArangoStore(restartClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1035,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(client)
+	store, err := newTestExplorerArangoStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1061,7 +1063,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1234,11 +1236,11 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = restartClient.Close(context.Background()) })
-	restartStore, err := explorerarango.New(restartClient)
+	restartStore, err := newTestExplorerArangoStore(restartClient)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restartDomain, err := explorer.NewService(restartStore)
+	restartDomain, err := explorerfixtures.NewService(restartStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1301,10 +1303,10 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("refused stale save wrote ghost bytes into the persisted draft")
 	}
 
-	if count := countDocuments(ctx, t, restartClient, explorerarango.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
+	if count := countDocuments(ctx, t, restartClient, explorerdb.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorers holds %d documents for project-a/core-protocol, want exactly 1", count)
 	}
-	if count := countDocuments(ctx, t, restartClient, explorerarango.DraftRevisionsCollection, "project-a", "core-protocol"); count != 1 {
+	if count := countDocuments(ctx, t, restartClient, explorerdb.DraftRevisionsCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorer_draft_revisions holds %d documents for project-a/core-protocol, want exactly 1 (the captured pre-command head)", count)
 	}
 }

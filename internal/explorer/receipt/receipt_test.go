@@ -10,7 +10,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -139,7 +138,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}

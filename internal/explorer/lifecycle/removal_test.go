@@ -22,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.T) {
@@ -329,7 +330,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	}
 	_, config, base, snapshot, before := populationMemberProposalSetup(t)
 	store := &formalRemovalStore{populationProposalTestStore: base}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

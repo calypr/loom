@@ -20,14 +20,13 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
 func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +87,7 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 }
 
 func TestCellTraceRouteMapsLifecycleValidationErrors(t *testing.T) {
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}

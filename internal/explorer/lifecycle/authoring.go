@@ -529,7 +529,10 @@ func (s *Service) prepareDraftRevisionRestore(
 	if owner.PreviousDraftRevisionID == "" || command.DraftRevisionID() != owner.PreviousDraftRevisionID {
 		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is no longer the current Undo target", nil, nil)
 	}
-	revision, err := s.store.GetDraftRevision(ctx, project, explorerID, command.DraftRevisionID())
+	if s.config.DraftRevisions == nil {
+		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, explorer.ErrNotFound)
+	}
+	revision, err := s.config.DraftRevisions.GetDraftRevision(ctx, projectid.Legacy(project), strings.TrimSpace(explorerID), strings.TrimSpace(command.DraftRevisionID()))
 	if errors.Is(err, explorer.ErrNotFound) {
 		return nil, support.Conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, err)
 	}

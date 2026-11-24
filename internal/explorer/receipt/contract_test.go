@@ -111,7 +111,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +621,7 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +669,7 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1004,7 +1004,7 @@ func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1139,7 +1139,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		t.Fatal(err)
 	}
 	store := explorerfixtures.NewStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 
 	"github.com/calypr/loom/internal/explorer"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type viewBuilderServiceStore struct {
@@ -58,7 +59,7 @@ func (s *viewBuilderServiceStore) SaveViewBuilderConfig(_ context.Context, reque
 
 func TestViewBuilderServiceGETDoesNotInitializeProject(t *testing.T) {
 	store := &viewBuilderServiceStore{}
-	explorers, err := explorer.NewService(store)
+	explorers, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 		settings:  viewer.ViewBuilderSettings{Version: 1, Catalogs: map[string]string{resolved.Bundle.Name: snapshot.ID}},
 		revisions: map[string]explorer.Revision{snapshot.ID: snapshot},
 	}
-	explorers, err := explorer.NewService(store)
+	explorers, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

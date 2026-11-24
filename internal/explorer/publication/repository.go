@@ -34,8 +34,8 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt receiptmodel.C
 	if len(receipt.NormalizedBundle) == 0 || len(receipt.CompiledConfig) == 0 || len(receipt.PublicOutputContract) == 0 {
 		return nil, nil, fmt.Errorf("repository compilation receipt is missing durable V2 artifacts")
 	}
-	if s.config.ExplorerStore == nil {
-		return nil, nil, fmt.Errorf("repository Explorer store is required")
+	if s.config.ExplorerStore == nil || s.config.DraftStore == nil {
+		return nil, nil, fmt.Errorf("repository owner and draft stores are required")
 	}
 	if s.config.RevisionWriter == nil {
 		return nil, nil, fmt.Errorf("repository revision writer is required")
@@ -48,7 +48,7 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt receiptmodel.C
 	if decoded, err := ws.DecodeWorkspace(workspace); err == nil && len(decoded.Tabs) > 0 {
 		title = decoded.Tabs[0].Title
 	}
-	if _, err := s.store.StoreCompilationReceipt(ctx, receipt); err != nil {
+	if _, err := s.config.Receipts.InsertCompilationReceipt(ctx, receipt); err != nil {
 		return nil, nil, err
 	}
 	owner, err := s.config.ExplorerStore.Get(ctx, storageProject, "default")
@@ -56,7 +56,7 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt receiptmodel.C
 		owner, err = s.config.ExplorerStore.Create(ctx, explorer.Explorer{Project: storageProject, ExplorerID: "default", Title: title, ManagementMode: viewer.ManagementRepository, DraftConfig: workspace, DraftVersion: 1, DraftDigest: receipt.IntentDigest, UpdatedBy: actor, UpdatedAt: s.now()})
 	} else if err == nil {
 		owner.Title, owner.DraftConfig, owner.DraftDigest, owner.UpdatedBy = title, workspace, receipt.IntentDigest, actor
-		owner, err = s.config.ExplorerStore.SaveDraft(ctx, *owner, owner.DraftVersion)
+		owner, err = s.config.DraftStore.SaveDraft(ctx, *owner, owner.DraftVersion)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -211,25 +211,25 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if err := s.config.ActivateRelease(ctx, projectid.Legacy(request.Project), request.Generation, selectorsForBundle(receipt.Bundle)); err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
 
-			_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
+			_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, support.Conflict("repository_publish", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
 		}
 		var requirementsErr *dataset.ReleaseRequirementsError
 		if errors.As(err, &requirementsErr) {
 
-			_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, support.Conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), map[string]any{"retryable": false}, err)
 		}
-		_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+		_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "RELEASE_ACTIVATION_FAILED", "activate published ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
-	if err := s.store.ActivateRepositoryGeneration(ctx, request.Project, request.Generation, revision.ID); err != nil {
+	if err := s.config.RepositoryActivator.ActivateRepositoryGeneration(ctx, bindings.Project, request.Generation, revision.ID); err != nil {
 
 		if errors.Is(err, explorer.ErrDraftConflict) {
-			_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, support.Conflict("repository_publish", "GENERATION_ACTIVATION_FAILED", "generation activation lost a concurrent Explorer update; the prior Explorer revision was retained", nil, err)
 		}
-		_, _ = s.store.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+		_, _ = s.config.RevisionWriter.FailRevision(ctx, revision.ID, []viewer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, support.Unavailable("repository_publish", "GENERATION_ACTIVATION_FAILED", "activate ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()

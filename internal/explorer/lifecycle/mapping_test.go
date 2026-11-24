@@ -18,8 +18,8 @@ import (
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type formalPopulationCase struct {
@@ -116,7 +116,7 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 		}
 		return dataframeexecution.PopulationMappingResult{Status: status, SelectedCount: 3, MappedCount: 2, UnmappedCount: 1, EmittedRows: 1, UnmappedMemberIDs: []string{"file-004"}}, nil
 	}
-	domain, createErr := explorer.NewService(store)
+	domain, createErr := explorerfixtures.NewService(store)
 	if createErr != nil {
 		t.Fatal(createErr)
 	}

@@ -6,60 +6,44 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-const (
-	ExplorersCollection                = db.ExplorersCollection
-	DraftRevisionsCollection           = db.DraftRevisionsCollection
-	RevisionsCollection                = db.RevisionsCollection
-	CompilationReceiptsCollection      = db.CompilationReceiptsCollection
-	SelectionsCollection               = db.SelectionsCollection
-	SelectionMembersCollection         = db.SelectionMembersCollection
-	ExplicitGroupRevisionsCollection   = db.ExplicitGroupRevisionsCollection
-	ExplicitGroupDefinitionsCollection = db.ExplicitGroupDefinitionsCollection
-	ExplicitGroupMembershipsCollection = db.ExplicitGroupMembershipsCollection
-	InterpretationLibrariesCollection  = db.InterpretationLibrariesCollection
-	InterpretationRevisionsCollection  = db.InterpretationRevisionsCollection
-	ViewBuilderSettingsCollection      = db.ViewBuilderSettingsCollection
-	LegacyRepositoryConfigsCollection  = db.LegacyRepositoryConfigsCollection
-)
-
 func CollectionSpecs() []store.CollectionSpec {
 	return []store.CollectionSpec{
-		{Name: ExplorersCollection, Indexes: [][]string{{"project", "explorerId"}}},
-		{Name: DraftRevisionsCollection, Indexes: [][]string{{"project", "explorerId", "draftVersion"}}},
-		{Name: RevisionsCollection, Indexes: [][]string{{"project", "explorerId", "createdAt"}, {"project", "status"}}},
-		{Name: CompilationReceiptsCollection, Indexes: [][]string{
+		{Name: db.ExplorersCollection, Indexes: [][]string{{"project", "explorerId"}}},
+		{Name: db.DraftRevisionsCollection, Indexes: [][]string{{"project", "explorerId", "draftVersion"}}},
+		{Name: db.RevisionsCollection, Indexes: [][]string{{"project", "explorerId", "createdAt"}, {"project", "status"}}},
+		{Name: db.CompilationReceiptsCollection, Indexes: [][]string{
 			{"project", "explorerId", "intentDigest"},
 			{"project", "explorerId", "createdAt"},
 			{"project", "explorerId", "compilationKey", "receiptFormatVersion", "compilerContractVersion"},
 		}},
-		{Name: SelectionsCollection, Indexes: [][]string{
+		{Name: db.SelectionsCollection, Indexes: [][]string{
 			{"project", "id"},
 			{"project", "idempotencyKey"},
 			{"project", "generation", "resourceType", "createdAt"},
 			{"state", "createdAt"},
 		}},
-		{Name: SelectionMembersCollection, Indexes: [][]string{
+		{Name: db.SelectionMembersCollection, Indexes: [][]string{
 			{"selectionId", "project", "generation", "resourceType", "id"},
 			{"selectionId", "memberKey"},
 		}},
-		{Name: ExplicitGroupRevisionsCollection, Indexes: [][]string{
+		{Name: db.ExplicitGroupRevisionsCollection, Indexes: [][]string{
 			{"project", "id"},
 			{"project", "idempotencyKey"},
 			{"project", "generation", "resourceType", "createdAt"},
 			{"state", "createdAt"},
 		}},
-		{Name: ExplicitGroupDefinitionsCollection, Indexes: [][]string{
+		{Name: db.ExplicitGroupDefinitionsCollection, Indexes: [][]string{
 			{"revisionId", "ordinal"},
 			{"revisionId", "groupId"},
 		}},
-		{Name: ExplicitGroupMembershipsCollection, Indexes: [][]string{
+		{Name: db.ExplicitGroupMembershipsCollection, Indexes: [][]string{
 			{"revisionId", "groupId", "id"},
 			{"revisionId", "project", "generation", "resourceType", "id"},
 		}},
-		{Name: InterpretationLibrariesCollection, Indexes: [][]string{{"project", "id"}, {"project", "headRevisionId"}}},
-		{Name: InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
-		{Name: ViewBuilderSettingsCollection, Indexes: [][]string{{"project"}}},
-		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
+		{Name: db.InterpretationLibrariesCollection, Indexes: [][]string{{"project", "id"}, {"project", "headRevisionId"}}},
+		{Name: db.InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
+		{Name: db.ViewBuilderSettingsCollection, Indexes: [][]string{{"project"}}},
+		{Name: db.LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		capabilitydb.CapabilitySnapshotCollectionSpec(),
 		workspaceProjectionCollectionSpec(),
 	}

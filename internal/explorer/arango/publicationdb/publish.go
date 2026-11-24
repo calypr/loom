@@ -57,7 +57,7 @@ type projectConfigOwnerPlan struct {
 	reactivate  bool
 }
 
-func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error) {
+func (s *PublicationStore) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error) {
 	if request.CatalogSnapshot != nil {
 		normalized, err := canonicalProjectConfigRevision(*request.CatalogSnapshot)
 		if err != nil {

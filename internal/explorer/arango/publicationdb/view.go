@@ -643,4 +643,4 @@ func cloneTimePointer(value *time.Time) *time.Time {
 	return &copy
 }
 
-var _ explorer.ViewBuilderRepository = (*Store)(nil)
+var _ explorer.ViewBuilderRepository = (*ViewBuilderStore)(nil)

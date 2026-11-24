@@ -131,7 +131,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: viewer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +573,7 @@ func assertRootCandidateDocumentEqualsApplied(t *testing.T, candidate *loomapi.D
 
 func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -660,7 +660,7 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 		Status:               explorer.RevisionActive,
 	}
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -757,7 +757,7 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := newTestExplorerStore()
-			service, err := explorer.NewService(store)
+			service, err := explorerfixtures.NewService(store)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -785,7 +785,7 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 }
 
 func TestExplorerStateRouteReturnsExplicitUnpublishedProjection(t *testing.T) {
-	service, err := explorer.NewService(newTestExplorerStore())
+	service, err := explorerfixtures.NewService(newTestExplorerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -877,7 +877,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	}
 	draft, digest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1050,7 +1050,7 @@ func (case008ExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context
 
 func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) {
 	store := newTestExplorerStore()
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,8 +1072,14 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	// Essential: the in-memory store retains strings from request parameters after the handler returns.
 	app := fiber.New(fiber.Config{Immutable: true})
 	config := lifecycle.Config{
-		ExplorerStore:  store,
-		RevisionWriter: store,
+		ExplorerOwners:      store,
+		DraftStore:          store,
+		DraftRevisions:      store,
+		Revisions:           store,
+		RevisionWriter:      store,
+		Receipts:            store,
+		AuthoringPublisher:  store,
+		RepositoryActivator: store,
 		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },

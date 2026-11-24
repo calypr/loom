@@ -103,7 +103,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	}
 	store.Members[selectionID] = append([]explorerselection.SelectionMember(nil), members...)
 
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type explicitGroupSelectionFixture struct {
@@ -245,7 +246,7 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 	}
 	selection.MembershipDigest = explorerselection.MembershipDigest(members)
 	selectionStore := &explicitGroupSelectionFixture{header: selection, members: members}
-	persistence, err := explorer.NewService(selectionStore)
+	persistence, err := explorerfixtures.NewService(selectionStore)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,6 +31,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -111,7 +112,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(graph)
+	store, err := newTestExplorerArangoStore(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(store)
+	service, err := explorerfixtures.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,11 +245,11 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		freshStore, err := explorerarango.New(freshGraph)
+		freshStore, err := newTestExplorerArangoStore(freshGraph)
 		if err != nil {
 			t.Fatal(err)
 		}
-		freshService, err := explorer.NewService(freshStore)
+		freshService, err := explorerfixtures.NewService(freshStore)
 		if err != nil {
 			t.Fatal(err)
 		}

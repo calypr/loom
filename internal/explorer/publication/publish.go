@@ -3,6 +3,7 @@ package publication
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/authoringcore"
@@ -112,7 +113,13 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	now := s.now()
 	revisionID := "authoring_" + strings.TrimPrefix(receipt.ID, "receipt_")
 	revisionValue := explorer.NewRevision(explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), QualityReports: publication.CloneQualityReports(execution.QualityReports), Publication: viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now})
-	revision, err := s.store.PublishAuthoring(ctx, *receipt, revisionValue, release, expectedReleaseRevision)
+	if receipt.ID == "" || revisionValue.ID == "" || revisionValue.CompilationReceiptID != receipt.ID {
+		return PublishResult{}, support.Unavailable("publish", "PERSISTENCE_UNAVAILABLE", "the published Explorer revision could not be saved", fmt.Errorf("authoring publication identity is incomplete"))
+	}
+	receiptValue := *receipt
+	receiptValue.Project = projectid.Canonical(receiptValue.Project)
+	revisionValue.Project = bindings.Project
+	revision, err := s.config.AuthoringPublisher.PublishAuthoring(ctx, receiptValue, revisionValue, release, expectedReleaseRevision)
 	if err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
 			return PublishResult{}, support.Conflict("activation", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)

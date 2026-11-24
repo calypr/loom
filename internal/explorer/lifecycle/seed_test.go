@@ -22,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestBuilderFullUIRegisteredGroupFilterDeriveFixtureCompiles(t *testing.T) {
@@ -911,7 +912,7 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace w
 		}
 		return dataframeexecution.PreviewSummary{Output: fixture.OutputID, Columns: emittedPublicColumnsForOutput(receipt, fixture.OutputID), Complete: true}, nil
 	}
-	domain, err := explorer.NewService(store)
+	domain, err := explorerfixtures.NewService(store)
 	if err != nil {
 		return nil, err
 	}

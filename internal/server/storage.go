@@ -9,23 +9,38 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/arango"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
+	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type storageComponents struct {
-	explorer      *explorerarango.Store
-	recipes       *recipearango.Registry
-	lifecycle     *publicationarango.Store
-	catalog       *catalogarango.Store
-	semantic      *semanticarango.Store
-	degradation   error
-	recipeName    string
-	recipeVersion string
+	explorerOwners         *workspacedb.WorkspaceStore
+	explorerDrafts         explorer.DraftStore
+	explorerDraftRevisions explorer.DraftRevisionReader
+	explorerRevisions      *workspacedb.RevisionStore
+	explorerSelections     *selectiondb.SelectionStore
+	explorerGroups         *explorerarango.ExplicitGroupStore
+	explorerInterpretation *explorerarango.InterpretationStore
+	explorerReceipts       *publicationdb.ReceiptStore
+	explorerPublisher      *publicationdb.PublicationStore
+	explorerActivator      *publicationdb.PublicationStore
+	explorerViewBuilder    *publicationdb.ViewBuilderStore
+	explorerProjections    *explorerarango.WorkspaceProjectionStore
+	recipes                *recipearango.Registry
+	lifecycle              *publicationarango.Store
+	catalog                *catalogarango.Store
+	semantic               *semanticarango.Store
+	degradation            error
+	recipeName             string
+	recipeVersion          string
 }
 
 func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, lifecycleClient *arangostore.Client) (storageComponents, error) {
@@ -50,10 +65,17 @@ func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, 
 	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		return storageComponents{}, fmt.Errorf("bootstrap Explorer store: %w", err)
 	}
-	explorerStore, err := explorerarango.New(lifecycleClient)
-	if err != nil {
-		return storageComponents{}, fmt.Errorf("create Explorer store: %w", err)
-	}
+	explorerSelections := selectiondb.NewSelectionStore(lifecycleClient)
+	explorerRevisions := workspacedb.NewRevisionStore(lifecycleClient)
+	explorerOwners := workspacedb.NewWorkspaceStore(lifecycleClient)
+	explorerDrafts := explorerarango.NewDraftStore(lifecycleClient)
+	explorerGroups := explorerarango.NewExplicitGroupStore(lifecycleClient, explorerSelections)
+	explorerInterpretation := explorerarango.NewInterpretationStore(lifecycleClient)
+	explorerReceipts := publicationdb.NewReceiptStore(lifecycleClient)
+	explorerPublisher := publicationdb.NewPublicationStore(lifecycleClient)
+	explorerActivator := publicationdb.NewPublicationStore(lifecycleClient)
+	explorerViewBuilder := publicationdb.NewViewBuilderStore(lifecycleClient)
+	explorerProjections := explorerarango.NewWorkspaceProjectionStore(lifecycleClient)
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return storageComponents{}, fmt.Errorf("create recipe registry: %w", err)
@@ -88,7 +110,11 @@ func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, 
 		return storageComponents{}, fmt.Errorf("create semantic store: %w", err)
 	}
 	return storageComponents{
-		explorer: explorerStore, recipes: recipeRegistry, lifecycle: lifecycleStore, catalog: catalogStore, semantic: semanticStore,
+		explorerOwners: explorerOwners, explorerDrafts: explorerDrafts, explorerDraftRevisions: explorerDrafts, explorerRevisions: explorerRevisions,
+		explorerSelections: explorerSelections, explorerGroups: explorerGroups, explorerInterpretation: explorerInterpretation,
+		explorerReceipts: explorerReceipts, explorerPublisher: explorerPublisher, explorerActivator: explorerActivator,
+		explorerViewBuilder: explorerViewBuilder, explorerProjections: explorerProjections,
+		recipes: recipeRegistry, lifecycle: lifecycleStore, catalog: catalogStore, semantic: semanticStore,
 		degradation: degradation, recipeName: configuredRecipeName, recipeVersion: configuredRecipeVersion,
 	}, nil
 }

@@ -39,6 +39,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
@@ -355,8 +356,14 @@ type testServiceOption func(*testServiceSetup)
 
 func newTestService(t *testing.T, store *fakeStore, config Config, options ...testServiceOption) *Service {
 	t.Helper()
-	config.ExplorerStore = store
+	config.ExplorerOwners = store
+	config.DraftStore = store
+	config.DraftRevisions = store
+	config.Revisions = store
 	config.RevisionWriter = store
+	config.Receipts = store
+	config.AuthoringPublisher = store
+	config.RepositoryActivator = store
 	return newTestServiceFromSetup(t, testServiceSetup{Config: &config, Store: store}, options...)
 }
 
@@ -365,7 +372,7 @@ func newTestServiceFromSetup(t *testing.T, setup testServiceSetup, options ...te
 	for _, option := range options {
 		option(&setup)
 	}
-	domain, err := explorer.NewService(setup.Store)
+	domain, err := explorerfixtures.NewService(setup.Store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -960,7 +967,16 @@ func TestAuthorizedReceiptExecutionPreservesRestrictedEmptyScope(t *testing.T) {
 }
 
 func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
-	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	t.Run("plain project", func(t *testing.T) {
+		testPublishCommitsReleaseAndRevisionTogether(t, "project-a", "project-a")
+	})
+	t.Run("slash project", func(t *testing.T) {
+		testPublishCommitsReleaseAndRevisionTogether(t, "HTAN/Project", "HTAN-Project")
+	})
+}
+
+func testPublishCommitsReleaseAndRevisionTogether(t *testing.T, project, storageProject string) {
+	snapshot := readySnapshot(project, "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := nativeReceipt(snapshot)
 	order := []string{}
 	store := &fakeStore{receipt: receipt, order: &order}
@@ -968,21 +984,24 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.ValidateReleaseGeneration = func(context.Context, string, string) error { order = append(order, "validate-generation"); return nil }
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		order = append(order, "prepare-release")
-		return dataset.ProjectRelease{ID: "release-a", Project: "project-a", Generation: "generation-a", GitCommit: "generation-a"}, 7, nil
+		return dataset.ProjectRelease{ID: "release-a", Project: storageProject, Generation: "generation-a", GitCommit: "generation-a"}, 7, nil
 	}
 	config.MaterializeReceipt = func(context.Context, *receiptmodel.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		order = append(order, "materialize")
 		return successfulTestExecution(receipt, "READY"), nil
 	}
-	config.PersistPublishedWorkspace = func(_ context.Context, project, explorerID string, workspace []byte) error {
+	config.PersistPublishedWorkspace = func(_ context.Context, writeBackProject, explorerID string, workspace []byte) error {
 		order = append(order, "writeback")
-		if project != "project-a" || explorerID != "patients" || string(workspace) != string(receipt.NormalizedBundle) {
-			t.Fatalf("writeback = %s/%s %s", project, explorerID, workspace)
+		if writeBackProject != project || explorerID != "patients" || string(workspace) != string(receipt.NormalizedBundle) {
+			t.Fatalf("writeback = %s/%s %s", writeBackProject, explorerID, workspace)
 		}
 		return nil
 	}
-	service := newTestService(t, store, config)
-	result, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	projectStore := func(setup *testServiceSetup) {
+		setup.Config.AuthoringPublisher = publicationProjectStore{fakeStore: store, t: t, project: project, storageProject: storageProject}
+	}
+	service := newTestService(t, store, config, projectStore)
+	result, err := service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err != nil || result.Revision == nil || !store.published {
 		t.Fatalf("publish = %#v, err=%v", result, err)
 	}
@@ -994,14 +1013,14 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	}
 
 	store.publishErr = errors.New("revision write failed")
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var persistenceFailure *ports.Error
 	if !errors.As(err, &persistenceFailure) || persistenceFailure.Class != ports.ClassUnavailable || persistenceFailure.Code != "PERSISTENCE_UNAVAILABLE" || !errors.Is(err, store.publishErr) {
 		t.Fatalf("publish failure=%v, want unavailable PERSISTENCE_UNAVAILABLE", err)
 	}
 
 	store.publishErr = dataset.ErrReleaseActivationConflict
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var activationFailure *ports.Error
 	if !errors.As(err, &activationFailure) || activationFailure.Class != ports.ClassConflict || activationFailure.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("activation failure=%#v, want PUBLICATION_ACTIVATION_CONFLICT", err)
@@ -1012,8 +1031,8 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.PersistPublishedWorkspace = func(context.Context, string, string, []byte) error {
 		return errors.New("disk full")
 	}
-	service = newTestService(t, store, config)
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	service = newTestService(t, store, config, projectStore)
+	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	var writebackFailure *ports.Error
 	if !errors.As(err, &writebackFailure) || writebackFailure.Code != "LOCAL_WORKSPACE_WRITEBACK_FAILED" || !store.published {
 		t.Fatalf("writeback failure published=%v, err=%v", store.published, err)
@@ -1024,8 +1043,8 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, errors.New("release preparation failed")
 	}
-	service = newTestService(t, store, config)
-	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	service = newTestService(t, store, config, projectStore)
+	_, err = service.Publish(context.Background(), explorerpublication.PublishRequest{Project: project, ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err == nil || store.published {
 		t.Fatalf("preparation failure published=%v, err=%v", store.published, err)
 	}

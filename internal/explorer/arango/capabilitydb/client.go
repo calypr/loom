@@ -1,17 +1,13 @@
 package capabilitydb
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-type client interface {
-	store.RowQueryer
-	WithTransaction(context.Context, store.TransactionCollections, store.TransactionFunc) error
-}
+type client = store.TransactionalRowQueryer
 
 func decode[T any](value any) (T, error) {
 	return store.DecodeValue[T](normalizeUpdatedAt(value))

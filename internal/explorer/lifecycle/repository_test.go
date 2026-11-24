@@ -21,8 +21,39 @@ import (
 )
 
 func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevision(t *testing.T) {
+	t.Run("plain project", func(t *testing.T) {
+		testRepositoryPublishReleaseCASConflict(t, "project-a", "project-a")
+	})
+	t.Run("slash project", func(t *testing.T) {
+		testRepositoryPublishReleaseCASConflict(t, "HTAN/Project", "HTAN-Project")
+	})
+}
+
+type publicationProjectStore struct {
+	*fakeStore
+	t                       *testing.T
+	project, storageProject string
+}
+
+func (s publicationProjectStore) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
+	s.t.Helper()
+	if project != s.storageProject {
+		s.t.Fatalf("activation project = %q, want storage project %q", project, s.storageProject)
+	}
+	return s.fakeStore.ActivateRepositoryGeneration(ctx, project, generation, revisionID)
+}
+
+func (s publicationProjectStore) PublishAuthoring(ctx context.Context, receipt receiptmodel.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
+	s.t.Helper()
+	if receipt.Project != s.project || revision.Project != s.storageProject {
+		s.t.Fatalf("authoring receipt/revision projects = (%q, %q), want (%q, %q)", receipt.Project, revision.Project, s.project, s.storageProject)
+	}
+	return s.fakeStore.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
+}
+
+func testRepositoryPublishReleaseCASConflict(t *testing.T, project, storageProject string) {
 	visible := true
-	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	snapshot := readySnapshot(project, "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	workspace := ws.Workspace{
 		APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, Explorer: ws.ExplorerMetadata{Title: "Default"},
 		Documents: []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &ws.TablePresentation{Visible: &visible}}}, Rows: ws.RecordsRowDefinition()}},
@@ -49,10 +80,12 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 	}
 	activateErr := error(nil)
 	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
-	service := newTestService(t, store, config)
+	service := newTestService(t, store, config, func(setup *testServiceSetup) {
+		setup.Config.RepositoryActivator = publicationProjectStore{fakeStore: store, t: t, project: project, storageProject: storageProject}
+	})
 
 	publish := func(commit string) (publication.RepositoryPublishResult, error) {
-		return service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
+		return service.PublishRepository(context.Background(), publication.RepositoryPublishRequest{Project: project, Generation: "generation-a", Workspace: workspace, Commit: commit, Actor: "alice"})
 	}
 
 	first, err := publish("commit-prior")

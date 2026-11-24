@@ -223,7 +223,7 @@ func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := explorer.NewService(explorerfixtures.NewStore())
+	service, err := explorerfixtures.NewService(explorerfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,6 +30,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+	explorerfixtures "github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type artifactBackend struct {
@@ -167,7 +168,7 @@ func artifactTestFixture(t *testing.T) (*artifactBackend, *memoryArtifactStore, 
 
 func TestPrepareArtifactCommitsExactOutputAndIsIdempotent(t *testing.T) {
 	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +214,7 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
 	reader.materialization.SourceRow = nil
 	reader.rows[0]["__loom_row_id"] = map[string]any{"groupRevisionId": "groups-1", "groupId": "group-1"}
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +465,7 @@ func TestPrepareArtifactRejectsMaterializationFromBroaderScope(t *testing.T) {
 	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
 	reader.materialization.ScopeUnrestricted = false
 	reader.materialization.AuthResourcePaths = []string{"/broader/scope"}
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +484,7 @@ func TestPrepareArtifactRejectsMaterializationFromBroaderScope(t *testing.T) {
 
 func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +520,7 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 
 func TestOpenArtifactReauthorizesCurrentToken(t *testing.T) {
 	backend, artifacts, _, snapshot, receipt := artifactTestFixture(t)
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +603,7 @@ func TestOpenArtifactStoreGetFailureIsUnavailable(t *testing.T) {
 	backend, baseStore, _, _, receipt := artifactTestFixture(t)
 	cause := errors.New("artifact store transport failure")
 	store := &faultArtifactStore{memoryArtifactStore: baseStore, getErr: cause}
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +623,7 @@ func TestOpenArtifactStoreGetFailureIsUnavailable(t *testing.T) {
 
 func TestOpenArtifactStoreGetNotFoundIsNotFound(t *testing.T) {
 	backend, store, _, _, receipt := artifactTestFixture(t)
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +644,7 @@ func TestOpenArtifactStoreGetNotFoundIsNotFound(t *testing.T) {
 func TestOpenArtifactStoreGetMissingFileIsNotFound(t *testing.T) {
 	backend, baseStore, _, _, receipt := artifactTestFixture(t)
 	store := &faultArtifactStore{memoryArtifactStore: baseStore, getErr: os.ErrNotExist}
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +665,7 @@ func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	record := artifactOpenRecord(receipt, snapshot.Token)
 	store.records[record.ID] = record
 	store.data[record.ID] = []byte("archive")
-	domain, err := explorer.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
+	domain, err := explorerfixtures.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,7 +688,7 @@ func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 func TestPrepareArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	backend, artifacts, reader, _, receipt := artifactTestFixture(t)
 	cause := errors.New("revision store transport failure")
-	domain, err := explorer.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
+	domain, err := explorerfixtures.NewService(&revisionErrorBackend{artifactBackend: backend, err: cause})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -712,7 +713,7 @@ func TestOpenArtifactStoreOpenFailureIsUnavailable(t *testing.T) {
 	record := artifactOpenRecord(receipt, snapshot.Token)
 	store.records[record.ID] = record
 	store.data[record.ID] = []byte("archive")
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +740,7 @@ func TestOpenArtifactIncompleteOpenResultIsUnavailable(t *testing.T) {
 	stale.State = explorer.ArtifactFailed
 	store := &faultArtifactStore{memoryArtifactStore: baseStore, openRecord: &stale}
 	store.records[record.ID] = record
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,7 +803,7 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 	reader.materialization.ReceiptID = receipt.ID
 	originalReceipt, _ := json.Marshal(receipt)
 	originalRevision, _ := json.Marshal(backend.revision)
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -928,7 +929,7 @@ func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testi
 	backend.revision.QualityReports[0].ReceiptID = receipt.ID
 	reader.materialization.ReceiptID = receipt.ID
 
-	domain, err := explorer.NewService(backend)
+	domain, err := explorerfixtures.NewService(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1002,6 +1003,10 @@ func NewForTest(domain *explorer.Service, config Config) (*Service, error) {
 		Capability:     config.Capability,
 		NativeReceipts: true,
 	})
-	config.Store = domain
+	config.RevisionWriter = domain.RevisionWriter()
+	config.Revisions = domain.RevisionReader()
+	config.Receipts = domain.ReceiptStore()
+	config.AuthoringPublisher = domain.AuthoringPublisher()
+	config.RepositoryActivator = domain.RepositoryActivator()
 	return NewService(config)
 }

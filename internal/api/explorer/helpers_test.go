@@ -2,13 +2,19 @@ package explorerapi
 
 import (
 	"context"
+	"fmt"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
+	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
+	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
+	"github.com/calypr/loom/internal/explorer/arango/workspacedb"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/calypr/loom/internal/testkit/httpfixtures"
@@ -21,6 +27,35 @@ type testHTTPResponse = httpfixtures.Response
 var requestJSON = httpfixtures.RequestJSON
 
 type testExplorerStore = explorerfixtures.Store
+
+type testExplorerArangoStore struct {
+	*explorerarango.DraftStore
+	*selectiondb.SelectionStore
+	*workspacedb.RevisionStore
+	*workspacedb.WorkspaceStore
+	*explorerarango.ExplicitGroupStore
+	*publicationdb.Store
+	*explorerarango.InterpretationStore
+	*explorerarango.WorkspaceProjectionStore
+}
+
+func newTestExplorerArangoStore(client *storearango.Client) (*testExplorerArangoStore, error) {
+	if client == nil {
+		return nil, fmt.Errorf("Explorer Arango client is required")
+	}
+	selections := selectiondb.NewSelectionStore(client)
+	publications, err := publicationdb.NewStore(client)
+	if err != nil {
+		return nil, err
+	}
+	return &testExplorerArangoStore{
+		DraftStore: explorerarango.NewDraftStore(client), SelectionStore: selections,
+		RevisionStore: workspacedb.NewRevisionStore(client), WorkspaceStore: workspacedb.NewWorkspaceStore(client),
+		ExplicitGroupStore: explorerarango.NewExplicitGroupStore(client, selections),
+		Store:              publications, InterpretationStore: explorerarango.NewInterpretationStore(client),
+		WorkspaceProjectionStore: explorerarango.NewWorkspaceProjectionStore(client),
+	}, nil
+}
 
 func newTestExplorerStore() *testExplorerStore {
 	return explorerfixtures.NewStore()

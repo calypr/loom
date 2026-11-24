@@ -75,7 +75,7 @@ func TestCohortSelectionRecoveryLooksUpPinnedRevisionOutsideRecentList(t *testin
 			if scenario.mutate != nil {
 				scenario.mutate(store)
 			}
-			resolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(store)
+			resolver, err := explicitgroup.NewRepositoryExplicitGroupRevisionResolver(store, store)
 			if err != nil {
 				t.Fatal(err)
 			}

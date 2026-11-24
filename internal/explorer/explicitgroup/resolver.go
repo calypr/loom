@@ -12,20 +12,20 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-type explicitGroupRevisionStore interface {
-	explorerselection.ExplicitGroupRepository
+type selectionRevisionReader interface {
 	GetSelection(context.Context, string, string) (*explorerselection.SelectionRevision, error)
 }
 
 type repositoryExplicitGroupRevisionResolver struct {
-	store explicitGroupRevisionStore
+	groups     explorerselection.ExplicitGroupRepository
+	selections selectionRevisionReader
 }
 
-func NewRepositoryExplicitGroupRevisionResolver(store explicitGroupRevisionStore) (ExplicitGroupRevisionResolver, error) {
-	if store == nil {
-		return nil, fmt.Errorf("explicit group revision store is required")
+func NewRepositoryExplicitGroupRevisionResolver(groups explorerselection.ExplicitGroupRepository, selections selectionRevisionReader) (ExplicitGroupRevisionResolver, error) {
+	if groups == nil || selections == nil {
+		return nil, fmt.Errorf("explicit group and selection stores are required")
 	}
-	return repositoryExplicitGroupRevisionResolver{store: store}, nil
+	return repositoryExplicitGroupRevisionResolver{groups: groups, selections: selections}, nil
 }
 
 func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx context.Context, request ExplicitGroupRevisionListRequest) ([]ExplicitGroupRevisionChoice, error) {
@@ -35,12 +35,12 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 	if err := request.Snapshot.ValidateToken(request.Snapshot.Token); err != nil || project == "" || generation == "" || scopeDigest == "" || request.RootResourceType == "" {
 		return nil, fmt.Errorf("explicit group revisions require an authorized project snapshot and row root")
 	}
-	revisions, err := r.store.ListExplicitGroupRevisions(ctx, project, generation, scopeDigest, request.RootResourceType, 100)
+	revisions, err := r.groups.ListExplicitGroupRevisions(ctx, project, generation, scopeDigest, request.RootResourceType, 100)
 	if err != nil {
 		return nil, err
 	}
 	if request.PinnedRevisionID != "" && !hasExplicitGroupRevision(revisions, request.PinnedRevisionID) {
-		pinned, err := r.store.GetExplicitGroupRevision(ctx, project, explorerselection.ExplicitGroupRevisionID(request.PinnedRevisionID))
+		pinned, err := r.groups.GetExplicitGroupRevision(ctx, project, explorerselection.ExplicitGroupRevisionID(request.PinnedRevisionID))
 		if err != nil {
 			return nil, fmt.Errorf("load pinned explicit group revision %q: %w", request.PinnedRevisionID, err)
 		}
@@ -51,7 +51,7 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 	}
 	choices := make([]ExplicitGroupRevisionChoice, 0, len(revisions))
 	for _, revision := range revisions {
-		selection, err := r.store.GetSelection(ctx, project, revision.SourceSelectionRevisionID)
+		selection, err := r.selections.GetSelection(ctx, project, revision.SourceSelectionRevisionID)
 		if err != nil {
 			return nil, fmt.Errorf("load source selection for explicit group revision %q: %w", revision.ID, err)
 		}
@@ -85,11 +85,11 @@ func (r repositoryExplicitGroupRevisionResolver) ResolveExplicitGroupRevision(ct
 	if err := request.Snapshot.ValidateToken(request.Snapshot.Token); err != nil {
 		return ExplicitGroupRevisionProof{}, err
 	}
-	revision, err := r.store.GetExplicitGroupRevision(ctx, project, explorerselection.ExplicitGroupRevisionID(request.RevisionID))
+	revision, err := r.groups.GetExplicitGroupRevision(ctx, project, explorerselection.ExplicitGroupRevisionID(request.RevisionID))
 	if err != nil {
 		return ExplicitGroupRevisionProof{}, err
 	}
-	selection, err := r.store.GetSelection(ctx, project, revision.SourceSelectionRevisionID)
+	selection, err := r.selections.GetSelection(ctx, project, revision.SourceSelectionRevisionID)
 	if err != nil {
 		return ExplicitGroupRevisionProof{}, err
 	}
