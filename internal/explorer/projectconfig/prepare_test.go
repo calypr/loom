@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -485,6 +486,17 @@ func (target *projectConfigPublicationTarget) SetFinalSchemaDigest(digest string
 
 func (*projectConfigPublicationTarget) SetQualityReports(context.Context, []publication.QualityReport) error {
 	return nil
+}
+
+func (target *projectConfigPublicationTarget) SetSourceRowMetadata(_ context.Context, name string, metadata publication.SourceRowMetadata) error {
+	for index := range target.schemas {
+		if target.schemas[index].Name == name {
+			copy := metadata
+			target.schemas[index].SourceRow = &copy
+			return nil
+		}
+	}
+	return fmt.Errorf("output %q was not declared", name)
 }
 
 func (*projectConfigPublicationTarget) Commit(context.Context) ([]publication.PublishedOutput, error) {

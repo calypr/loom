@@ -22,21 +22,13 @@ func withRowIdentityColumn(columns []clickhouse.Column) []clickhouse.Column {
 func addGeneratedRowIdentities(rows []map[string]any, start int64) []map[string]any {
 	result := make([]map[string]any, len(rows))
 	for index, row := range rows {
-		copy := cloneBundleRow(row)
+		copy := publication.CloneRow(row)
 		if _, ok := copy["__loom_row_id"]; !ok {
 			copy["__loom_row_id"] = fmt.Sprintf("%d", start+int64(index))
 		}
 		result[index] = copy
 	}
 	return result
-}
-
-func cloneBundleRow(row map[string]any) map[string]any {
-	copy := make(map[string]any, len(row)+1)
-	for key, value := range row {
-		copy[key] = value
-	}
-	return copy
 }
 
 var bundleOutputRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

@@ -279,7 +279,3 @@ type ExecutionReadPinCatalog interface {
 	RenewExecutionCleanup(context.Context, string, string, time.Time) (bool, error)
 	ReleaseExecutionCleanup(context.Context, string, string) error
 }
-
-type SourceRowMetadataWriter interface {
-	SetSourceRowMetadata(context.Context, string, SourceRowMetadata) error
-}

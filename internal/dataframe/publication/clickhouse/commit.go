@@ -69,7 +69,7 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) ([]publication.Publishe
 		committed, conclusive, confirmErr := t.confirmCommit(ctx)
 		if committed {
 			t.closed = true
-			return t.publishedOutputs(), t.stopLease()
+			return t.ExistingPublishedOutputs(), t.stopLease()
 		}
 		if !conclusive {
 			t.closed = true
@@ -80,15 +80,7 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) ([]publication.Publishe
 		return nil, t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
 	}
 	t.closed = true
-	return t.publishedOutputs(), t.stopLease()
-}
-
-func (t *clickHouseBundleTx) publishedOutputs() []publication.PublishedOutput {
-	result := make([]publication.PublishedOutput, 0, len(t.execution.Outputs))
-	for _, output := range t.execution.Outputs {
-		result = append(result, publication.PublishedOutput{Name: output.Name, PhysicalName: output.PhysicalTable, RowCount: output.RowCount, ByteCount: output.ByteCount})
-	}
-	return result
+	return t.ExistingPublishedOutputs(), t.stopLease()
 }
 
 func (t *clickHouseBundleTx) confirmCommit(ctx context.Context) (committed, conclusive bool, err error) {

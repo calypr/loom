@@ -2,21 +2,7 @@ package publication
 
 import "context"
 
-type PublicationIdentity struct {
-	Name               string
-	TranslationVersion string
-
-	OutputName        string
-	Project           string
-	DatasetGeneration string
-	RecipeDigest      string
-	SchemaDigest      string
-	ReceiptID         string
-	ScopeDigest       string
-	EngineVersion     string
-	AuthScopeMode     string
-	AuthResourcePaths []string
-}
+type PublicationIdentity = BundleIdentity
 
 type PublishedOutput struct {
 	Name         string
@@ -35,6 +21,7 @@ type Transaction interface {
 	FinalizeSchema(context.Context, []OutputSchema) error
 	SetFinalSchemaDigest(string) error
 	SetQualityReports(context.Context, []QualityReport) error
+	SetSourceRowMetadata(context.Context, string, SourceRowMetadata) error
 	Commit(context.Context) ([]PublishedOutput, error)
 	Abort(context.Context, error) error
 	Idempotent() bool

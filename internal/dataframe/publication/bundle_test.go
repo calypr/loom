@@ -9,6 +9,28 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
+func TestCloneRowCopiesTopLevelAndRetainsNestedValues(t *testing.T) {
+	nested := map[string]any{"items": []string{"original"}}
+	original := map[string]any{"value": "original", "nested": nested}
+
+	cloned := CloneRow(original)
+	original["value"] = "changed"
+	nested["items"].([]string)[0] = "changed"
+
+	if cloned["value"] != "original" {
+		t.Fatalf("top-level value = %v, want original", cloned["value"])
+	}
+	if cloned["nested"].(map[string]any)["items"].([]string)[0] != "changed" {
+		t.Fatal("nested values were copied instead of retained")
+	}
+
+	clonedNil := CloneRow(nil)
+	if clonedNil == nil {
+		t.Fatal("CloneRow(nil) returned nil")
+	}
+	clonedNil["value"] = "writable"
+}
+
 func TestBundleIdentityCanonicalizesAuthorizationPathSet(t *testing.T) {
 	first := BundleIdentity{
 		Name:              "recipe",

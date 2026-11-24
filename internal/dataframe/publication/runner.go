@@ -42,20 +42,12 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		slog.InfoContext(ctx, "dataframe publication reused", "project", identity.Project, "generation", identity.DatasetGeneration, "recipe", identity.Name, "begin_ms", beginDuration.Milliseconds())
 		return Result{Outputs: tx.ExistingPublishedOutputs(), QualityReports: tx.ExistingQualityReports()}, nil
 	}
-	if metadataWriter, ok := tx.(SourceRowMetadataWriter); ok {
-		for _, output := range normalizedOutputs {
-			if output.SourceRow == nil {
-				continue
-			}
-			if err := metadataWriter.SetSourceRowMetadata(ctx, output.Name, *output.SourceRow); err != nil {
-				return fail(fmt.Errorf("output %q source identity: %w", output.Name, err))
-			}
+	for _, output := range normalizedOutputs {
+		if output.SourceRow == nil {
+			continue
 		}
-	} else {
-		for _, output := range normalizedOutputs {
-			if output.SourceRow != nil {
-				return fail(fmt.Errorf("publication target cannot persist source row metadata"))
-			}
+		if err := tx.SetSourceRowMetadata(ctx, output.Name, *output.SourceRow); err != nil {
+			return fail(fmt.Errorf("output %q source identity: %w", output.Name, err))
 		}
 	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
@@ -261,7 +253,7 @@ func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStr
 				if row == nil {
 					return visit(nil)
 				}
-				row = cloneRow(row)
+				row = CloneRow(row)
 				if _, ok := row["auth_resource_path"]; !ok {
 					if len(identity.AuthResourcePaths) == 1 {
 						row["auth_resource_path"] = identity.AuthResourcePaths[0]
@@ -279,7 +271,7 @@ func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStr
 	return result, nil
 }
 
-func cloneRow(row map[string]any) map[string]any {
+func CloneRow(row map[string]any) map[string]any {
 	copy := make(map[string]any, len(row)+1)
 	for key, value := range row {
 		copy[key] = value
