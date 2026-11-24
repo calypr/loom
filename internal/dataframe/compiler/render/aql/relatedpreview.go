@@ -87,7 +87,7 @@ func relatedGroupPreviewShapeFor(plan ir.PhysicalPlan, sequence *ir.PhysicalStag
 	if !ok {
 		return relatedGroupPreviewShape{}, false
 	}
-	groupKeyColumn, ok := relatedGroupPreviewStageColumnByID(first.OutputColumns, related.RelatedRecordColumnID)
+	groupKeyColumn, ok := ir.FindStageColumnByID(first.OutputColumns, related.RelatedRecordColumnID)
 	if !ok || groupKeyColumn.Internal || groupKeyColumn.Kind != "string" ||
 		(groupKeyColumn.Cardinality != "required_one" && groupKeyColumn.Cardinality != "optional_one") ||
 		!relatedGroupPreviewProjectsResourceID(first, groupKeyColumn) {
@@ -271,15 +271,6 @@ func relatedGroupPreviewProjectsResourceID(stage ir.PhysicalConstructionStage, c
 		}
 	}
 	return false
-}
-
-func relatedGroupPreviewStageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.PhysicalStageColumn, bool) {
-	for _, column := range columns {
-		if column.ID == id {
-			return column, true
-		}
-	}
-	return ir.PhysicalStageColumn{}, false
 }
 
 func relatedGroupPreviewRootContributorColumn(columns []ir.PhysicalStageColumn, resourceType string) (ir.PhysicalStageColumn, bool) {

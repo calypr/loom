@@ -408,7 +408,7 @@ func validateRelatedCategoryDescriptor(plan ir.PhysicalPlan, scan ir.PhysicalRel
 			if route.EdgeID == "" || route.FromNodeID == "" || route.ToNodeID == "" || route.FromResourceType == "" || route.ToResourceType == "" || route.Relationship == "" ||
 				plan.BindVars[traversal.SourceTypeBindKey] != route.FromResourceType || plan.BindVars[traversal.TargetTypeBindKey] != route.ToResourceType ||
 				plan.BindVars[traversal.EdgeLabelBindKey] != route.Relationship || plan.BindVars[traversal.EdgeCollectionBindKey] != "fhir_edge" ||
-				traversal.Direction != relatedCategoryTraversalDirection(route.StorageDirection) || traversal.EdgeTargetTypeField != relatedCategoryTargetTypeField(traversal.Direction) {
+				traversal.Direction != relatedCategoryTraversalDirection(route.StorageDirection) || traversal.EdgeTargetTypeField != traversal.Direction.TargetTypeField() {
 				return fmt.Errorf("related category traversal does not match its authored route")
 			}
 			if hopIndex > 0 && (scan.Hops[stageIndex][hopIndex-1].Route.ToNodeID != route.FromNodeID || scan.Hops[stageIndex][hopIndex-1].Route.ToResourceType != route.FromResourceType) {
@@ -487,13 +487,6 @@ func relatedCategoryTraversalDirection(storage string) ir.PhysicalTraversalDirec
 		return ir.PhysicalOutbound
 	}
 	return ""
-}
-
-func relatedCategoryTargetTypeField(direction ir.PhysicalTraversalDirection) string {
-	if direction == ir.PhysicalInbound {
-		return "from_type"
-	}
-	return "to_type"
 }
 
 func relatedCategoryBindVars(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCategoryScan, maxValues int) (map[string]any, string, error) {

@@ -46,21 +46,21 @@ func lowerConstructionGroupAggregates(group recipe.ConstructionGroup, input map[
 			case recipe.ConstructionGroupMin, recipe.ConstructionGroupMax:
 				column.Kind = inputColumn.Kind
 				column.Nullable = true
-				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
+				column.NormalizedUnit = ir.CloneUnitIdentity(inputColumn.NormalizedUnit)
 			case recipe.ConstructionGroupSum:
 				if inputKind != string(recipe.TableScalarInteger) && inputKind != string(recipe.TableScalarDecimal) {
 					return nil, nil, nil, fmt.Errorf("group aggregate %s requires a numeric input column", aggregate.Operation)
 				}
 				column.Kind = inputColumn.Kind
 				column.Nullable = true
-				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
+				column.NormalizedUnit = ir.CloneUnitIdentity(inputColumn.NormalizedUnit)
 			case recipe.ConstructionGroupMean:
 				if inputKind != string(recipe.TableScalarInteger) && inputKind != string(recipe.TableScalarDecimal) {
 					return nil, nil, nil, fmt.Errorf("group aggregate MEAN requires a numeric input column")
 				}
 				column.Kind = string(expression.KindDecimal)
 				column.Nullable = true
-				column.NormalizedUnit = cloneUnitIdentity(inputColumn.NormalizedUnit)
+				column.NormalizedUnit = ir.CloneUnitIdentity(inputColumn.NormalizedUnit)
 			}
 		default:
 			return nil, nil, nil, fmt.Errorf("unsupported group aggregate operation %q", aggregate.Operation)

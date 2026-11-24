@@ -104,6 +104,24 @@ type PhysicalConstructionStage struct {
 	RowIdentityColumn string
 }
 
+func FindStageColumnByID(columns []PhysicalStageColumn, id string) (PhysicalStageColumn, bool) {
+	for _, column := range columns {
+		if column.ID == id {
+			return column, true
+		}
+	}
+	return PhysicalStageColumn{}, false
+}
+
+func FindStageProjectionByName(projections []PhysicalProjection, name string) (PhysicalProjection, bool) {
+	for _, projection := range projections {
+		if projection.Name == name {
+			return projection, true
+		}
+	}
+	return PhysicalProjection{}, false
+}
+
 type PhysicalStageOperationKind string
 
 const (

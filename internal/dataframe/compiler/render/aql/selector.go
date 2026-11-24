@@ -11,24 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
-func selectorHasNoArrays(sel spec.Selector) bool {
-	for _, step := range sel.Steps {
-		if step.Iterate || step.Index != nil {
-			return false
-		}
-	}
-	return true
-}
-
-func selectorHasIteratedArray(sel spec.Selector) bool {
-	for _, step := range sel.Steps {
-		if step.Iterate {
-			return true
-		}
-	}
-	return false
-}
-
 func compileDirectExpr(rootVar string, steps []spec.SelectorStep) string {
 	cur := rootVar
 	for _, step := range steps {
@@ -150,7 +132,7 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		}
 		return values, nil
 	}
-	if !setSource && len(arrays) == 1 && extract.Selector.Filter == nil && selectorHasNoArrays(extract.Selector) {
+	if !setSource && len(arrays) == 1 && extract.Selector.Filter == nil && extract.Selector.HasNoArrays() {
 		return compileDirectExpr(source, extract.Selector.Steps), nil
 	}
 	return "FIRST(" + values + ")", nil
@@ -273,11 +255,11 @@ func unitRuleBindings(rules []unit.UnitConversionRule) []map[string]any {
 }
 
 func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector spec.Selector, mode ir.PhysicalSelectorExecutionMode, demand ir.PhysicalSelectorValueDemand) (string, error) {
-	if mode == ir.PhysicalSelectorDirectScalar && selectorHasNoArrays(selector) && selector.Filter == nil {
+	if mode == ir.PhysicalSelectorDirectScalar && selector.HasNoArrays() && selector.Filter == nil {
 		value := compileDirectExpr(source, selector.Steps)
 		return "(" + value + " == null ? [] : [" + value + "])", nil
 	}
-	if mode == ir.PhysicalSelectorConditionalArray && selectorHasIteratedArray(selector) && selector.Filter == nil {
+	if mode == ir.PhysicalSelectorConditionalArray && selector.HasIteratedArray() && selector.Filter == nil {
 		return r.renderConditionalSelectorArray(source, selector, demand == ir.PhysicalSelectorFirstValue)
 	}
 	return r.renderSelectorArrayFromSource(source, selector, false, demand == ir.PhysicalSelectorFirstValue)
@@ -352,7 +334,7 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
-	if !setSource && selector.Filter == nil && selectorHasNoArrays(selector) {
+	if !setSource && selector.Filter == nil && selector.HasNoArrays() {
 		value := compileDirectExpr(source, selector.Steps)
 		return "(" + value + " == null ? [] : [" + value + "])", nil
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 const categoryColumnBind = "__loom_category_column"
@@ -371,7 +372,7 @@ func (renderer categoryScanRenderer) renderIndexed(plan ir.PhysicalPlan) (Render
 
 func renderStoredParentCategoryQuery(prefix string, root *ir.PhysicalRootScan, valueExpression string, valuePath []string, bindVars map[string]any, maxValues int, parentSegments []string, variables map[string]string) (RenderedCategoryScan, error) {
 	parentPath := strings.Join(parentSegments, ".")
-	if len(valuePath) != len(parentSegments)+1 || !samePathPrefix(valuePath, parentSegments) || valuePath[len(valuePath)-1] != "code" {
+	if len(valuePath) != len(parentSegments)+1 || !spec.PathHasPrefix(valuePath, parentSegments) || valuePath[len(valuePath)-1] != "code" {
 		return RenderedCategoryScan{}, fmt.Errorf("stored quantity category index does not match the direct code leaf")
 	}
 	parentExpression := root.Variable + "." + parentPath
@@ -446,18 +447,6 @@ func categoryScanUniqueBindKey(bindVars map[string]any, base string) string {
 		}
 		key = fmt.Sprintf("%s_%d", base, suffix)
 	}
-}
-
-func samePathPrefix(path, prefix []string) bool {
-	if len(path) < len(prefix) {
-		return false
-	}
-	for index := range prefix {
-		if path[index] != prefix[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func cloneCategoryScanBinds(source map[string]any) map[string]any {

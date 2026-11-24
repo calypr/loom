@@ -392,7 +392,7 @@ func (lowerer *constructionLowerer) lowerDeriveStage(step recipe.ConstructionSte
 			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
 			SemanticPath: "derived:" + derive.ConstructionID, Kind: string(metadata.Type.Kind),
 			Cardinality: string(metadata.Type.Cardinality), Nullable: metadata.Type.Cardinality.Optional(),
-			NormalizedUnit: cloneUnitIdentity(metadata.NormalizedUnit),
+			NormalizedUnit: ir.CloneUnitIdentity(metadata.NormalizedUnit),
 		})
 	}
 	work.physical.OutputProjections = stagePassThroughAndDerivedProjections(step.Outputs, inputByID, inputRow, column.ID, column.Name, derivedProjection)

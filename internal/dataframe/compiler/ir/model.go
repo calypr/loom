@@ -185,6 +185,13 @@ const (
 	PhysicalAny      PhysicalTraversalDirection = "ANY"
 )
 
+func (direction PhysicalTraversalDirection) TargetTypeField() string {
+	if direction == PhysicalInbound {
+		return "from_type"
+	}
+	return "to_type"
+}
+
 type PhysicalTraversalStrategy string
 
 const (

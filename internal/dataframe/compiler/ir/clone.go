@@ -1,9 +1,10 @@
 package ir
 
 import (
+	"slices"
+
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	"slices"
 )
 
 func CloneStrings(values []string) []string {
@@ -225,12 +226,12 @@ func clonePhysicalStageColumns(columns []PhysicalStageColumn) []PhysicalStageCol
 	}
 	cloned := append([]PhysicalStageColumn(nil), columns...)
 	for index := range cloned {
-		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+		cloned[index].NormalizedUnit = CloneUnitIdentity(cloned[index].NormalizedUnit)
 	}
 	return cloned
 }
 
-func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
+func CloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
 	if identity == nil {
 		return nil
 	}

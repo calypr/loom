@@ -116,15 +116,6 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	return query, nil
 }
 
-func stageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.PhysicalStageColumn, bool) {
-	for _, column := range columns {
-		if column.ID == id {
-			return column, true
-		}
-	}
-	return ir.PhysicalStageColumn{}, false
-}
-
 func constructionStageDescriptor(stages []lower.CompiledStageDescriptor, id string) (lower.CompiledStageDescriptor, bool) {
 	for _, stage := range stages {
 		if stage.ID == id {
@@ -141,15 +132,6 @@ func compiledStageColumnByID(columns []lower.CompiledOutputColumn, id string) (l
 		}
 	}
 	return lower.CompiledOutputColumn{}, false
-}
-
-func StageProjectionByName(projections []ir.PhysicalProjection, name string) (ir.PhysicalProjection, bool) {
-	for _, projection := range projections {
-		if projection.Name == name {
-			return projection, true
-		}
-	}
-	return ir.PhysicalProjection{}, false
 }
 
 func rootVariable(plan ir.PhysicalPlan) string {

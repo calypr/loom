@@ -2,22 +2,15 @@ package ir
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"slices"
 	"strings"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/spec"
 
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
 
 func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, bindVars map[string]any) error {
 	if err := validatePhysicalValue(extract.Source, defined, bindVars); err != nil {
@@ -32,10 +25,10 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 	if extract.ExecutionMode != "" && extract.ExecutionMode != PhysicalSelectorGeneric && extract.ExecutionMode != PhysicalSelectorDirectScalar && extract.ExecutionMode != PhysicalSelectorConditionalArray {
 		return fmt.Errorf("unknown selector execution mode %q", extract.ExecutionMode)
 	}
-	if extract.ExecutionMode == PhysicalSelectorDirectScalar && (len(extract.Fallbacks) != 0 || extract.Selector.Filter != nil || !selectorHasNoArrays(extract.Selector)) {
+	if extract.ExecutionMode == PhysicalSelectorDirectScalar && (len(extract.Fallbacks) != 0 || extract.Selector.Filter != nil || !extract.Selector.HasNoArrays()) {
 		return fmt.Errorf("direct scalar selector mode requires one fallback-free non-repeated selector")
 	}
-	if extract.ExecutionMode == PhysicalSelectorConditionalArray && (len(extract.Fallbacks) != 0 || extract.Selector.Filter != nil || !selectorHasIteratedArray(extract.Selector)) {
+	if extract.ExecutionMode == PhysicalSelectorConditionalArray && (len(extract.Fallbacks) != 0 || extract.Selector.Filter != nil || !extract.Selector.HasIteratedArray()) {
 		return fmt.Errorf("conditional array selector mode requires one fallback-free repeated selector")
 	}
 	for index, fallback := range extract.Fallbacks {
@@ -70,7 +63,7 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 			return fmt.Errorf("unit normalization original value must select a FHIR Quantity value")
 		}
 		quantityPath := strings.TrimSuffix(valuePath, ".value")
-		if physicalSelectorIterates(normalization.OriginalValue) || physicalSelectorIterates(normalization.SourceSystem) || physicalSelectorIterates(normalization.SourceCode) {
+		if normalization.OriginalValue.HasIteratedArray() || normalization.SourceSystem.HasIteratedArray() || normalization.SourceCode.HasIteratedArray() {
 			return fmt.Errorf("unit normalization requires one scalar or indexed Quantity")
 		}
 		if normalization.SourceSystem.CanonicalPath() != quantityPath+".system" || normalization.SourceCode.CanonicalPath() != quantityPath+".code" {
@@ -93,15 +86,6 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 		}
 	}
 	return nil
-}
-
-func physicalSelectorIterates(selector spec.Selector) bool {
-	for _, step := range selector.Steps {
-		if step.Iterate {
-			return true
-		}
-	}
-	return false
 }
 
 func validatePhysicalPreparedReference(reference PhysicalPreparedReference, defined map[string]bool) error {
@@ -242,7 +226,7 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 	}
 	aliases := map[string]string{}
 	for key, alias := range pivot.ColumnAliases {
-		if !containsString(columns, key) || strings.TrimSpace(alias) == "" {
+		if !slices.Contains(columns, key) || strings.TrimSpace(alias) == "" {
 			return fmt.Errorf("pivot column alias %q is invalid", key)
 		}
 		if previous, exists := aliases[alias]; exists && previous != key {
@@ -469,22 +453,4 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		}
 	}
 	return nil
-}
-
-func selectorHasNoArrays(sel spec.Selector) bool {
-	for _, step := range sel.Steps {
-		if step.Iterate || step.Index != nil {
-			return false
-		}
-	}
-	return true
-}
-
-func selectorHasIteratedArray(sel spec.Selector) bool {
-	for _, step := range sel.Steps {
-		if step.Iterate {
-			return true
-		}
-	}
-	return false
 }

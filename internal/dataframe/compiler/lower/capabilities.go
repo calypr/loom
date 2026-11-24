@@ -417,7 +417,7 @@ func toPhysicalStageColumns(schema []CompiledOutputColumn) []ir.PhysicalStageCol
 			Internal: column.Internal, Identity: column.Identity,
 			RelatedRecordAnchor:         relatedAnchor,
 			RootContributorResourceType: column.RootContributorResourceType,
-			NormalizedUnit:              cloneUnitIdentity(column.NormalizedUnit),
+			NormalizedUnit:              ir.CloneUnitIdentity(column.NormalizedUnit),
 			PresenceCompanionName:       column.PresenceCompanionName,
 		})
 	}

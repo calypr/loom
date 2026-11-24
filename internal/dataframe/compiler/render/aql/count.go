@@ -185,7 +185,7 @@ func terminalRelatedEligibilityCategoryScanOnly(plan ir.PhysicalPlan, sequence *
 	if !selectedColumnOK {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
 	}
-	stageProjection, found := stageOutputProjection(stage.OutputProjections, selectedColumn.Name)
+	stageProjection, found := ir.FindStageProjectionByName(stage.OutputProjections, selectedColumn.Name)
 	if !found || stageProjection.Hidden || stageProjection.Expression != nil || stageProjection.Value.Variable != stage.InputRowVariable ||
 		stageProjection.Value.BindKey != "" || len(stageProjection.Value.Path) != 1 {
 		return ir.PhysicalConstructionStage{}, ir.PhysicalProjection{}, "", false
@@ -277,15 +277,6 @@ func publicScalarCategoryStageColumn(columns []ir.PhysicalStageColumn, name stri
 		}
 	}
 	return ir.PhysicalStageColumn{}, false
-}
-
-func stageOutputProjection(projections []ir.PhysicalProjection, name string) (ir.PhysicalProjection, bool) {
-	for _, projection := range projections {
-		if projection.Name == name {
-			return projection, true
-		}
-	}
-	return ir.PhysicalProjection{}, false
 }
 
 func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, options physicalRenderOptions, stage ir.PhysicalConstructionStage, sourceProjection ir.PhysicalProjection) (RenderedPhysicalPlan, bool, error) {

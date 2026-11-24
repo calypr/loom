@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related PhysicalStageRelatedField, bindVars map[string]any) error {
@@ -56,7 +58,7 @@ func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related 
 		return fmt.Errorf("related field expression differs from its active record, resource, or selected path")
 	}
 	for index, segment := range related.Path {
-		if !validPhysicalFieldPathSegment(segment) {
+		if !spec.ValidFieldPathSegment(segment) {
 			return fmt.Errorf("related field path segment %d is invalid", index)
 		}
 	}

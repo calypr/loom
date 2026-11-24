@@ -111,7 +111,7 @@ func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputC
 			origin := *cloned[index].SourceOrigin
 			cloned[index].SourceOrigin = &origin
 		}
-		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+		cloned[index].NormalizedUnit = ir.CloneUnitIdentity(cloned[index].NormalizedUnit)
 		cloned[index].SourceChild = lineage.CloneSourceChild(cloned[index].SourceChild)
 		if cloned[index].RelatedRecordAnchor != nil {
 			anchor := *cloned[index].RelatedRecordAnchor
@@ -119,14 +119,6 @@ func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputC
 		}
 	}
 	return cloned
-}
-
-func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
-	if identity == nil {
-		return nil
-	}
-	cloned := *identity
-	return &cloned
 }
 
 type DynamicColumnMetadata struct {

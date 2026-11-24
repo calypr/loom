@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.CompiledOutputColumn, index *model.PreviewCoveringIndexSpec, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
@@ -61,7 +62,7 @@ func categoryScanUsesStoredQuantityParent(index *model.PreviewCoveringIndexSpec,
 		return false
 	}
 	parent := strings.Split(index.StoredValues[1], ".")
-	return len(valuePath) == len(parent)+1 && samePathPrefix(valuePath, parent) && valuePath[len(valuePath)-1] == "code"
+	return len(valuePath) == len(parent)+1 && spec.PathHasPrefix(valuePath, parent) && valuePath[len(valuePath)-1] == "code"
 }
 
 func categoryScanHasExactRootPresencePath(projection ir.PhysicalProjection, rootVariable string, valuePath []string) bool {
@@ -69,18 +70,6 @@ func categoryScanHasExactRootPresencePath(projection ir.PhysicalProjection, root
 		return false
 	}
 	return len(valuePath) == 3 && valuePath[0] == "payload" && valuePath[1] == "valueQuantity" && valuePath[2] == "code"
-}
-
-func samePathPrefix(path, prefix []string) bool {
-	if len(path) < len(prefix) {
-		return false
-	}
-	for index := range prefix {
-		if path[index] != prefix[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func categoryScanRootResourceType(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *model.PreviewCoveringIndexSpec) (string, error) {

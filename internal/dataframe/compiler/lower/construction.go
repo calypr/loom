@@ -167,7 +167,7 @@ func appendGroupSourceProjectionColumns(schema []CompiledOutputColumn, additiona
 		if column.RelatedRecordAnchor != nil {
 			compiled.RelatedRecordAnchor = &CompiledRelatedRecordAnchor{TargetNodeID: column.RelatedRecordAnchor.NodeID, TargetResourceType: column.RelatedRecordAnchor.ResourceType}
 		}
-		compiled.NormalizedUnit = cloneUnitIdentity(column.NormalizedUnit)
+		compiled.NormalizedUnit = ir.CloneUnitIdentity(column.NormalizedUnit)
 		result = append(result, compiled)
 		seen[column.Name] = true
 	}

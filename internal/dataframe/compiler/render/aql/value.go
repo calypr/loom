@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func (r *physicalPlanRenderer) renderConstructionRowValueLets(
@@ -176,7 +177,7 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 		if index == 0 && segment == "payload" {
 			continue
 		}
-		if !validRelatedFieldSegment(segment) {
+		if !spec.ValidFieldPathSegment(segment) {
 			return "", fmt.Errorf("related field path segment %d is invalid", index)
 		}
 		pathBind := r.newInternalBindKey("related_field_path")
@@ -197,20 +198,6 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 	}
 	return fmt.Sprintf("FIRST(FOR %s IN %s FILTER %s != null AND %s.project == @project AND %s.dataset_generation == @dataset_generation AND %s.resourceType == @%s AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths) RETURN %s)",
 		document, collection, document, document, document, document, resourceTypeBind, document, field), nil
-}
-
-func validRelatedFieldSegment(segment string) bool {
-	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
-		return false
-	}
-	for index := 1; index < len(segment); index++ {
-		character := segment[index]
-		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
-			(character < '0' || character > '9') && character != '_' {
-			return false
-		}
-	}
-	return true
 }
 
 func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) (string, error) {

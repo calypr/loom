@@ -310,7 +310,7 @@ func categoryRelatedStageHops(plan ir.PhysicalPlan, stage ir.PhysicalConstructio
 			operation.Source.ResourceType != route.ToResourceType ||
 			operation.Source.Relationship != route.Relationship ||
 			traversal.EdgeVariable == "" || traversal.TargetVariable == "" ||
-			traversal.EdgeTargetTypeField != categoryRelatedTargetTypeField(direction) ||
+			traversal.EdgeTargetTypeField != direction.TargetTypeField() ||
 			!categoryRelatedTraversalScope(subplan.Operations[position+1:position+7], traversal) {
 			return nil, false
 		}
@@ -471,13 +471,6 @@ func categoryRelatedSameStringSlice(got, want []string) bool {
 		}
 	}
 	return true
-}
-
-func categoryRelatedTargetTypeField(direction ir.PhysicalTraversalDirection) string {
-	if direction == ir.PhysicalInbound {
-		return "from_type"
-	}
-	return "to_type"
 }
 
 func categoryRelatedExpressionValue(expression ir.PhysicalExpression, variable, path string) bool {

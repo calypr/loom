@@ -498,7 +498,7 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 		t.Fatalf("related-source route identity or occurrence policy = %#v", related)
 	}
 	producer := sequence.Stages[1]
-	projection, found := celltrace.StageProjectionByName(producer.OutputProjections, "observation_status")
+	projection, found := ir.FindStageProjectionByName(producer.OutputProjections, "observation_status")
 	if !found || projection.Expression == nil || projection.Expression.Subplan == nil || !reflect.DeepEqual(related.Subplan, *projection.Expression.Subplan) {
 		t.Fatal("trace did not retain the exact producer route subplan")
 	}

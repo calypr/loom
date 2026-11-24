@@ -76,16 +76,16 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 		}
 		if existing, exists := logical[name]; exists {
 			if output.Collision == "overwrite" {
-				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: ir.CloneUnitIdentity(normalizedUnit), Discovered: discovered}
 				return
 			}
 
 			if existing.Discovered && !discovered {
-				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: ir.CloneUnitIdentity(normalizedUnit), Discovered: false}
 			}
 			return
 		}
-		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
+		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: ir.CloneUnitIdentity(normalizedUnit), Discovered: discovered}
 	}
 	addType := func(name, semanticPath string, typ expression.Type, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		kind := string(typ.Kind)

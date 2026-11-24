@@ -656,12 +656,9 @@ func validateAuthScopeInputs(inputs, expectedPaths []PhysicalValue) error {
 }
 
 func containsPhysicalValue(values []PhysicalValue, expected PhysicalValue) bool {
-	for _, value := range values {
-		if value.Variable == expected.Variable && value.BindKey == expected.BindKey && slices.Equal(value.Path, expected.Path) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(values, func(value PhysicalValue) bool {
+		return value.Variable == expected.Variable && value.BindKey == expected.BindKey && slices.Equal(value.Path, expected.Path)
+	})
 }
 
 func formatPhysicalValue(value PhysicalValue) string {
