@@ -1067,7 +1067,8 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		}
 		return nil
 	}
-	app := fiber.New()
+	// Essential: the in-memory store retains strings from request parameters after the handler returns.
+	app := fiber.New(fiber.Config{Immutable: true})
 	config := lifecycle.Config{
 		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
@@ -1137,6 +1138,9 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	viewer := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) || !strings.Contains(viewer.Body, `"qualityReports"`) {
 		t.Fatalf("viewer state status=%d body=%s", viewer.StatusCode, viewer.Body)
+	}
+	if !strings.Contains(viewer.Body, `"generation":"generation-a"`) {
+		t.Fatalf("viewer lost the published generation: %s", viewer.Body)
 	}
 	store.Mu.Lock()
 	broken := store.Revisions[active.ID]

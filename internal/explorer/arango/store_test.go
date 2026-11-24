@@ -22,7 +22,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/arango/publicationdb"
 	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
-	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/projectconfig"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -31,6 +30,7 @@ import (
 	projectstore "github.com/calypr/loom/internal/store/arango"
 	store "github.com/calypr/loom/internal/store/arango"
 	storepkg "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -41,8 +41,8 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 
 	first := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle,
 		"commit-1", 0,
-		projectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-1-default", "generation-1", "execution-1", bundle),
-		projectConfigPublication(t, project, "files", "recipe-a", "Files", "revision-1-files", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-1-default", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "files", "recipe-a", "Files", "revision-1-files", "generation-1", "execution-1", bundle),
 	)
 	originalConfigJSON := string(first.Configs[0].Revision.Config)
 	originalContractJSON := string(first.Configs[0].Revision.PublicOutputContract)
@@ -67,7 +67,7 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 		t.Fatalf("retry release = %+v, want unchanged revision/id from %+v", retried, active)
 	}
 
-	otherDefinition := projectConfigTestDefinition("other-recipe", "recipe-b", "Other recipe")
+	otherDefinition := explorerfixtures.ProjectConfigDefinition("other-recipe", "recipe-b", "Other recipe")
 	otherDigest, err := otherDefinition.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 
 	second := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-2", "execution-2", bundle,
 		"commit-2", active.Revision,
-		projectConfigPublication(t, project, "default", "recipe-a", "Default v2", "revision-2-default", "generation-2", "execution-2", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default v2", "revision-2-default", "generation-2", "execution-2", bundle),
 	)
 	active, err = explorers.PublishProjectConfigs(ctx, second)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	bundle := projectConfigTestBundle("recipe-a", "translation-1")
 	request := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle,
 		"commit-1", 0,
-		projectConfigPublication(t, project, "taken", "recipe-a", "Taken", "revision-taken", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "taken", "recipe-a", "Taken", "revision-taken", "generation-1", "execution-1", bundle),
 	)
 	if _, err := explorers.Create(ctx, explorer.Explorer{Project: project, ExplorerID: "taken", Title: "Interactive", ManagementMode: viewer.ManagementInteractive, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	legacyProject := "project-config-legacy"
 	legacyRequest := projectConfigPublishRequest(t, ctx, client, generations, legacyProject, "generation-1", "execution-legacy", bundle,
 		"commit-legacy", 0,
-		projectConfigPublication(t, legacyProject, "default", "recipe-a", "Default", "revision-legacy", "generation-1", "execution-legacy", bundle),
+		explorerfixtures.ProjectConfigPublication(t, legacyProject, "default", "recipe-a", "Default", "revision-legacy", "generation-1", "execution-legacy", bundle),
 	)
 	if _, err := explorers.Create(ctx, explorer.Explorer{Project: legacyProject, ExplorerID: "default", Title: "Legacy repository", ManagementMode: viewer.ManagementRepository, DraftVersion: 1, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	immutableProject := "project-config-immutable"
 	immutableRequest := projectConfigPublishRequest(t, ctx, client, generations, immutableProject, "generation-1", "execution-immutable", bundle,
 		"commit-immutable", 0,
-		projectConfigPublication(t, immutableProject, "default", "recipe-a", "Default", "revision-immutable", "generation-1", "execution-immutable", bundle),
+		explorerfixtures.ProjectConfigPublication(t, immutableProject, "default", "recipe-a", "Default", "revision-immutable", "generation-1", "execution-immutable", bundle),
 	)
 	conflicting := immutableRequest.Configs[0].Revision
 	conflicting.Config = json.RawMessage(strings.Replace(string(conflicting.Config), `"column":"extension_code"`, `"column":"changed_column"`, 1))
@@ -167,7 +167,7 @@ func TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAga
 	casProject := "project-config-cas"
 	casRequest := projectConfigPublishRequest(t, ctx, client, generations, casProject, "generation-1", "execution-cas", bundle,
 		"commit-cas", 77,
-		projectConfigPublication(t, casProject, "default", "recipe-a", "Default", "revision-cas", "generation-1", "execution-cas", bundle),
+		explorerfixtures.ProjectConfigPublication(t, casProject, "default", "recipe-a", "Default", "revision-cas", "generation-1", "execution-cas", bundle),
 	)
 	if _, err := explorers.PublishProjectConfigs(ctx, casRequest); !errors.Is(err, dataset.ErrReleaseActivationConflict) {
 		t.Fatalf("wrong release CAS error = %v, want ErrReleaseActivationConflict", err)
@@ -187,15 +187,15 @@ func TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstA
 	bundle := projectConfigTestBundle("recipe-a", "translation-1")
 	first := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle,
 		"commit-1", 0,
-		projectConfigPublication(t, project, "default", "recipe-a", "Default A", "revision-a-default", "generation-1", "execution-1", bundle),
-		projectConfigPublication(t, project, "files", "recipe-a", "Files A", "revision-a-files", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default A", "revision-a-default", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "files", "recipe-a", "Files A", "revision-a-files", "generation-1", "execution-1", bundle),
 	)
 	firstActive, err := explorers.PublishProjectConfigs(ctx, first)
 	if err != nil {
 		t.Fatalf("publish A config set: %v", err)
 	}
 
-	definitionB := projectConfigPublication(t, project, "default", "recipe-a", "Default B", "revision-b-default", "generation-1", "execution-1", bundle)
+	definitionB := explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default B", "revision-b-default", "generation-1", "execution-1", bundle)
 	second := first
 	second.Configs = []explorer.ProjectConfigPublication{definitionB}
 	second.ExpectedReleaseRevision = firstActive.Revision
@@ -281,100 +281,6 @@ func projectConfigTestBundle(name, translation string) recipe.Bundle {
 	}
 }
 
-func projectConfigTestDefinition(id, recipeName, title string) explorerconfig.ProjectConfig {
-	return explorerconfig.ProjectConfig{
-		ID: id, Title: title, RecipeRef: explorerconfig.ProjectConfigRecipeRef{Name: recipeName},
-		Views: []explorerconfig.ConfigView{{
-			ID: "view", Title: title, Output: "output",
-			Table:   explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "extension_code", Visible: true}}},
-			Filters: []explorerconfig.ConfigFilter{{Column: "extension_code"}},
-			Charts:  []explorerconfig.ConfigChart{{Column: "extension_code", Type: "pie", Title: "Extension codes"}},
-		}},
-	}
-}
-
-func projectConfigPublication(t *testing.T, project, id, recipeName, title, revisionID, generation, executionID string, bundle recipe.Bundle) explorer.ProjectConfigPublication {
-	t.Helper()
-	config := projectConfigTestDefinition(id, recipeName, title)
-	digest, err := bundle.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolvedBundle := bundle
-	resolvedBundle.Outputs = append([]recipe.Output(nil), bundle.Outputs...)
-	resolvedBundle.Outputs[0].RootOccurrenceID = "resolved-recipe-snapshot"
-	resolvedBundle.Outputs[0].DynamicColumns = []recipe.DynamicColumn{{
-		Name: "extension_catalog", Source: recipe.Expression{Select: "root.extension[]"}, Columns: []string{"extension_code"},
-		ColumnTypes: map[string]string{"extension_code": "string"}, MaxColumns: 1,
-	}}
-	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
-	readyAt := now
-	physical := publicationdata.PhysicalColumn{Name: "extension_code", ClickHouse: "Nullable(String)", LogicalType: "string", Nullable: true}
-	selector := dataset.DataframeSelector{Recipe: recipeName, TranslationVersion: bundle.TranslationVersion, Output: "output"}
-	viewsJSON, err := json.Marshal(config.Views)
-	if err != nil {
-		t.Fatal(err)
-	}
-	explorerJSON, err := json.Marshal(explorerconfig.ConfigExplorer{ID: id, Title: title, Management: "repository"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	configJSON := json.RawMessage(fmt.Sprintf(`{ "views": %s, "project": %q, "kind": "ExplorerConfig", "explorer": %s, "apiVersion": %q }`, viewsJSON, project, explorerJSON, explorerconfig.ConfigV2APIVersion))
-	contractJSON := json.RawMessage(`{
-  "outputs": [{
-    "columns": [{
-      "column": "extension_code",
-      "label": "Extension code",
-      "logicalType": "string",
-      "cardinality": "optional_one",
-      "nullable": true,
-      "shape": "scalar",
-      "lossless": true,
-      "mlReady": false,
-      "filterable": true,
-      "chartable": true
-    }],
-    "outputId": "output",
-    "rootResourceType": "Patient",
-    "rowGrain": "resource",
-    "lossless": true,
-    "mlReady": false
-  }]
-}`)
-	return explorer.ProjectConfigPublication{
-		Definition: config,
-		Revision: explorer.Revision{
-			ID: revisionID, Project: projectid.Legacy(project), ExplorerID: id,
-			Recipe: resolvedBundle, RecipeDigest: digest, ResolvedSchemaDigest: strings.Repeat("d", 64),
-			Config: configJSON, PublicOutputContract: contractJSON,
-			EmittedColumns: []viewer.EmittedColumn{{
-				EmissionID: "dynamic:extension_code", OutputID: "output", PublicColumn: "extension_code",
-				Label: "Extension code", LogicalType: "string", Cardinality: "optional_one",
-				Nullable: true, Shape: "scalar", Lossless: true, Filterable: true, Chartable: true,
-			}},
-			SourceGeneration: generation, Dataset: viewer.DatasetMetadata{
-				Generation: generation, SchemaDigest: strings.Repeat("c", 64),
-				Outputs: []viewer.DatasetOutput{{Name: "output", State: "PUBLISHED", Queryable: true, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
-			},
-			Materializations: []viewer.Materialization{{OutputID: "output", Output: "output", MaterializationID: executionID, Selector: &selector, Columns: []publicationdata.PhysicalColumn{physical}}},
-			QualityReports:   []publicationdata.QualityReport{projectConfigTestQuality(project, generation, executionID)},
-			Publication:      viewer.PublicationMetadata{State: "READY", Generation: generation, ExecutionID: executionID, UpdatedAt: now},
-			Status:           explorer.RevisionReady, CreatedBy: "test", CreatedAt: now, ReadyAt: &readyAt,
-		},
-	}
-}
-
-func projectConfigTestQuality(project, generation, executionID string) publicationdata.QualityReport {
-	return publicationdata.QualityReport{
-		ID: "quality-" + executionID, ReceiptID: "receipt-" + executionID,
-		Project: project, DatasetGeneration: generation, ScopeDigest: "scope",
-		Output: "output", PolicyVersion: publicationdata.DefaultQualityPolicyVersion,
-		Completeness: publicationdata.QualityComplete, Verdict: publicationdata.QualityPassed,
-		RowCount: 1, Columns: []publicationdata.ColumnQuality{{Column: "extension_code", Present: 1}},
-		KeyIntegrity: publicationdata.KeyIntegrity{Distinct: 1},
-	}
-}
-
 func projectConfigPublishRequest(t *testing.T, ctx context.Context, client *projectstore.Client, generations *datasetarango.Store, project, generation, executionID string, bundle recipe.Bundle, commit string, expectedRevision int64, configs ...explorer.ProjectConfigPublication) explorer.ProjectConfigPublishRequest {
 	t.Helper()
 	now := time.Now().UTC()
@@ -429,7 +335,7 @@ func projectConfigSeedExecution(t *testing.T, ctx context.Context, client *proje
 			ScopeDigest: "scope", EngineVersion: "test",
 		},
 		State: publicationdata.BundlePublished, CreatedAt: at, UpdatedAt: at, PublishedAt: &verifiedAt,
-		QualityReports: []publicationdata.QualityReport{projectConfigTestQuality(project, generation, id)},
+		QualityReports: []publicationdata.QualityReport{explorerfixtures.ProjectConfigQuality(project, generation, id)},
 		Outputs: []publicationdata.BundleOutputRecord{{
 			Name: "output", PhysicalTable: "published_output_" + id,
 			Selector: dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: "output"},
@@ -945,7 +851,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 	bundle := projectConfigTestBundle("recipe-a", "translation-1")
 	legacy := projectConfigPublishRequest(t, ctx, client, generations, "view-builder-adopt", "legacy-generation", "legacy-execution", bundle,
 		"legacy-commit", 0,
-		projectConfigPublication(t, "view-builder-adopt", "default", "recipe-a", "Legacy default", "legacy-revision", "legacy-generation", "legacy-execution", bundle),
+		explorerfixtures.ProjectConfigPublication(t, "view-builder-adopt", "default", "recipe-a", "Legacy default", "legacy-revision", "legacy-generation", "legacy-execution", bundle),
 	)
 	if _, err := explorers.PublishProjectConfigs(ctx, legacy); err != nil {
 		t.Fatalf("seed pre-View-Builder project: %v", err)
@@ -975,8 +881,8 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 
 	first := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle,
 		"commit-1", 0,
-		projectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-1-default", "generation-1", "execution-1", bundle),
-		projectConfigPublication(t, project, "files", "recipe-a", "Files", "revision-1-files", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-1-default", "generation-1", "execution-1", bundle),
+		explorerfixtures.ProjectConfigPublication(t, project, "files", "recipe-a", "Files", "revision-1-files", "generation-1", "execution-1", bundle),
 	)
 	first.ExpectedConfigRevisionIDs = map[string]string{"default": "", "files": ""}
 	first.CatalogSnapshot = viewBuilderTestCatalogSnapshot(t, first.Configs[0])
@@ -1018,7 +924,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("saved defaults = %+v, %v", settings, err)
 	}
 
-	updatedDefinition := projectConfigTestDefinition("default", "recipe-a", "Edited Default")
+	updatedDefinition := explorerfixtures.ProjectConfigDefinition("default", "recipe-a", "Edited Default")
 	prepared, err := projectconfig.PrepareViewBuilderConfig(updatedDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatalf("prepare view edit against exact catalog snapshot: %v", err)
@@ -1029,7 +935,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 	}); err != nil {
 		t.Fatalf("save view edit: %v", err)
 	}
-	differentDefinition := projectConfigTestDefinition("default", "recipe-a", "A different title")
+	differentDefinition := explorerfixtures.ProjectConfigDefinition("default", "recipe-a", "A different title")
 	alternate, err := projectconfig.PrepareViewBuilderConfig(differentDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatal(err)
@@ -1069,7 +975,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("saved view owner = %+v, %v", owner, err)
 	}
 
-	filesDefinition := projectConfigTestDefinition("files", "recipe-a", "Edited Files")
+	filesDefinition := explorerfixtures.ProjectConfigDefinition("files", "recipe-a", "Edited Files")
 	filesPrepared, err := projectconfig.PrepareViewBuilderConfig(filesDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatalf("prepare second view edit: %v", err)
@@ -1132,7 +1038,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("adoption recreated deleted view: %v", err)
 	}
 
-	secondPublication := projectConfigPublication(t, project, "files", "recipe-a", "Edited Files", "revision-2-files", "generation-2", "execution-2", bundle)
+	secondPublication := explorerfixtures.ProjectConfigPublication(t, project, "files", "recipe-a", "Edited Files", "revision-2-files", "generation-2", "execution-2", bundle)
 	second := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-2", "execution-2", bundle,
 		"commit-2", active.Revision, secondPublication)
 	second.ExpectedConfigRevisionIDs = map[string]string{"files": filesPrepared.Revision.ID}
@@ -1163,7 +1069,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("stale catalog save error = %v, want ErrDraftConflict", err)
 	}
 
-	thirdPublication := projectConfigPublication(t, project, "files", "recipe-a", "Edited Files", "revision-3-files", "generation-3", "execution-3", bundle)
+	thirdPublication := explorerfixtures.ProjectConfigPublication(t, project, "files", "recipe-a", "Edited Files", "revision-3-files", "generation-3", "execution-3", bundle)
 	third := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-3", "execution-3", bundle,
 		"commit-3", active.Revision, thirdPublication)
 	third.ExpectedConfigRevisionIDs = map[string]string{"files": "revision-1-files"}
@@ -1386,7 +1292,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	ctx, client, explorers, generations := projectConfigPublicationDB(t)
 	project := "project-config-catalog-anchor"
 	bundle := projectConfigTestBundle("recipe-a", "translation-1")
-	firstPublication := projectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-1", "generation-1", "execution-1", bundle)
+	firstPublication := explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-1", "generation-1", "execution-1", bundle)
 	first := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-1", "execution-1", bundle, "commit-1", 0, firstPublication)
 	first.ExpectedConfigRevisionIDs = map[string]string{"default": ""}
 	first.CatalogSnapshot = projectConfigCatalogSnapshotForTest(t, firstPublication)
@@ -1409,7 +1315,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	if err != nil || retried.Version != settings.Version || retried.Catalogs["recipe-a"] != settings.Catalogs["recipe-a"] {
 		t.Fatalf("exact retry changed catalog anchor: %+v, err=%v", retried, err)
 	}
-	secondPublication := projectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-2", "generation-2", "execution-2", bundle)
+	secondPublication := explorerfixtures.ProjectConfigPublication(t, project, "default", "recipe-a", "Default", "revision-2", "generation-2", "execution-2", bundle)
 	second := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-2", "execution-2", bundle, "commit-2", active.Revision, secondPublication)
 	second.ExpectedConfigRevisionIDs = map[string]string{"default": "revision-1"}
 	second.CatalogSnapshot = projectConfigCatalogSnapshotForTest(t, secondPublication)

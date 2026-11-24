@@ -17,6 +17,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -126,12 +127,12 @@ func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t
 			t.Errorf("typed related route did not bind exact route value %q: %#v", routeValue, scanned.BindVars)
 		}
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
+	compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
 	if scanned.OverflowWitness != nil {
 		if scanned.Proof.OverflowWitnessFingerprint == "" {
 			t.Fatal("overflow witness is not bound into the category proof")
 		}
-		assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
+		compilerfixtures.AssertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
 	}
 	assertCategoryScanLimitFollowsStreamedWitnesses(t, scanned.Query)
 	if scanned.BindVars[categoryLimitBind] != MaxCategoryScanValues+1 {

@@ -18,6 +18,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 )
 
 func compiledCategoryScan(max int) scan.CompiledCategoryScanQuery {
@@ -357,7 +358,7 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                "construction-stage-category-scan",
 		TranslationVersion:  "test",
-		Outputs:             []recipe.Output{executionConstructionTraceOutput()},
+		Outputs:             []recipe.Output{compilerfixtures.ConstructionTraceRecipeOutput("construction_trace")},
 	}
 	bindings := recipe.RuntimeBindings{Project: "category-scan-project", DatasetGeneration: "generation-1"}
 	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)

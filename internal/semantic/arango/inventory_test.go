@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
@@ -1153,14 +1154,14 @@ func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
 		},
 	}
 	const selectionID = `family:["Specimen","type.coding[]","urn:specimen",""]`
-	familyRow := map[string]any{"binding_id": family.BindingID, "selection_id": selectionID, "family": semanticInventoryTestRow(t, family)}
+	familyRow := map[string]any{"binding_id": family.BindingID, "selection_id": selectionID, "family": testkit.JSONMap(t, family)}
 	for _, firstFamily := range []bool{true, false} {
-		rows := []map[string]any{familyRow, semanticInventoryTestRow(t, measurement)}
+		rows := []map[string]any{familyRow, testkit.JSONMap(t, measurement)}
 		if !firstFamily {
 			rows[0], rows[1] = rows[1], rows[0]
 		}
 		client := &evidenceClient{rows: map[string][]map[string]any{
-			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)}, semanticInventoryCategoryPageAQL: rows,
+			semanticInventoryBuildsAQL: {testkit.JSONMap(t, build)}, semanticInventoryCategoryPageAQL: rows,
 		}}
 		adapter, err := New(client)
 		if err != nil {
@@ -1208,8 +1209,8 @@ func TestResolveSemanticInventoryFamilyUsesCurrentInventoryScope(t *testing.T) {
 		}
 		family := categoryTestFamily()
 		client := &evidenceClient{rows: map[string][]map[string]any{
-			semanticInventoryBuildByKeyAQL:      {semanticInventoryTestRow(t, build)},
-			semanticInventoryResolveFamiliesAQL: {semanticInventoryTestRow(t, family)},
+			semanticInventoryBuildByKeyAQL:      {testkit.JSONMap(t, build)},
+			semanticInventoryResolveFamiliesAQL: {testkit.JSONMap(t, family)},
 		}}
 		adapter, err := New(client)
 		if err != nil {
@@ -1258,8 +1259,8 @@ func TestSemanticInventoryCategoryPageRequiresEntryIndexAndPreservesExactFallbac
 	entry := semantic.Entry{BindingID: "binding", ConceptID: "concept"}
 	for _, mode := range []semantic.SelectionMode{"", semantic.ExactConcept, semantic.SystemVersionCategory} {
 		client := &evidenceClient{rows: map[string][]map[string]any{
-			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)},
-			semanticInventoryPageAQL:   {semanticInventoryTestRow(t, entry)},
+			semanticInventoryBuildsAQL: {testkit.JSONMap(t, build)},
+			semanticInventoryPageAQL:   {testkit.JSONMap(t, entry)},
 		}}
 		adapter, err := New(client)
 		if err != nil {
@@ -1289,7 +1290,7 @@ func TestResolveSemanticInventoryMixedSelectionsRequireEntryIndex(t *testing.T) 
 	build.State = semantic.Complete
 	family := categoryTestFamily()
 	client := &evidenceClient{rows: map[string][]map[string]any{
-		semanticInventoryBuildByKeyAQL: {semanticInventoryTestRow(t, build)},
+		semanticInventoryBuildByKeyAQL: {testkit.JSONMap(t, build)},
 	}}
 	adapter, err := New(client)
 	if err != nil {
@@ -1369,7 +1370,7 @@ func TestRefreshSemanticInventorySourceAvailabilityUsesExactCompletedBuildCAS(t 
 	refreshed := expected
 	refreshed.SourceAvailability = semantic.SourceAvailabilityVerified
 	client := &evidenceClient{rows: map[string][]map[string]any{
-		refreshSemanticInventorySourceAvailabilityAQL: {semanticInventoryTestRow(t, refreshed)},
+		refreshSemanticInventorySourceAvailabilityAQL: {testkit.JSONMap(t, refreshed)},
 	}}
 	adapter, err := New(client)
 	if err != nil {

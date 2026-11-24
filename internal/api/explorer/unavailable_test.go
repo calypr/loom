@@ -15,7 +15,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -28,7 +27,7 @@ func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T
 		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty},
 		Fields:        catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty},
 	}
-	resolver, err := capabilityresolver.NewResolver(evidence, nil, capabilityfixtures.StaticActiveManifest{Manifest: unavailableCapabilityManifest(t)}, capabilityfixtures.NewStore())
+	resolver, err := capabilityresolver.NewResolver(evidence, nil, capabilityfixtures.StaticActiveManifest{Manifest: capabilityfixtures.StagedManifest(t, "project-a", "generation-a")}, capabilityfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,25 +50,4 @@ func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T
 	if strings.Contains(response.Body, `"code":"INTERNAL_ERROR"`) || strings.Contains(response.Body, `"nodes":[]`) {
 		t.Fatalf("unavailable resource inventory became an internal error or empty catalog: %s", response.Body)
 	}
-}
-
-func unavailableCapabilityManifest(t *testing.T) dataset.Manifest {
-	t.Helper()
-	ref, err := dataset.NewRef("project-a", "generation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema, err := dataset.NewSchemaSnapshot("urn:test", "R5", strings.Repeat("a", 64), []string{"Patient"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := dataset.NewManifest(ref, schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err = manifest.Transition(dataset.StateStaged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return manifest
 }

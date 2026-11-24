@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func TestAggregateSourceAcceptsContributorWindowsAndKeepsOrderingFirstOrderedOnly(t *testing.T) {
@@ -135,8 +136,8 @@ func testCatalog() CatalogSnapshot {
 		SourceGeneration: "g", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot",
 		Complete: true, Nodes: nodes, Edges: edges,
 		Candidates: []CatalogCandidate{
-			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
-			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
 		},
 		RoutePolicy: RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
 	}
@@ -175,17 +176,6 @@ func TestCatalogDigestCanonicalizesConceptCandidateOrder(t *testing.T) {
 	if string(canonical) == string(afterMutation) {
 		t.Fatal("canonical catalog JSON shared nested concept-candidate slices with its source")
 	}
-}
-
-func testFieldConstructionChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
-	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
-		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
-		Cardinality: cardinality, LogicalType: "string", ProjectionModes: []capability.ProjectionMode{projection},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return &choice
 }
 
 func TestEmptyBuilderStateAndBackendLeakage(t *testing.T) {
@@ -238,7 +228,7 @@ func TestContributorPredicateValidationUsesCatalogCardinalityAndKind(t *testing.
 		})
 	}
 	repeatedCatalog := catalog
-	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}, ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-family", "patient", "Patient", "name[].family", "many", capability.ProjectionArray)})
+	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}, ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "patient-family", "patient", "Patient", "name[].family", "many", capability.ProjectionArray)})
 	repeated := ContributorPredicate{CandidateID: "patient-family", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("Smith")}}
 	if err := ValidateContributorForCatalog(document, repeatedCatalog, RootOccurrenceID, document.Columns[1].Source, repeated); err == nil || !strings.Contains(err.Error(), "requires explicit ANY") {
 		t.Fatalf("repeated predicate error=%v", err)

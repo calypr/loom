@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/capability"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func rowChangeWorkspace() ws.Workspace {
@@ -757,7 +758,7 @@ func replacementCatalog() ws.CatalogSnapshot {
 		ID: "report-id", NodeID: "report", FieldPath: "id", Cardinality: "optional_one",
 		Label: "Report ID", LogicalType: "string", ProjectionModes: []string{"VALUE"},
 		DefaultProjectionMode: "VALUE",
-		ConstructionChoice:    testFieldConstructionChoice(catalog.SnapshotToken, "report-id", "report", "DiagnosticReport", "id", "optional_one", capability.ProjectionScalar),
+		ConstructionChoice:    capabilityfixtures.FieldConstructionChoice(catalog.SnapshotToken, "report-id", "report", "DiagnosticReport", "id", "optional_one", capability.ProjectionScalar),
 	})
 	return catalog
 }

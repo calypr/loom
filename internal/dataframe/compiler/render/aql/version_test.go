@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 	"github.com/google/uuid"
 )
 
@@ -118,7 +119,7 @@ FOR document IN Observation
 		"empty_version_values": {"Unversioned explicit", "unversioned-missing"},
 		"legacy_exact_values":  {"Alpha display"},
 	} {
-		if got := sortedAnyStrings(rows[0][column]); !reflect.DeepEqual(got, want) {
+		if got := compilerfixtures.SortedAnyStrings(rows[0][column]); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s = %#v, want exact values %#v\n%s", column, got, want, rendered.Query)
 		}
 	}

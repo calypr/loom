@@ -914,15 +914,7 @@ func (r *runOutputRegistry) LoadRecipeVersion(context.Context, string, string) (
 func newRunTestFixture(t *testing.T) (*Engine, *runOutputRegistry) {
 	t.Helper()
 	registry := &runOutputRegistry{}
-	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
-			return errors.New("query executor must not be consulted")
-		},
-	})
-	if err != nil {
-		t.Fatalf("create engine: %v", err)
-	}
+	engine := newTestEngine(t, registry, "query executor must not be consulted", "create engine")
 	return engine, registry
 }
 

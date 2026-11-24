@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 )
 
 func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
@@ -427,7 +428,7 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 }
 
 func TestConstructionCellTraceResolvesDeriveInputsThroughFilterStage(t *testing.T) {
-	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("construction_trace"))
 	if output.Plan.StageSequence == nil {
 		t.Fatal("compiled output has no construction stage sequence")
 	}
@@ -450,7 +451,7 @@ func TestConstructionCellTraceResolvesDeriveInputsThroughFilterStage(t *testing.
 }
 
 func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *testing.T) {
-	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("construction_trace"))
 	compiled, err := celltrace.CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -540,7 +541,7 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 }
 
 func TestConstructionCellTraceRejectsMalformedPublishedIdentity(t *testing.T) {
-	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	output := compilePopulationMappingOutput(t, compilerfixtures.ConstructionTraceRecipeOutput("construction_trace"))
 	output.RowIdentity = output.RowIdentity.Clone()
 	output.RowIdentity.Fields = []string{"project", "not_the_root_key"}
 	if _, err := celltrace.CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
@@ -611,49 +612,6 @@ func TestConstructionCellTraceReplaysPivotDespiteGenericLineageRefusal(t *testin
 	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || compiled.IdentityPartsColumn != "" ||
 		!strings.Contains(compiled.Query, ".__loom_row_id") {
 		t.Fatalf("pivot trace must match Preview's literal generated row ID without re-hashing:\n%s\n%#v", compiled.Query, compiled)
-	}
-}
-
-func constructionCellTraceRecipeOutput() recipe.Output {
-	two := int64(2)
-	zero := int64(0)
-	return recipe.Output{
-		Name: "construction_trace", RootResourceType: "Observation", RowGrain: "observation",
-		RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields: []recipe.Field{
-			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
-			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
-		},
-		Construction: &recipe.Construction{
-			Version: 1,
-			SourceColumns: []recipe.StageColumn{
-				{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"},
-			},
-			Steps: []recipe.ConstructionStep{
-				{
-					ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
-						ConstructionID: "calc_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
-						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
-						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &two}},
-						MissingInputPolicy: recipe.MissingInputPropagateNull,
-					}},
-					Outputs: []recipe.StageColumn{
-						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
-					},
-				},
-				{
-					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
-					}},
-					Outputs: []recipe.StageColumn{
-						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
-					},
-				},
-			},
-		},
 	}
 }
 

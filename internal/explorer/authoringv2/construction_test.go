@@ -10,6 +10,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func stagedConstructionDocument() ws.Document {
@@ -1113,7 +1114,7 @@ func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(
 		ID: "observation-status", NodeID: "observation", FieldPath: "status",
 		Cardinality: "optional_one", Label: "Status", LogicalType: "string", ProjectionModes: []string{"VALUE"},
 		DefaultProjectionMode: "VALUE",
-		ConstructionChoice:    testFieldConstructionChoice(catalog.SnapshotToken, "observation-status", "observation", "Observation", "status", "optional_one", capability.ProjectionScalar),
+		ConstructionChoice:    capabilityfixtures.FieldConstructionChoice(catalog.SnapshotToken, "observation-status", "observation", "Observation", "status", "optional_one", capability.ProjectionScalar),
 	}}
 	document := workspaceDocument("observations")
 	document.RootResourceType = "Observation"

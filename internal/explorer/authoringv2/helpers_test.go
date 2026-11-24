@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/workspace"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func rowValueGroupedDocument() ws.Document {
@@ -353,22 +354,11 @@ func testCatalog() ws.CatalogSnapshot {
 		SourceGeneration: "g", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot",
 		Complete: true, Nodes: nodes, Edges: edges,
 		Candidates: []ws.CatalogCandidate{
-			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
-			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
 		},
 		RoutePolicy: ws.RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
 	}
-}
-
-func testFieldConstructionChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
-	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
-		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
-		Cardinality: cardinality, LogicalType: "string", ProjectionModes: []capability.ProjectionMode{projection},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return &choice
 }
 
 func migrateStoredDocumentFixture(document ws.Document) (ws.Document, error) {

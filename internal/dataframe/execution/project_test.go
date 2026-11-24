@@ -25,15 +25,7 @@ func (r *blankProjectRegistryFailures) LoadRecipeVersion(context.Context, string
 func blankProjectEngine(t *testing.T) (*Engine, *blankProjectRegistryFailures) {
 	t.Helper()
 	registry := &blankProjectRegistryFailures{}
-	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
-			return errors.New("query executor consulted for blank project")
-		},
-	})
-	if err != nil {
-		t.Fatalf("create recipe engine: %v", err)
-	}
+	engine := newTestEngine(t, registry, "query executor consulted for blank project", "create recipe engine")
 	return engine, registry
 }
 

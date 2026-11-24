@@ -14,6 +14,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func emptyCommandWorkspace() ws.Workspace {
@@ -521,7 +522,7 @@ func semanticSelectionCatalog() ws.CatalogSnapshot {
 			{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
 			{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"},
 		},
-		Candidates:  []ws.CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
+		Candidates:  []ws.CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: capabilityfixtures.FieldConstructionChoice("snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
 		RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 	return catalogSnapshot

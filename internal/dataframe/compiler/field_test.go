@@ -659,7 +659,7 @@ func assertConnectedGroupLineage(
 			t.Errorf("connected Group lineage root contributor = %#v, want Patient/%v", contributor, row["patient"])
 			continue
 		}
-		occurrence := connectedOccurrenceKey(t, contributor["occurrenceKey"])
+		occurrence := decodeCompilerOccurrenceKey(t, "connected Group", contributor["occurrenceKey"], "exact compact root/terminal/item/ordinal identity")
 		if len(occurrence) != 4 || occurrence["root_id"] != patientKey {
 			t.Errorf("connected Group occurrence identity = %#v, want only exact root_id, terminal_id, item_present, ordinal fields for Patient key %q", occurrence, patientKey)
 		}
@@ -720,19 +720,4 @@ func assertConnectedGroupLineage(
 	if missingRelatedRoute {
 		t.Errorf("connected Group lineage omitted the absent related route preimage")
 	}
-}
-
-func connectedOccurrenceKey(t *testing.T, raw any) map[string]any {
-	t.Helper()
-	if key, ok := raw.(map[string]any); ok {
-		return key
-	}
-	if encoded, ok := raw.(string); ok {
-		var key map[string]any
-		if err := json.Unmarshal([]byte(encoded), &key); err == nil {
-			return key
-		}
-	}
-	t.Fatalf("connected Group occurrence key = %#v, want exact compact root/terminal/item/ordinal identity", raw)
-	return nil
 }
