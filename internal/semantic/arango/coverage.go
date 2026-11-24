@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1912,11 +1913,11 @@ func (s *SemanticCoverageStore) LookupSemanticCoverage(ctx context.Context, opti
 		candidateBinds = append(candidateBinds, map[string]string{"resource_type": candidate.ResourceType, "canonical_path": candidate.CanonicalPath})
 	}
 	sort.Strings(resourceTypes)
-	resourceTypes = compactAuthPaths(resourceTypes)
+	resourceTypes = slices.Compact(resourceTypes)
 	authPaths := make([]string, 0, len(options.AuthResourcePaths))
 	authPaths = append(authPaths, options.AuthResourcePaths...)
 	sort.Strings(authPaths)
-	authPaths = compactAuthPaths(authPaths)
+	authPaths = slices.Compact(authPaths)
 	sourceProofLimit := semanticCoverageMaximumPartitions + 1
 	if !options.AuthResourcePathsUnrestricted {
 		sourceProofLimit = semanticCoverageLookupMaximumCandidates*semanticCoverageLookupMaximumAuthPaths + 1

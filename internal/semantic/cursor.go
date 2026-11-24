@@ -3,6 +3,7 @@ package semantic
 import (
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ type semanticInventoryCursor struct {
 func PageDigest(opts PageOptions, buildID string, limit int) string {
 	paths := append([]string(nil), opts.AuthResourcePaths...)
 	sort.Strings(paths)
-	paths = compactStrings(paths)
+	paths = slices.Compact(paths)
 	unrestricted := len(paths) == 0
 	if opts.AuthResourcePathsUnrestricted != nil {
 		unrestricted = *opts.AuthResourcePathsUnrestricted
@@ -80,18 +81,4 @@ func semanticInventoryLimit(limit int) int {
 		return PageLimit
 	}
 	return limit
-}
-
-func compactStrings(values []string) []string {
-	if len(values) < 2 {
-		return values
-	}
-	write := 1
-	for read := 1; read < len(values); read++ {
-		if values[read] != values[write-1] {
-			values[write] = values[read]
-			write++
-		}
-	}
-	return values[:write]
 }

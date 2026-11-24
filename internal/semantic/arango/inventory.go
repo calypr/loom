@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -389,7 +390,7 @@ func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts
 	}
 	paths := append([]string(nil), opts.AuthResourcePaths...)
 	sort.Strings(paths)
-	paths = compactAuthPaths(paths)
+	paths = slices.Compact(paths)
 	unrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(paths, opts.AuthResourcePathsUnrestricted)
 	limit := semanticInventoryLimit(opts.Limit)
 	buildsExist, err := s.client.CollectionExists(ctx, semantic.BuildCollection)
@@ -502,7 +503,7 @@ func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.
 	}
 	paths := append([]string(nil), opts.AuthResourcePaths...)
 	sort.Strings(paths)
-	paths = compactAuthPaths(paths)
+	paths = slices.Compact(paths)
 	unrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(paths, opts.AuthResourcePathsUnrestricted)
 	references := make([]map[string]interface{}, 0, len(opts.References))
 	seen := make(map[string]struct{}, len(opts.References))
@@ -679,20 +680,6 @@ func semanticInventoryLimit(limit int) int {
 		return semantic.PageLimit
 	}
 	return limit
-}
-
-func compactAuthPaths(paths []string) []string {
-	if len(paths) < 2 {
-		return paths
-	}
-	write := 1
-	for read := 1; read < len(paths); read++ {
-		if paths[read] != paths[write-1] {
-			paths[write] = paths[read]
-			write++
-		}
-	}
-	return paths[:write]
 }
 
 const semanticInventoryBuildByKeyAQL = `
